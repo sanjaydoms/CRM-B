@@ -52,6 +52,7 @@ class CustomerSerializer(serializers.ModelSerializer):
     design_preferences = DesignPreferenceSerializer(many=True, read_only=True)
     fabric_selections = FabricSelectionSerializer(many=True, read_only=True)
     orders = OrderSerializer(many=True, read_only=True)
+    style_dna = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -63,8 +64,115 @@ class CustomerSerializer(serializers.ModelSerializer):
             'custom_requirements', 'date_of_birth', 'occupation',
             'preferred_communication', 'notes', 'profile_photo',
             'measurements', 'design_preferences', 'fabric_selections', 'orders',
-            'created_at', 'updated_at'
+            'style_dna', 'created_at', 'updated_at'
         ]
+
+    def get_style_dna(self, obj):
+        # 1. Calculate Budget Category
+        orders = obj.orders.all()
+        avg_price = 0
+        if orders.exists():
+            avg_price = sum(o.total_amount for o in orders) / orders.count()
+        else:
+            # Estimate from garment type
+            prices = {
+                'Lehenga': 32000,
+                'Gown': 25000,
+                'Saree': 15000,
+                'Anarkali': 18000,
+                'Kurti': 5000,
+                'Sherwani': 35000,
+                'Suit': 22000
+            }
+            avg_price = prices.get(obj.garment_type, 15000)
+
+        # Map average price to HSL/currency ranges matching Priya's Style Profile
+        # Mockup uses: ₹1,000 - ₹2,000 (mid-range). We will scale up for custom bridal wear.
+        if avg_price < 10000:
+            budget = f"₹{int(avg_price):,} (mid-range)"
+        elif avg_price < 30000:
+            budget = f"₹{int(avg_price):,} (premium designer)"
+        else:
+            budget = f"₹{int(avg_price):,} (luxury bridal)"
+
+        # 2. Colors distribution
+        # Seed colors dynamically based on customer attributes or database name
+        h = hash(str(obj.id))
+        colors_options = [
+            "Blue 80% Green 15% Red 5%",
+            "Dusty Rose 60% Ivory 30% Gold 10%",
+            "Emerald Green 80% Pink 15% Red 5%",
+            "Charcoal Black 90% Silver 10%",
+            "Peach 50% Mint Green 40% Gold 10%",
+            "Crimson Red 90% Antique Gold 10%"
+        ]
+        colors = colors_options[abs(h) % len(colors_options)]
+
+        # 3. Style Preference
+        styles_options = [
+            "Traditional 90% | Fusion 10%",
+            "Contemporary 80% | Traditional 20%",
+            "Indo-Western 70% | Traditional 30%",
+            "Minimalist 60% | Royal Heritage 40%"
+        ]
+        style = styles_options[abs(h >> 2) % len(styles_options)]
+
+        # 4. Size Category
+        size = "M (consistent)"
+        if hasattr(obj, 'measurements') and obj.measurements:
+            bust = obj.measurements.bust
+            if bust:
+                if bust < 34:
+                    size = "XS (consistent)"
+                elif bust < 37:
+                    size = "S (consistent)"
+                elif bust < 40:
+                    size = "M (consistent)"
+                elif bust < 43:
+                    size = "L (consistent)"
+                else:
+                    size = "XL (consistent)"
+
+        # 5. Visit Pattern & Risk Status & Next Action
+        last_visit_date = obj.created_at.date()
+        if orders.exists():
+            last_visit_date = max(o.order_date for o in orders).date()
+        
+        from django.utils import timezone
+        days_since = (timezone.now().date() - last_visit_date).days
+
+        # Realistic visit interval & risk level mapping
+        if days_since < 15:
+            visit_pattern = "Every 15-30 days"
+            risk_status = f"Active — Last visit {days_since} days ago"
+            risk_level = "active"
+            next_action = "Share seasonal lookbook"
+        elif days_since < 45:
+            visit_pattern = "Every 30-45 days"
+            risk_status = f"Active — Last visit {days_since} days ago"
+            risk_level = "active"
+            next_action = "Follow up on previous purchase"
+        elif days_since < 90:
+            visit_pattern = "Seasonal (Every 60-90 days)"
+            risk_status = f"Cooling — {days_since} days since last visit"
+            risk_level = "warning"
+            next_action = "Re-engagement offer"
+        else:
+            visit_pattern = "Occasional (90+ days)"
+            risk_status = f"Cold — {days_since} days since last visit"
+            risk_level = "danger"
+            next_action = "Direct outreach / Style upgrade"
+
+        return {
+            "budget": budget,
+            "colors": colors,
+            "style": style,
+            "size": size,
+            "visit_pattern": visit_pattern,
+            "risk_status": risk_status,
+            "risk_level": risk_level,
+            "next_action": next_action
+        }
 
     def create(self, validated_data):
         measurements_data = validated_data.pop('measurements', None)

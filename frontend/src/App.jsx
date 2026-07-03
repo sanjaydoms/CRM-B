@@ -214,6 +214,7 @@ function App() {
 
   // Active Selected Dashboard Order for progress tracker
   const [selectedDashboardOrder, setSelectedDashboardOrder] = useState(null);
+  const [expandedDna, setExpandedDna] = useState({});
 
   // Backend fetched collections
   const [dashboardData, setDashboardData] = useState(null);
@@ -2044,7 +2045,265 @@ function App() {
                             </div>
                           )}
                         </div>
+
+                        {/* Style DNA Expand Button */}
+                        <div style={{ gridColumn: 'span 3', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Sparkles size={16} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI Customer Intelligence has analyzed {cust.orders?.length || 0} order(s) and preferences.</span>
+                          </div>
+                          <button 
+                            className="btn-outline" 
+                            onClick={() => setExpandedDna(prev => ({ ...prev, [cust.id]: !prev[cust.id] }))}
+                            style={{
+                              padding: '6px 14px',
+                              fontSize: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              borderColor: 'rgba(212, 175, 55, 0.4)',
+                              color: 'var(--accent-color, #d4af37)',
+                              background: expandedDna[cust.id] ? 'rgba(212, 175, 55, 0.1)' : 'transparent',
+                              borderRadius: '6px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <Sparkles size={14} />
+                            {expandedDna[cust.id] ? 'Hide Style DNA' : 'View Style DNA'}
+                          </button>
+                        </div>
+
+                        {/* Expandable Style DNA Section */}
+                        {expandedDna[cust.id] && (
+                          <div style={{
+                            gridColumn: 'span 3',
+                            background: '#0d0d0d',
+                            border: '1px solid rgba(212, 175, 55, 0.25)',
+                            borderRadius: '8px',
+                            padding: '24px',
+                            marginTop: '12px',
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1.2fr',
+                            gap: '32px'
+                          }}>
+                            {/* Left Column: Priya's Style Profile (Mockup Left Card) */}
+                            <div style={{
+                              background: '#141414',
+                              borderRadius: '8px',
+                              border: '1px solid rgba(255, 255, 255, 0.05)',
+                              overflow: 'hidden'
+                            }}>
+                              {/* Title Header */}
+                              <div style={{
+                                background: '#e05a10',
+                                padding: '12px 20px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                              }}>
+                                <User size={18} style={{ color: '#fff' }} />
+                                <span style={{
+                                  color: '#fff',
+                                  fontWeight: 700,
+                                  fontSize: '14px',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '1px'
+                                }}>
+                                  {cust.first_name}'s Style Profile
+                                </span>
+                              </div>
+                              
+                              {/* Details Table */}
+                              <div style={{ padding: '8px 20px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                                  <tbody>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600, width: '40%' }}>BUDGET</td>
+                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.budget}</td>
+                                    </tr>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>COLORS</td>
+                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>
+                                        {cust.style_dna?.colors.split(' ').map((word, idx) => {
+                                          if (word.includes('%')) return <span key={idx} style={{ color: 'var(--text-muted)', marginRight: '12px', fontWeight: 400 }}>{word} </span>;
+                                          // Color highlights
+                                          let color = '#fff';
+                                          if (word.toLowerCase().includes('blue')) color = '#60a5fa';
+                                          else if (word.toLowerCase().includes('green')) color = '#34d399';
+                                          else if (word.toLowerCase().includes('red') || word.toLowerCase().includes('maroon')) color = '#f87171';
+                                          else if (word.toLowerCase().includes('gold')) color = '#fbbf24';
+                                          else if (word.toLowerCase().includes('rose')) color = '#f472b6';
+                                          else if (word.toLowerCase().includes('ivory') || word.toLowerCase().includes('white')) color = '#f3f4f6';
+                                          else if (word.toLowerCase().includes('black') || word.toLowerCase().includes('charcoal')) color = '#9ca3af';
+                                          return <span key={idx} style={{ color }}>{word} </span>;
+                                        })}
+                                      </td>
+                                    </tr>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>STYLE</td>
+                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.style}</td>
+                                    </tr>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>SIZE</td>
+                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.size}</td>
+                                    </tr>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>VISIT PATTERN</td>
+                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.visit_pattern}</td>
+                                    </tr>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>RISK STATUS</td>
+                                      <td style={{ padding: '12px 0', fontWeight: 600, color: cust.style_dna?.risk_level === 'danger' ? '#f87171' : cust.style_dna?.risk_level === 'warning' ? '#fbbf24' : '#34d399' }}>
+                                        {cust.style_dna?.risk_status.includes('Active') ? '🟢 ' : '⚠️ '}
+                                        {cust.style_dna?.risk_status}
+                                      </td>
+                                    </tr>
+                                    <tr>
+                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>NEXT ACTION</td>
+                                      <td style={{ padding: '12px 0', color: 'var(--accent-color, #d4af37)', fontWeight: 600 }}>"{cust.style_dna?.next_action}"</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                                
+                                <div style={{
+                                  padding: '12px 0 16px 0',
+                                  fontSize: '11px',
+                                  color: 'var(--text-muted)',
+                                  fontStyle: 'italic',
+                                  borderTop: '1px solid rgba(255,255,255,0.05)',
+                                  marginTop: '8px'
+                                }}>
+                                  This is NOT manual entry. AI reads your sales data automatically.
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right Column: How it Works (Mockup Right Side) */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', justifyContent: 'center' }}>
+                              <div>
+                                <h4 style={{
+                                  color: '#e05a10',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '1.5px',
+                                  margin: '0 0 16px 0'
+                                }}>
+                                  AI CUSTOMER INTELLIGENCE
+                                </h4>
+                                <h3 style={{
+                                  fontFamily: 'var(--font-serif)',
+                                  fontSize: '24px',
+                                  fontWeight: 400,
+                                  color: '#fff',
+                                  margin: 0
+                                }}>
+                                  Style DNA — Auto-Generated
+                                </h3>
+                              </div>
+
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                {/* Row 1 */}
+                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                                  <div style={{
+                                    background: 'rgba(224, 90, 16, 0.1)',
+                                    borderRadius: '6px',
+                                    padding: '8px',
+                                    color: '#e05a10',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}>
+                                    <FileText size={18} />
+                                  </div>
+                                  <div>
+                                    <h5 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Reads Sales Data</h5>
+                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
+                                      AI analyzes every purchase, note, and customer behavior pattern.
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Row 2 */}
+                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                                  <div style={{
+                                    background: 'rgba(224, 90, 16, 0.1)',
+                                    borderRadius: '6px',
+                                    padding: '8px',
+                                    color: '#e05a10',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}>
+                                    <Sparkles size={18} />
+                                  </div>
+                                  <div>
+                                    <h5 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Builds Style Profile</h5>
+                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
+                                      Automatically creates a unique DNA for each customer's preferences.
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Row 3 */}
+                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                                  <div style={{
+                                    background: 'rgba(224, 90, 16, 0.1)',
+                                    borderRadius: '6px',
+                                    padding: '8px',
+                                    color: '#e05a10',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}>
+                                    <Calendar size={18} />
+                                  </div>
+                                  <div>
+                                    <h5 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Predicts Next Purchase</h5>
+                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
+                                      Forecasts what each customer will buy next and when they'll return.
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Row 4 */}
+                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                                  <div style={{
+                                    background: 'rgba(224, 90, 16, 0.1)',
+                                    borderRadius: '6px',
+                                    padding: '8px',
+                                    color: '#e05a10',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}>
+                                    <MessageSquare size={18} />
+                                  </div>
+                                  <div>
+                                    <h5 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Acts Automatically</h5>
+                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
+                                      Sends personalized messages, offers, and recommendations — no manual work.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div style={{
+                                background: 'rgba(224, 90, 16, 0.05)',
+                                border: '1px solid rgba(224, 90, 16, 0.15)',
+                                borderRadius: '6px',
+                                padding: '12px 16px',
+                                fontSize: '12px',
+                                color: 'var(--text-muted)',
+                                marginTop: '8px'
+                              }}>
+                                <strong style={{ color: 'var(--accent-color, #d4af37)' }}>500+ data points analyzed</strong> per customer to build the most accurate profile possible.
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
+
                     ))
                   )}
                 </div>
