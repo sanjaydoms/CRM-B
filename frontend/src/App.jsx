@@ -2578,6 +2578,59 @@ function App() {
                             </div>
                           </div>
 
+                          {/* Horizontal Progress Timeline */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            margin: '8px 0',
+                            padding: '12px 16px',
+                            background: 'var(--surface-color)',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-color)',
+                            overflowX: 'auto',
+                            gap: '4px'
+                          }}>
+                            {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map((stage, idx, arr) => {
+                              const currentIdx = arr.indexOf(order.order_status);
+                              const isCompleted = idx < currentIdx;
+                              const isCurrent = idx === currentIdx;
+                              
+                              return (
+                                <div key={stage} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '90px' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1 }}>
+                                    <div style={{
+                                      width: '10px',
+                                      height: '10px',
+                                      borderRadius: '50%',
+                                      backgroundColor: isCompleted ? '#107c41' : isCurrent ? 'var(--text-primary)' : 'var(--border-color)',
+                                      border: isCurrent ? '2px solid #d4af37' : 'none',
+                                      boxShadow: isCurrent ? '0 0 0 2px rgba(212,175,55,0.4)' : 'none'
+                                    }} />
+                                    <span style={{
+                                      fontSize: '9px',
+                                      fontWeight: isCurrent ? 700 : 500,
+                                      color: isCompleted ? '#107c41' : isCurrent ? 'var(--text-primary)' : 'var(--text-muted)',
+                                      textAlign: 'center',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {stage === 'Received' ? 'Received' : stage}
+                                    </span>
+                                  </div>
+                                  {idx < arr.length - 1 && (
+                                    <div style={{
+                                      height: '2px',
+                                      flex: 1,
+                                      backgroundColor: isCompleted ? '#107c41' : 'var(--border-color)',
+                                      minWidth: '10px',
+                                      marginTop: '-14px'
+                                    }} />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
                           {/* Middle Row: Assignment & Financials */}
                           <div style={{
                             display: 'grid',
