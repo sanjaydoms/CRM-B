@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CustomerViewSet, TailorViewSet, BoutiqueFabricViewSet, BoutiqueDesignViewSet, OrderViewSet, DashboardView, NotificationViewSet
+from .views import CustomerViewSet, TailorViewSet, BoutiqueFabricViewSet, BoutiqueDesignViewSet, OrderViewSet, DashboardView, NotificationViewSet, BoutiqueSettingsViewSet
 from .auth_views import SignupView, LoginView, LogoutView, MeView
 
 router = DefaultRouter()
@@ -10,6 +10,7 @@ router.register(r'fabrics', BoutiqueFabricViewSet, basename='fabric')
 router.register(r'boutique-designs', BoutiqueDesignViewSet, basename='boutique-design')
 router.register(r'orders', OrderViewSet, basename='order')
 router.register(r'notifications', NotificationViewSet, basename='notification')
+router.register(r'boutique-settings', BoutiqueSettingsViewSet, basename='boutique-settings')
 
 urlpatterns = [
     path('', include(router.urls)),

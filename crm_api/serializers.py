@@ -1,5 +1,10 @@
 from rest_framework import serializers
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory, BoutiqueSettings
+
+class BoutiqueSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BoutiqueSettings
+        fields = '__all__'
 
 class TailorSerializer(serializers.ModelSerializer):
     class Meta:

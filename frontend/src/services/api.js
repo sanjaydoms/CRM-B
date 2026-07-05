@@ -254,6 +254,35 @@ export const api = {
     return res.json();
   },
 
+  async getBoutiqueSettings() {
+    const token = localStorage.getItem('crm_token');
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Token ${token}`;
+    }
+    const res = await fetch(`${BASE_URL}/boutique-settings/`, {
+      method: 'GET',
+      headers: headers
+    });
+    if (!res.ok) throw new Error('Failed to get boutique settings');
+    return res.json();
+  },
+
+  async updateBoutiqueSettings(formData) {
+    const token = localStorage.getItem('crm_token');
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Token ${token}`;
+    }
+    const res = await fetch(`${BASE_URL}/boutique-settings/`, {
+      method: 'POST',
+      headers: headers,
+      body: formData
+    });
+    if (!res.ok) throw new Error('Failed to update boutique settings');
+    return res.json();
+  },
+
   async submitStageReview(orderId, stage, comments, imageFile, completedBy = 'Boutique Staff') {
     const formData = new FormData();
     formData.append('stage', stage);

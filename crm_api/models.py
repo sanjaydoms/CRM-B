@@ -161,3 +161,13 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.recipient_role} - {self.title}"
+
+class BoutiqueSettings(models.Model):
+    name = models.CharField(max_length=255, default="Scaleezy Atelier")
+    address = models.TextField(default="123 Atelier Way, Fashion District")
+    phone = models.CharField(max_length=50, default="+91 9999999999")
+    email = models.EmailField(default="contact@scaleezy.com")
+    logo = models.ImageField(upload_to='boutique_logos/', blank=True, null=True)
+
+    def __str__(self):
+        return self.name

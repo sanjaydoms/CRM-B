@@ -9,11 +9,11 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.db.models import Sum, Count
 
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory, BoutiqueSettings
 from .serializers import (
     CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer, 
     FabricSelectionSerializer, TailorSerializer, OrderSerializer, BoutiqueFabricSerializer,
-    BoutiqueDesignSerializer, NotificationSerializer, OrderStageHistorySerializer
+    BoutiqueDesignSerializer, NotificationSerializer, OrderStageHistorySerializer, BoutiqueSettingsSerializer
 )
 
 class CustomerViewSet(viewsets.ModelViewSet):
@@ -430,3 +430,32 @@ class DashboardView(views.APIView):
             'recent_orders': recent_orders_data,
             'recent_customers': recent_customers_data
         })
+
+class BoutiqueSettingsViewSet(viewsets.ViewSet):
+    def list(self, request):
+        config, created = BoutiqueSettings.objects.get_or_create(id=1)
+        serializer = BoutiqueSettingsSerializer(config, context={'request': request})
+        return Response(serializer.data)
+
+    def create(self, request):
+        config, created = BoutiqueSettings.objects.get_or_create(id=1)
+        name = request.data.get('name')
+        address = request.data.get('address')
+        phone = request.data.get('phone')
+        email = request.data.get('email')
+        logo = request.FILES.get('logo')
+
+        if name is not None:
+            config.name = name
+        if address is not None:
+            config.address = address
+        if phone is not None:
+            config.phone = phone
+        if email is not None:
+            config.email = email
+        if logo is not None:
+            config.logo = logo
+
+        config.save()
+        serializer = BoutiqueSettingsSerializer(config, context={'request': request})
+        return Response(serializer.data)

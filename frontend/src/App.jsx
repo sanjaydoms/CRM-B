@@ -247,6 +247,7 @@ function App() {
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
+  const [boutiqueSettings, setBoutiqueSettings] = useState(null);
   
   const [activeReviewStage, setActiveReviewStage] = useState(null);
   const [activeReviewOrder, setActiveReviewOrder] = useState(null);
@@ -314,6 +315,13 @@ function App() {
       setOrdersList(ordList);
 
       await fetchNotifications();
+
+      try {
+        const settingsData = await api.getBoutiqueSettings();
+        setBoutiqueSettings(settingsData);
+      } catch (settingsErr) {
+        console.error("Failed to load boutique settings", settingsErr);
+      }
 
       // Default select first order in the dashboard tracker
       if (dbData?.recent_orders?.length > 0) {
@@ -3905,48 +3913,92 @@ function App() {
 
                   {/* Right editable profile settings */}
                   <div className="content-card">
-                    <h3 className="card-title">Edit Profile Information</h3>
-                    <form style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} onSubmit={(e) => { e.preventDefault(); alert("Profile updated successfully!"); }}>
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label className="form-label">First Name</label>
-                          <input 
-                            type="text" 
-                            className="form-control" 
-                            defaultValue={currentUser.first_name} 
-                            required
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">Last Name</label>
-                          <input 
-                            type="text" 
-                            className="form-control" 
-                            defaultValue={currentUser.last_name} 
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-label">Email Address</label>
-                        <input 
-                          type="email" 
-                          className="form-control" 
-                          defaultValue={currentUser.email} 
-                          disabled 
-                          style={{ opacity: 0.6, cursor: 'not-allowed' }}
-                        />
-                      </div>
-
+                    <h3 className="card-title">Edit Boutique Profile</h3>
+                    <form 
+                      style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} 
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const form = e.target;
+                        const formData = new FormData();
+                        formData.append('name', form.boutiqueName.value);
+                        formData.append('address', form.boutiqueAddress.value);
+                        formData.append('phone', form.boutiquePhone.value);
+                        formData.append('email', form.boutiqueEmail.value);
+                        if (form.boutiqueLogo.files[0]) {
+                          formData.append('logo', form.boutiqueLogo.files[0]);
+                        }
+                        try {
+                          const updated = await api.updateBoutiqueSettings(formData);
+                          setBoutiqueSettings(updated);
+                          alert("Boutique settings updated successfully!");
+                        } catch (err) {
+                          console.error(err);
+                          alert("Failed to update boutique settings");
+                        }
+                      }}
+                    >
                       <div className="form-group">
                         <label className="form-label">Boutique Name</label>
                         <input 
                           type="text" 
+                          name="boutiqueName"
                           className="form-control" 
-                          defaultValue={`${currentUser.first_name}'s Atelier`} 
+                          defaultValue={boutiqueSettings?.name || "Scaleezy Atelier"} 
                           required
                         />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Boutique Address</label>
+                        <textarea 
+                          name="boutiqueAddress"
+                          className="form-control" 
+                          style={{ minHeight: '80px', resize: 'vertical' }}
+                          defaultValue={boutiqueSettings?.address || "123 Atelier Way, Fashion District"} 
+                          required
+                        />
+                      </div>
+
+                      <div className="form-grid-2">
+                        <div className="form-group">
+                          <label className="form-label">Boutique Phone</label>
+                          <input 
+                            type="text" 
+                            name="boutiquePhone"
+                            className="form-control" 
+                            defaultValue={boutiqueSettings?.phone || "+91 9999999999"} 
+                            required
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Boutique Email</label>
+                          <input 
+                            type="email" 
+                            name="boutiqueEmail"
+                            className="form-control" 
+                            defaultValue={boutiqueSettings?.email || "contact@scaleezy.com"} 
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Boutique Logo</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '4px' }}>
+                          {boutiqueSettings?.logo && (
+                            <img 
+                              src={boutiqueSettings.logo} 
+                              alt="Boutique Logo" 
+                              style={{ width: '48px', height: '48px', borderRadius: '4px', objectFit: 'contain', background: '#f8fafc', border: '1px solid var(--border-color)' }} 
+                            />
+                          )}
+                          <input 
+                            type="file" 
+                            name="boutiqueLogo"
+                            accept="image/*"
+                            className="form-control" 
+                          />
+                        </div>
                       </div>
 
                       <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-start', marginTop: '8px' }}>
@@ -6575,9 +6627,16 @@ function App() {
 
               {/* Invoice Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
-                <div>
-                  <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '1px', color: '#0f291e', margin: 0 }}>SCALEEZY</h1>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Bespoke Atelier CRM</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  {boutiqueSettings?.logo && (
+                    <img src={boutiqueSettings.logo} alt="Boutique Logo" style={{ maxHeight: '48px', objectFit: 'contain' }} />
+                  )}
+                  <div>
+                    <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '1px', color: '#0f291e', margin: 0 }}>
+                      {boutiqueSettings?.name || "SCALEEZY"}
+                    </h1>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Bespoke Atelier CRM</span>
+                  </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>INVOICE</h2>
@@ -6599,7 +6658,10 @@ function App() {
                 </div>
                 <div>
                   <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Atelier Details:</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>Scaleezy Boutique Portal</span>
+                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{boutiqueSettings?.name || "Scaleezy Boutique Portal"}</span>
+                  <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>📍 {boutiqueSettings?.address || "123 Atelier Way, Fashion District"}</span>
+                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {boutiqueSettings?.phone || "+91 9999999999"}</span>
+                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {boutiqueSettings?.email || "contact@scaleezy.com"}</span>
                   <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>Boutique Owner: {currentUser?.first_name || 'Aditi'} {currentUser?.last_name || 'Mehta'}</span>
                   {selectedTailor && (
                     <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>
