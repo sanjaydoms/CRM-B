@@ -2405,8 +2405,8 @@ function App() {
 
                 {/* Customer Main Banner */}
                 <div style={{
-                  background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                  background: 'var(--surface-color)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '12px',
                   padding: '24px',
                   display: 'flex',
@@ -2418,7 +2418,7 @@ function App() {
                   </div>
                    <div>
                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '0 0 6px 0' }}>
-                       <h2 style={{ fontSize: '24px', fontWeight: 600, margin: 0, color: '#fff' }}>
+                       <h2 style={{ fontSize: '24px', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>
                          {selectedDirectoryCustomer.first_name} {selectedDirectoryCustomer.last_name}
                        </h2>
                        <span style={{
@@ -2450,24 +2450,24 @@ function App() {
                     
                     {/* Measurements & Info */}
                     <div style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                      background: 'var(--surface-color)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '12px',
                       padding: '24px'
                     }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px', color: '#fff' }}>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
                         Body Measurements & Sizing
                       </h3>
                       {selectedDirectoryCustomer.measurements ? (
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                          <div>Bust: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.bust || '—'} in</span></div>
-                          <div>Waist: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.waist || '—'} in</span></div>
-                          <div>Hips: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.hips || '—'} in</span></div>
-                          <div>Shoulder: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.shoulder || '—'} in</span></div>
-                          <div>Arm Length: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.arm_length || '—'} in</span></div>
-                          <div>Neck: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.neck || '—'} in</span></div>
-                          <div>Length: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.length || '—'} in</span></div>
-                          <div>Occasion Preference: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.occasion || '—'}</span></div>
+                          <div>Bust: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.bust || '—'} in</span></div>
+                          <div>Waist: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.waist || '—'} in</span></div>
+                          <div>Hips: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.hips || '—'} in</span></div>
+                          <div>Shoulder: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.shoulder || '—'} in</span></div>
+                          <div>Arm Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.arm_length || '—'} in</span></div>
+                          <div>Neck: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.neck || '—'} in</span></div>
+                          <div>Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.length || '—'} in</span></div>
+                          <div>Occasion Preference: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.occasion || '—'}</span></div>
                         </div>
                       ) : (
                         <p style={{ color: 'var(--text-muted)' }}>No measurements saved yet.</p>
@@ -2476,12 +2476,12 @@ function App() {
 
                     {/* Order History */}
                     <div style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                      background: 'var(--surface-color)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '12px',
                       padding: '24px'
                     }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px', color: '#fff' }}>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
                         Order History
                       </h3>
                       {!selectedDirectoryCustomer.orders || selectedDirectoryCustomer.orders.length === 0 ? (
@@ -2490,8 +2490,8 @@ function App() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {selectedDirectoryCustomer.orders.map(order => (
                             <div key={order.id} style={{
-                              background: 'rgba(255,255,255,0.02)',
-                              border: '1px solid rgba(255,255,255,0.05)',
+                              background: 'rgba(0,0,0,0.015)',
+                              border: '1px solid var(--border-color)',
                               borderRadius: '8px',
                               padding: '16px',
                               display: 'flex',
@@ -2499,7 +2499,7 @@ function App() {
                               alignItems: 'center'
                             }}>
                               <div>
-                                <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>Order ID: {order.order_id}</div>
+                                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</div>
                                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                                   Date: {new Date(order.order_date).toLocaleDateString()} | Tailor: {order.tailor_name || 'Not assigned'}
                                 </div>
@@ -2612,12 +2612,12 @@ function App() {
 
                     {/* Saved Designs Gallery */}
                     <div style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                      background: 'var(--surface-color)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '12px',
                       padding: '24px'
                     }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px', color: '#fff' }}>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
                         Saved Designs & Inspiration
                       </h3>
                       {!selectedDirectoryCustomer.design_preferences || selectedDirectoryCustomer.design_preferences.length === 0 ? (
