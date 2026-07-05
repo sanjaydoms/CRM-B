@@ -46,7 +46,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'embroidery_price', 'customization_price', 'tailoring_charges',
             'packaging_handling', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
             'delivery_method', 'courier_service', 'tracking_number', 'delivery_address',
-            'advance_paid', 'amount_paid'
+            'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image'
         ]
 
     def get_customer_name(self, obj):

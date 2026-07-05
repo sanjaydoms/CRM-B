@@ -134,6 +134,8 @@ class Order(models.Model):
     
     order_date = models.DateTimeField(auto_now_add=True)
     estimated_delivery = models.DateField(blank=True, null=True)
+    tailor_comments = models.TextField(blank=True, null=True)
+    completed_garment_image = models.ImageField(upload_to='completed_garments/', blank=True, null=True)
 
     def __str__(self):
         return f"Order {self.order_id} - {self.customer.first_name} {self.customer.last_name}"

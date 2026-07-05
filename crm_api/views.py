@@ -330,6 +330,25 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response({'status': 'status updated', 'order_status': order.order_status})
         return Response({'error': 'no status provided'}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['PATCH'], url_path='submit-completion')
+    def submit_completion(self, request, pk=None):
+        order = self.get_object()
+        comments = request.data.get('tailor_comments')
+        image = request.FILES.get('completed_garment_image')
+        
+        if comments is not None:
+            order.tailor_comments = comments
+        if image is not None:
+            order.completed_garment_image = image
+            
+        order.order_status = 'Quality Check'
+        order.save()
+        
+        create_order_notifications(order, created=False)
+        
+        serializer = OrderSerializer(order)
+        return Response(serializer.data)
+
 class NotificationViewSet(viewsets.ModelViewSet):
     queryset = Notification.objects.all().order_by('-created_at')
     serializer_class = NotificationSerializer

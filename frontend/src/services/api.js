@@ -234,6 +234,26 @@ export const api = {
     return res.json();
   },
 
+  async submitCompletion(orderId, comments, imageFile) {
+    const formData = new FormData();
+    if (comments) formData.append('tailor_comments', comments);
+    if (imageFile) formData.append('completed_garment_image', imageFile);
+
+    const token = localStorage.getItem('crm_token');
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Token ${token}`;
+    }
+
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/submit-completion/`, {
+      method: 'PATCH',
+      headers: headers,
+      body: formData
+    });
+    if (!res.ok) throw new Error('Failed to submit completion');
+    return res.json();
+  },
+
   async updateOrder(orderId, orderData) {
     const res = await fetch(`${BASE_URL}/orders/${orderId}/`, {
       method: 'PATCH',

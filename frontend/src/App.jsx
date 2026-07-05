@@ -1526,7 +1526,7 @@ function App() {
                               <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
                             </div>
 
-                            {/* Delivery Information */}
+                             {/* Delivery Information */}
                             <div style={{ fontSize: '13px', background: 'rgba(0,0,0,0.01)', padding: '12px', borderRadius: '8px', border: '1px dashed var(--border-color)', marginTop: '4px' }}>
                               <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>Delivery Method: {order.delivery_method}</div>
                               {order.delivery_method === 'Courier' && (
@@ -1539,6 +1539,73 @@ function App() {
                                 </div>
                               )}
                             </div>
+
+                            {/* Submit Completion Section */}
+                            {currentUser.role === 'Tailor' && (
+                              <div style={{
+                                marginTop: '12px',
+                                padding: '16px',
+                                background: 'rgba(15,41,30,0.02)',
+                                border: '1px solid rgba(15,41,30,0.1)',
+                                borderRadius: '8px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '12px'
+                              }}>
+                                <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                                  Submit Stitching Completion & Photos
+                                </h4>
+                                
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                  <div>
+                                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Tailor Completion Comments</label>
+                                    <textarea 
+                                      className="form-control"
+                                      style={{ height: '70px', fontSize: '13px' }}
+                                      placeholder="Enter stitching details, alterations made, or fabric remarks..."
+                                      id={`comments-${order.id}`}
+                                      defaultValue={order.tailor_comments || ''}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Upload Completed Garment Photo</label>
+                                    <input 
+                                      type="file" 
+                                      className="form-control"
+                                      style={{ fontSize: '13px' }}
+                                      id={`image-${order.id}`}
+                                      accept="image/*"
+                                    />
+                                    {order.completed_garment_image && (
+                                      <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '11px', color: '#107c41', fontWeight: 600 }}>✓ Picture Uploaded</span>
+                                        <a href={order.completed_garment_image} target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--accent-color, #d4af37)', textDecoration: 'underline' }}>View Image</a>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <button 
+                                  className="btn-primary" 
+                                  style={{ alignSelf: 'flex-end', padding: '6px 16px', fontSize: '12px' }}
+                                  onClick={async () => {
+                                    const commentVal = document.getElementById(`comments-${order.id}`).value;
+                                    const fileInput = document.getElementById(`image-${order.id}`);
+                                    const file = fileInput.files[0];
+                                    
+                                    try {
+                                      await api.submitCompletion(order.id, commentVal, file);
+                                      alert("Completion report submitted successfully!");
+                                      fetchDashboardAndConfig();
+                                    } catch (err) {
+                                      alert("Submission failed: " + err.message);
+                                    }
+                                  }}
+                                >
+                                  Submit & Send for Quality Check
+                                </button>
+                              </div>
+                            )}
                           </div>
                         ))
                       )}
@@ -1717,6 +1784,48 @@ function App() {
                             </div>
                           )}
                         </div>
+
+                        {/* Tailor Stitching Completion details */}
+                        {(selectedDashboardOrder.tailor_comments || selectedDashboardOrder.completed_garment_image) && (
+                          <div style={{
+                            marginTop: '12px',
+                            background: 'rgba(212,175,55,0.02)',
+                            border: '1px solid rgba(212,175,55,0.15)',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                            fontSize: '12px'
+                          }}>
+                            <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <Scissors size={12} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                              <span>Tailor Completion Notes</span>
+                            </div>
+                            {selectedDashboardOrder.tailor_comments && (
+                              <p style={{ color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
+                                "{selectedDashboardOrder.tailor_comments}"
+                              </p>
+                            )}
+                            {selectedDashboardOrder.completed_garment_image && (
+                              <div style={{ marginTop: '2px' }}>
+                                <a href={selectedDashboardOrder.completed_garment_image} target="_blank" rel="noreferrer">
+                                  <img 
+                                    src={selectedDashboardOrder.completed_garment_image} 
+                                    alt="Completed Garment" 
+                                    style={{
+                                      width: '80px',
+                                      height: '80px',
+                                      objectFit: 'cover',
+                                      borderRadius: '4px',
+                                      border: '1px solid var(--border-color)'
+                                    }} 
+                                  />
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2520,6 +2629,48 @@ function App() {
                               </div>
                             )}
                           </div>
+
+                          {/* Tailor Stitching Completion details */}
+                          {(order.tailor_comments || order.completed_garment_image) && (
+                            <div style={{
+                              background: 'rgba(212,175,55,0.02)',
+                              border: '1px solid rgba(212,175,55,0.15)',
+                              borderRadius: '8px',
+                              padding: '16px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '10px'
+                            }}>
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Scissors size={14} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                                <span>Stitching Completion Report (Tailor Feedback)</span>
+                              </div>
+                              {order.tailor_comments && (
+                                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
+                                  "{order.tailor_comments}"
+                                </p>
+                              )}
+                              {order.completed_garment_image && (
+                                <div style={{ marginTop: '4px' }}>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Garment Photo:</span>
+                                  <a href={order.completed_garment_image} target="_blank" rel="noreferrer">
+                                    <img 
+                                      src={order.completed_garment_image} 
+                                      alt="Completed Garment" 
+                                      style={{
+                                        width: '100px',
+                                        height: '100px',
+                                        objectFit: 'cover',
+                                        borderRadius: '6px',
+                                        border: '1px solid var(--border-color)',
+                                        cursor: 'pointer'
+                                      }} 
+                                    />
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ));
                     })()}
