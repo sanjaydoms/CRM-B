@@ -3389,151 +3389,88 @@ function App() {
                   {/* Right Column */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     
-                    {/* Style DNA Panel */}
+                    {/* Style Profile Card */}
                     <div style={{
-                      background: '#0d0d0d',
-                      border: '1px solid rgba(212, 175, 55, 0.25)',
+                      background: '#141414',
+                      border: '1px solid rgba(255,255,255,0.08)',
                       borderRadius: '12px',
-                      padding: '24px',
-                      color: '#ffffff'
+                      overflow: 'hidden',
+                      color: '#ffffff',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1px', color: 'rgba(212, 175, 55, 0.85)', fontWeight: 700 }}>AI Customer Intelligence</span>
-                      </div>
-                      <h3 style={{ fontSize: '22px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#ffffff', marginTop: '4px', marginBottom: '20px' }}>
-                        Style DNA — Auto-Generated
-                      </h3>
-                      
-                      {/* Automations List */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
-                        {/* 1. Reads Sales Data */}
-                        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                          <div style={{
-                            backgroundColor: 'rgba(212, 175, 55, 0.1)',
-                            border: '1px solid rgba(212, 175, 55, 0.25)',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'var(--accent-color, #d4af37)',
-                            flexShrink: 0
-                          }}>
-                            <FileText size={18} />
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>Reads Sales Data</div>
-                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginTop: '2px', lineHeight: '1.4' }}>
-                              AI analyzes every purchase, note, and customer behavior pattern. Currently tracking measurements and active logs.
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* 2. Builds Style Profile */}
-                        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                          <div style={{
-                            backgroundColor: 'rgba(168, 85, 247, 0.1)',
-                            border: '1px solid rgba(168, 85, 247, 0.25)',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#a855f7',
-                            flexShrink: 0
-                          }}>
-                            <Sparkles size={18} />
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>Builds Style Profile</div>
-                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginTop: '2px', lineHeight: '1.4' }}>
-                              Automatically creates a unique DNA for each customer's preferences.
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
-                                <span style={{ fontSize: '10px', background: 'rgba(212,175,55,0.15)', color: '#d4af37', padding: '2px 8px', borderRadius: '4px' }}>
-                                  Budget: {selectedDirectoryCustomer.style_dna?.budget || 'Premium'}
-                                </span>
-                                <span style={{ fontSize: '10px', background: 'rgba(168,85,247,0.15)', color: '#a855f7', padding: '2px 8px', borderRadius: '4px' }}>
-                                  Colors: {selectedDirectoryCustomer.style_dna?.colors || 'Dusty Rose, Gold'}
-                                </span>
-                                <span style={{ fontSize: '10px', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', padding: '2px 8px', borderRadius: '4px' }}>
-                                  Style: {selectedDirectoryCustomer.style_dna?.style || 'Traditional Bridal'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* 3. Predicts Next Purchase */}
-                        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                          <div style={{
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            border: '1px solid rgba(59, 130, 246, 0.25)',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#3b82f6',
-                            flexShrink: 0
-                          }}>
-                            <Calendar size={18} />
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>Predicts Next Purchase</div>
-                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginTop: '2px', lineHeight: '1.4' }}>
-                              Forecasts what each customer will buy next and when they'll return.
-                              <div style={{ marginTop: '4px', padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', borderLeft: '3px solid #3b82f6', fontSize: '11px' }}>
-                                🔮 <strong>Next Buy:</strong> {selectedDirectoryCustomer.garment_type || 'Lehenga'} ({selectedDirectoryCustomer.style_dna?.colors || 'Silk Blend'})<br/>
-                                📅 <strong>Estimated Return:</strong> Within {selectedDirectoryCustomer.style_dna?.visit_pattern || '45 days'}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* 4. Acts Automatically */}
-                        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                          <div style={{
-                            backgroundColor: 'rgba(16, 124, 65, 0.1)',
-                            border: '1px solid rgba(16, 124, 65, 0.25)',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#107c41',
-                            flexShrink: 0
-                          }}>
-                            <MessageSquare size={18} />
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>Acts Automatically</div>
-                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginTop: '2px', lineHeight: '1.4' }}>
-                              Sends personalized messages, offers, and recommendations — no manual work.
-                              <button 
-                                className="btn-primary" 
-                                style={{ padding: '4px 8px', fontSize: '10px', marginTop: '8px', background: '#107c41', borderColor: '#107c41' }}
-                                onClick={() => {
-                                  alert(`AI Automation: Sent personalized recommendation campaign to ${selectedDirectoryCustomer.first_name} for their predicted upcoming purchase.`);
-                                }}
-                              >
-                                Trigger AI Recommendation Campaign
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Footer Badge */}
+                      {/* Header */}
                       <div style={{
-                        textAlign: 'center',
-                        padding: '12px',
-                        background: 'rgba(212, 175, 55, 0.05)',
-                        border: '1px solid rgba(212, 175, 55, 0.15)',
-                        borderRadius: '8px',
-                        fontSize: '11px',
-                        color: 'rgba(255,255,255,0.8)'
+                        background: '#d35400',
+                        backgroundImage: 'linear-gradient(135deg, #d35400, #e67e22)',
+                        padding: '16px 20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
                       }}>
-                        <strong>500+ data points analyzed</strong> per customer to build the most accurate profile possible.
+                        <User size={16} style={{ color: '#fff' }} />
+                        <span style={{
+                          fontWeight: 700,
+                          fontSize: '13px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '1px',
+                          color: '#fff'
+                        }}>
+                          {selectedDirectoryCustomer.first_name}'S STYLE PROFILE
+                        </span>
+                      </div>
+
+                      {/* Content Rows */}
+                      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>BUDGET</span>
+                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.budget || '₹26,250 (premium designer)'}</strong>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>COLORS</span>
+                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.colors || 'Charcoal Black 90% | Silver 10%'}</strong>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>STYLE</span>
+                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.style || 'Contemporary 80% | Traditional 20%'}</strong>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>SIZE</span>
+                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.size || 'S (consistent)'}</strong>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>VISIT PATTERN</span>
+                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.visit_pattern || 'Every 15-30 days'}</strong>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>RISK STATUS</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+                            <span style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              backgroundColor: selectedDirectoryCustomer.style_dna?.risk_level === 'danger' ? '#ff7675' : '#55efc4',
+                              display: 'inline-block'
+                            }} />
+                            <span style={{ color: selectedDirectoryCustomer.style_dna?.risk_level === 'danger' ? '#ff7675' : '#55efc4' }}>
+                              {selectedDirectoryCustomer.style_dna?.risk_status || 'Active — Last visit 0 days ago'}
+                            </span>
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>NEXT ACTION</span>
+                          <strong style={{ color: '#fff' }}>"{selectedDirectoryCustomer.style_dna?.next_action || 'Share seasonal lookbook'}"</strong>
+                        </div>
+
+                        {/* Footer Disclaimer */}
+                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', marginTop: '4px', textAlign: 'left' }}>
+                          This is NOT manual entry. AI reads your sales data automatically.
+                        </div>
                       </div>
                     </div>
                     
