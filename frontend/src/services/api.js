@@ -239,15 +239,9 @@ export const api = {
     if (comments) formData.append('tailor_comments', comments);
     if (imageFile) formData.append('completed_garment_image', imageFile);
 
-    const token = localStorage.getItem('crm_token');
-    const headers = {};
-    if (token) {
-      headers['Authorization'] = `Token ${token}`;
-    }
-
     const res = await fetch(`${BASE_URL}/orders/${orderId}/submit-completion/`, {
       method: 'PATCH',
-      headers: headers,
+      headers: getHeaders(true),
       body: formData
     });
     if (!res.ok) throw new Error('Failed to submit completion');
@@ -255,28 +249,18 @@ export const api = {
   },
 
   async getBoutiqueSettings() {
-    const token = localStorage.getItem('crm_token');
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) {
-      headers['Authorization'] = `Token ${token}`;
-    }
     const res = await fetch(`${BASE_URL}/boutique-settings/`, {
       method: 'GET',
-      headers: headers
+      headers: getHeaders()
     });
     if (!res.ok) throw new Error('Failed to get boutique settings');
     return res.json();
   },
 
   async updateBoutiqueSettings(formData) {
-    const token = localStorage.getItem('crm_token');
-    const headers = {};
-    if (token) {
-      headers['Authorization'] = `Token ${token}`;
-    }
     const res = await fetch(`${BASE_URL}/boutique-settings/`, {
       method: 'POST',
-      headers: headers,
+      headers: getHeaders(true),
       body: formData
     });
     if (!res.ok) throw new Error('Failed to update boutique settings');
@@ -290,15 +274,9 @@ export const api = {
     if (imageFile) formData.append('image', imageFile);
     formData.append('completed_by', completedBy);
 
-    const token = localStorage.getItem('crm_token');
-    const headers = {};
-    if (token) {
-      headers['Authorization'] = `Token ${token}`;
-    }
-
     const res = await fetch(`${BASE_URL}/orders/${orderId}/submit-stage-review/`, {
       method: 'POST',
-      headers: headers,
+      headers: getHeaders(true),
       body: formData
     });
     if (!res.ok) throw new Error('Failed to submit stage review');
