@@ -2913,20 +2913,24 @@ function App() {
 
                         {/* Expandable Style DNA Section */}
                         {expandedDna[cust.id] && (
-                          <div className="responsive-style-dna-grid" style={{
+                          <div style={{
                             gridColumn: 'span 3',
                             background: '#0d0d0d',
                             border: '1px solid rgba(212, 175, 55, 0.25)',
                             borderRadius: '8px',
                             padding: '24px',
-                            marginTop: '12px'
+                            marginTop: '12px',
+                            display: 'flex',
+                            justifyContent: 'center'
                           }}>
                             {/* Left Column: Priya's Style Profile (Mockup Left Card) */}
                             <div style={{
                               background: '#141414',
                               borderRadius: '8px',
                               border: '1px solid rgba(255, 255, 255, 0.05)',
-                              overflow: 'hidden'
+                              overflow: 'hidden',
+                              width: '100%',
+                              maxWidth: '550px'
                             }}>
                               {/* Title Header */}
                               <div style={{
@@ -3010,129 +3014,6 @@ function App() {
                                 }}>
                                   This is NOT manual entry. AI reads your sales data automatically.
                                 </div>
-                              </div>
-                            </div>
-
-                            {/* Right Column: How it Works (Mockup Right Side) */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', justifyContent: 'center' }}>
-                              <div>
-                                <h4 style={{
-                                  color: '#e05a10',
-                                  fontSize: '11px',
-                                  fontWeight: 600,
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '1.5px',
-                                  margin: '0 0 16px 0'
-                                }}>
-                                  AI CUSTOMER INTELLIGENCE
-                                </h4>
-                                <h3 style={{
-                                  fontFamily: 'var(--font-serif)',
-                                  fontSize: '24px',
-                                  fontWeight: 400,
-                                  color: '#fff',
-                                  margin: 0
-                                }}>
-                                  Style DNA — Auto-Generated
-                                </h3>
-                              </div>
-
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                {/* Row 1 */}
-                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                  <div style={{
-                                    background: 'rgba(224, 90, 16, 0.1)',
-                                    borderRadius: '6px',
-                                    padding: '8px',
-                                    color: '#e05a10',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                  }}>
-                                    <FileText size={18} />
-                                  </div>
-                                  <div>
-                                    <h5 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Reads Sales Data</h5>
-                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
-                                      AI analyzes every purchase, note, and customer behavior pattern.
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {/* Row 2 */}
-                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                  <div style={{
-                                    background: 'rgba(224, 90, 16, 0.1)',
-                                    borderRadius: '6px',
-                                    padding: '8px',
-                                    color: '#e05a10',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                  }}>
-                                    <Sparkles size={18} />
-                                  </div>
-                                  <div>
-                                    <h5 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Builds Style Profile</h5>
-                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
-                                      Automatically creates a unique DNA for each customer's preferences.
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {/* Row 3 */}
-                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                  <div style={{
-                                    background: 'rgba(224, 90, 16, 0.1)',
-                                    borderRadius: '6px',
-                                    padding: '8px',
-                                    color: '#e05a10',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                  }}>
-                                    <Calendar size={18} />
-                                  </div>
-                                  <div>
-                                    <h5 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Predicts Next Purchase</h5>
-                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
-                                      Forecasts what each customer will buy next and when they'll return.
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {/* Row 4 */}
-                                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                  <div style={{
-                                    background: 'rgba(224, 90, 16, 0.1)',
-                                    borderRadius: '6px',
-                                    padding: '8px',
-                                    color: '#e05a10',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                  }}>
-                                    <MessageSquare size={18} />
-                                  </div>
-                                  <div>
-                                    <h5 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Acts Automatically</h5>
-                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
-                                      Sends personalized messages, offers, and recommendations — no manual work.
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div style={{
-                                background: 'rgba(224, 90, 16, 0.05)',
-                                border: '1px solid rgba(224, 90, 16, 0.15)',
-                                borderRadius: '6px',
-                                padding: '12px 16px',
-                                fontSize: '12px',
-                                color: 'var(--text-muted)',
-                                marginTop: '8px'
-                              }}>
-                                <strong style={{ color: 'var(--accent-color, #d4af37)' }}>500+ data points analyzed</strong> per customer to build the most accurate profile possible.
                               </div>
                             </div>
                           </div>
