@@ -5,6 +5,7 @@ class TailorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tailor
         fields = '__all__'
+        read_only_fields = ['user']
 
 class BoutiqueFabricSerializer(serializers.ModelSerializer):
     class Meta:
