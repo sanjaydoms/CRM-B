@@ -248,6 +248,11 @@ function App() {
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
   
+  const [activeReviewStage, setActiveReviewStage] = useState(null);
+  const [activeReviewOrder, setActiveReviewOrder] = useState(null);
+  const [stageReviewComments, setStageReviewComments] = useState('');
+  const [stageReviewImage, setStageReviewImage] = useState(null);
+
   const [notifications, setNotifications] = useState([]);
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
 
@@ -1756,7 +1761,17 @@ function App() {
                                 }
                                 
                                 return (
-                                  <div key={idx} className={`progress-step-item ${state === 'completed' ? 'completed' : state === 'current' ? 'active' : ''}`}>
+                                  <div 
+                                    key={idx} 
+                                    className={`progress-step-item ${state === 'completed' ? 'completed' : state === 'current' ? 'active' : ''}`}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => {
+                                      setActiveReviewStage(title);
+                                      setActiveReviewOrder(selectedDashboardOrder);
+                                      setStageReviewComments('');
+                                      setStageReviewImage(null);
+                                    }}
+                                  >
                                     <div className="progress-step-dot"></div>
                                     <div className="progress-step-info">
                                       <span className="progress-step-title">{title === 'Received' ? 'Order Received' : title}</span>
@@ -2597,7 +2612,16 @@ function App() {
                               const isCurrent = idx === currentIdx;
                               
                               return (
-                                <div key={stage} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '90px' }}>
+                                <div 
+                                  key={stage} 
+                                  style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '90px', cursor: 'pointer' }}
+                                  onClick={() => {
+                                    setActiveReviewStage(stage);
+                                    setActiveReviewOrder(order);
+                                    setStageReviewComments('');
+                                    setStageReviewImage(null);
+                                  }}
+                                >
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1 }}>
                                     <div style={{
                                       width: '10px',
@@ -6884,6 +6908,157 @@ function App() {
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>{n.message}</p>
                 </div>
               ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Stage Review Modal */}
+      {activeReviewStage && activeReviewOrder && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1100
+        }}>
+          <div style={{
+            backgroundColor: 'var(--surface-color)',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            width: '500px',
+            maxWidth: '90%',
+            padding: '24px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '20px'
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0, fontFamily: 'var(--font-serif)' }}>Stage Review: {activeReviewStage}</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Order ID: {activeReviewOrder.order_id}</span>
+              </div>
+              <button 
+                className="btn-secondary" 
+                style={{ padding: '4px 10px', fontSize: '12px' }}
+                onClick={() => {
+                  setActiveReviewStage(null);
+                  setActiveReviewOrder(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Existing Review Data */}
+            {(() => {
+              const record = activeReviewOrder.stage_histories?.find(h => h.stage === activeReviewStage);
+              if (record) {
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: 'rgba(0,0,0,0.01)', border: '1px solid var(--border-color)', padding: '16px', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      <span>Reviewed by: <strong>{record.completed_by_name || 'Boutique Staff'}</strong></span>
+                      <span>{new Date(record.completed_at).toLocaleDateString()}</span>
+                    </div>
+                    {record.comments && (
+                      <p style={{ fontSize: '13px', color: 'var(--text-primary)', margin: 0, fontStyle: 'italic' }}>
+                        "{record.comments}"
+                      </p>
+                    )}
+                    {record.image && (
+                      <div style={{ marginTop: '8px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Uploaded Progress Photo:</span>
+                        <a href={record.image} target="_blank" rel="noreferrer">
+                          <img 
+                            src={record.image} 
+                            alt={`${activeReviewStage} Photo`} 
+                            style={{
+                              width: '100%',
+                              maxHeight: '220px',
+                              objectFit: 'contain',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border-color)'
+                            }}
+                          />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: '13px' }}>
+                  No review feedback or progress photos submitted for this stage yet.
+                </div>
+              );
+            })()}
+
+            {/* Submit New Review Form */}
+            {(!currentUser.role || currentUser.role === 'Owner') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                borderTop: '1px solid var(--border-color)',
+                paddingTop: '16px'
+              }}>
+                <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                  Submit Stage Feedback & Photos
+                </h4>
+                
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Review Comments</label>
+                  <textarea 
+                    className="form-control"
+                    style={{ height: '60px', fontSize: '13px' }}
+                    placeholder="Enter design reviews, quality checks, stylist logs, or shipment notes..."
+                    value={stageReviewComments}
+                    onChange={(e) => setStageReviewComments(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Stage Image Uploader</label>
+                  <input 
+                    type="file" 
+                    className="form-control"
+                    style={{ fontSize: '13px' }}
+                    accept="image/*"
+                    onChange={(e) => setStageReviewImage(e.target.files[0])}
+                  />
+                </div>
+
+                <button 
+                  className="btn-primary" 
+                  style={{ width: '100%', marginTop: '8px' }}
+                  onClick={async () => {
+                    try {
+                      await api.submitStageReview(
+                        activeReviewOrder.id,
+                        activeReviewStage,
+                        stageReviewComments,
+                        stageReviewImage,
+                        currentUser.first_name
+                      );
+                      alert("Stage review submitted successfully!");
+                      setActiveReviewStage(null);
+                      setActiveReviewOrder(null);
+                      fetchDashboardAndConfig();
+                    } catch (err) {
+                      alert("Failed to submit review: " + err.message);
+                    }
+                  }}
+                >
+                  Confirm & Submit Stage Review
+                </button>
+              </div>
             )}
           </div>
         </div>

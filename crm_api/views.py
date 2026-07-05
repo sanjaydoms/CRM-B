@@ -9,11 +9,11 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.db.models import Sum, Count
 
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory
 from .serializers import (
     CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer, 
     FabricSelectionSerializer, TailorSerializer, OrderSerializer, BoutiqueFabricSerializer,
-    BoutiqueDesignSerializer, NotificationSerializer
+    BoutiqueDesignSerializer, NotificationSerializer, OrderStageHistorySerializer
 )
 
 class CustomerViewSet(viewsets.ModelViewSet):
@@ -345,6 +345,31 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.save()
         
         create_order_notifications(order, created=False)
+        
+        serializer = OrderSerializer(order)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['POST'], url_path='submit-stage-review')
+    def submit_stage_review(self, request, pk=None):
+        order = self.get_object()
+        stage = request.data.get('stage')
+        comments = request.data.get('comments')
+        image = request.FILES.get('image')
+        completed_by = request.data.get('completed_by', 'Boutique Staff')
+        
+        if not stage:
+            return Response({'error': 'stage is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Delete duplicate history for same stage if any exists
+        OrderStageHistory.objects.filter(order=order, stage=stage).delete()
+        
+        history = OrderStageHistory.objects.create(
+            order=order,
+            stage=stage,
+            comments=comments,
+            image=image,
+            completed_by_name=completed_by
+        )
         
         serializer = OrderSerializer(order)
         return Response(serializer.data)

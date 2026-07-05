@@ -140,6 +140,17 @@ class Order(models.Model):
     def __str__(self):
         return f"Order {self.order_id} - {self.customer.first_name} {self.customer.last_name}"
 
+class OrderStageHistory(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='stage_histories')
+    stage = models.CharField(max_length=100)
+    comments = models.TextField(blank=True, null=True)
+    image = models.ImageField(upload_to='stage_images/', blank=True, null=True)
+    completed_by_name = models.CharField(max_length=255, blank=True, null=True)
+    completed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.order.order_id} - {self.stage}"
+
 class Notification(models.Model):
     title = models.CharField(max_length=255)
     message = models.TextField()

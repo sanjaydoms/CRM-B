@@ -254,6 +254,28 @@ export const api = {
     return res.json();
   },
 
+  async submitStageReview(orderId, stage, comments, imageFile, completedBy = 'Boutique Staff') {
+    const formData = new FormData();
+    formData.append('stage', stage);
+    if (comments) formData.append('comments', comments);
+    if (imageFile) formData.append('image', imageFile);
+    formData.append('completed_by', completedBy);
+
+    const token = localStorage.getItem('crm_token');
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Token ${token}`;
+    }
+
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/submit-stage-review/`, {
+      method: 'POST',
+      headers: headers,
+      body: formData
+    });
+    if (!res.ok) throw new Error('Failed to submit stage review');
+    return res.json();
+  },
+
   async updateOrder(orderId, orderData) {
     const res = await fetch(`${BASE_URL}/orders/${orderId}/`, {
       method: 'PATCH',

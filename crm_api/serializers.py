@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory
 
 class TailorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -32,10 +32,16 @@ class FabricSelectionSerializer(serializers.ModelSerializer):
         model = FabricSelection
         fields = ['is_boutique_fabric', 'fabric_name', 'fabric_price', 'uploaded_fabric_images']
 
+class OrderStageHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderStageHistory
+        fields = '__all__'
+
 class OrderSerializer(serializers.ModelSerializer):
     tailor_name = serializers.CharField(source='tailor.name', read_only=True)
     master_name = serializers.CharField(source='master.name', read_only=True)
     customer_name = serializers.SerializerMethodField()
+    stage_histories = OrderStageHistorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
@@ -46,7 +52,8 @@ class OrderSerializer(serializers.ModelSerializer):
             'embroidery_price', 'customization_price', 'tailoring_charges',
             'packaging_handling', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
             'delivery_method', 'courier_service', 'tracking_number', 'delivery_address',
-            'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image'
+            'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image',
+            'stage_histories'
         ]
 
     def get_customer_name(self, obj):
