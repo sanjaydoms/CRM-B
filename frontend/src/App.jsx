@@ -181,6 +181,7 @@ function App() {
   // Tailors CRUD State
   const [showTailorModal, setShowTailorModal] = useState(false);
   const [editingTailor, setEditingTailor] = useState(null);
+  const [shareCredsTailor, setShareCredsTailor] = useState(null);
   const [tailorForm, setTailorForm] = useState({
     name: '',
     email: '',
@@ -1893,6 +1894,15 @@ function App() {
                                 <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
                                   {tailor.status}
                                 </span>
+                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
+                                  if (!tailor.email) {
+                                    alert("Please edit this tailor's profile to add their email address first.");
+                                    return;
+                                  }
+                                  setShareCredsTailor(tailor);
+                                }}>
+                                  <Lock size={12} /> Share
+                                </button>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
                                   setEditingTailor(tailor);
                                   setTailorForm({
@@ -1951,6 +1961,15 @@ function App() {
                                 <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
                                   {tailor.status}
                                 </span>
+                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
+                                  if (!tailor.email) {
+                                    alert("Please edit this tailor's profile to add their email address first.");
+                                    return;
+                                  }
+                                  setShareCredsTailor(tailor);
+                                }}>
+                                  <Lock size={12} /> Share
+                                </button>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
                                   setEditingTailor(tailor);
                                   setTailorForm({
@@ -3563,6 +3582,72 @@ function App() {
                     <button type="submit" className="btn-primary">Save Tailor</button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* Share Tailor Credentials Modal Overlay */}
+          {shareCredsTailor && (
+            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
+                <div className="search-modal-header">
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
+                    Share Login Credentials
+                  </h3>
+                  <button className="close-btn" onClick={() => setShareCredsTailor(null)}><X size={20} /></button>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Provide these credentials to <strong>{shareCredsTailor.name}</strong> so they can log in to view and manage their assignments.
+                  </p>
+
+                  <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Login Portal URL</span>
+                      <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{window.location.origin}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Username / Email</span>
+                      <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{shareCredsTailor.email}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Temporary Password</span>
+                      <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px' }}>TailorSecure2026!</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
+                    <button type="button" className="btn-secondary" onClick={() => setShareCredsTailor(null)}>Close</button>
+                    
+                    {/* Copy to Clipboard */}
+                    <button 
+                      type="button" 
+                      className="btn-secondary" 
+                      onClick={() => {
+                        const txt = `Atelier Staff Login Credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: TailorSecure2026!`;
+                        navigator.clipboard.writeText(txt);
+                        alert("Credentials copied to clipboard!");
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Copy size={14} /> Copy
+                    </button>
+
+                    {/* Share via WhatsApp */}
+                    <button 
+                      type="button" 
+                      className="btn-primary" 
+                      onClick={() => {
+                        const msg = encodeURIComponent(`Hello ${shareCredsTailor.name},\nHere are your Atelier login credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: TailorSecure2026!\n\nPlease log in to view your supervised/stitch tasks.`);
+                        window.open(`https://wa.me/?text=${msg}`);
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <MessageSquare size={14} /> Share WhatsApp
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
