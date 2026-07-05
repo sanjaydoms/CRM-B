@@ -1,6 +1,7 @@
 import uuid
 import datetime
 import random
+from django.contrib.auth.models import User
 from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -169,6 +170,39 @@ class CustomerViewSet(viewsets.ModelViewSet):
 class TailorViewSet(viewsets.ModelViewSet):
     queryset = Tailor.objects.all().order_by('-rating')
     serializer_class = TailorSerializer
+
+    def perform_create(self, serializer):
+        tailor = serializer.save()
+        self._ensure_user_account(tailor)
+
+    def perform_update(self, serializer):
+        tailor = serializer.save()
+        self._ensure_user_account(tailor)
+
+    def _ensure_user_account(self, tailor):
+        if tailor.email:
+            # Check if user already exists
+            user = User.objects.filter(email=tailor.email).first()
+            if not user:
+                # Create user
+                username = tailor.email.split('@')[0]
+                # Ensure username is unique
+                original_username = username
+                counter = 1
+                while User.objects.filter(username=username).exists():
+                    username = f"{original_username}{counter}"
+                    counter += 1
+                
+                user = User.objects.create_user(
+                    username=username,
+                    email=tailor.email,
+                    password="TailorSecure2026!",
+                    first_name=tailor.name
+                )
+            # Link to tailor
+            if tailor.user != user:
+                tailor.user = user
+                tailor.save()
 
 class BoutiqueFabricViewSet(viewsets.ModelViewSet):
     queryset = BoutiqueFabric.objects.all()

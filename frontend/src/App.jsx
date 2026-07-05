@@ -183,6 +183,7 @@ function App() {
   const [editingTailor, setEditingTailor] = useState(null);
   const [tailorForm, setTailorForm] = useState({
     name: '',
+    email: '',
     specialty: '',
     rating: 5.0,
     status: 'Available',
@@ -247,6 +248,11 @@ function App() {
       const user = await api.getMe();
       if (user) {
         setCurrentUser(user);
+        if (user.role === 'Master' || user.role === 'Tailor') {
+          setDashboardTab('assignments');
+        } else {
+          setDashboardTab('overview');
+        }
         setView('dashboard');
         fetchDashboardAndConfig();
       }
@@ -341,7 +347,7 @@ function App() {
       }
       setShowTailorModal(false);
       setEditingTailor(null);
-      setTailorForm({ name: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
+      setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save tailor: " + err.message);
@@ -415,6 +421,11 @@ function App() {
     try {
       const res = await api.login(loginEmail, loginPassword);
       setCurrentUser(res.user);
+      if (res.user.role === 'Master' || res.user.role === 'Tailor') {
+        setDashboardTab('assignments');
+      } else {
+        setDashboardTab('overview');
+      }
       setView('dashboard');
       fetchDashboardAndConfig();
     } catch (err) {
@@ -1302,13 +1313,19 @@ function App() {
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             
             <nav className="portal-menu">
-              <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Dashboard</a>
-              <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Customers</a>
-              <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); }}><FileText size={16} /> Invoices</a>
-              <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); }}><BarChart2 size={16} /> Analytics</a>
-              <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); }}><Compass size={16} /> Manage Fabrics</a>
-              <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); }}><Scissors size={16} /> Manage Tailors</a>
-              <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); }}><Sparkles size={16} /> Manage Designs</a>
+              {(!currentUser.role || currentUser.role === 'Owner') ? (
+                <>
+                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Dashboard</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Customers</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); }}><FileText size={16} /> Invoices</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); }}><BarChart2 size={16} /> Analytics</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); }}><Compass size={16} /> Manage Fabrics</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); }}><Scissors size={16} /> Manage Tailors</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); }}><Sparkles size={16} /> Manage Designs</a>
+                </>
+              ) : (
+                <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); }}><Scissors size={16} /> My Assignments</a>
+              )}
               <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); }}><User size={16} /> My Account</a>
               <a className="portal-menu-item" onClick={handleLogout}><LogOut size={16} /> Logout</a>
             </nav>
@@ -1331,6 +1348,106 @@ function App() {
 
           {/* Main Content Area */}
           <main className="portal-main">
+            {dashboardTab === 'assignments' && (
+              <>
+                <header className="portal-header">
+                  <div className="portal-header-left">
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                        My Assignments Dashboard
+                      </h1>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        Logged in as {currentUser.first_name} ({currentUser.role}). View and manage your active orders.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="portal-header-right">
+                    <div className="user-profile-widget">
+                      <div className="user-avatar-circle">
+                        <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(currentUser.first_name)}`} alt="Avatar" />
+                      </div>
+                      <span>Hi, {currentUser.first_name}</span>
+                    </div>
+                  </div>
+                </header>
+
+                <div className="tailor-manager-content" style={{ marginTop: '24px' }}>
+                  <div style={{
+                    background: 'var(--surface-color)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '12px',
+                    padding: '24px'
+                  }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                      Active Assigned Orders
+                    </h3>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      {ordersList.filter(o => 
+                        currentUser.role === 'Master' ? o.master === currentUser.tailor_id : o.tailor === currentUser.tailor_id
+                      ).length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center', fontSize: '13px' }}>
+                          No active orders are assigned to you at the moment.
+                        </p>
+                      ) : (
+                        ordersList.filter(o => 
+                          currentUser.role === 'Master' ? o.master === currentUser.tailor_id : o.tailor === currentUser.tailor_id
+                        ).map(order => (
+                          <div key={order.id} style={{
+                            background: 'rgba(0,0,0,0.01)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '12px',
+                            padding: '20px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '12px'
+                          }}>
+                            {/* Order Header */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</span>
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                  Client: {order.customer_name} | Est. Delivery: {order.estimated_delivery ? new Date(order.estimated_delivery).toLocaleDateString() : 'TBD'}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
+                                  {order.order_status}
+                                </span>
+                                <select 
+                                  className="form-control"
+                                  style={{ fontSize: '12px', padding: '4px 10px', width: '160px' }}
+                                  value={order.order_status}
+                                  onChange={(e) => {
+                                    api.updateOrderStatus(order.id, e.target.value)
+                                      .then(() => fetchDashboardAndConfig())
+                                      .catch(err => alert("Failed to update status: " + err.message));
+                                  }}
+                                >
+                                  <option value="Confirmed">Confirmed</option>
+                                  <option value="Stylist Review">Stylist Review</option>
+                                  <option value="Design & Creation">Design & Creation</option>
+                                  <option value="Quality Check">Quality Check</option>
+                                  <option value="Delivered">Delivered</option>
+                                </select>
+                              </div>
+                            </div>
+                            
+                            {/* Price / Scope */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', background: 'var(--surface-color)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                              <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>
+                              <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</span></div>
+                              <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
             {dashboardTab === 'overview' && (
               <>
                 <header className="portal-header">
@@ -1718,7 +1835,7 @@ function App() {
                   <div className="portal-header-right">
                     <button className="btn-primary" onClick={() => {
                       setEditingTailor(null);
-                      setTailorForm({ name: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
+                      setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
                       setShowTailorModal(true);
                     }}>
                       <Plus size={16} />
@@ -1780,6 +1897,7 @@ function App() {
                                   setEditingTailor(tailor);
                                   setTailorForm({
                                     name: tailor.name,
+                                    email: tailor.email || '',
                                     specialty: tailor.specialty,
                                     rating: tailor.rating.toString(),
                                     status: tailor.status,
@@ -1837,6 +1955,7 @@ function App() {
                                   setEditingTailor(tailor);
                                   setTailorForm({
                                     name: tailor.name,
+                                    email: tailor.email || '',
                                     specialty: tailor.specialty,
                                     rating: tailor.rating.toString(),
                                     status: tailor.status,
@@ -3372,6 +3491,18 @@ function App() {
                       placeholder="e.g. Master Shabbir" 
                       value={tailorForm.name}
                       onChange={e => setTailorForm({...tailorForm, name: e.target.value})}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Email Address (for login)</label>
+                    <input 
+                      type="email" 
+                      required 
+                      className="form-control" 
+                      placeholder="e.g. shabbir@boutique.com" 
+                      value={tailorForm.email || ''}
+                      onChange={e => setTailorForm({...tailorForm, email: e.target.value})}
                     />
                   </div>
 

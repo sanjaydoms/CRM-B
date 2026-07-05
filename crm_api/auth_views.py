@@ -100,6 +100,14 @@ class LoginView(views.APIView):
         # Lookup tenant in public registry
         tenant = BoutiqueTenant.objects.filter(owner_email=username_or_email).first()
         if not tenant:
+            # Search other schemas for a user with this email/username
+            for t in BoutiqueTenant.objects.exclude(schema_name='public'):
+                with schema_context(t.schema_name):
+                    if User.objects.filter(email=username_or_email).exists() or User.objects.filter(username=username_or_email).exists():
+                        tenant = t
+                        break
+
+        if not tenant:
             return Response(
                 {"error": "Invalid login credentials. Please try again."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -118,6 +126,13 @@ class LoginView(views.APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
+            # Check if they have a tailor profile
+            role = 'Owner'
+            tailor_id = None
+            if hasattr(user, 'tailor_profile') and user.tailor_profile:
+                role = user.tailor_profile.role
+                tailor_id = user.tailor_profile.id
+
             token, created = Token.objects.get_or_create(user=user)
             return Response({
                 "token": token.key,
@@ -127,7 +142,9 @@ class LoginView(views.APIView):
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "email": user.email,
-                    "username": user.username
+                    "username": user.username,
+                    "role": role,
+                    "tailor_id": tailor_id
                 }
             }, status=status.HTTP_200_OK)
         except Exception as e:
@@ -150,10 +167,18 @@ class MeView(views.APIView):
 
     def get(self, request):
         user = request.user
+        role = 'Owner'
+        tailor_id = None
+        if hasattr(user, 'tailor_profile') and user.tailor_profile:
+            role = user.tailor_profile.role
+            tailor_id = user.tailor_profile.id
+
         return Response({
             "id": user.id,
             "first_name": user.first_name,
             "last_name": user.last_name,
             "email": user.email,
-            "username": user.username
+            "username": user.username,
+            "role": role,
+            "tailor_id": tailor_id
         }, status=status.HTTP_200_OK)

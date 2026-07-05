@@ -1,5 +1,6 @@
 from django.db import models
 import uuid
+from django.contrib.auth.models import User
 
 class Customer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -101,6 +102,8 @@ class Tailor(models.Model):
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=5.00)
     status = models.CharField(max_length=50, default="Available") # Available, Busy
     role = models.CharField(max_length=50, default="Tailor") # Master, Tailor
+    email = models.EmailField(blank=True, null=True)
+    user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='tailor_profile')
 
     def __str__(self):
         return f"{self.name} - {self.role} ({self.status})"
