@@ -241,6 +241,8 @@ function App() {
 
   // Search & Filters for dashboard
   const [searchQuery, setSearchQuery] = useState('');
+  const [ordersSearch, setOrdersSearch] = useState('');
+  const [ordersFilterTab, setOrdersFilterTab] = useState('All');
   const [loading, setLoading] = useState(true);
 
   // Persisted Session check
@@ -1336,6 +1338,7 @@ function App() {
               {(!currentUser.role || currentUser.role === 'Owner') ? (
                 <>
                   <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Dashboard</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); }}><ShoppingBag size={16} /> Manage Orders</a>
                   <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Customers</a>
                   <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); }}><FileText size={16} /> Invoices</a>
                   <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); }}><BarChart2 size={16} /> Analytics</a>
@@ -2258,6 +2261,208 @@ function App() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Manage Orders Tab */}
+            {dashboardTab === 'orders' && (
+              <>
+                <header className="portal-header">
+                  <div className="portal-header-left">
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                        Atelier Orders Registry
+                      </h1>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        Search, filter, and track all custom creations and dispatch logistics.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="portal-header-right">
+                    <button className="btn-primary" onClick={handleStartNewCustomer}>
+                      <Plus size={16} /> New Custom Order
+                    </button>
+                  </div>
+                </header>
+
+                <div className="orders-registry-content" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {/* Filters & Search */}
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '16px',
+                    background: 'var(--surface-color)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '12px',
+                    padding: '16px'
+                  }}>
+                    {/* Filter Tabs */}
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {['All', 'Active', 'Shipped', 'Delivered'].map(statusTab => (
+                        <button 
+                          key={statusTab}
+                          onClick={() => setOrdersFilterTab(statusTab)}
+                          className={ordersFilterTab === statusTab ? 'btn-primary' : 'btn-secondary'}
+                          style={{ padding: '6px 16px', fontSize: '13px' }}
+                        >
+                          {statusTab}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="search-bar-container" style={{ width: '300px', margin: 0 }}>
+                      <Search className="search-icon" size={16} />
+                      <input 
+                        type="text" 
+                        placeholder="Search by Order ID or Client..."
+                        className="search-input"
+                        value={ordersSearch}
+                        onChange={(e) => setOrdersSearch(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Orders List Grid */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {(() => {
+                      const filtered = ordersList.filter(order => {
+                        // Status filter
+                        if (ordersFilterTab === 'Active') {
+                          if (['Shipped', 'Delivered'].includes(order.order_status)) return false;
+                        } else if (ordersFilterTab === 'Shipped') {
+                          if (order.order_status !== 'Shipped') return false;
+                        } else if (ordersFilterTab === 'Delivered') {
+                          if (order.order_status !== 'Delivered') return false;
+                        }
+
+                        // Search text filter
+                        if (ordersSearch.trim()) {
+                          const query = ordersSearch.toLowerCase();
+                          const matchesId = order.order_id.toLowerCase().includes(query);
+                          const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
+                          return matchesId || matchesClient;
+                        }
+
+                        return true;
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div style={{
+                            background: 'var(--surface-color)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '12px',
+                            padding: '40px',
+                            textAlign: 'center',
+                            color: 'var(--text-muted)'
+                          }}>
+                            No orders found matching the criteria.
+                          </div>
+                        );
+                      }
+
+                      return filtered.map(order => (
+                        <div key={order.id} style={{
+                          background: 'var(--surface-color)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '12px',
+                          padding: '24px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '16px'
+                        }}>
+                          {/* Top Row: Order Header */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <span style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-primary)' }}>{order.order_id}</span>
+                                <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
+                                  {order.order_status}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                Client: <strong>{order.customer_name}</strong> | Created: {new Date(order.order_date).toLocaleDateString()}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <span style={{ fontSize: '13px', fontWeight: 600 }}>Update Status:</span>
+                              <select 
+                                className="form-control"
+                                style={{ fontSize: '13px', padding: '6px 12px', width: '180px', margin: 0 }}
+                                value={order.order_status}
+                                onChange={(e) => {
+                                  api.updateOrderStatus(order.id, e.target.value)
+                                    .then(() => fetchDashboardAndConfig())
+                                    .catch(err => alert("Failed to update status: " + err.message));
+                                }}
+                              >
+                                {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
+                                  <option key={status} value={status}>{status}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Middle Row: Assignment & Financials */}
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: '16px',
+                            background: 'rgba(0,0,0,0.015)',
+                            padding: '16px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-color)'
+                          }}>
+                            <div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Supervising Master</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Stitching Tailor</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || 'Unassigned'}</div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Value</span>
+                              <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Est. Delivery</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? new Date(order.estimated_delivery).toLocaleDateString() : 'TBD'}</div>
+                            </div>
+                          </div>
+
+                          {/* Bottom Row: Delivery details */}
+                          <div style={{
+                            background: 'rgba(0,0,0,0.01)',
+                            border: '1px dashed var(--border-color)',
+                            borderRadius: '8px',
+                            padding: '16px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px'
+                          }}>
+                            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              Delivery Method: {order.delivery_method}
+                            </div>
+                            {order.delivery_method === 'Courier' && (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                <div><strong>Courier Service Provider:</strong> {order.courier_service || 'TBD'}</div>
+                                <div><strong>Tracking Reference:</strong> {order.tracking_number || 'TBD'}</div>
+                                <div style={{ gridColumn: 'span 2', marginTop: '4px' }}>
+                                  <strong>Shipping Address:</strong> {order.delivery_address || 'No address specified'}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 </div>
               </>
