@@ -114,7 +114,11 @@ class Order(models.Model):
     tailor = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
     master = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='supervised_orders')
     payment_status = models.CharField(max_length=50, default="Pending") # Pending, Paid
-    order_status = models.CharField(max_length=50, default="Confirmed") # Confirmed, Stylist Review, Design & Creation, Quality Check, Packed & Shipped
+    order_status = models.CharField(max_length=50, default="Received") # Received, Confirmed, Stylist Review, Design & Creation, Quality Check, Ready for Dispatch, Shipped, Delivered
+    delivery_method = models.CharField(max_length=50, default="Direct Pickup") # Direct Pickup, Courier
+    courier_service = models.CharField(max_length=100, blank=True, null=True)
+    tracking_number = models.CharField(max_length=100, blank=True, null=True)
+    delivery_address = models.TextField(blank=True, null=True)
     
     # Financial breakdown
     base_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)

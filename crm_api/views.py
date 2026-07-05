@@ -144,7 +144,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
             tailor=tailor,
             master=master,
             payment_status=request.data.get('payment_status', 'Paid'),
-            order_status='Confirmed',
+            order_status='Received', # Default new order status
             base_price=base_price,
             fabric_price=fabric_price,
             embroidery_price=embroidery_price,
@@ -153,7 +153,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
             packaging_handling=packaging_handling,
             taxes=taxes,
             total_amount=total_amount,
-            estimated_delivery=est_delivery
+            estimated_delivery=est_delivery,
+            delivery_method=request.data.get('delivery_method', 'Direct Pickup'),
+            courier_service=request.data.get('courier_service'),
+            tracking_number=request.data.get('tracking_number'),
+            delivery_address=request.data.get('delivery_address')
         )
 
         # Update tailor/master status if busy

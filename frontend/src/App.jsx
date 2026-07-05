@@ -128,6 +128,10 @@ function App() {
   const [fabricTab, setFabricTab] = useState('boutique'); // 'my-fabric', 'boutique'
   const [paymentPhase, setPaymentPhase] = useState(false);
   const [paymentOption, setPaymentOption] = useState('full'); // 'full' or 'partial'
+  const [deliveryMethod, setDeliveryMethod] = useState('Direct Pickup');
+  const [courierService, setCourierService] = useState('');
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState('');
 
@@ -497,6 +501,11 @@ function App() {
     setFabricPreviews([]);
     setSelectedFabric(null);
     setSelectedTailor(null);
+    setSelectedMaster(null);
+    setDeliveryMethod('Direct Pickup');
+    setCourierService('');
+    setTrackingNumber('');
+    setDeliveryAddress('');
     setCurrentStep(1);
     setView('wizard');
   };
@@ -509,6 +518,12 @@ function App() {
       ...cust,
       measurements: cust.measurements || DEFAULT_CUSTOMER_DATA.measurements
     });
+    setSelectedTailor(null);
+    setSelectedMaster(null);
+    setDeliveryMethod('Direct Pickup');
+    setCourierService('');
+    setTrackingNumber('');
+    setDeliveryAddress('');
     
     // Start from the beginning (Step 1: Dress/Garment Type)
     setCurrentStep(1);
@@ -622,7 +637,11 @@ function App() {
       tailoring_charges: tailoring,
       packaging_handling: packaging,
       payment_status: paymentOption === 'full' ? 'Paid' : 'Partially Paid',
-      custom_requirements: specialInstructions || customerForm.custom_requirements
+      custom_requirements: specialInstructions || customerForm.custom_requirements,
+      delivery_method: deliveryMethod,
+      courier_service: deliveryMethod === 'Courier' ? courierService : null,
+      tracking_number: deliveryMethod === 'Courier' ? trackingNumber : null,
+      delivery_address: deliveryMethod === 'Courier' ? deliveryAddress : null
     };
 
     try {
@@ -1425,10 +1444,13 @@ function App() {
                                       .catch(err => alert("Failed to update status: " + err.message));
                                   }}
                                 >
+                                  <option value="Received">Received</option>
                                   <option value="Confirmed">Confirmed</option>
                                   <option value="Stylist Review">Stylist Review</option>
                                   <option value="Design & Creation">Design & Creation</option>
                                   <option value="Quality Check">Quality Check</option>
+                                  <option value="Ready for Dispatch">Ready for Dispatch</option>
+                                  <option value="Shipped">Shipped</option>
                                   <option value="Delivered">Delivered</option>
                                 </select>
                               </div>
@@ -1439,6 +1461,20 @@ function App() {
                               <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>
                               <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</span></div>
                               <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
+                            </div>
+
+                            {/* Delivery Information */}
+                            <div style={{ fontSize: '13px', background: 'rgba(0,0,0,0.01)', padding: '12px', borderRadius: '8px', border: '1px dashed var(--border-color)', marginTop: '4px' }}>
+                              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>Delivery Method: {order.delivery_method}</div>
+                              {order.delivery_method === 'Courier' && (
+                                <div style={{ color: 'var(--text-secondary)' }}>
+                                  <strong>Courier Service:</strong> {order.courier_service || 'TBD'} | 
+                                  <strong> Tracking #:</strong> {order.tracking_number || 'TBD'}
+                                  {order.delivery_address && (
+                                    <div style={{ marginTop: '4px' }}><strong>Shipping Address:</strong> {order.delivery_address}</div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))
@@ -1570,39 +1606,53 @@ function App() {
 
                         <div className="order-progress-steps-list">
                           {(() => {
-                            const stages = ['Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Packed & Shipped', 'Delivered'];
+                            const stages = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
                             const currentIdx = stages.indexOf(selectedDashboardOrder.order_status);
                             
                             return stages.map((title, idx) => {
-                              let state = 'upcoming';
-                              let sub = 'Upcoming';
-                              
-                              if (idx < currentIdx) {
-                                state = 'completed';
-                                if (title === 'Confirmed') {
-                                  sub = new Date(selectedDashboardOrder.order_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-                                } else {
-                                  sub = 'Completed';
+                                let state = 'upcoming';
+                                let sub = 'Upcoming';
+                                
+                                if (idx < currentIdx) {
+                                  state = 'completed';
+                                  if (title === 'Received') {
+                                    sub = new Date(selectedDashboardOrder.order_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                                  } else {
+                                    sub = 'Completed';
+                                  }
+                                } else if (idx === currentIdx) {
+                                  state = 'current';
+                                  sub = 'In Progress';
                                 }
-                              } else if (idx === currentIdx) {
-                                state = 'current';
-                                sub = 'In Progress';
-                              }
-                              
-                              return (
-                                <div key={idx} className={`progress-step-item ${state === 'completed' ? 'completed' : state === 'current' ? 'active' : ''}`}>
-                                  <div className="progress-step-dot"></div>
-                                  <div className="progress-step-info">
-                                    <span className="progress-step-title">{title === 'Confirmed' ? 'Order Confirmed' : title}</span>
-                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{sub}</span>
+                                
+                                return (
+                                  <div key={idx} className={`progress-step-item ${state === 'completed' ? 'completed' : state === 'current' ? 'active' : ''}`}>
+                                    <div className="progress-step-dot"></div>
+                                    <div className="progress-step-info">
+                                      <span className="progress-step-title">{title === 'Received' ? 'Order Received' : title}</span>
+                                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{sub}</span>
+                                    </div>
+                                    <span className={`progress-step-state-tag ${state === 'completed' ? 'completed' : state === 'current' ? 'current' : ''}`}>
+                                      {state === 'completed' ? 'Completed' : state === 'current' ? 'In Progress' : ''}
+                                    </span>
                                   </div>
-                                  <span className={`progress-step-state-tag ${state === 'completed' ? 'completed' : state === 'current' ? 'current' : ''}`}>
-                                    {state === 'completed' ? 'Completed' : state === 'current' ? 'In Progress' : ''}
-                                  </span>
-                                </div>
-                              );
+                                );
                             });
                           })()}
+                        </div>
+
+                        {/* Delivery Information */}
+                        <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '12px' }}>
+                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>Delivery Method: {selectedDashboardOrder.delivery_method}</div>
+                          {selectedDashboardOrder.delivery_method === 'Courier' && (
+                            <div style={{ color: 'var(--text-secondary)' }}>
+                              <strong>Carrier:</strong> {selectedDashboardOrder.courier_service || 'TBD'}<br />
+                              <strong>Tracking:</strong> {selectedDashboardOrder.tracking_number || 'TBD'}<br />
+                              {selectedDashboardOrder.delivery_address && (
+                                <div style={{ marginTop: '4px', whiteSpace: 'pre-line' }}><strong>Address:</strong> {selectedDashboardOrder.delivery_address}</div>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1622,7 +1672,7 @@ function App() {
                               }}
                               style={{
                                 background: 'rgba(255,255,255,0.05)',
-                                color: '#fff',
+                                color: 'var(--text-primary)',
                                 border: '1px solid rgba(255,255,255,0.15)',
                                 borderRadius: '6px',
                                 padding: '4px 8px',
@@ -1630,7 +1680,7 @@ function App() {
                                 cursor: 'pointer'
                               }}
                             >
-                              {['Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Packed & Shipped', 'Delivered'].map(status => (
+                              {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
                                 <option key={status} value={status} style={{ background: '#222', color: '#fff' }}>{status}</option>
                               ))}
                             </select>
@@ -1641,9 +1691,9 @@ function App() {
                               className="btn-primary" 
                               style={{ fontSize: '12px', padding: '8px 12px', justifyContent: 'center', width: '100%' }}
                               onClick={async () => {
-                                const stages = ['Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Packed & Shipped', 'Delivered'];
+                                const stages = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
                                 const currentIndex = stages.indexOf(selectedDashboardOrder.order_status);
-                                if (currentIndex !== -1 && currentIndex < 5) {
+                                if (currentIndex !== -1 && currentIndex < stages.length - 1) {
                                   const nextStatus = stages[currentIndex + 1];
                                   try {
                                     await api.updateOrderStatus(selectedDashboardOrder.id, nextStatus);
@@ -2014,18 +2064,21 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {ordersList.filter(o => ['Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check'].includes(o.order_status)).length === 0 ? (
+                          {ordersList.filter(o => ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped'].includes(o.order_status)).length === 0 ? (
                             <tr>
                               <td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                                 No active orders in creation phase.
                               </td>
                             </tr>
                           ) : (
-                            ordersList.filter(o => ['Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check'].includes(o.order_status)).map(order => (
+                            ordersList.filter(o => ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped'].includes(o.order_status)).map(order => (
                               <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                                 <td style={{ padding: '16px', fontSize: '14px' }}>
                                   <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{order.order_id}</div>
                                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{order.customer_name}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>
+                                    {order.delivery_method} {order.delivery_method === 'Courier' && `(${order.courier_service || 'TBD'})`}
+                                  </div>
                                 </td>
                                 <td style={{ padding: '16px' }}>
                                   <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
@@ -4928,6 +4981,76 @@ function App() {
                         ))
                       )}
                     </div>
+                  </div>
+                </div>
+
+                {/* Delivery Method Configuration Card */}
+                <div className="content-card" style={{ margin: '24px 0 0 0' }}>
+                  <div className="card-title">
+                    <Compass size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                    3. Delivery Method Configuration
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
+                    <div style={{ display: 'flex', gap: '24px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                        <input 
+                          type="radio" 
+                          name="deliveryMethod" 
+                          value="Direct Pickup"
+                          checked={deliveryMethod === 'Direct Pickup'}
+                          onChange={() => setDeliveryMethod('Direct Pickup')}
+                        />
+                        Direct Boutique Pickup
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                        <input 
+                          type="radio" 
+                          name="deliveryMethod" 
+                          value="Courier"
+                          checked={deliveryMethod === 'Courier'}
+                          onChange={() => setDeliveryMethod('Courier')}
+                        />
+                        Courier Delivery
+                      </label>
+                    </div>
+
+                    {deliveryMethod === 'Courier' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', background: 'rgba(0,0,0,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '8px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Courier Service Provider</label>
+                          <input 
+                            type="text" 
+                            className="form-control"
+                            placeholder="e.g. DHL, Blue Dart, FedEx"
+                            value={courierService}
+                            onChange={(e) => setCourierService(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Tracking Reference Number</label>
+                          <input 
+                            type="text" 
+                            className="form-control"
+                            placeholder="e.g. 123456789"
+                            value={trackingNumber}
+                            onChange={(e) => setTrackingNumber(e.target.value)}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', gridColumn: 'span 2' }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Shipping / Delivery Address</label>
+                          <textarea 
+                            className="form-control"
+                            rows="3"
+                            placeholder="Enter detailed delivery address..."
+                            value={deliveryAddress}
+                            onChange={(e) => setDeliveryAddress(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </>
