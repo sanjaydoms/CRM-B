@@ -165,11 +165,11 @@ SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://gbdabwahffdgdykbujpx.supa
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', 'sb_publishable_ywe7hKYBjIy9waeT3oTOWQ_kF2ySzjO')
 SUPABASE_BUCKET = 'boutique-crm'
 
-if SUPABASE_URL and SUPABASE_KEY and os.environ.get('USE_LOCAL_DB') != 'True':
-    DEFAULT_FILE_STORAGE = 'crm_api.storage.SupabaseStorage'
+if True:  # Use FileSystemStorage for local file uploads to bypass Supabase RLS policies
+    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
     STORAGES = {
         "default": {
-            "BACKEND": "crm_api.storage.SupabaseStorage",
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
         },
         "staticfiles": {
             "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
