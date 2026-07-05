@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification
 
 class TailorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -225,3 +225,8 @@ class CustomerSerializer(serializers.ModelSerializer):
             measurements_instance.save()
             
         return instance
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = '__all__'

@@ -137,3 +137,14 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order {self.order_id} - {self.customer.first_name} {self.customer.last_name}"
+
+class Notification(models.Model):
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    recipient_role = models.CharField(max_length=50) # Owner, Master, Tailor, Customer
+    recipient_email = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.recipient_role} - {self.title}"

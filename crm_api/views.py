@@ -9,11 +9,11 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.db.models import Sum, Count
 
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification
 from .serializers import (
     CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer, 
     FabricSelectionSerializer, TailorSerializer, OrderSerializer, BoutiqueFabricSerializer,
-    BoutiqueDesignSerializer
+    BoutiqueDesignSerializer, NotificationSerializer
 )
 
 class CustomerViewSet(viewsets.ModelViewSet):
@@ -171,6 +171,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
             advance_paid=advance_paid,
             amount_paid=amount_paid
         )
+        
+        # Trigger initial notification alert setup
+        create_order_notifications(order, created=True)
 
         # Update tailor/master status if busy
         if tailor:
@@ -228,11 +231,82 @@ class BoutiqueDesignViewSet(viewsets.ModelViewSet):
     queryset = BoutiqueDesign.objects.all()
     serializer_class = BoutiqueDesignSerializer
 
+def create_order_notifications(order, created=False):
+    client_name = f"{order.customer.first_name} {order.customer.last_name}"
+    client_email = order.customer.email
+    
+    if created:
+        Notification.objects.create(
+            title=f"New Order Received: {order.order_id}",
+            message=f"A new custom order has been received for client {client_name}.",
+            recipient_role="Owner"
+        )
+        Notification.objects.create(
+            title=f"Order Confirmed: {order.order_id}",
+            message=f"Dear {order.customer.first_name}, we have received your order {order.order_id}! We will update you as it progresses.",
+            recipient_role="Customer",
+            recipient_email=client_email
+        )
+        if order.master:
+            Notification.objects.create(
+                title=f"New Assignment: {order.order_id}",
+                message=f"Order {order.order_id} for client {client_name} has been assigned to you as Supervising Master.",
+                recipient_role="Master",
+                recipient_email=order.master.user.email if order.master.user else None
+            )
+        if order.tailor:
+            Notification.objects.create(
+                title=f"New Stitching Task: {order.order_id}",
+                message=f"Order {order.order_id} has been assigned to you for stitching.",
+                recipient_role="Tailor",
+                recipient_email=order.tailor.user.email if order.tailor.user else None
+            )
+    else:
+        status = order.order_status
+        Notification.objects.create(
+            title=f"Order {order.order_id} Update: {status}",
+            message=f"Order {order.order_id} status updated to {status}.",
+            recipient_role="Owner"
+        )
+        
+        cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} status has been updated to: {status}."
+        if status == 'Design & Creation':
+            cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} is now in the Design & Creation phase. Our master tailors are crafting it!"
+        elif status == 'Ready for Dispatch':
+            cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} has passed quality checks and is Ready for Dispatch!"
+        elif status == 'Shipped':
+            if order.delivery_method == 'Courier':
+                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been Shipped via {order.courier_service or 'Courier'}! Tracking Number: {order.tracking_number or 'TBD'}."
+            else:
+                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been dispatched for direct pickup!"
+        elif status == 'Delivered':
+            balance = float(order.total_amount) - float(order.amount_paid or 0)
+            if balance > 0:
+                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered! Please complete your remaining balance of ₹{balance:.2f}."
+            else:
+                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered. We hope you love your bespoke garment!"
+
+        Notification.objects.create(
+            title=f"Order Update: {status}",
+            message=cust_msg,
+            recipient_role="Customer",
+            recipient_email=client_email
+        )
+
+        if status == 'Design & Creation' and order.tailor:
+            Notification.objects.create(
+                title=f"Stitching Ready: {order.order_id}",
+                message=f"Order {order.order_id} is now in Design & Creation phase and ready for stitching.",
+                recipient_role="Tailor",
+                recipient_email=order.tailor.user.email if order.tailor.user else None
+            )
+
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all().order_by('-order_date')
     serializer_class = OrderSerializer
 
     def perform_update(self, serializer):
+        old_status = self.get_object().order_status
         order = serializer.save()
         if order.payment_status == 'Paid':
             order.amount_paid = order.total_amount
@@ -240,15 +314,51 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.amount_paid = 0.00
         order.save()
 
+        if old_status != order.order_status:
+            create_order_notifications(order, created=False)
+
     @action(detail=True, methods=['PATCH'], url_path='update-status')
     def update_status(self, request, pk=None):
         order = self.get_object()
+        old_status = order.order_status
         new_status = request.data.get('status')
         if new_status:
             order.order_status = new_status
             order.save()
+            if old_status != new_status:
+                create_order_notifications(order, created=False)
             return Response({'status': 'status updated', 'order_status': order.order_status})
         return Response({'error': 'no status provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+class NotificationViewSet(viewsets.ModelViewSet):
+    queryset = Notification.objects.all().order_by('-created_at')
+    serializer_class = NotificationSerializer
+
+    def get_queryset(self):
+        role = self.request.query_params.get('role', 'Owner')
+        email = self.request.query_params.get('email', None)
+        qs = Notification.objects.all()
+        if role == 'Owner':
+            return qs.filter(recipient_role='Owner').order_by('-created_at')
+        elif role in ['Master', 'Tailor']:
+            if email:
+                return qs.filter(recipient_role=role, recipient_email=email).order_by('-created_at')
+            return qs.filter(recipient_role=role).order_by('-created_at')
+        return qs.order_by('-created_at')
+
+    @action(detail=False, methods=['POST'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        role = request.query_params.get('role', 'Owner')
+        email = request.query_params.get('email', None)
+        qs = Notification.objects.filter(is_read=False)
+        if role == 'Owner':
+            qs.filter(recipient_role='Owner').update(is_read=True)
+        elif role in ['Master', 'Tailor']:
+            if email:
+                qs.filter(recipient_role=role, recipient_email=email).update(is_read=True)
+            else:
+                qs.filter(recipient_role=role).update(is_read=True)
+        return Response({'status': 'marked as read'})
 
 class DashboardView(views.APIView):
     def get(self, request):

@@ -247,6 +247,19 @@ function App() {
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
+  
+  const [notifications, setNotifications] = useState([]);
+  const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
+
+  const fetchNotifications = async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api.getNotifications(currentUser.role || 'Owner', currentUser.email);
+      setNotifications(data);
+    } catch (err) {
+      console.error("Failed to load notifications:", err);
+    }
+  };
 
   // Persisted Session check
   useEffect(() => {
@@ -294,6 +307,8 @@ function App() {
 
       const ordList = await api.getOrders();
       setOrdersList(ordList);
+
+      await fetchNotifications();
 
       // Default select first order in the dashboard tracker
       if (dbData?.recent_orders?.length > 0) {
@@ -1337,7 +1352,48 @@ function App() {
           <aside className="portal-sidebar">
             <div className="portal-sidebar-logo">TRYON2BUY</div>
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
-            
+
+            <div style={{ padding: '0 20px', marginBottom: '16px', marginTop: '16px' }}>
+              <button 
+                onClick={() => {
+                  setShowNotificationsDrawer(true);
+                  api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
+                    .then(() => fetchNotifications());
+                }}
+                className="btn-secondary"
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  position: 'relative',
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  backgroundColor: 'rgba(0,0,0,0.02)'
+                }}
+              >
+                <Bell size={16} />
+                <span>Inbox Alerts</span>
+                {notifications.filter(n => !n.is_read).length > 0 && (
+                  <span style={{
+                    backgroundColor: '#ff4d4d',
+                    color: '#fff',
+                    borderRadius: '10px',
+                    padding: '2px 8px',
+                    fontSize: '10px',
+                    fontWeight: 700
+                  }}>
+                    {notifications.filter(n => !n.is_read).length}
+                  </span>
+                )}
+              </button>
+            </div>
+
             <nav className="portal-menu">
               {(!currentUser.role || currentUser.role === 'Owner') ? (
                 <>
@@ -6553,6 +6609,78 @@ function App() {
                 Print Invoice
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications Drawer */}
+      {showNotificationsDrawer && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          width: '400px',
+          height: '100%',
+          backgroundColor: 'var(--surface-color)',
+          borderLeft: '1px solid var(--border-color)',
+          boxShadow: '-4px 0 24px rgba(0,0,0,0.15)',
+          zIndex: 1000,
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '20px',
+            borderBottom: '1px solid var(--border-color)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Bell size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+              <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0, fontFamily: 'var(--font-serif)' }}>Atelier Alerts</h3>
+            </div>
+            <button 
+              className="btn-secondary" 
+              style={{ padding: '4px 10px', fontSize: '12px' }}
+              onClick={() => setShowNotificationsDrawer(false)}
+            >
+              Close
+            </button>
+          </div>
+
+          {/* List */}
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            {notifications.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
+                No notifications received yet.
+              </div>
+            ) : (
+              notifications.map(n => (
+                <div key={n.id} style={{
+                  padding: '16px',
+                  backgroundColor: n.is_read ? 'rgba(0,0,0,0.01)' : 'rgba(212,175,55,0.04)',
+                  border: `1px solid ${n.is_read ? 'var(--border-color)' : 'rgba(212,175,55,0.2)'}`,
+                  borderRadius: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)' }}>{n.title}</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>{n.message}</p>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}

@@ -357,5 +357,28 @@ export const api = {
     });
     if (!res.ok) throw new Error('Failed to fetch orders');
     return res.json();
+  },
+
+  async getNotifications(role = 'Owner', email = '') {
+    const url = new URL(`${BASE_URL}/notifications/`);
+    url.searchParams.append('role', role);
+    if (email) url.searchParams.append('email', email);
+    const res = await fetch(url.toString(), {
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch notifications');
+    return res.json();
+  },
+
+  async markNotificationsAsRead(role = 'Owner', email = '') {
+    const url = new URL(`${BASE_URL}/notifications/mark-all-read/`);
+    url.searchParams.append('role', role);
+    if (email) url.searchParams.append('email', email);
+    const res = await fetch(url.toString(), {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to mark notifications as read');
+    return res.json();
   }
 };
