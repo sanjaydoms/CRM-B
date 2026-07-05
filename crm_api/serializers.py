@@ -53,6 +53,9 @@ class CustomerSerializer(serializers.ModelSerializer):
     fabric_selections = FabricSelectionSerializer(many=True, read_only=True)
     orders = OrderSerializer(many=True, read_only=True)
     style_dna = serializers.SerializerMethodField()
+    segment = serializers.SerializerMethodField()
+    total_spend = serializers.SerializerMethodField()
+    order_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -64,8 +67,26 @@ class CustomerSerializer(serializers.ModelSerializer):
             'custom_requirements', 'date_of_birth', 'occupation',
             'preferred_communication', 'notes', 'profile_photo',
             'measurements', 'design_preferences', 'fabric_selections', 'orders',
-            'style_dna', 'created_at', 'updated_at'
+            'style_dna', 'segment', 'total_spend', 'order_count', 'created_at', 'updated_at'
         ]
+
+    def get_total_spend(self, obj):
+        return sum(float(o.total_amount) for o in obj.orders.all())
+
+    def get_order_count(self, obj):
+        return obj.orders.count()
+
+    def get_segment(self, obj):
+        total_spend = self.get_total_spend(obj)
+        order_count = self.get_order_count(obj)
+        
+        # Segment logic
+        if total_spend >= 75000 or order_count >= 3:
+            return "VIP"
+        elif total_spend >= 20000 or order_count >= 1:
+            return "HVC"
+        else:
+            return "General"
 
     def get_style_dna(self, obj):
         # 1. Calculate Budget Category

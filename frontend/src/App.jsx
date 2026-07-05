@@ -1999,9 +1999,23 @@ function App() {
                               <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cust.first_name)}`} alt="Profile" />
                             </div>
                             <div>
-                              <h4 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{cust.first_name} {cust.last_name}</h4>
-                              <span style={{ fontSize: '12px', color: 'var(--accent-color, #d4af37)', textTransform: 'uppercase', fontWeight: 600 }}>{cust.customer_type}</span>
-                            </div>
+                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                 <h4 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{cust.first_name} {cust.last_name}</h4>
+                                 <span style={{
+                                   fontSize: '9px',
+                                   fontWeight: 700,
+                                   padding: '2px 6px',
+                                   borderRadius: '4px',
+                                   background: cust.segment === 'VIP' ? 'rgba(212, 175, 55, 0.15)' : cust.segment === 'HVC' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(156, 163, 175, 0.15)',
+                                   color: cust.segment === 'VIP' ? '#d4af37' : cust.segment === 'HVC' ? '#a855f7' : '#9ca3af',
+                                   border: cust.segment === 'VIP' ? '1px solid rgba(212, 175, 55, 0.3)' : cust.segment === 'HVC' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)',
+                                   textTransform: 'uppercase'
+                                 }}>
+                                   {cust.segment}
+                                 </span>
+                               </div>
+                               <span style={{ fontSize: '12px', color: 'var(--accent-color, #d4af37)', textTransform: 'uppercase', fontWeight: 600 }}>{cust.customer_type}</span>
+                             </div>
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
                             <div>📞 {cust.mobile_number}</div>
@@ -2402,10 +2416,24 @@ function App() {
                   <div className="user-avatar-circle" style={{ width: '80px', height: '80px', fontSize: '24px', borderRadius: '50%', overflow: 'hidden' }}>
                     <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(selectedDirectoryCustomer.first_name)}`} alt="Profile" />
                   </div>
-                  <div>
-                    <h2 style={{ fontSize: '24px', fontWeight: 600, margin: '0 0 6px 0', color: '#fff' }}>
-                      {selectedDirectoryCustomer.first_name} {selectedDirectoryCustomer.last_name}
-                    </h2>
+                   <div>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '0 0 6px 0' }}>
+                       <h2 style={{ fontSize: '24px', fontWeight: 600, margin: 0, color: '#fff' }}>
+                         {selectedDirectoryCustomer.first_name} {selectedDirectoryCustomer.last_name}
+                       </h2>
+                       <span style={{
+                         fontSize: '11px',
+                         fontWeight: 700,
+                         padding: '3px 10px',
+                         borderRadius: '12px',
+                         background: selectedDirectoryCustomer.segment === 'VIP' ? 'rgba(212, 175, 55, 0.15)' : selectedDirectoryCustomer.segment === 'HVC' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(156, 163, 175, 0.15)',
+                         color: selectedDirectoryCustomer.segment === 'VIP' ? '#d4af37' : selectedDirectoryCustomer.segment === 'HVC' ? '#a855f7' : '#9ca3af',
+                         border: selectedDirectoryCustomer.segment === 'VIP' ? '1px solid rgba(212, 175, 55, 0.3)' : selectedDirectoryCustomer.segment === 'HVC' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)',
+                         textTransform: 'uppercase'
+                       }}>
+                         {selectedDirectoryCustomer.segment}
+                       </span>
+                     </div>
                     <div style={{ display: 'flex', gap: '20px', fontSize: '14px', color: 'var(--text-secondary)' }}>
                       <span>📞 {selectedDirectoryCustomer.mobile_number}</span>
                       {selectedDirectoryCustomer.email_address && <span>✉️ {selectedDirectoryCustomer.email_address}</span>}
@@ -2842,6 +2870,45 @@ function App() {
                               </div>
                             );
                           })}
+                        </div>
+                      </div>
+
+                      <div className="analytics-card-section" style={{
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px solid rgba(255,255,255,0.05)',
+                        borderRadius: '12px',
+                        padding: '24px'
+                      }}>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Customer Segmentation</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          {(() => {
+                            const vipCount = customersList.filter(c => c.segment === 'VIP').length;
+                            const hvcCount = customersList.filter(c => c.segment === 'HVC').length;
+                            const generalCount = customersList.filter(c => c.segment === 'General').length;
+                            const total = customersList.length || 1;
+
+                            return [
+                              { name: 'VIP (Very Important Customer)', count: vipCount, color: '#d4af37' },
+                              { name: 'HVC (High Value Customer)', count: hvcCount, color: '#a855f7' },
+                              { name: 'General Customers', count: generalCount, color: '#9ca3af' }
+                            ].map((seg, idx) => {
+                              const pct = Math.round((seg.count / total) * 100);
+                              return (
+                                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: seg.color }}></span>
+                                      {seg.name}
+                                    </span>
+                                    <span style={{ fontWeight: 600 }}>{seg.count} ({pct}%)</span>
+                                  </div>
+                                  <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                                    <div style={{ width: `${pct}%`, height: '100%', background: seg.color, borderRadius: '3px' }}></div>
+                                  </div>
+                                </div>
+                              );
+                            });
+                          })()}
                         </div>
                       </div>
 
