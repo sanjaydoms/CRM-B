@@ -829,7 +829,7 @@ function App() {
       {view === 'landing' && (
         <div className="landing-page">
           <nav className="landing-navbar">
-            <div className="brand-logo">TRYON2BUY</div>
+            <div className="brand-logo">SCALEEZY</div>
             <ul className="landing-nav-links">
               <li><a href="#home">Home</a></li>
               <li><a href="#how">How it Works</a></li>
@@ -886,7 +886,7 @@ function App() {
 
           {/* How it works */}
           <section className="experience-section" id="how">
-            <h2>The TryOn2Buy Experience</h2>
+            <h2>The Scaleezy Experience</h2>
             <p className="sec-desc">A seamless journey from your vision to your doorstep.</p>
             
             <div className="experience-grid">
@@ -994,7 +994,7 @@ function App() {
           {/* Copyright Footer */}
           <footer className="copyright-footer">
             <div>
-              <div className="brand-logo" style={{ fontSize: '18px', marginBottom: '8px' }}>TRYON2BUY</div>
+              <div className="brand-logo" style={{ fontSize: '18px', marginBottom: '8px' }}>SCALEEZY</div>
               <div>© 2026 Vastra AI. All rights reserved. Your Vision. Our Craft.</div>
             </div>
             <div className="footer-links">
@@ -1010,7 +1010,7 @@ function App() {
       {/* 2. SIGN IN SCREEN (Image 2) */}
       {view === 'login' && (
         <div className="auth-page">
-          <div className="auth-logo">TRYON2BUY</div>
+          <div className="auth-logo">SCALEEZY</div>
           <div className="auth-logo-sub">YOUR VISION. OUR CRAFT.</div>
 
           <div className="auth-card">
@@ -1099,7 +1099,7 @@ function App() {
       {/* 3. SIGN UP SCREEN (Image 3) */}
       {view === 'signup' && (
         <div className="auth-page">
-          <div className="auth-logo">TRYON2BUY</div>
+          <div className="auth-logo">SCALEEZY</div>
           <div className="auth-logo-sub">YOUR VISION. OUR CRAFT.</div>
 
           {/* Auth Steps Tracker */}
@@ -1122,7 +1122,7 @@ function App() {
             {signupStep === 1 && (
               <>
                 <h2 className="auth-title">Create your account</h2>
-                <p className="auth-subtitle">Join TryOn2Buy and start your custom creation journey.</p>
+                <p className="auth-subtitle">Join Scaleezy and start your custom creation journey.</p>
                 
                 <form onSubmit={handleSignupSubmit} className="auth-form">
                   <div className="form-grid-2">
@@ -1325,7 +1325,7 @@ function App() {
               <div style={{ textAlign: 'center', padding: '32px' }}>
                 <div className="success-circle" style={{ margin: '0 auto 20px' }}><Check size={36} /></div>
                 <h2 className="auth-title">Registration Complete!</h2>
-                <p style={{ color: 'var(--text-secondary)' }}>Welcome to TryOn2Buy. Redirecting you to the portal workspace...</p>
+                <p style={{ color: 'var(--text-secondary)' }}>Welcome to Scaleezy. Redirecting you to the portal workspace...</p>
               </div>
             )}
           </div>
@@ -1355,7 +1355,7 @@ function App() {
         <div className="portal-layout">
           {/* Sidebar */}
           <aside className="portal-sidebar">
-            <div className="portal-sidebar-logo">TRYON2BUY</div>
+            <div className="portal-sidebar-logo">SCALEEZY</div>
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
 
             <div style={{ padding: '0 20px', marginBottom: '16px', marginTop: '16px' }}>
@@ -4343,7 +4343,7 @@ function App() {
         <div className="portal-layout">
           {/* Reuse Sidebar for Portal Continuity */}
           <aside className="portal-sidebar">
-            <div className="portal-sidebar-logo">TRYON2BUY</div>
+            <div className="portal-sidebar-logo">SCALEEZY</div>
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             
             <nav className="portal-menu">
@@ -4547,7 +4547,7 @@ function App() {
           {/* Brand header & stepper */}
           <div className="wizard-header-container" style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: '#fff', padding: '16px 24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', maxWidth: '1280px', margin: '0 auto 16px' }}>
-              <div className="brand-logo" style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '1px', color: 'var(--text-primary)' }}>TRYON2BUY</div>
+              <div className="brand-logo" style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '1px', color: 'var(--text-primary)' }}>SCALEEZY</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                   <HelpCircle size={16} /> Need help?
@@ -4619,7 +4619,7 @@ function App() {
               <>
                 <div className="page-title-group">
                   <h1 className="page-title">Create Customer</h1>
-                  <p className="page-subtitle">Onboard new clients into the TryOn2Buy ecosystem. Capture style preferences and measurements for a personalized atelier experience.</p>
+                  <p className="page-subtitle">Onboard new clients into the Scaleezy ecosystem. Capture style preferences and measurements for a personalized atelier experience.</p>
                 </div>
 
                 <div className="content-card">
@@ -5897,7 +5897,7 @@ function App() {
 
                     <div className="accent-banner" style={{ margin: '4px 0 16px', backgroundColor: '#e2f5ec', borderColor: '#c3ebdb', color: '#107c41', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <ShieldCheck size={16} />
-                      <span>Your order is safe and secure with TryOn2Buy.</span>
+                      <span>Your order is safe and secure with Scaleezy.</span>
                     </div>
 
                     {/* Order Review Summary Row */}
@@ -6132,7 +6132,7 @@ function App() {
                     Privacy Assured
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    Customer details, style files, and measurement records are saved exclusively to the TryOn2Buy database cluster and never shared.
+                    Customer details, style files, and measurement records are saved exclusively to the Scaleezy database cluster and never shared.
                   </p>
                 </div>
               </>
@@ -6367,7 +6367,7 @@ function App() {
                   </div>
                 ) : (
                   <div className="sidebar-card">
-                    <h5 style={{ fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>Why choose TryOn2Buy?</h5>
+                    <h5 style={{ fontSize: '13px', fontWeight: 600, marginBottom: '16px' }}>Why choose Scaleezy?</h5>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       <div>
                         <h6 style={{ fontSize: '11px', fontWeight: 600 }}>Trusted Tailors</h6>
@@ -6576,7 +6576,7 @@ function App() {
               {/* Invoice Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
                 <div>
-                  <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '1px', color: '#0f291e', margin: 0 }}>TRYON2BUY</h1>
+                  <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '1px', color: '#0f291e', margin: 0 }}>SCALEEZY</h1>
                   <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Bespoke Atelier CRM</span>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -6599,7 +6599,7 @@ function App() {
                 </div>
                 <div>
                   <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Atelier Details:</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>TryOn2Buy Boutique Portal</span>
+                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>Scaleezy Boutique Portal</span>
                   <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>Boutique Owner: {currentUser?.first_name || 'Aditi'} {currentUser?.last_name || 'Mehta'}</span>
                   {selectedTailor && (
                     <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -6729,7 +6729,7 @@ function App() {
 
               {/* Terms Footer */}
               <div style={{ borderTop: '1px solid #eaecef', marginTop: '48px', paddingTop: '20px', textAlign: 'center', fontSize: '10px', color: 'var(--text-secondary)' }}>
-                <p style={{ margin: '0 0 4px 0' }}>Thank you for creating your bespoke order with **TRYON2BUY** Atelier.</p>
+                <p style={{ margin: '0 0 4px 0' }}>Thank you for creating your bespoke order with **SCALEEZY** Atelier.</p>
                 <p style={{ margin: 0 }}>This is a computer-generated invoice and does not require a physical signature.</p>
               </div>
             </div>
