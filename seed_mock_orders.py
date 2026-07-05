@@ -12,17 +12,65 @@ from crm_api.models import Customer, Measurement, Tailor, Order, OrderStageHisto
 import datetime
 
 def seed_tenant_orders(schema_name):
-    print(f"Seeding mock customers and orders for schema: {schema_name}")
+    print(f"Seeding mock customers, team users, and orders for schema: {schema_name}")
     with schema_context(schema_name):
-        # 1. Clear existing orders/customers to start fresh if needed
+        # 1. Clear existing orders/customers/tailors to start clean
         OrderStageHistory.objects.all().delete()
         Order.objects.all().delete()
         Customer.objects.all().delete()
         Notification.objects.all().delete()
+        
+        # Deleting tailors first
+        Tailor.objects.all().delete()
+        
+        # Clean up existing users in this schema except owners (owner@tryon2buy.com, sanjay.garlapenta@domsglobal.co)
+        for u in list(User.objects.all()):
+            if "owner" not in u.email and "sanjay" not in u.email and u.username != "admin":
+                print(f"Deleting user: {u.username}")
+                u.delete()
 
-        # 2. Get tailors/masters to assign
-        master = Tailor.objects.filter(role='Master').first()
-        tailor = Tailor.objects.filter(role='Tailor').first()
+        # 2. Seed Mock Tailors & Masters with Django User Login Accounts
+        tailors_config = [
+            {"name": "Rohit Mehra", "specialty": "Ethnic & Bridal Cutting", "rating": 4.90, "status": "Available", "role": "Master", "email": "rohit.master@tryon2buy.com"},
+            {"name": "Anya Sharma", "specialty": "Blouse & Lehenga Specialist", "rating": 4.80, "status": "Available", "role": "Tailor", "email": "anya.tailor@tryon2buy.com"},
+            {"name": "Rahul Verma", "specialty": "Suit & Gown Specialist", "rating": 4.70, "status": "Available", "role": "Tailor", "email": "rahul.tailor@tryon2buy.com"},
+            {"name": "Preeti Singh", "specialty": "Embroidery Specialist", "rating": 4.95, "status": "Available", "role": "Tailor", "email": "preeti.tailor@tryon2buy.com"},
+        ]
+
+        seeded_tailors = []
+        for t in tailors_config:
+            username = t["email"].split('@')[0]
+            # Ensure unique username
+            orig_username = username
+            c = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{orig_username}{c}"
+                c += 1
+            
+            user = User.objects.create_user(
+                username=username,
+                email=t["email"],
+                password="TailorSecure2026!",
+                first_name=t["name"].split(' ')[0],
+                last_name=t["name"].split(' ')[1] if len(t["name"].split(' ')) > 1 else ''
+            )
+            
+            # Re-fetch from DB to guarantee it exists and sequences are stable
+            user = User.objects.get(id=user.id)
+            
+            tailor_obj = Tailor.objects.create(
+                name=t["name"],
+                specialty=t["specialty"],
+                rating=t["rating"],
+                status=t["status"],
+                role=t["role"],
+                email=t["email"],
+                user=user
+            )
+            seeded_tailors.append(tailor_obj)
+
+        master = next(t for t in seeded_tailors if t.role == 'Master')
+        tailor = next(t for t in seeded_tailors if t.role == 'Tailor')
 
         # 3. Create mock customers
         customers = [
@@ -195,13 +243,16 @@ def seed_tenant_orders(schema_name):
             title="Stitching Task Ready",
             message="Order ORD-2026-0002 has transitioned to Design & Creation and is ready for tailoring.",
             recipient_role="Tailor",
-            recipient_email=tailor.user.email if (tailor and tailor.user) else None
+            recipient_email=tailor.email if tailor else None
         )
-        print("Mocks seeded successfully!")
+        print("Mocks and login credentials seeded successfully!")
 
 def seed_all():
     for tenant in BoutiqueTenant.objects.exclude(schema_name='public'):
-        seed_tenant_orders(tenant.schema_name)
+        try:
+            seed_tenant_orders(tenant.schema_name)
+        except Exception as e:
+            print(f"Error seeding tenant {tenant.schema_name}: {e}")
 
 if __name__ == '__main__':
     seed_all()
