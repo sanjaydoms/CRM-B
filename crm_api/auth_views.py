@@ -117,7 +117,13 @@ class LoginView(views.APIView):
             # Switch connection to the tenant's schema
             connection.set_tenant(tenant)
 
-            user = authenticate(username=username_or_email, password=password)
+            username_to_auth = username_or_email
+            if '@' in username_or_email:
+                user_obj = User.objects.filter(email=username_or_email).first()
+                if user_obj:
+                    username_to_auth = user_obj.username
+
+            user = authenticate(username=username_to_auth, password=password)
             if not user:
                 # Revert schema context on failure
                 connection.set_schema_to_public()
