@@ -108,6 +108,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
             except Tailor.DoesNotExist:
                 pass
 
+        master_id = request.data.get('master_id')
+        master = None
+        if master_id:
+            try:
+                master = Tailor.objects.get(id=master_id)
+            except Tailor.DoesNotExist:
+                pass
+
         # Pricing components
         base_price = float(request.data.get('base_price', 0.0))
         fabric_price = float(request.data.get('fabric_price', 0.0))
@@ -133,6 +141,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
             order_id=order_id,
             customer=customer,
             tailor=tailor,
+            master=master,
             payment_status=request.data.get('payment_status', 'Paid'),
             order_status='Confirmed',
             base_price=base_price,
@@ -146,10 +155,13 @@ class CustomerViewSet(viewsets.ModelViewSet):
             estimated_delivery=est_delivery
         )
 
-        # Update tailor status if busy
+        # Update tailor/master status if busy
         if tailor:
             tailor.status = 'Busy'
             tailor.save()
+        if master:
+            master.status = 'Busy'
+            master.save()
 
         serializer = OrderSerializer(order)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

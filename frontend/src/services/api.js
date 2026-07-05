@@ -234,6 +234,16 @@ export const api = {
     return res.json();
   },
 
+  async updateOrder(orderId, orderData) {
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(orderData),
+    });
+    if (!res.ok) throw new Error('Failed to update order');
+    return res.json();
+  },
+
   // Fabrics CRUD
   async createFabric(fabricData) {
     const res = await fetch(`${BASE_URL}/fabrics/`, {

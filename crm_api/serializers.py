@@ -33,12 +33,14 @@ class FabricSelectionSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     tailor_name = serializers.CharField(source='tailor.name', read_only=True)
+    master_name = serializers.CharField(source='master.name', read_only=True)
     customer_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
             'id', 'order_id', 'customer', 'customer_name', 'tailor', 'tailor_name',
+            'master', 'master_name',
             'payment_status', 'order_status', 'base_price', 'fabric_price',
             'embroidery_price', 'customization_price', 'tailoring_charges',
             'packaging_handling', 'taxes', 'total_amount', 'order_date', 'estimated_delivery'

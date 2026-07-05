@@ -3,16 +3,16 @@ from crm_api.models import Tailor, BoutiqueFabric, BoutiqueDesign
 def seed_tenant_defaults():
     # Seed Tailors
     tailors = [
-        {"name": "Rohit Mehra", "specialty": "Master Tailor", "rating": 4.90, "status": "Available"},
-        {"name": "Anya Sharma", "specialty": "Blouse & Lehenga Specialist", "rating": 4.80, "status": "Available"},
-        {"name": "Rahul Verma", "specialty": "Suit & Gown Specialist", "rating": 4.70, "status": "Available"},
-        {"name": "Preeti Singh", "specialty": "Embroidery Specialist", "rating": 4.95, "status": "Available"},
+        {"name": "Rohit Mehra", "specialty": "Ethnic & Bridal Cutting", "rating": 4.90, "status": "Available", "role": "Master"},
+        {"name": "Anya Sharma", "specialty": "Blouse & Lehenga Specialist", "rating": 4.80, "status": "Available", "role": "Tailor"},
+        {"name": "Rahul Verma", "specialty": "Suit & Gown Specialist", "rating": 4.70, "status": "Available", "role": "Tailor"},
+        {"name": "Preeti Singh", "specialty": "Embroidery Specialist", "rating": 4.95, "status": "Available", "role": "Tailor"},
     ]
 
     for t in tailors:
         Tailor.objects.get_or_create(
             name=t["name"],
-            defaults={"specialty": t["specialty"], "rating": t["rating"], "status": t["status"]}
+            defaults={"specialty": t["specialty"], "rating": t["rating"], "status": t["status"], "role": t["role"]}
         )
 
     # Seed Boutique Fabrics

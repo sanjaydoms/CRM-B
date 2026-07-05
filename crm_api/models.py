@@ -100,14 +100,16 @@ class Tailor(models.Model):
     specialty = models.CharField(max_length=100)
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=5.00)
     status = models.CharField(max_length=50, default="Available") # Available, Busy
+    role = models.CharField(max_length=50, default="Tailor") # Master, Tailor
 
     def __str__(self):
-        return f"{self.name} - {self.specialty} ({self.status})"
+        return f"{self.name} - {self.role} ({self.status})"
 
 class Order(models.Model):
     order_id = models.CharField(max_length=50, unique=True) # e.g. T2B-240529-7856
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='orders')
     tailor = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
+    master = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='supervised_orders')
     payment_status = models.CharField(max_length=50, default="Pending") # Pending, Paid
     order_status = models.CharField(max_length=50, default="Confirmed") # Confirmed, Stylist Review, Design & Creation, Quality Check, Packed & Shipped
     

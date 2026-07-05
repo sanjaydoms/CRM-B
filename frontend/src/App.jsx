@@ -155,6 +155,7 @@ function App() {
   const [selectedFabric, setSelectedFabric] = useState(null);
   const [fabricFilter, setFabricFilter] = useState('All');
   const [selectedTailor, setSelectedTailor] = useState(null);
+  const [selectedMaster, setSelectedMaster] = useState(null);
   const [quotePrices, setQuotePrices] = useState({
     base: 0,
     fabric: 0,
@@ -184,7 +185,8 @@ function App() {
     name: '',
     specialty: '',
     rating: 5.0,
-    status: 'Available'
+    status: 'Available',
+    role: 'Tailor'
   });
 
   // Designs CRUD State
@@ -339,7 +341,7 @@ function App() {
       }
       setShowTailorModal(false);
       setEditingTailor(null);
-      setTailorForm({ name: '', specialty: '', rating: 5.0, status: 'Available' });
+      setTailorForm({ name: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save tailor: " + err.message);
@@ -354,6 +356,15 @@ function App() {
       } catch (err) {
         alert("Failed to delete tailor: " + err.message);
       }
+    }
+  };
+
+  const handleAssignWorkflow = async (orderId, updates) => {
+    try {
+      await api.updateOrder(orderId, updates);
+      fetchDashboardAndConfig();
+    } catch (err) {
+      alert("Failed to update staff assignment: " + err.message);
     }
   };
 
@@ -591,6 +602,7 @@ function App() {
 
     const payload = {
       tailor_id: selectedTailor ? selectedTailor.id : null,
+      master_id: selectedMaster ? selectedMaster.id : null,
       base_price: base,
       fabric_price: fabricPrice,
       embroidery_price: embroidery,
@@ -1706,7 +1718,7 @@ function App() {
                   <div className="portal-header-right">
                     <button className="btn-primary" onClick={() => {
                       setEditingTailor(null);
-                      setTailorForm({ name: '', specialty: '', rating: 5.0, status: 'Available' });
+                      setTailorForm({ name: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
                       setShowTailorModal(true);
                     }}>
                       <Plus size={16} />
@@ -1721,74 +1733,201 @@ function App() {
                   </div>
                 </header>
 
-                <div className="tailor-manager-content" style={{ marginTop: '24px' }}>
-                  <div className="tailors-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
-                    {tailors.map(tailor => (
-                      <div key={tailor.id} className="tailor-manage-card" style={{
-                        background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                        border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                        borderRadius: '12px',
-                        padding: '16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        gap: '16px'
-                      }}>
-                        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                          <div className="tailor-avatar" style={{
-                            width: '60px',
-                            height: '60px',
-                            borderRadius: '50%',
-                            background: 'var(--border-color, rgba(255,255,255,0.08))',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '20px',
-                            fontWeight: 600,
-                            color: 'var(--accent-color, #d4af37)',
-                            overflow: 'hidden'
-                          }}>
-                            <img 
-                              src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailor.name)}`} 
-                              alt={tailor.name} 
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            />
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <h4 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>{tailor.name}</h4>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Specialty: {tailor.specialty}</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                              <Star size={12} fill="#d4af37" color="#d4af37" />
-                              <span style={{ fontSize: '12px', fontWeight: 600 }}>{parseFloat(tailor.rating).toFixed(1)}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }}>
-                          <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                            {tailor.status}
-                          </span>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
-                              setEditingTailor(tailor);
-                              setTailorForm({
-                                name: tailor.name,
-                                specialty: tailor.specialty,
-                                rating: tailor.rating.toString(),
-                                status: tailor.status
-                              });
-                              setShowTailorModal(true);
-                            }}>
-                              <Edit2 size={12} /> Edit
-                            </button>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }} onClick={() => handleDeleteTailor(tailor.id)}>
-                              <Trash2 size={12} /> Delete
-                            </button>
-                          </div>
-                        </div>
+                <div className="tailor-manager-content" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                  {/* Two separate panels for Master and Stitching staff */}
+                  <div className="responsive-profile-grid" style={{ gap: '24px' }}>
+                    
+                    {/* Master Tailors Column */}
+                    <div style={{
+                      background: 'var(--surface-color)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '12px',
+                      padding: '24px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                        <Scissors size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Master Tailors (Cutting & Supervision)</h3>
                       </div>
-                    ))}
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {tailors.filter(t => t.role === 'Master').length === 0 ? (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors registered yet.</p>
+                        ) : (
+                          tailors.filter(t => t.role === 'Master').map(tailor => (
+                            <div key={tailor.id} style={{
+                              background: 'rgba(0,0,0,0.015)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              padding: '16px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden' }}>
+                                  <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailor.name)}`} alt="Avatar" style={{ width: '100%', height: '100%' }} />
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailor.name}</div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailor.specialty}</div>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
+                                  {tailor.status}
+                                </span>
+                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
+                                  setEditingTailor(tailor);
+                                  setTailorForm({
+                                    name: tailor.name,
+                                    specialty: tailor.specialty,
+                                    rating: tailor.rating.toString(),
+                                    status: tailor.status,
+                                    role: tailor.role || 'Tailor'
+                                  });
+                                  setShowTailorModal(true);
+                                }}>Edit</button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Stitching Tailors Column */}
+                    <div style={{
+                      background: 'var(--surface-color)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '12px',
+                      padding: '24px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                        <Scissors size={20} />
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Stitching Tailors (Assembly & Detailing)</h3>
+                      </div>
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {tailors.filter(t => t.role !== 'Master').length === 0 ? (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors registered yet.</p>
+                        ) : (
+                          tailors.filter(t => t.role !== 'Master').map(tailor => (
+                            <div key={tailor.id} style={{
+                              background: 'rgba(0,0,0,0.015)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              padding: '16px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden' }}>
+                                  <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailor.name)}`} alt="Avatar" style={{ width: '100%', height: '100%' }} />
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailor.name}</div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailor.specialty}</div>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
+                                  {tailor.status}
+                                </span>
+                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
+                                  setEditingTailor(tailor);
+                                  setTailorForm({
+                                    name: tailor.name,
+                                    specialty: tailor.specialty,
+                                    rating: tailor.rating.toString(),
+                                    status: tailor.status,
+                                    role: tailor.role || 'Tailor'
+                                  });
+                                  setShowTailorModal(true);
+                                }}>Edit</button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
                   </div>
+
+                  {/* Boutique Workflow Supervision Table */}
+                  <div style={{
+                    background: 'var(--surface-color)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '12px',
+                    padding: '24px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                      <Sparkles size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Workflow Assignment & Supervision Control</h3>
+                    </div>
+                    
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="portal-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left', borderBottom: '1.5px solid var(--border-color)' }}>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Order / Client</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Status</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Supervising Master</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Stitching Tailor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ordersList.filter(o => ['Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check'].includes(o.order_status)).length === 0 ? (
+                            <tr>
+                              <td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                                No active orders in creation phase.
+                              </td>
+                            </tr>
+                          ) : (
+                            ordersList.filter(o => ['Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check'].includes(o.order_status)).map(order => (
+                              <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                <td style={{ padding: '16px', fontSize: '14px' }}>
+                                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{order.order_id}</div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{order.customer_name}</div>
+                                </td>
+                                <td style={{ padding: '16px' }}>
+                                  <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
+                                    {order.order_status}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '16px' }}>
+                                  <select 
+                                    className="form-control"
+                                    style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
+                                    value={order.master || ''}
+                                    onChange={(e) => handleAssignWorkflow(order.id, { master: e.target.value || null })}
+                                  >
+                                    <option value="">Unassigned</option>
+                                    {tailors.filter(t => t.role === 'Master').map(m => (
+                                      <option key={m.id} value={m.id}>{m.name}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td style={{ padding: '16px' }}>
+                                  <select 
+                                    className="form-control"
+                                    style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
+                                    value={order.tailor || ''}
+                                    onChange={(e) => handleAssignWorkflow(order.id, { tailor: e.target.value || null })}
+                                  >
+                                    <option value="">Unassigned</option>
+                                    {tailors.filter(t => t.role !== 'Master').map(s => (
+                                      <option key={s.id} value={s.id}>{s.name}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                 </div>
               </>
             )}
@@ -3276,6 +3415,18 @@ function App() {
                     </div>
                   </div>
 
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Staff Role</label>
+                    <select 
+                      className="form-control"
+                      value={tailorForm.role}
+                      onChange={e => setTailorForm({...tailorForm, role: e.target.value})}
+                    >
+                      <option value="Tailor">Stitching Tailor</option>
+                      <option value="Master">Master Tailor</option>
+                    </select>
+                  </div>
+
                   <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>Cancel</button>
                     <button type="submit" className="btn-primary">Save Tailor</button>
@@ -4470,42 +4621,97 @@ function App() {
             {currentStep === 5 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Review & Assignment</h1>
-                  <p className="page-subtitle">Assign a master tailor to craft the creation and review the itemized cost breakdown before finalizing the order.</p>
+                  <h1 className="page-title">Review & Staff Assignment</h1>
+                  <p className="page-subtitle">Assign a Master Tailor to supervise/cut and a Stitching Tailor for the assembly.</p>
                 </div>
 
-                <div className="content-card">
-                  <div className="card-title">
-                    <Scissors size={20} />
-                    Assign Master Tailor
+                <div className="responsive-profile-grid" style={{ gap: '24px' }}>
+                  {/* Master Assignment Card */}
+                  <div className="content-card" style={{ margin: 0 }}>
+                    <div className="card-title">
+                      <Scissors size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                      1. Assign Master Tailor (Cutting & Supervision)
+                    </div>
+                    <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {tailors.filter(t => t.role === 'Master').length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors available. Add one in staff settings.</div>
+                      ) : (
+                        tailors.filter(t => t.role === 'Master').map(t => (
+                          <div 
+                            key={t.id} 
+                            className={`tailor-row ${selectedMaster?.id === t.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedMaster(t)}
+                            style={{
+                              display: 'flex',
+                              gap: '16px',
+                              alignItems: 'center',
+                              padding: '12px',
+                              borderRadius: '8px',
+                              border: selectedMaster?.id === t.id ? '2px solid var(--accent-color, #d4af37)' : '1px solid var(--border-color)',
+                              background: selectedMaster?.id === t.id ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            </div>
+                            <div className="tailor-info" style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
+                                <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                  {t.status}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
 
-                  <div className="tailors-list">
-                    {tailors.map(t => (
-                      <div 
-                        key={t.id} 
-                        className={`tailor-row ${selectedTailor?.id === t.id ? 'selected' : ''}`}
-                        onClick={() => setSelectedTailor(t)}
-                        style={{ display: 'flex', gap: '16px', alignItems: 'center' }}
-                      >
-                        <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                          <img src={getTailorAvatarUrl(t.name)} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        </div>
-                        <div className="tailor-info" style={{ flex: 1 }}>
-                          <div className="tailor-name-row">
-                            <span className="tailor-name">{t.name}</span>
-                            <span className={`tailor-status-tag ${t.status.toLowerCase()}`}>
-                              {t.status}
-                            </span>
+                  {/* Tailor Assignment Card */}
+                  <div className="content-card" style={{ margin: 0 }}>
+                    <div className="card-title">
+                      <Scissors size={20} />
+                      2. Assign Stitching Tailor (Sewing & Details)
+                    </div>
+                    <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {tailors.filter(t => t.role !== 'Master').length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors available. Add one in staff settings.</div>
+                      ) : (
+                        tailors.filter(t => t.role !== 'Master').map(t => (
+                          <div 
+                            key={t.id} 
+                            className={`tailor-row ${selectedTailor?.id === t.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedTailor(t)}
+                            style={{
+                              display: 'flex',
+                              gap: '16px',
+                              alignItems: 'center',
+                              padding: '12px',
+                              borderRadius: '8px',
+                              border: selectedTailor?.id === t.id ? '2px solid var(--border-color)' : '1px solid var(--border-color)',
+                              background: selectedTailor?.id === t.id ? 'rgba(0, 0, 0, 0.03)' : 'transparent',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            </div>
+                            <div className="tailor-info" style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
+                                <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                  {t.status}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
+                            </div>
                           </div>
-                          <span className="tailor-spec">{t.specialty}</span>
-                        </div>
-                        <div className="tailor-rating">
-                          <Star size={14} />
-                          {parseFloat(t.rating).toFixed(1)}
-                        </div>
-                      </div>
-                    ))}
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
