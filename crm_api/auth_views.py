@@ -98,14 +98,15 @@ class LoginView(views.APIView):
             )
 
         # Lookup tenant in public registry
-        tenant = BoutiqueTenant.objects.filter(owner_email=username_or_email).first()
-        if not tenant:
-            # Search other schemas for a user with this email/username
-            for t in BoutiqueTenant.objects.exclude(schema_name='public'):
-                with schema_context(t.schema_name):
-                    if User.objects.filter(email=username_or_email).exists() or User.objects.filter(username=username_or_email).exists():
-                        tenant = t
-                        break
+        with schema_context('public'):
+            tenant = BoutiqueTenant.objects.filter(owner_email=username_or_email).first()
+            if not tenant:
+                # Search other schemas for a user with this email/username
+                for t in BoutiqueTenant.objects.exclude(schema_name='public'):
+                    with schema_context(t.schema_name):
+                        if User.objects.filter(email=username_or_email).exists() or User.objects.filter(username=username_or_email).exists():
+                            tenant = t
+                            break
 
         if not tenant:
             return Response(
