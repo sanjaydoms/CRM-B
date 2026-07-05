@@ -215,6 +215,7 @@ function App() {
   // Active Selected Dashboard Order for progress tracker
   const [selectedDashboardOrder, setSelectedDashboardOrder] = useState(null);
   const [expandedDna, setExpandedDna] = useState({});
+  const [selectedDirectoryCustomer, setSelectedDirectoryCustomer] = useState(null);
 
   // Backend fetched collections
   const [dashboardData, setDashboardData] = useState(null);
@@ -1289,14 +1290,14 @@ function App() {
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             
             <nav className="portal-menu">
-              <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => setDashboardTab('overview')}><Users size={16} /> Dashboard</a>
-              <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => setDashboardTab('customers')}><Users size={16} /> Customers</a>
-              <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => setDashboardTab('invoices')}><FileText size={16} /> Invoices</a>
-              <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => setDashboardTab('analytics')}><BarChart2 size={16} /> Analytics</a>
-              <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => setDashboardTab('fabrics')}><Compass size={16} /> Manage Fabrics</a>
-              <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => setDashboardTab('tailors')}><Scissors size={16} /> Manage Tailors</a>
-              <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => setDashboardTab('designs')}><Sparkles size={16} /> Manage Designs</a>
-              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => setDashboardTab('account')}><User size={16} /> My Account</a>
+              <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Dashboard</a>
+              <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Customers</a>
+              <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); }}><FileText size={16} /> Invoices</a>
+              <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); }}><BarChart2 size={16} /> Analytics</a>
+              <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); }}><Compass size={16} /> Manage Fabrics</a>
+              <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); }}><Scissors size={16} /> Manage Tailors</a>
+              <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); }}><Sparkles size={16} /> Manage Designs</a>
+              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); }}><User size={16} /> My Account</a>
               <a className="portal-menu-item" onClick={handleLogout}><LogOut size={16} /> Logout</a>
             </nav>
 
@@ -1933,7 +1934,7 @@ function App() {
             )}
 
             {/* 5. CUSTOMERS TAB */}
-            {dashboardTab === 'customers' && (
+            {dashboardTab === 'customers' && !selectedDirectoryCustomer && (
               <>
                 <header className="portal-header">
                   <div className="portal-header-left">
@@ -1992,7 +1993,10 @@ function App() {
                         gap: '24px'
                       }}>
                         {/* Profile Info */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div 
+                          style={{ display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer' }}
+                          onClick={() => setSelectedDirectoryCustomer(cust)}
+                        >
                           <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                             <div className="user-avatar-circle" style={{ width: '56px', height: '56px' }}>
                               <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cust.first_name)}`} alt="Profile" />
@@ -2310,7 +2314,320 @@ function App() {
               </>
             )}
 
+            {/* 5b. CUSTOMER DETAIL VIEW (Image 5/6 extension) */}
+            {dashboardTab === 'customers' && selectedDirectoryCustomer && (
+              <div className="customer-detail-view-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* Back Navigation & Main Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button 
+                    onClick={() => setSelectedDirectoryCustomer(null)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--accent-color, #d4af37)',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: 0
+                    }}
+                  >
+                    <ArrowLeft size={16} /> Back to Customer Directory
+                  </button>
+
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    {/* Flow Option 1: Re-use Existing Design */}
+                    <button 
+                      className="btn-outline" 
+                      onClick={() => {
+                        // Load customer and skip steps straight to design review
+                        setCustomerId(selectedDirectoryCustomer.id);
+                        setCustomerForm({
+                          ...DEFAULT_CUSTOMER_DATA,
+                          ...selectedDirectoryCustomer,
+                          measurements: selectedDirectoryCustomer.measurements || DEFAULT_CUSTOMER_DATA.measurements
+                        });
+                        // Prefill design notes if any
+                        if (selectedDirectoryCustomer.design_preferences?.length > 0) {
+                          setDesignNotes(selectedDirectoryCustomer.design_preferences[0].notes || '');
+                        }
+                        // Set view to wizard, starting at Step 3 (Design Preferences)
+                        setCurrentStep(3);
+                        setView('wizard');
+                      }}
+                      style={{
+                        padding: '10px 18px',
+                        fontSize: '13px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        borderColor: 'var(--accent-color, #d4af37)',
+                        color: 'var(--accent-color, #d4af37)',
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        background: 'transparent'
+                      }}
+                    >
+                      <Copy size={16} />
+                      Go with Existing Design
+                    </button>
+
+                    {/* Flow Option 2: Create New Design */}
+                    <button 
+                      className="btn-primary" 
+                      onClick={() => {
+                        handleSelectExistingCustomer(selectedDirectoryCustomer);
+                      }}
+                      style={{
+                        padding: '10px 18px',
+                        fontSize: '13px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer',
+                        borderRadius: '6px'
+                      }}
+                    >
+                      <Sparkles size={16} />
+                      Create New Design
+                    </button>
+                  </div>
+                </div>
+
+                {/* Customer Main Banner */}
+                <div style={{
+                  background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
+                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                  borderRadius: '12px',
+                  padding: '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '24px'
+                }}>
+                  <div className="user-avatar-circle" style={{ width: '80px', height: '80px', fontSize: '24px', borderRadius: '50%', overflow: 'hidden' }}>
+                    <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(selectedDirectoryCustomer.first_name)}`} alt="Profile" />
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: '24px', fontWeight: 600, margin: '0 0 6px 0', color: '#fff' }}>
+                      {selectedDirectoryCustomer.first_name} {selectedDirectoryCustomer.last_name}
+                    </h2>
+                    <div style={{ display: 'flex', gap: '20px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                      <span>📞 {selectedDirectoryCustomer.mobile_number}</span>
+                      {selectedDirectoryCustomer.email_address && <span>✉️ {selectedDirectoryCustomer.email_address}</span>}
+                      {selectedDirectoryCustomer.address && <span>📍 {selectedDirectoryCustomer.address}, {selectedDirectoryCustomer.city_region}</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed Grid layout */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '32px' }}>
+                  
+                  {/* Left Column */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    
+                    {/* Measurements & Info */}
+                    <div style={{
+                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
+                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                      borderRadius: '12px',
+                      padding: '24px'
+                    }}>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px', color: '#fff' }}>
+                        Body Measurements & Sizing
+                      </h3>
+                      {selectedDirectoryCustomer.measurements ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                          <div>Bust: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.bust || '—'} in</span></div>
+                          <div>Waist: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.waist || '—'} in</span></div>
+                          <div>Hips: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.hips || '—'} in</span></div>
+                          <div>Shoulder: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.shoulder || '—'} in</span></div>
+                          <div>Arm Length: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.arm_length || '—'} in</span></div>
+                          <div>Neck: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.neck || '—'} in</span></div>
+                          <div>Length: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.measurements.length || '—'} in</span></div>
+                          <div>Occasion Preference: <span style={{ fontWeight: 600, color: '#fff' }}>{selectedDirectoryCustomer.occasion || '—'}</span></div>
+                        </div>
+                      ) : (
+                        <p style={{ color: 'var(--text-muted)' }}>No measurements saved yet.</p>
+                      )}
+                    </div>
+
+                    {/* Order History */}
+                    <div style={{
+                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
+                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                      borderRadius: '12px',
+                      padding: '24px'
+                    }}>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px', color: '#fff' }}>
+                        Order History
+                      </h3>
+                      {!selectedDirectoryCustomer.orders || selectedDirectoryCustomer.orders.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No orders have been placed by this customer yet.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {selectedDirectoryCustomer.orders.map(order => (
+                            <div key={order.id} style={{
+                              background: 'rgba(255,255,255,0.02)',
+                              border: '1px solid rgba(255,255,255,0.05)',
+                              borderRadius: '8px',
+                              padding: '16px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>Order ID: {order.order_id}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                  Date: {new Date(order.order_date).toLocaleDateString()} | Tailor: {order.tailor_name || 'Not assigned'}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontWeight: 700, color: 'var(--accent-color, #d4af37)', fontSize: '14px' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
+                                  <span style={{
+                                    display: 'inline-block',
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '11px',
+                                    marginTop: '4px',
+                                    background: order.order_status === 'Delivered' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 191, 36, 0.15)',
+                                    color: order.order_status === 'Delivered' ? '#34d399' : '#fbbf24'
+                                  }}>
+                                    {order.order_status}
+                                  </span>
+                                </div>
+                                <button 
+                                  onClick={() => {
+                                    setCustomerId(selectedDirectoryCustomer.id);
+                                    setCustomerForm({
+                                      ...DEFAULT_CUSTOMER_DATA,
+                                      ...selectedDirectoryCustomer,
+                                      measurements: selectedDirectoryCustomer.measurements || DEFAULT_CUSTOMER_DATA.measurements
+                                    });
+                                    setQuotePrices({
+                                      base: order.base_price,
+                                      fabric: order.fabric_price,
+                                      embroidery: order.embroidery_price,
+                                      customization: order.customization_price,
+                                      tailoring: order.tailoring_charges,
+                                      packaging: order.packaging_handling
+                                    });
+                                    setCurrentStep(3);
+                                    setView('wizard');
+                                  }}
+                                  style={{
+                                    background: 'rgba(212, 175, 55, 0.1)',
+                                    border: '1px solid rgba(212, 175, 55, 0.3)',
+                                    color: 'var(--accent-color, #d4af37)',
+                                    borderRadius: '6px',
+                                    padding: '6px 12px',
+                                    fontSize: '11px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                >
+                                  <Copy size={12} />
+                                  Reorder Style
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+
+                  {/* Right Column */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    
+                    {/* Style DNA Panel */}
+                    <div style={{
+                      background: '#0d0d0d',
+                      border: '1px solid rgba(212, 175, 55, 0.25)',
+                      borderRadius: '12px',
+                      padding: '24px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                        <Sparkles size={18} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#fff', margin: 0 }}>AI Customer Style DNA</h3>
+                      </div>
+                      
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <tbody>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600, width: '40%' }}>BUDGET</td>
+                            <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{selectedDirectoryCustomer.style_dna?.budget}</td>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>COLORS</td>
+                            <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{selectedDirectoryCustomer.style_dna?.colors}</td>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>STYLE</td>
+                            <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{selectedDirectoryCustomer.style_dna?.style}</td>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>SIZE</td>
+                            <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{selectedDirectoryCustomer.style_dna?.size}</td>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>VISIT PATTERN</td>
+                            <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{selectedDirectoryCustomer.style_dna?.visit_pattern}</td>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>RISK STATUS</td>
+                            <td style={{ padding: '12px 0', fontWeight: 600, color: selectedDirectoryCustomer.style_dna?.risk_level === 'danger' ? '#f87171' : selectedDirectoryCustomer.style_dna?.risk_level === 'warning' ? '#fbbf24' : '#34d399' }}>
+                              {selectedDirectoryCustomer.style_dna?.risk_status}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Saved Designs Gallery */}
+                    <div style={{
+                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
+                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+                      borderRadius: '12px',
+                      padding: '24px'
+                    }}>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px', color: '#fff' }}>
+                        Saved Designs & Inspiration
+                      </h3>
+                      {!selectedDirectoryCustomer.design_preferences || selectedDirectoryCustomer.design_preferences.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No saved designs or reference images.</p>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          {selectedDirectoryCustomer.design_preferences.map((pref, i) => (
+                            <React.Fragment key={i}>
+                              {pref.reference_images?.map((url, j) => (
+                                <div key={`${i}-${j}`} style={{
+                                  borderRadius: '6px',
+                                  overflow: 'hidden',
+                                  height: '120px',
+                                  border: '1px solid rgba(255,255,255,0.08)'
+                                }}>
+                                  <img src={url} alt="Design Ref" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                </div>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+
+                </div>
+              </div>
+            )}
+            
             {/* 6. INVOICES TAB */}
+
             {dashboardTab === 'invoices' && (
               <>
                 <header className="portal-header">
