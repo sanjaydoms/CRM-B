@@ -1983,14 +1983,11 @@ function App() {
                              cust.mobile_number.includes(term) ||
                              (cust.email_address && cust.email_address.toLowerCase().includes(term));
                     }).map(cust => (
-                      <div key={cust.id} className="customer-detail-card" style={{
+                      <div key={cust.id} className="customer-detail-card responsive-customer-card" style={{
                         background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
                         border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
                         borderRadius: '12px',
-                        padding: '24px',
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1.5fr 1.5fr',
-                        gap: '24px'
+                        padding: '24px'
                       }}>
                         {/* Profile Info */}
                         <div 
@@ -2079,16 +2076,13 @@ function App() {
 
                         {/* Expandable Style DNA Section */}
                         {expandedDna[cust.id] && (
-                          <div style={{
+                          <div className="responsive-style-dna-grid" style={{
                             gridColumn: 'span 3',
                             background: '#0d0d0d',
                             border: '1px solid rgba(212, 175, 55, 0.25)',
                             borderRadius: '8px',
                             padding: '24px',
-                            marginTop: '12px',
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 1.2fr',
-                            gap: '32px'
+                            marginTop: '12px'
                           }}>
                             {/* Left Column: Priya's Style Profile (Mockup Left Card) */}
                             <div style={{
@@ -2421,7 +2415,7 @@ function App() {
                 </div>
 
                 {/* Detailed Grid layout */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '32px' }}>
+                <div className="responsive-profile-grid">
                   
                   {/* Left Column */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
