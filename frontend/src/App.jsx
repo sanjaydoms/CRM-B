@@ -243,6 +243,8 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [ordersSearch, setOrdersSearch] = useState('');
   const [ordersFilterTab, setOrdersFilterTab] = useState('All');
+  const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
 
   // Persisted Session check
@@ -3206,10 +3208,72 @@ function App() {
                   </div>
                 </header>
 
+                {/* Finance Overview widgets */}
+                {(() => {
+                  const paidTotal = ordersList.filter(o => o.payment_status === 'Paid').reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+                  const pendingTotal = ordersList.filter(o => o.payment_status === 'Pending' || o.payment_status === 'Partially Paid').reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+                  const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+                  
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginTop: '24px' }}>
+                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Collected Revenue</span>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#107c41', marginTop: '8px' }}>₹{paidTotal.toLocaleString('en-IN')}</div>
+                      </div>
+                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Outstanding Balance</span>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#d4af37', marginTop: '8px' }}>₹{pendingTotal.toLocaleString('en-IN')}</div>
+                      </div>
+                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Invoiced Volume</span>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>₹{grandTotal.toLocaleString('en-IN')}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Filters & Search */}
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '16px',
+                  background: 'var(--surface-color)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  marginTop: '24px'
+                }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {['All', 'Paid', 'Pending'].map(option => (
+                      <button 
+                        key={option}
+                        onClick={() => setInvoiceFilter(option)}
+                        className={invoiceFilter === option ? 'btn-primary' : 'btn-secondary'}
+                        style={{ padding: '6px 16px', fontSize: '13px' }}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="search-bar-container" style={{ width: '300px', margin: 0 }}>
+                    <Search className="search-icon" size={16} />
+                    <input 
+                      type="text" 
+                      placeholder="Search Invoice ID or Client..."
+                      className="search-input"
+                      value={invoiceSearch}
+                      onChange={(e) => setInvoiceSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+
                 <div className="invoices-content" style={{ marginTop: '24px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)' }}>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.015)' }}>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Invoice ID</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Billing Client</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Date</th>
@@ -3221,13 +3285,30 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {ordersList.length === 0 ? (
-                        <tr>
-                          <td colSpan="8" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No invoices or orders recorded yet.</td>
-                        </tr>
-                      ) : (
-                        ordersList.map(order => (
-                          <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '14px' }}>
+                      {(() => {
+                        const filtered = ordersList.filter(order => {
+                          if (invoiceFilter === 'Paid' && order.payment_status !== 'Paid') return false;
+                          if (invoiceFilter === 'Pending' && order.payment_status === 'Paid') return false;
+
+                          if (invoiceSearch.trim()) {
+                            const query = invoiceSearch.toLowerCase();
+                            const matchesId = order.order_id.toLowerCase().includes(query);
+                            const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
+                            return matchesId || matchesClient;
+                          }
+                          return true;
+                        });
+
+                        if (filtered.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan="8" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No invoices matching the criteria.</td>
+                            </tr>
+                          );
+                        }
+
+                        return filtered.map(order => (
+                          <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
                             <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 600 }}>{order.order_id}</td>
                             <td style={{ padding: '16px' }}>{order.customer_name}</td>
                             <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{new Date(order.order_date).toLocaleDateString()}</td>
@@ -3235,9 +3316,23 @@ function App() {
                             <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>₹{(order.total_amount - (order.total_amount / 1.05)).toFixed(2)}</td>
                             <td style={{ padding: '16px', fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>₹{parseFloat(order.total_amount).toLocaleString('en-IN')}</td>
                             <td style={{ padding: '16px' }}>
-                              <span className={`order-row-badge ${order.payment_status === 'Paid' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                {order.payment_status}
-                              </span>
+                              <select 
+                                value={order.payment_status}
+                                onChange={async (e) => {
+                                  try {
+                                    await api.updateOrder(order.id, { payment_status: e.target.value });
+                                    fetchDashboardAndConfig();
+                                  } catch (err) {
+                                    alert("Failed to update payment status: " + err.message);
+                                  }
+                                }}
+                                className="form-control"
+                                style={{ padding: '4px 8px', fontSize: '12px', width: '130px', margin: 0 }}
+                              >
+                                <option value="Pending">Pending</option>
+                                <option value="Partially Paid">Partially Paid</option>
+                                <option value="Paid">Paid</option>
+                              </select>
                             </td>
                             <td style={{ padding: '16px' }}>
                               <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
@@ -3248,8 +3343,8 @@ function App() {
                               </button>
                             </td>
                           </tr>
-                        ))
-                      )}
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
