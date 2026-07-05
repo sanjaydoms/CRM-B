@@ -138,12 +138,22 @@ class CustomerViewSet(viewsets.ModelViewSet):
         # Estimated delivery date (default 15 days from now)
         est_delivery = datetime.date.today() + datetime.timedelta(days=15)
 
+        payment_status = request.data.get('payment_status', 'Paid')
+        advance_paid = 0.0
+        amount_paid = 0.0
+        if payment_status == 'Paid':
+            advance_paid = total_amount
+            amount_paid = total_amount
+        elif payment_status == 'Partially Paid':
+            advance_paid = float(request.data.get('advance_paid', total_amount * 0.5))
+            amount_paid = advance_paid
+
         order = Order.objects.create(
             order_id=order_id,
             customer=customer,
             tailor=tailor,
             master=master,
-            payment_status=request.data.get('payment_status', 'Paid'),
+            payment_status=payment_status,
             order_status='Received', # Default new order status
             base_price=base_price,
             fabric_price=fabric_price,
@@ -157,7 +167,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
             delivery_method=request.data.get('delivery_method', 'Direct Pickup'),
             courier_service=request.data.get('courier_service'),
             tracking_number=request.data.get('tracking_number'),
-            delivery_address=request.data.get('delivery_address')
+            delivery_address=request.data.get('delivery_address'),
+            advance_paid=advance_paid,
+            amount_paid=amount_paid
         )
 
         # Update tailor/master status if busy
@@ -219,6 +231,14 @@ class BoutiqueDesignViewSet(viewsets.ModelViewSet):
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all().order_by('-order_date')
     serializer_class = OrderSerializer
+
+    def perform_update(self, serializer):
+        order = serializer.save()
+        if order.payment_status == 'Paid':
+            order.amount_paid = order.total_amount
+        elif order.payment_status == 'Pending':
+            order.amount_paid = 0.00
+        order.save()
 
     @action(detail=True, methods=['PATCH'], url_path='update-status')
     def update_status(self, request, pk=None):

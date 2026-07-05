@@ -132,6 +132,7 @@ function App() {
   const [courierService, setCourierService] = useState('');
   const [trackingNumber, setTrackingNumber] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [advancePaymentAmount, setAdvancePaymentAmount] = useState(0);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState('');
 
@@ -641,6 +642,7 @@ function App() {
       tailoring_charges: tailoring,
       packaging_handling: packaging,
       payment_status: paymentOption === 'full' ? 'Paid' : 'Partially Paid',
+      advance_paid: paymentOption === 'full' ? getTotalPrice() : (parseFloat(advancePaymentAmount) || getTotalPrice() / 2),
       custom_requirements: specialInstructions || customerForm.custom_requirements,
       delivery_method: deliveryMethod,
       courier_service: deliveryMethod === 'Courier' ? courierService : null,
@@ -3277,9 +3279,10 @@ function App() {
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Invoice ID</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Billing Client</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Date</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Subtotal</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Taxes (5% GST)</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Total Price</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Advance Paid</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Total Paid</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Balance Due</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Payment Status</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Action</th>
                       </tr>
@@ -3302,7 +3305,7 @@ function App() {
                         if (filtered.length === 0) {
                           return (
                             <tr>
-                              <td colSpan="8" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No invoices matching the criteria.</td>
+                              <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No invoices matching the criteria.</td>
                             </tr>
                           );
                         }
@@ -3312,9 +3315,10 @@ function App() {
                             <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 600 }}>{order.order_id}</td>
                             <td style={{ padding: '16px' }}>{order.customer_name}</td>
                             <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{new Date(order.order_date).toLocaleDateString()}</td>
-                            <td style={{ padding: '16px' }}>₹{(order.total_amount / 1.05).toFixed(2)}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>₹{(order.total_amount - (order.total_amount / 1.05)).toFixed(2)}</td>
-                            <td style={{ padding: '16px', fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>₹{parseFloat(order.total_amount).toLocaleString('en-IN')}</td>
+                            <td style={{ padding: '16px', fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString('en-IN')}</td>
+                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>₹{parseFloat(order.advance_paid || 0).toLocaleString('en-IN')}</td>
+                            <td style={{ padding: '16px', color: '#107c41', fontWeight: 600 }}>₹{parseFloat(order.amount_paid || 0).toLocaleString('en-IN')}</td>
+                            <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>₹{Math.max(0, parseFloat(order.total_amount) - parseFloat(order.amount_paid || 0)).toLocaleString('en-IN')}</td>
                             <td style={{ padding: '16px' }}>
                               <select 
                                 value={order.payment_status}
@@ -5816,8 +5820,16 @@ function App() {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '12px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div>
-                                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Pay Now (50%)</span>
-                                <span style={{ fontSize: '16px', fontWeight: 700 }}>₹{(getTotalPrice() / 2).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Pay Advance (Custom Amount)</span>
+                                <input 
+                                  type="number"
+                                  className="form-control"
+                                  style={{ padding: '6px', fontSize: '14px', width: '150px', marginTop: '4px' }}
+                                  placeholder={`e.g. ${(getTotalPrice() / 2).toFixed(0)}`}
+                                  value={advancePaymentAmount || ''}
+                                  onChange={(e) => setAdvancePaymentAmount(parseFloat(e.target.value) || 0)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
                               </div>
                               <span style={{ fontSize: '8px', backgroundColor: '#f1f3f5', color: 'var(--text-secondary)', padding: '2px 4px', borderRadius: '2px' }}>Non-refundable</span>
                             </div>
@@ -5825,10 +5837,10 @@ function App() {
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
-                              <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Pay After Design Completion</span>
-                              <span style={{ fontSize: '16px', fontWeight: 700 }}>₹{(getTotalPrice() / 2).toLocaleString('en-IN')}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Remaining Balance Due at Delivery</span>
+                              <span style={{ fontSize: '16px', fontWeight: 700 }}>₹{Math.max(0, getTotalPrice() - (advancePaymentAmount || getTotalPrice() / 2)).toLocaleString('en-IN')}</span>
                             </div>
-                            <span style={{ fontSize: '8px', backgroundColor: '#e2f5ec', color: '#107c41', padding: '2px 4px', borderRadius: '2px', fontWeight: 600 }}>PAY BEFORE PRODUCTION</span>
+                            <span style={{ fontSize: '8px', backgroundColor: '#e2f5ec', color: '#107c41', padding: '2px 4px', borderRadius: '2px', fontWeight: 600 }}>DUE AT DELIVERY</span>
                           </div>
                         </div>
                       </div>

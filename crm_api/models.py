@@ -129,6 +129,8 @@ class Order(models.Model):
     packaging_handling = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     taxes = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    advance_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     
     order_date = models.DateTimeField(auto_now_add=True)
     estimated_delivery = models.DateField(blank=True, null=True)
