@@ -4,7 +4,7 @@
 trap 'kill $(jobs -p)' EXIT
 
 echo "=========================================================="
-echo "Starting TryOn2Buy CRM Boutique MVP"
+echo "Starting Scaleezy CRM Boutique MVP"
 echo "=========================================================="
 
 # Activate virtual environment and start Django
