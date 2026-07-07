@@ -233,7 +233,7 @@ class BoutiqueDesignViewSet(viewsets.ModelViewSet):
 
 def create_order_notifications(order, created=False):
     client_name = f"{order.customer.first_name} {order.customer.last_name}"
-    client_email = order.customer.email
+    client_email = order.customer.email_address
     
     if created:
         Notification.objects.create(
