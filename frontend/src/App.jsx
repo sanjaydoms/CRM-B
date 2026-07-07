@@ -251,6 +251,7 @@ function App() {
   const [drapingLoading, setDrapingLoading] = useState(false);
   const [drapingCompleted, setDrapingCompleted] = useState(false);
   const [drapedImage, setDrapedImage] = useState('');
+  const [showDrapingModal, setShowDrapingModal] = useState(false);
   
   const [activeReviewStage, setActiveReviewStage] = useState(null);
   const [activeReviewOrder, setActiveReviewOrder] = useState(null);
@@ -558,6 +559,7 @@ function App() {
     setSelectedFabric(null);
     setDrapingCompleted(false);
     setDrapingLoading(false);
+    setShowDrapingModal(false);
     setSelectedTailor(null);
     setSelectedMaster(null);
     setDeliveryMethod('Direct Pickup');
@@ -585,6 +587,7 @@ function App() {
     setSelectedDesignTemplates([]);
     setDrapingCompleted(false);
     setDrapingLoading(false);
+    setShowDrapingModal(false);
     setSelectedTailor(null);
     setSelectedMaster(null);
     setDeliveryMethod('Direct Pickup');
@@ -5484,105 +5487,33 @@ function App() {
                 )}
               </div>
 
-                {/* AI Draping Visualizer Card */}
+                {/* AI Draping Trigger Section */}
                 {selectedFabric && (
-                  <div className="content-card" style={{ marginTop: '24px', padding: '24px', background: '#0d0d0d', border: '1px solid rgba(212, 175, 55, 0.25)', borderRadius: '8px' }}>
-                    <style>{`
-                      @keyframes spin {
-                        0% { transform: rotate(0deg); }
-                        100% { transform: rotate(360deg); }
-                      }
-                    `}</style>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fff' }}>
-                        <Sparkles size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
-                        <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0, letterSpacing: '0.5px' }}>Scaleezy Live Visualizer: Interactive Fabric Draping</h3>
-                      </div>
-                      <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', fontStyle: 'italic' }}>
-                        *Reference Preview Only (Not Final Design)
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr', gap: '20px', alignItems: 'stretch' }}>
-                      {/* Left: Design Discovery Selection */}
-                      <div style={{ background: '#141414', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Selected Style Sketch</span>
-                        {selectedDesignTemplates.length > 0 ? (
-                          <div style={{ width: '100%', height: '140px', overflow: 'hidden', borderRadius: '6px' }}>
-                            <img src={selectedDesignTemplates[0]} alt="Design Sketch" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          </div>
-                        ) : (
-                          <div style={{ width: '100%', height: '140px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed rgba(255,255,255,0.1)' }}>
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No sketch selected</span>
-                          </div>
-                        )}
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{customerForm.garment_type || "Bespoke Cut"}</span>
-                      </div>
-
-                      {/* Middle: Fabric Swatch */}
-                      <div style={{ background: '#141414', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Selected Fabric Swatch</span>
-                        <div style={{ width: '100%', height: '140px', overflow: 'hidden', borderRadius: '6px' }}>
-                          <img 
-                            src={selectedFabric.image_url ? (selectedFabric.image_url.startsWith('fabric_') ? `http://localhost:8000/media/${selectedFabric.image_url}` : selectedFabric.image_url) : 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400'} 
-                            alt="Fabric Swatch" 
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                          />
-                        </div>
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{selectedFabric.name} ({selectedFabric.color})</span>
-                      </div>
-
-                      {/* Right: Draped Mannequin Output */}
-                      <div style={{ background: '#181818', border: '1px solid rgba(212, 175, 55, 0.15)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: '220px' }}>
-                        {!drapingCompleted && !drapingLoading ? (
-                          <div style={{ textAlign: 'center', padding: '20px' }}>
-                            <div style={{ color: 'var(--accent-color, #d4af37)', marginBottom: '12px' }}><Sparkles size={32} /></div>
-                            <h4 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', marginBottom: '8px' }}>Ready to Drape</h4>
-                            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px', maxWidth: '200px', margin: '0 auto 16px' }}>
-                              Drape the selected fabric swatch onto the chosen garment design layout.
-                            </p>
-                            <button 
-                              type="button" 
-                              className="btn-primary" 
-                              style={{ padding: '8px 16px', fontSize: '12px', background: 'linear-gradient(135deg, #d35400, #e67e22)', border: 'none' }}
-                              onClick={() => {
-                                setDrapingLoading(true);
-                                setTimeout(() => {
-                                  setDrapedImage(getDrapedPreviewImage(selectedFabric, selectedDesignTemplates[0] || ''));
-                                  setDrapingLoading(false);
-                                  setDrapingCompleted(true);
-                                }, 2000);
-                              }}
-                            >
-                              Simulate Draping
-                            </button>
-                          </div>
-                        ) : drapingLoading ? (
-                          <div style={{ textAlign: 'center', padding: '20px' }}>
-                            <div className="spinner" style={{ border: '3px solid rgba(255,255,255,0.1)', borderTop: '3px solid var(--accent-color, #d4af37)', borderRadius: '50%', width: '40px', height: '40px', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
-                            <h4 style={{ fontSize: '13px', fontWeight: 600, color: '#fff', marginBottom: '4px' }}>Draping Fabric Texture...</h4>
-                            <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Mapping coordinates onto sketch layers</p>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', width: '100%' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--accent-color, #d4af37)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>✨ 3D Mannequin Draped View</span>
-                            <div style={{ width: '100%', height: '180px', overflow: 'hidden', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                              <img src={drapedImage} alt="Draped Mannequin Mockup" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            </div>
-                            <button 
-                              type="button" 
-                              className="btn-secondary" 
-                              style={{ padding: '4px 10px', fontSize: '11px', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.1)' }}
-                              onClick={() => {
-                                setDrapingCompleted(false);
-                              }}
-                            >
-                              Redrape / Change fabric
-                            </button>
-                          </div>
-                        )}
+                  <div style={{
+                    marginTop: '24px',
+                    padding: '16px 20px',
+                    background: 'rgba(212, 175, 55, 0.05)',
+                    border: '1px dashed rgba(212, 175, 55, 0.3)',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Sparkles size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                      <div style={{ textAlign: 'left' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff', display: 'block' }}>Scaleezy Live Visualizer Available</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Drape the selected {selectedFabric.name} fabric onto the chosen style sketch to preview it.</span>
                       </div>
                     </div>
+                    <button 
+                      type="button" 
+                      className="btn-primary" 
+                      style={{ padding: '8px 16px', fontSize: '12px', background: 'linear-gradient(135deg, #d35400, #e67e22)', border: 'none', cursor: 'pointer' }}
+                      onClick={() => setShowDrapingModal(true)}
+                    >
+                      Try On / Drape Fabric
+                    </button>
                   </div>
                 )}
               </>
@@ -7184,6 +7115,177 @@ function App() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* AI Draping Modal */}
+      {showDrapingModal && selectedFabric && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          backgroundColor: 'rgba(0,0,0,0.75)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1200,
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: '#0d0d0d',
+            borderRadius: '16px',
+            border: '1px solid rgba(212, 175, 55, 0.25)',
+            width: '800px',
+            maxWidth: '95%',
+            padding: '24px',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '20px',
+            color: '#fff'
+          }}>
+            <style>{`
+              @keyframes modalSpin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}</style>
+            
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Sparkles size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, letterSpacing: '0.5px' }}>Scaleezy Live Visualizer: Interactive Fabric Draping</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => { setShowDrapingModal(false); }}
+                style={{ background: 'none', border: 'none', color: '#888', fontSize: '20px', cursor: 'pointer', outline: 'none' }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Content Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1.6fr', gap: '20px', alignItems: 'stretch' }}>
+              {/* Left Column: Style Sketch */}
+              <div style={{ background: '#141414', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Selected Style Sketch</span>
+                {selectedDesignTemplates.length > 0 ? (
+                  <div style={{ width: '100%', height: '180px', overflow: 'hidden', borderRadius: '6px' }}>
+                    <img src={selectedDesignTemplates[0]} alt="Design Sketch" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                ) : (
+                  <div style={{ width: '100%', height: '180px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No sketch selected</span>
+                  </div>
+                )}
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{customerForm.garment_type || "Bespoke Cut"}</span>
+              </div>
+
+              {/* Middle Column: Fabric Swatch */}
+              <div style={{ background: '#141414', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Selected Fabric Swatch</span>
+                <div style={{ width: '100%', height: '180px', overflow: 'hidden', borderRadius: '6px' }}>
+                  <img 
+                    src={selectedFabric.image_url ? (selectedFabric.image_url.startsWith('fabric_') ? `http://localhost:8000/media/${selectedFabric.image_url}` : selectedFabric.image_url) : 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400'} 
+                    alt="Fabric Swatch" 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                  />
+                </div>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{selectedFabric.name} ({selectedFabric.color})</span>
+              </div>
+
+              {/* Right Column: Draped Mannequin View */}
+              <div style={{ background: '#181818', border: '1px solid rgba(212, 175, 55, 0.15)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: '260px' }}>
+                {!drapingCompleted && !drapingLoading ? (
+                  <div style={{ textAlign: 'center', padding: '20px' }}>
+                    <div style={{ color: 'var(--accent-color, #d4af37)', marginBottom: '12px' }}><Sparkles size={36} /></div>
+                    <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '8px' }}>Ready to Drape</h4>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px', maxWidth: '220px', margin: '0 auto 16px' }}>
+                      Click "Start Try On" to simulate draping this fabric onto the mannequin.
+                    </p>
+                  </div>
+                ) : drapingLoading ? (
+                  <div style={{ textAlign: 'center', padding: '20px' }}>
+                    <div className="spinner" style={{ border: '3px solid rgba(255,255,255,0.1)', borderTop: '3px solid var(--accent-color, #d4af37)', borderRadius: '50%', width: '40px', height: '40px', animation: 'modalSpin 1s linear infinite', margin: '0 auto 16px' }} />
+                    <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '4px' }}>Simulating Try On...</h4>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Mapping coordinates onto sketch layers</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', width: '100%' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--accent-color, #d4af37)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>✨ 3D Mannequin Draped View</span>
+                    <div style={{ width: '100%', height: '200px', overflow: 'hidden', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <img src={drapedImage} alt="Draped Mannequin Mockup" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Disclaimer */}
+            <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', fontStyle: 'italic', textAlign: 'left', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+              ⚠️ Reference Simulation Only — actual handcrafting details may vary depending on tailoring cuts and fabric stretch.
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                style={{ padding: '8px 16px', fontSize: '12px' }}
+                onClick={() => { setShowDrapingModal(false); }}
+              >
+                Cancel
+              </button>
+              
+              {!drapingCompleted && !drapingLoading && (
+                <button 
+                  type="button" 
+                  className="btn-primary" 
+                  style={{ padding: '8px 16px', fontSize: '12px', background: 'linear-gradient(135deg, #d35400, #e67e22)', border: 'none' }}
+                  onClick={() => {
+                    setDrapingLoading(true);
+                    setTimeout(() => {
+                      setDrapedImage(getDrapedPreviewImage(selectedFabric, selectedDesignTemplates[0] || ''));
+                      setDrapingLoading(false);
+                      setDrapingCompleted(true);
+                    }, 2000);
+                  }}
+                >
+                  Start Try On
+                </button>
+              )}
+
+              {drapingCompleted && (
+                <>
+                  <button 
+                    type="button" 
+                    className="btn-secondary" 
+                    style={{ padding: '8px 16px', fontSize: '12px', border: '1px dashed rgba(255, 255, 255, 0.2)' }}
+                    onClick={() => {
+                      setDrapingCompleted(false);
+                    }}
+                  >
+                    Re-try / Change
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn-primary" 
+                    style={{ padding: '8px 16px', fontSize: '12px', backgroundColor: '#107c41' }}
+                    onClick={() => {
+                      setShowDrapingModal(false);
+                    }}
+                  >
+                    Confirm & Save
+                  </button>
+                </>
+              )}
+            </div>
+
           </div>
         </div>
       )}
