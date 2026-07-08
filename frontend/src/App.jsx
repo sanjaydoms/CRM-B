@@ -1480,6 +1480,69 @@ function App() {
                 </div>
               </div>
 
+              {/* NEW SECTION: Feature Comparison Table */}
+              <div style={{ marginTop: '80px', borderTop: '1px solid #eaecef', paddingTop: '80px' }}>
+                <div className="sec-title-group" style={{ marginBottom: '40px' }}>
+                  <h2>Comparing Digital CRM vs. Paper Logbooks</h2>
+                  <p>A direct audit overview showing how digital workflows optimize boutique output compared to traditional binders.</p>
+                </div>
+                <div style={{ maxWidth: '900px', margin: '0 auto', overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: '#faf9f6', borderRadius: '8px', overflow: 'hidden' }}>
+                    <thead>
+                      <tr style={{ background: '#0f291e', color: '#ffffff' }}>
+                        <th style={{ padding: '16px 20px', fontSize: '14px', fontWeight: 600 }}>Capability Feature</th>
+                        <th style={{ padding: '16px 20px', fontSize: '14px', fontWeight: 600 }}>Traditional Paper Logbook</th>
+                        <th style={{ padding: '16px 20px', fontSize: '14px', fontWeight: 600 }}>Scaleezy Digital CRM</th>
+                      </tr>
+                    </thead>
+                    <tbody style={{ fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                      <tr style={{ borderBottom: '1px solid #eaecef' }}>
+                        <td style={{ padding: '16px 20px', fontWeight: 600 }}>Fitting History Retention</td>
+                        <td style={{ padding: '16px 20px' }}>Easily lost; requires manual notebook page searching.</td>
+                        <td style={{ padding: '16px 20px', color: '#107c41', fontWeight: 600 }}>Unlimited historical cloud ledger search.</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #eaecef' }}>
+                        <td style={{ padding: '16px 20px', fontWeight: 600 }}>Design Visual Previews</td>
+                        <td style={{ padding: '16px 20px' }}>Hand sketches only; fabric texture cannot be mapped.</td>
+                        <td style={{ padding: '16px 20px', color: '#107c41', fontWeight: 600 }}>3D fabric draping preview visualization.</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #eaecef' }}>
+                        <td style={{ padding: '16px 20px', fontWeight: 600 }}>Stitching Hand-off Alerts</td>
+                        <td style={{ padding: '16px 20px' }}>Requires walking to the floor to deliver instructions.</td>
+                        <td style={{ padding: '16px 20px', color: '#107c41', fontWeight: 600 }}>Real-time dashboard allocation alerts.</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #eaecef' }}>
+                        <td style={{ padding: '16px 20px', fontWeight: 600 }}>Invoice Dispatches</td>
+                        <td style={{ padding: '16px 20px' }}>Hand-written receipts that miss tax automation.</td>
+                        <td style={{ padding: '16px 20px', color: '#107c41', fontWeight: 600 }}>Digital invoicing, auto PDF billing & links.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* NEW SECTION: Role-Based Authorization Permissions */}
+              <div style={{ marginTop: '80px', borderTop: '1px solid #eaecef', paddingTop: '80px' }}>
+                <div className="sec-title-group" style={{ marginBottom: '50px' }}>
+                  <h2>Granular Role Permissions Matrix</h2>
+                  <p>Scaleezy strictly separates information paths to keep boutique security locked down.</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto', textAlign: 'left' }}>
+                  <div style={{ padding: '24px', background: '#fff', border: '1px solid #eaecef', borderRadius: '8px' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px' }}>Boutique Owner Access</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Full permissions. Access to monthly financial revenues, tax parameter editing, boutique settings, client databases, and staff accounts.</p>
+                  </div>
+                  <div style={{ padding: '24px', background: '#fff', border: '1px solid #eaecef', borderRadius: '8px' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px' }}>Master Cutter Access</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Operational permissions. View assigned order measurements, allocate stitching tailors, evaluate garment photos, and trigger QA approvals.</p>
+                  </div>
+                  <div style={{ padding: '24px', background: '#fff', border: '1px solid #eaecef', borderRadius: '8px' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px' }}>Stitching Tailor Access</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Task-only permissions. View assigned stitch files, submit completion status updates, and upload garment verification photos.</p>
+                  </div>
+                </div>
+              </div>
+
               {/* NEW SECTION: AI Draping & Inventory Sync details */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', maxWidth: '1200px', margin: '80px auto 0 auto', borderTop: '1px solid #eaecef', paddingTop: '80px', textAlign: 'left' }}>
                 <div>
