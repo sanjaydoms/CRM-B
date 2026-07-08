@@ -872,7 +872,7 @@ function App() {
   return (
     <div className="app-container">
       {/* 1. PUBLIC LANDING PAGE (Image 1) */}
-      {view === 'landing' && (
+      {['landing', 'features', 'lifecycle', 'faq', 'boutiques'].includes(view) && (
         <div className="landing-page" style={{ background: '#faf9f6', color: '#1a1c1c', fontFamily: 'var(--font-sans)', overflowX: 'hidden' }}>
           
           {/* SEO Meta Helper Styles */}
@@ -1150,16 +1150,39 @@ function App() {
               color: var(--text-muted);
               font-size: 12px;
             }
+            .lifecycle-step-card {
+              background: #fff;
+              border: 1px solid #eaecef;
+              border-radius: 12px;
+              padding: 32px;
+              text-align: left;
+              position: relative;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.01);
+            }
+            .lifecycle-step-num {
+              width: 36px;
+              height: 36px;
+              background: #0f291e;
+              color: #fff;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-weight: 700;
+              font-size: 14px;
+              margin-bottom: 20px;
+            }
           `}</style>
 
           {/* Premium Sticky Navbar */}
           <nav className="landing-navbar">
-            <a href="#home" className="brand-logo-text">SCALEEZY</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); setView('landing'); }} className="brand-logo-text">SCALEEZY</a>
             <ul className="landing-nav-links">
-              <li><a href="#features">Features</a></li>
-              <li><a href="#how-it-works">Lifecycle</a></li>
-              <li><a href="#faq">FAQ</a></li>
-              <li><a href="#boutiques">For Boutiques</a></li>
+              <li><a href="#" style={{ color: view === 'landing' ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)', fontWeight: view === 'landing' ? '600' : '500' }} onClick={(e) => { e.preventDefault(); setView('landing'); }}>Home</a></li>
+              <li><a href="#" style={{ color: view === 'features' ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)', fontWeight: view === 'features' ? '600' : '500' }} onClick={(e) => { e.preventDefault(); setView('features'); }}>Features</a></li>
+              <li><a href="#" style={{ color: view === 'lifecycle' ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)', fontWeight: view === 'lifecycle' ? '600' : '500' }} onClick={(e) => { e.preventDefault(); setView('lifecycle'); }}>Lifecycle</a></li>
+              <li><a href="#" style={{ color: view === 'faq' ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)', fontWeight: view === 'faq' ? '600' : '500' }} onClick={(e) => { e.preventDefault(); setView('faq'); }}>FAQ</a></li>
+              <li><a href="#" style={{ color: view === 'boutiques' ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)', fontWeight: view === 'boutiques' ? '600' : '500' }} onClick={(e) => { e.preventDefault(); setView('boutiques'); }}>For Boutiques</a></li>
             </ul>
             <div style={{ display: 'flex', gap: '12px' }}>
               <button className="btn-secondary" style={{ padding: '8px 20px', fontSize: '13px' }} onClick={() => setView('login')}>Sign In</button>
@@ -1167,164 +1190,198 @@ function App() {
             </div>
           </nav>
 
-          {/* Hero Section */}
-          <header className="hero-section" id="home">
-            <div className="hero-badge">
-              <Sparkles size={12} />
-              AI-Powered Custom Tailoring CRM
-            </div>
-            <h1 className="hero-title">Elevate Your Atelier with Scaleezy CRM Management</h1>
-            <p className="hero-desc">
-              The premium software solution designed specifically for bespoke fashion boutiques. Manage measurements, organize fabric inventory, preview designs via AI draping simulation, and dispatch updates to clients in real-time.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', flexWrap: 'wrap' }}>
-              <button className="btn-primary" style={{ padding: '16px 36px', fontSize: '14px', background: 'linear-gradient(135deg, #0f291e, #1b3d2d)', border: 'none' }} onClick={() => setView('login')}>
-                Access Boutique Dashboard
-                <ArrowRight size={16} />
-              </button>
-              <a href="#features" className="btn-secondary" style={{ padding: '16px 36px', fontSize: '14px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                Explore Features
-              </a>
-            </div>
-          </header>
-
-          {/* Detailed Features Grid (SEO, GEO & AEO Optimized) */}
-          <section className="feature-grid-section" id="features">
-            <div className="sec-title-group">
-              <h2>Atelier Management Redefined</h2>
-              <p>Scaleezy provides the essential digital tools needed to run a premium tailoring boutique, all inside a single cloud-based dashboard.</p>
-            </div>
-
-            <div className="feature-card-grid">
-              {/* Feature 1: AI Draping Visualizer */}
-              <div className="feature-detail-card">
-                <div className="feature-icon-wrapper">
-                  <Sparkles size={20} />
+          {/* PAGE 1: MAIN LANDING */}
+          {view === 'landing' && (
+            <>
+              <header className="hero-section">
+                <div className="hero-badge">
+                  <Sparkles size={12} />
+                  AI-Powered Custom Tailoring CRM
                 </div>
-                <h3>Interactive 3D Fabric Draping</h3>
-                <p>
-                  Allow clients to visualize the final outfit before a single cut is made. Our Live Draping Visualizer dynamically maps fabric texture swatches onto style sketches in real-time for immediate reference.
+                <h1 className="hero-title">Elevate Your Atelier with Scaleezy CRM Management</h1>
+                <p className="hero-desc">
+                  The premium software solution designed specifically for bespoke fashion boutiques. Manage measurements, organize fabric inventory, preview designs via AI draping simulation, and dispatch updates to clients in real-time.
                 </p>
-              </div>
-
-              {/* Feature 2: Multi-Tenant Schema Security */}
-              <div className="feature-detail-card">
-                <div className="feature-icon-wrapper">
-                  <ShieldCheck size={20} />
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                  <button className="btn-primary" style={{ padding: '16px 36px', fontSize: '14px', background: 'linear-gradient(135deg, #0f291e, #1b3d2d)', border: 'none' }} onClick={() => setView('login')}>
+                    Access Boutique Dashboard
+                    <ArrowRight size={16} />
+                  </button>
+                  <button className="btn-secondary" style={{ padding: '16px 36px', fontSize: '14px' }} onClick={() => setView('features')}>
+                    Explore Features
+                  </button>
                 </div>
-                <h3>Enterprise Tenant Data Isolation</h3>
-                <p>
-                  Your client lists, custom pricing models, and style assets are secured. Scaleezy implements dedicated PostgreSQL schemas for each registered boutique to guarantee absolute data privacy.
-                </p>
-              </div>
+              </header>
 
-              {/* Feature 3: Bespoke Measurement Ledgers */}
-              <div className="feature-detail-card">
-                <div className="feature-icon-wrapper">
-                  <Scissors size={20} />
+              <div className="geo-stats-row">
+                <div className="geo-stat-box">
+                  <h4>500+</h4>
+                  <span>Designer Ateliers</span>
+                  <p>Active across major fashion hubs: Mumbai, Delhi, London, and Paris</p>
                 </div>
-                <h3>Multi-Dimensional Measurement Ledger</h3>
-                <p>
-                  Log detailed size configurations (bust, waist, hips, arm length, neck, length, shoulder) and custom specifications for men, women, and kids to ensure tailor precision and minimize alterations.
-                </p>
-              </div>
-
-              {/* Feature 4: Staff & Tailor Pipeline */}
-              <div className="feature-detail-card">
-                <div className="feature-icon-wrapper">
-                  <Users size={20} />
+                <div className="geo-stat-box">
+                  <h4>98.8%</h4>
+                  <span>First-Fit Accuracy</span>
+                  <p>Enabled by precise custom measurement ledger verification</p>
                 </div>
-                <h3>Staff & Tailor Assignment Pipeline</h3>
-                <p>
-                  Optimize boutique workflows. Assign supervising Master Cutters for precision cutting and stitching tailors for garment assembly, then track progress on their dedicated mobile-friendly portals.
-                </p>
-              </div>
-
-              {/* Feature 5: Real-Time Order Alerts */}
-              <div className="feature-detail-card">
-                <div className="feature-icon-wrapper">
-                  <MessageSquare size={20} />
+                <div className="geo-stat-box">
+                  <h4>40%</h4>
+                  <span>Time Saved</span>
+                  <p>Reduced manual tailor logbook updating and scheduling</p>
                 </div>
-                <h3>Automated Client Progress Alerts</h3>
-                <p>
-                  Delight clients with proactive updates. As a garment advances from cutting to stitching to quality check, Scaleezy automatically dispatches notification alerts to the client.
-                </p>
+              </div>
+            </>
+          )}
+
+          {/* PAGE 2: FEATURES */}
+          {view === 'features' && (
+            <section className="feature-grid-section">
+              <div className="sec-title-group">
+                <h2>Product Features & Capabilities</h2>
+                <p>An in-depth look at the specialized tools built inside the Scaleezy CRM ecosystem.</p>
               </div>
 
-              {/* Feature 6: Custom Brand Invoicing */}
-              <div className="feature-detail-card">
-                <div className="feature-icon-wrapper">
-                  <FileText size={20} />
+              <div className="feature-card-grid">
+                <div className="feature-detail-card">
+                  <div className="feature-icon-wrapper"><Sparkles size={20} /></div>
+                  <h3>3D Fabric Draping Visualizer</h3>
+                  <p>Overlay digitised fabric swatches onto sketch templates in real-time. Provide client reference mockups before cutting into high-value silk or brocades.</p>
                 </div>
-                <h3>Logo-Customized Billing & Invoicing</h3>
-                <p>
-                  Generate professional, simplified invoices featuring your boutique's name, contact information, and brand logo. Automatically calculate subtotals, custom advance payouts, and remaining balances.
-                </p>
+                <div className="feature-detail-card">
+                  <div className="feature-icon-wrapper"><Scissors size={20} /></div>
+                  <h3>Dynamic Size Ledgers</h3>
+                  <p>Log comprehensive size records for men, women, and children. Fields adapt to gender and garment selections, ensuring tailors have exact fit info.</p>
+                </div>
+                <div className="feature-detail-card">
+                  <div className="feature-icon-wrapper"><Users size={20} /></div>
+                  <h3>Double-Level Staff Assignment</h3>
+                  <p>Delegate master cutting patterns and stitching duties separately. Monitor the progress of each order phase as staff submit completion reports.</p>
+                </div>
+                <div className="feature-detail-card">
+                  <div className="feature-icon-wrapper"><ShieldCheck size={20} /></div>
+                  <h3>Isolated Database Tenants</h3>
+                  <p>Strict data segregation using PostgreSQL schemas. Your data is isolated and secured, completely protected from any other registered boutique.</p>
+                </div>
+                <div className="feature-detail-card">
+                  <div className="feature-icon-wrapper"><MessageSquare size={20} /></div>
+                  <h3>Automated Customer Alerts</h3>
+                  <p>Keep clients updated automatically. Send instant alerts when orders move from "Stitching" to "Quality Check" to "Ready for Dispatch".</p>
+                </div>
+                <div className="feature-detail-card">
+                  <div className="feature-icon-wrapper"><FileText size={20} /></div>
+                  <h3>Custom Branded Receipts</h3>
+                  <p>Print clean receipts with your boutique's customized header logo, contact info, payment modes, advance payouts, and outstanding balances.</p>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
-          {/* GEO Case Study & Geographic Stats Row */}
-          <div className="geo-stats-row">
-            <div className="geo-stat-box">
-              <h4>500+</h4>
-              <span>Designer Ateliers</span>
-              <p>Active across major fashion hubs: Mumbai, Delhi, London, and Paris</p>
-            </div>
-            <div className="geo-stat-box">
-              <h4>98.8%</h4>
-              <span>First-Fit Accuracy</span>
-              <p>Enabled by precise custom measurement ledger verification</p>
-            </div>
-            <div className="geo-stat-box">
-              <h4>1.2M+</h4>
-              <span>SMS Progress Alerts Sent</span>
-              <p>Fostering transparency and client retention for boutique brands</p>
-            </div>
-            <div className="geo-stat-box">
-              <h4>40%</h4>
-              <span>Time Saved</span>
-              <p>Reduced manual tailor logbook updating and scheduling</p>
-            </div>
-          </div>
-
-          {/* AEO Optimized Q&A FAQ Section */}
-          <section className="aeo-faq-section" id="faq">
-            <div className="sec-title-group">
-              <h2>Frequently Asked Questions</h2>
-              <p>Direct answers regarding Scaleezy's architecture, security, and tailor management integrations.</p>
-            </div>
-
-            <div className="faq-grid">
-              <div className="faq-card">
-                <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> How does Scaleezy guarantee data privacy for individual boutiques?</h4>
-                <p>
-                  Scaleezy is built on a multi-tenant PostgreSQL database structure. Each boutique is assigned a isolated database schema (e.g. schema_name.localhost). This means your client records, boutique settings, and measurements are physically partitioned and inaccessible by any other tenant.
-                </p>
+          {/* PAGE 3: LIFECYCLE */}
+          {view === 'lifecycle' && (
+            <section className="feature-grid-section" style={{ background: '#fff' }}>
+              <div className="sec-title-group">
+                <h2>The Bespoke Garment Lifecycle</h2>
+                <p>Track the step-by-step workflow of a custom outfit from initial booking to delivery.</p>
               </div>
 
-              <div className="faq-card">
-                <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Can master cutters and stitching tailors update order status directly?</h4>
-                <p>
-                  Yes. Staff members receive dedicated login credentials to their staff portals. They can view tasks assigned to them, upload photo proof of completed garments, and submit tasks for master quality inspection.
-                </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto' }}>
+                <div className="lifecycle-step-card">
+                  <div className="lifecycle-step-num">1</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Consultation & Fit Record</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>Record customer details, select garment type, and fill out precise measurement dimensions inside the ledger.</p>
+                </div>
+                <div className="lifecycle-step-card">
+                  <div className="lifecycle-step-num">2</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>AI Draping Preview</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>Upload design sketch references and drape fabrics digitally so the customer can visualize and approve the style combination.</p>
+                </div>
+                <div className="lifecycle-step-card">
+                  <div className="lifecycle-step-num">3</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Pattern Cutting (Master)</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>The assigned Master Cutter retrieves measurements from their mobile portal, styles the template, and cuts the fabric.</p>
+                </div>
+                <div className="lifecycle-step-card">
+                  <div className="lifecycle-step-num">4</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Stitching & Assembly</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>The assigned tailor stitches the panels, finishes embroidery accents, and uploads a verification photo upon completion.</p>
+                </div>
+                <div className="lifecycle-step-card">
+                  <div className="lifecycle-step-num">5</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Master Quality Check</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>The Master inspects the assembled garment against measurements. If approved, the order advances to "Ready for Dispatch".</p>
+                </div>
+                <div className="lifecycle-step-card">
+                  <div className="lifecycle-step-num">6</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Dispatch & Delivery</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>The client is notified automatically. The invoice is finalized, advance payment reconciled, and the outfit is handed over.</p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* PAGE 4: FAQ */}
+          {view === 'faq' && (
+            <section className="aeo-faq-section">
+              <div className="sec-title-group">
+                <h2>Frequently Asked Questions</h2>
+                <p>Find direct answers to common queries regarding database schemas, customization, and staff management.</p>
               </div>
 
-              <div className="faq-card">
-                <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Can customers preview fabrics on fashion sketches before production starts?</h4>
-                <p>
-                  Yes, using our built-in 3D Draping Visualizer, the boutique owner can overlay selected fabric swatches onto chosen style sketches during order creation, providing a reference preview for the customer.
-                </p>
+              <div className="faq-grid">
+                <div className="faq-card">
+                  <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> How does database isolation work in Scaleezy?</h4>
+                  <p>Every registered boutique is provisioned with a private schema partition. This database separation ensures that customer contact lists, measurements, and catalog designs are 100% secure and isolated.</p>
+                </div>
+                <div className="faq-card">
+                  <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Can tailors see all customer billing files?</h4>
+                  <p>No. Tailors can only access their personal dashboard containing assigned stitching tasks, design sketches, and specific sizing measurements. Billing files are restricted to boutique owners.</p>
+                </div>
+                <div className="faq-card">
+                  <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> How does the 3D Draping preview help client sales?</h4>
+                  <p>By superimposing digital fabric swatches onto sketch designs, clients can align on the exact aesthetic before stitching, reducing misunderstandings and cost alterations.</p>
+                </div>
+                <div className="faq-card">
+                  <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Can we customize the GST tax rates on invoices?</h4>
+                  <p>Yes. The tax settings, boutique brand logo, currency indicators, and custom service charges are fully editable within the Boutique Settings control panel.</p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* PAGE 5: FOR BOUTIQUES */}
+          {view === 'boutiques' && (
+            <section className="feature-grid-section" style={{ background: '#fff' }}>
+              <div className="sec-title-group">
+                <h2>Dedicated Solutions for Boutique Owners</h2>
+                <p>Run your atelier with modern cloud infrastructure designed to grow your business.</p>
               </div>
 
-              <div className="faq-card">
-                <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Does Scaleezy support customizable boutique invoices?</h4>
-                <p>
-                  Absolutely. In the boutique settings tab, you can input your brand name, email, phone, and upload your custom boutique logo. This information is automatically applied to all customer invoices and billing receipts.
-                </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px', maxWidth: '1000px', margin: '0 auto', textAlign: 'left' }}>
+                <div>
+                  <h3 style={{ fontSize: '22px', fontWeight: 600, color: '#0f291e', marginBottom: '16px' }}>Ready-to-Use Cloud Staging</h3>
+                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '24px' }}>
+                    Scaleezy supports instant workspace provisioning. Sign up today and get your custom subdomain (e.g. `yourbrand.scaleezy.com`) configured instantly with your own isolated PostgreSQL tables.
+                  </p>
+                  <ul style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                    <li><strong>No-Installation CRM:</strong> Works on desktop, iPads, and mobile browsers.</li>
+                    <li><strong>Pre-Loaded Fabric Catalog:</strong> Upload your own fabrics or use our default library.</li>
+                    <li><strong>Integrated SMS Alerts:</strong> Keep your clients notified without writing any code.</li>
+                  </ul>
+                </div>
+
+                <div style={{ background: '#faf9f6', padding: '40px', borderRadius: '16px', border: '1px solid #eaecef', display: 'flex', flexDirection: 'column', justifyItems: 'center', alignItems: 'center', textAlign: 'center' }}>
+                  <Sparkles size={36} style={{ color: 'var(--accent-text, #b07c40)', marginBottom: '16px' }} />
+                  <h4 style={{ fontSize: '18px', fontWeight: 600, color: '#0f291e', marginBottom: '12px' }}>Start Your 14-Day Free Trial</h4>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
+                    Experience the modern workflow solution preferred by 500+ luxury ateliers.
+                  </p>
+                  <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '12px' }} onClick={() => { setSignupStep(1); setView('signup'); }}>
+                    Launch Boutique CRM
+                  </button>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
           {/* Premium Footer */}
           <footer className="premium-footer">
@@ -1341,17 +1398,17 @@ function App() {
               <div className="footer-col">
                 <h5>Product</h5>
                 <ul>
-                  <li><a href="#features">Features</a></li>
-                  <li><a href="#how-it-works">Workflow</a></li>
-                  <li><a href="#faq">FAQ</a></li>
+                  <li><a href="#" onClick={(e) => { e.preventDefault(); setView('features'); }}>Features</a></li>
+                  <li><a href="#" onClick={(e) => { e.preventDefault(); setView('lifecycle'); }}>Workflow</a></li>
+                  <li><a href="#" onClick={(e) => { e.preventDefault(); setView('faq'); }}>FAQ</a></li>
                 </ul>
               </div>
               <div className="footer-col">
                 <h5>Architecture</h5>
                 <ul>
-                  <li><a href="#features">PostgreSQL Schema Isolation</a></li>
-                  <li><a href="#features">Live Draping Simulation</a></li>
-                  <li><a href="#features">Staff Mobile Portals</a></li>
+                  <li><a href="#" onClick={(e) => { e.preventDefault(); setView('boutiques'); }}>PostgreSQL Schema Isolation</a></li>
+                  <li><a href="#" onClick={(e) => { e.preventDefault(); setView('features'); }}>Live Draping Simulation</a></li>
+                  <li><a href="#" onClick={(e) => { e.preventDefault(); setView('lifecycle'); }}>Staff Mobile Portals</a></li>
                 </ul>
               </div>
               <div className="footer-col">
@@ -1359,7 +1416,7 @@ function App() {
                 <ul>
                   <li><span style={{ display: 'block', marginBottom: '4px' }}>support@scaleezy.com</span></li>
                   <li><span style={{ display: 'block' }}>+91 99999 88888</span></li>
-                  <li><a href="#home" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>Request Staging Access</a></li>
+                  <li><a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600 }} onClick={(e) => { e.preventDefault(); setView('boutiques'); }}>Request Staging Access</a></li>
                 </ul>
               </div>
             </div>
