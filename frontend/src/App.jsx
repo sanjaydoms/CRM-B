@@ -1284,6 +1284,28 @@ function App() {
                   </div>
                 </div>
               </section>
+
+              {/* NEW SECTION: Lookbook Collections Showcase */}
+              <section className="feature-grid-section" style={{ background: '#ffffff', padding: '80px 5%' }}>
+                <div className="sec-title-group">
+                  <h2>Aesthetic Lookbook Collections</h2>
+                  <p>Incorporate premium catalog cards to organize design catalogs by season or theme.</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto', textAlign: 'left' }}>
+                  <div style={{ background: '#faf9f6', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '8px' }}>Heritage Bridal</h4>
+                    <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Zardozi embroidered lehengas and classic silk sherwanis.</p>
+                  </div>
+                  <div style={{ background: '#faf9f6', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '8px' }}>Festive Velvet</h4>
+                    <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Plush heavy-velvet kurtas and anarkalis with gold thread highlights.</p>
+                  </div>
+                  <div style={{ background: '#faf9f6', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '8px' }}>Modern Couture</h4>
+                    <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Contemporary western-cut gowns and tailored structure tuxedo lines.</p>
+                  </div>
+                </div>
+              </section>
             </>
           )}
 
@@ -1370,6 +1392,22 @@ function App() {
                   </div>
                 </div>
               </div>
+
+              {/* NEW SECTION: AI Draping & Inventory Sync details */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', maxWidth: '1200px', margin: '80px auto 0 auto', borderTop: '1px solid #eaecef', paddingTop: '80px', textAlign: 'left' }}>
+                <div>
+                  <h4 style={{ color: '#0f291e', fontSize: '18px', marginBottom: '12px' }}>AI Draping Preview & Sketch Specs</h4>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    Supports PNG, JPG, and HEIC image file uploads up to 10MB. The system executes automated edge-cropping to map textile swatches on top of dress lines seamlessly.
+                  </p>
+                </div>
+                <div>
+                  <h4 style={{ color: '#0f291e', fontSize: '18px', marginBottom: '12px' }}>Multi-Location Fabric Inventory Sync</h4>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    Synchronize warehouse rolls with showroom front desk registries. Real-time yardage deductions apply automatically upon booking bespoke orders.
+                  </p>
+                </div>
+              </div>
             </section>
           )}
 
@@ -1443,6 +1481,22 @@ function App() {
                   <span style={{ fontSize: '13px', fontWeight: 600, color: '#107c41' }}>Auto Client Alerts</span>
                 </div>
               </div>
+
+              {/* NEW SECTION: Express Timelines & Alteration logs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', maxWidth: '1000px', margin: '80px auto 0 auto', borderTop: '1px solid #eaecef', paddingTop: '80px', textAlign: 'left' }}>
+                <div>
+                  <h4 style={{ color: '#0f291e', fontSize: '18px', marginBottom: '12px' }}>Express Production Priority Routing</h4>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    Route orders via Standard (15-day), Express (5-day), or Super-Express (48-hour) paths. Tailor workloads rearrange automatically to prioritize rush deadlines.
+                  </p>
+                </div>
+                <div>
+                  <h4 style={{ color: '#0f291e', fontSize: '18px', marginBottom: '12px' }}>Alteration History Auditing Ledger</h4>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    Every fit modification is version-tracked. Preserve history logs of chest, waist, and length edits over years to recognize client pattern trends.
+                  </p>
+                </div>
+              </div>
             </section>
           )}
 
@@ -1485,7 +1539,7 @@ function App() {
               </div>
 
               {/* NEW SECTION: Additional technical FAQs */}
-              <div style={{ borderTop: '1px solid #eaecef', paddingTop: '80px' }}>
+              <div style={{ borderTop: '1px solid #eaecef', paddingTop: '80px', marginBottom: '80px' }}>
                 <div className="sec-title-group" style={{ marginBottom: '50px' }}>
                   <h2>Security & Staging Infrastructure FAQs</h2>
                   <p>In-depth responses regarding server operations, security keys, and ledger configurations.</p>
@@ -1501,6 +1555,28 @@ function App() {
                     <h4 style={{ color: '#0f291e', fontSize: '15px' }}><HelpCircle size={16} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> Do you back up design assets and sketch files?</h4>
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '6px' }}>
                       <strong>Absolutely. Systems execute daily incremental backups</strong> of PostgreSQL schemas and design sketch uploads, persisting back-ups securely for 30 days.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* NEW SECTION: Device & integration FAQs */}
+              <div style={{ borderTop: '1px solid #eaecef', paddingTop: '80px' }}>
+                <div className="sec-title-group" style={{ marginBottom: '50px' }}>
+                  <h2>Device Support & Integrations FAQs</h2>
+                  <p>Answers to hardware setup, messaging gateways, and peripheral compatibility.</p>
+                </div>
+                <div className="faq-grid" style={{ gap: '30px' }}>
+                  <div className="faq-card" style={{ background: '#faf9f6' }}>
+                    <h4 style={{ color: '#0f291e', fontSize: '15px' }}><HelpCircle size={16} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> Which devices can we use to access Scaleezy?</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                      <strong>Any modern web-enabled device is supported.</strong> Scaleezy is fully responsive on Apple iPads, Android tablets, desktop computers, and smartphones without needing native store downloads.
+                    </p>
+                  </div>
+                  <div className="faq-card" style={{ background: '#faf9f6' }}>
+                    <h4 style={{ color: '#0f291e', fontSize: '15px' }}><HelpCircle size={16} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> Can we connect thermal ticket printers?</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                      <strong>Yes. Standard USB and Bluetooth thermal printers are supported.</strong> The invoice printing output uses clean, raw CSS stylesheets optimized for thermal rolls and standard print layout feeds.
                     </p>
                   </div>
                 </div>
@@ -1546,7 +1622,7 @@ function App() {
               </div>
 
               {/* NEW SECTION: Pricing Grid */}
-              <div style={{ borderTop: '1px solid #eaecef', paddingTop: '80px' }}>
+              <div style={{ borderTop: '1px solid #eaecef', paddingTop: '80px', marginBottom: '80px' }}>
                 <div className="sec-title-group" style={{ marginBottom: '50px' }}>
                   <h2>Boutique Subscription Plans</h2>
                   <p>Flexible plan options customized to the size and order volume of your fashion business.</p>
