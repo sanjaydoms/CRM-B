@@ -176,9 +176,13 @@ class MeView(views.APIView):
         user = request.user
         role = 'Owner'
         tailor_id = None
-        if hasattr(user, 'tailor_profile') and user.tailor_profile:
-            role = user.tailor_profile.role
-            tailor_id = user.tailor_profile.id
+        if connection.schema_name != 'public':
+            try:
+                if hasattr(user, 'tailor_profile') and user.tailor_profile:
+                    role = user.tailor_profile.role
+                    tailor_id = user.tailor_profile.id
+            except Exception:
+                pass
 
         return Response({
             "id": user.id,
