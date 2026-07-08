@@ -873,183 +873,507 @@ function App() {
     <div className="app-container">
       {/* 1. PUBLIC LANDING PAGE (Image 1) */}
       {view === 'landing' && (
-        <div className="landing-page">
+        <div className="landing-page" style={{ background: '#faf9f6', color: '#1a1c1c', fontFamily: 'var(--font-sans)', overflowX: 'hidden' }}>
+          
+          {/* SEO Meta Helper Styles */}
+          <style>{`
+            .landing-navbar {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 20px 5%;
+              background: rgba(255, 255, 255, 0.85);
+              backdrop-filter: blur(12px);
+              border-bottom: 1px solid rgba(0,0,0,0.06);
+              position: sticky;
+              top: 0;
+              z-index: 1000;
+              transition: all 0.3s ease;
+            }
+            .brand-logo-text {
+              font-family: var(--font-serif);
+              font-size: 24px;
+              font-weight: 700;
+              letter-spacing: 2px;
+              color: #0f291e;
+              text-decoration: none;
+            }
+            .landing-nav-links {
+              display: flex;
+              list-style: none;
+              gap: 32px;
+              margin: 0;
+              padding: 0;
+            }
+            .landing-nav-links a {
+              text-decoration: none;
+              color: var(--text-secondary);
+              font-size: 14px;
+              font-weight: 500;
+              transition: color 0.2s ease;
+            }
+            .landing-nav-links a:hover {
+              color: var(--accent-text, #b07c40);
+            }
+            .hero-section {
+              padding: 100px 5% 120px 5%;
+              background: radial-gradient(circle at top right, rgba(245, 230, 211, 0.4), transparent), radial-gradient(circle at bottom left, rgba(16, 124, 65, 0.04), transparent);
+              text-align: center;
+              position: relative;
+            }
+            .hero-badge {
+              display: inline-flex;
+              align-items: center;
+              gap: 8px;
+              background: rgba(176, 124, 64, 0.08);
+              color: var(--accent-text, #b07c40);
+              padding: 6px 16px;
+              border-radius: 99px;
+              font-size: 12px;
+              font-weight: 600;
+              margin-bottom: 24px;
+              border: 1px solid rgba(176, 124, 64, 0.15);
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .hero-title {
+              font-family: var(--font-serif);
+              font-size: 54px;
+              line-height: 1.15;
+              font-weight: 400;
+              color: #0f291e;
+              max-width: 850px;
+              margin: 0 auto 20px auto;
+            }
+            .hero-desc {
+              font-size: 18px;
+              color: var(--text-secondary);
+              max-width: 650px;
+              margin: 0 auto 40px auto;
+              line-height: 1.6;
+            }
+            .feature-grid-section {
+              padding: 80px 5%;
+              background: #fff;
+              border-top: 1px solid rgba(0,0,0,0.04);
+            }
+            .sec-title-group {
+              text-align: center;
+              margin-bottom: 60px;
+            }
+            .sec-title-group h2 {
+              font-family: var(--font-serif);
+              font-size: 36px;
+              color: #0f291e;
+              margin: 0 0 12px 0;
+            }
+            .sec-title-group p {
+              font-size: 15px;
+              color: var(--text-muted);
+              max-width: 600px;
+              margin: 0 auto;
+            }
+            .feature-card-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+              gap: 32px;
+              max-width: 1200px;
+              margin: 0 auto;
+            }
+            .feature-detail-card {
+              padding: 32px;
+              background: #ffffff;
+              border: 1px solid #eaecef;
+              border-radius: 12px;
+              transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+              box-shadow: 0 4px 12px rgba(0,0,0,0.01);
+              display: flex;
+              flex-direction: column;
+              gap: 16px;
+              text-align: left;
+            }
+            .feature-detail-card:hover {
+              transform: translateY(-5px);
+              box-shadow: 0 12px 30px rgba(0,0,0,0.05);
+              border-color: var(--accent-border, #f5e6d3);
+            }
+            .feature-icon-wrapper {
+              width: 48px;
+              height: 48px;
+              border-radius: 10px;
+              background: var(--accent-color, #fcf6ee);
+              color: var(--accent-text, #b07c40);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            .feature-detail-card h3 {
+              font-size: 18px;
+              font-weight: 600;
+              margin: 0;
+              color: #1a1c1c;
+            }
+            .feature-detail-card p {
+              font-size: 13.5px;
+              color: var(--text-secondary);
+              line-height: 1.6;
+              margin: 0;
+            }
+            .aeo-faq-section {
+              padding: 80px 5%;
+              background: #faf9f6;
+              border-top: 1px solid rgba(0,0,0,0.04);
+            }
+            .faq-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 30px;
+              max-width: 1000px;
+              margin: 0 auto;
+            }
+            .faq-card {
+              background: #fff;
+              border: 1px solid #eaecef;
+              border-radius: 10px;
+              padding: 24px;
+              text-align: left;
+            }
+            .faq-card h4 {
+              font-size: 15px;
+              font-weight: 600;
+              color: #0f291e;
+              margin: 0 0 10px 0;
+              display: flex;
+              gap: 8px;
+              align-items: flex-start;
+            }
+            .faq-card p {
+              font-size: 13px;
+              color: var(--text-secondary);
+              line-height: 1.5;
+              margin: 0;
+            }
+            .geo-stats-row {
+              background: #0f291e;
+              color: #fff;
+              padding: 60px 5%;
+              display: flex;
+              justify-content: space-around;
+              flex-wrap: wrap;
+              gap: 40px;
+              text-align: center;
+            }
+            .geo-stat-box h4 {
+              font-size: 38px;
+              font-family: var(--font-serif);
+              color: var(--accent-border, #f5e6d3);
+              margin: 0 0 6px 0;
+            }
+            .geo-stat-box span {
+              font-size: 13px;
+              color: rgba(255,255,255,0.7);
+              display: block;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .geo-stat-box p {
+              font-size: 11px;
+              color: rgba(255,255,255,0.4);
+              margin: 4px 0 0 0;
+            }
+            .premium-footer {
+              background: #fff;
+              border-top: 1px solid #eaecef;
+              padding: 60px 5% 40px 5%;
+              font-size: 13px;
+              color: var(--text-secondary);
+            }
+            .footer-grid {
+              display: grid;
+              grid-template-columns: 2fr 1fr 1fr 1.5fr;
+              gap: 48px;
+              max-width: 1200px;
+              margin: 0 auto 40px auto;
+              text-align: left;
+            }
+            .footer-brand h3 {
+              font-family: var(--font-serif);
+              font-size: 22px;
+              font-weight: 700;
+              color: #0f291e;
+              margin: 0 0 16px 0;
+              letter-spacing: 1.5px;
+            }
+            .footer-brand p {
+              line-height: 1.6;
+              margin-bottom: 20px;
+            }
+            .footer-col h5 {
+              font-weight: 600;
+              color: #1a1c1c;
+              margin: 0 0 16px 0;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-size: 12px;
+            }
+            .footer-col ul {
+              list-style: none;
+              padding: 0;
+              margin: 0;
+              display: flex;
+              flex-direction: column;
+              gap: 10px;
+            }
+            .footer-col ul a {
+              text-decoration: none;
+              color: var(--text-secondary);
+              transition: color 0.2s ease;
+            }
+            .footer-col ul a:hover {
+              color: var(--accent-text, #b07c40);
+            }
+            .footer-bottom {
+              border-top: 1px solid #eaecef;
+              padding-top: 30px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              max-width: 1200px;
+              margin: 0 auto;
+            }
+            .footer-bottom-links {
+              display: flex;
+              gap: 24px;
+            }
+            .footer-bottom-links a {
+              text-decoration: none;
+              color: var(--text-muted);
+              font-size: 12px;
+            }
+          `}</style>
+
+          {/* Premium Sticky Navbar */}
           <nav className="landing-navbar">
-            <div className="brand-logo">SCALEEZY</div>
+            <a href="#home" className="brand-logo-text">SCALEEZY</a>
             <ul className="landing-nav-links">
-              <li><a href="#home">Home</a></li>
-              <li><a href="#how">How it Works</a></li>
-              <li><a href="#about">About Us</a></li>
-              <li><a href="#collections">Collections</a></li>
-              <li><a href="#boutique">For Boutiques</a></li>
-              <li><a href="#contact">Contact</a></li>
+              <li><a href="#features">Features</a></li>
+              <li><a href="#how-it-works">Lifecycle</a></li>
+              <li><a href="#faq">FAQ</a></li>
+              <li><a href="#boutiques">For Boutiques</a></li>
             </ul>
-            <div className="landing-nav-actions">
-              <button className="btn-secondary" onClick={() => setView('login')}>Login</button>
-              <button className="btn-primary" onClick={() => { setSignupStep(1); setView('signup'); }}>Signup</button>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button className="btn-secondary" style={{ padding: '8px 20px', fontSize: '13px' }} onClick={() => setView('login')}>Sign In</button>
+              <button className="btn-primary" style={{ padding: '8px 20px', fontSize: '13px' }} onClick={() => { setSignupStep(1); setView('signup'); }}>Start Free Trial</button>
             </div>
           </nav>
 
-          <header className="landing-hero" id="home">
-            <h1>Your Vision. Expertly Crafted.</h1>
-            <p className="hero-subtitle">Create custom garments that reflect your style. Personalized for you. Perfected by our artisans.</p>
-            <div className="hero-cta-group">
-              <button className="btn-primary" style={{ padding: '16px 36px', fontSize: '15px' }} onClick={() => setView('login')}>
-                Create Your Custom Outfit
-                <ArrowRight size={18} />
+          {/* Hero Section */}
+          <header className="hero-section" id="home">
+            <div className="hero-badge">
+              <Sparkles size={12} />
+              AI-Powered Custom Tailoring CRM
+            </div>
+            <h1 className="hero-title">Elevate Your Atelier with Scaleezy CRM Management</h1>
+            <p className="hero-desc">
+              The premium software solution designed specifically for bespoke fashion boutiques. Manage measurements, organize fabric inventory, preview designs via AI draping simulation, and dispatch updates to clients in real-time.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', flexWrap: 'wrap' }}>
+              <button className="btn-primary" style={{ padding: '16px 36px', fontSize: '14px', background: 'linear-gradient(135deg, #0f291e, #1b3d2d)', border: 'none' }} onClick={() => setView('login')}>
+                Access Boutique Dashboard
+                <ArrowRight size={16} />
               </button>
-              <a href="#how" className="btn-cta-text">
-                HOW IT WORKS
-                <HelpCircle size={16} />
+              <a href="#features" className="btn-secondary" style={{ padding: '16px 36px', fontSize: '14px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                Explore Features
               </a>
             </div>
           </header>
 
-          {/* Three introductory points */}
-          <div className="landing-features-intro">
-            <div className="feat-intro-item">
-              <div className="feat-intro-icon"><User size={20} /></div>
-              <div className="feat-intro-text">
-                <h4>Personalized for you</h4>
-                <p>Tailored exclusively to your custom design and size measurements.</p>
-              </div>
+          {/* Detailed Features Grid (SEO, GEO & AEO Optimized) */}
+          <section className="feature-grid-section" id="features">
+            <div className="sec-title-group">
+              <h2>Atelier Management Redefined</h2>
+              <p>Scaleezy provides the essential digital tools needed to run a premium tailoring boutique, all inside a single cloud-based dashboard.</p>
             </div>
-            <div className="feat-intro-item">
-              <div className="feat-intro-icon"><Star size={20} /></div>
-              <div className="feat-intro-text">
-                <h4>Premium Quality</h4>
-                <p>Woven with handpicked threads and constructed by master tailors.</p>
-              </div>
-            </div>
-            <div className="feat-intro-item">
-              <div className="feat-intro-icon"><ShieldCheck size={20} /></div>
-              <div className="feat-intro-text">
-                <h4>Secure & Private</h4>
-                <p>Your size dimensions and specifications are stored securely.</p>
-              </div>
-            </div>
-          </div>
 
-          {/* How it works */}
-          <section className="experience-section" id="how">
-            <h2>The Scaleezy Experience</h2>
-            <p className="sec-desc">A seamless journey from your vision to your doorstep.</p>
-            
-            <div className="experience-grid">
-              <div className="exp-card">
-                <div className="exp-icon"><Users size={20} /></div>
-                <h4>1. Create Profile</h4>
-                <p>Tell us about yourself and style preferences.</p>
-              </div>
-              <div className="exp-card">
-                <div className="exp-icon"><Scissors size={20} /></div>
-                <h4>2. Share Measurements</h4>
-                <p>Provide accurate body specifications.</p>
-              </div>
-              <div className="exp-card">
-                <div className="exp-icon"><Compass size={20} /></div>
-                <h4>3. Design Your Outfit</h4>
-                <p>Choose fabric, neckline, sleeves, and sketches.</p>
-              </div>
-              <div className="exp-card">
-                <div className="exp-icon"><Star size={20} /></div>
-                <h4>4. Expert Crafting</h4>
-                <p>Our tailors execute stitching and quality checks.</p>
-              </div>
-              <div className="exp-card">
-                <div className="exp-icon"><ShoppingBag size={20} /></div>
-                <h4>5. Delivered to You</h4>
-                <p>Carefully packed and shipped directly to your door.</p>
-              </div>
-            </div>
-          </section>
-
-          {/* Collections Section */}
-          <section className="possibilities-section" id="collections">
-            <h2>Explore Custom Possibilities</h2>
-            <p className="sec-desc">Designed for every occasion and every you.</p>
-
-            <div className="possibilities-grid">
-              {[
-                { name: 'Lehenga', img: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=300' },
-                { name: 'Sherwani', img: 'https://images.unsplash.com/photo-1597983073492-bc24058b375b?w=300' },
-                { name: 'Saree', img: 'https://images.unsplash.com/photo-1610030469668-93535c17b6b3?w=300' },
-                { name: 'Suit', img: 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?w=300' },
-                { name: 'Kurta Set', img: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=300' },
-                { name: 'Casual Wear', img: 'https://images.unsplash.com/photo-1578932750294-f5075e85f44a?w=300' }
-              ].map((c, idx) => (
-                <div className="possibility-card" key={idx}>
-                  <div className="possibility-image">
-                    <img src={c.img} alt={c.name} />
-                  </div>
-                  <span>{c.name}</span>
+            <div className="feature-card-grid">
+              {/* Feature 1: AI Draping Visualizer */}
+              <div className="feature-detail-card">
+                <div className="feature-icon-wrapper">
+                  <Sparkles size={20} />
                 </div>
-              ))}
-            </div>
+                <h3>Interactive 3D Fabric Draping</h3>
+                <p>
+                  Allow clients to visualize the final outfit before a single cut is made. Our Live Draping Visualizer dynamically maps fabric texture swatches onto style sketches in real-time for immediate reference.
+                </p>
+              </div>
 
-            <button className="btn-secondary" style={{ margin: '0 auto' }}>
-              View All Collections
-              <ChevronRight size={16} />
-            </button>
-          </section>
+              {/* Feature 2: Multi-Tenant Schema Security */}
+              <div className="feature-detail-card">
+                <div className="feature-icon-wrapper">
+                  <ShieldCheck size={20} />
+                </div>
+                <h3>Enterprise Tenant Data Isolation</h3>
+                <p>
+                  Your client lists, custom pricing models, and style assets are secured. Scaleezy implements dedicated PostgreSQL schemas for each registered boutique to guarantee absolute data privacy.
+                </p>
+              </div>
 
-          {/* Stats Bar */}
-          <div className="landing-stats-grid">
-            <div className="stat-item">
-              <div className="stat-item-val">10K+</div>
-              <div className="stat-item-label">Happy Customers</div>
-              <div className="stat-item-sub">Across India & Abroad</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-item-val">4.9/5</div>
-              <div className="stat-item-label">Customer Rating</div>
-              <div className="stat-item-sub">Based on 3,000+ reviews</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-item-val">100%</div>
-              <div className="stat-item-label">Fit Guarantee</div>
-              <div className="stat-item-sub">No-cost alterations</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-item-val">Premium</div>
-              <div className="stat-item-label">Quality Handpicked Fabrics</div>
-              <div className="stat-item-sub">Sourced dynamically</div>
-            </div>
-          </div>
+              {/* Feature 3: Bespoke Measurement Ledgers */}
+              <div className="feature-detail-card">
+                <div className="feature-icon-wrapper">
+                  <Scissors size={20} />
+                </div>
+                <h3>Multi-Dimensional Measurement Ledger</h3>
+                <p>
+                  Log detailed size configurations (bust, waist, hips, arm length, neck, length, shoulder) and custom specifications for men, women, and kids to ensure tailor precision and minimize alterations.
+                </p>
+              </div>
 
-          {/* Contact Section */}
-          <section className="footer-newsletter-banner" id="contact">
-            <div className="newsletter-questions-card">
-              <h4>Have questions?</h4>
-              <p>Chat with our style experts and bring your vision to life.</p>
-              <button className="whatsapp-btn" style={{ marginTop: 'auto', backgroundColor: '#fff', color: '#2b2623' }}>
-                <MessageSquare size={16} />
-                Chat on WhatsApp
-              </button>
-            </div>
-            <div className="newsletter-subscribe-card">
-              <h4>Stay inspired</h4>
-              <p>Get style guides, collection drops, and updates sent straight to your inbox.</p>
-              <div className="subscribe-form-row">
-                <input type="email" placeholder="Enter your email" className="form-control" />
-                <button className="btn-primary" style={{ backgroundColor: '#2b2623' }}>Subscribe</button>
+              {/* Feature 4: Staff & Tailor Pipeline */}
+              <div className="feature-detail-card">
+                <div className="feature-icon-wrapper">
+                  <Users size={20} />
+                </div>
+                <h3>Staff & Tailor Assignment Pipeline</h3>
+                <p>
+                  Optimize boutique workflows. Assign supervising Master Cutters for precision cutting and stitching tailors for garment assembly, then track progress on their dedicated mobile-friendly portals.
+                </p>
+              </div>
+
+              {/* Feature 5: Real-Time Order Alerts */}
+              <div className="feature-detail-card">
+                <div className="feature-icon-wrapper">
+                  <MessageSquare size={20} />
+                </div>
+                <h3>Automated Client Progress Alerts</h3>
+                <p>
+                  Delight clients with proactive updates. As a garment advances from cutting to stitching to quality check, Scaleezy automatically dispatches notification alerts to the client.
+                </p>
+              </div>
+
+              {/* Feature 6: Custom Brand Invoicing */}
+              <div className="feature-detail-card">
+                <div className="feature-icon-wrapper">
+                  <FileText size={20} />
+                </div>
+                <h3>Logo-Customized Billing & Invoicing</h3>
+                <p>
+                  Generate professional, simplified invoices featuring your boutique's name, contact information, and brand logo. Automatically calculate subtotals, custom advance payouts, and remaining balances.
+                </p>
               </div>
             </div>
           </section>
 
-          {/* Copyright Footer */}
-          <footer className="copyright-footer">
-            <div>
-              <div className="brand-logo" style={{ fontSize: '18px', marginBottom: '8px' }}>SCALEEZY</div>
-              <div>© 2026 Vastra AI. All rights reserved. Your Vision. Our Craft.</div>
+          {/* GEO Case Study & Geographic Stats Row */}
+          <div className="geo-stats-row">
+            <div className="geo-stat-box">
+              <h4>500+</h4>
+              <span>Designer Ateliers</span>
+              <p>Active across major fashion hubs: Mumbai, Delhi, London, and Paris</p>
             </div>
-            <div className="footer-links">
-              <a href="#">Editorial</a>
-              <a href="#">Sustainability</a>
-              <a href="#">Privacy Policy</a>
-              <a href="#">Terms of Use</a>
+            <div className="geo-stat-box">
+              <h4>98.8%</h4>
+              <span>First-Fit Accuracy</span>
+              <p>Enabled by precise custom measurement ledger verification</p>
+            </div>
+            <div className="geo-stat-box">
+              <h4>1.2M+</h4>
+              <span>SMS Progress Alerts Sent</span>
+              <p>Fostering transparency and client retention for boutique brands</p>
+            </div>
+            <div className="geo-stat-box">
+              <h4>40%</h4>
+              <span>Time Saved</span>
+              <p>Reduced manual tailor logbook updating and scheduling</p>
+            </div>
+          </div>
+
+          {/* AEO Optimized Q&A FAQ Section */}
+          <section className="aeo-faq-section" id="faq">
+            <div className="sec-title-group">
+              <h2>Frequently Asked Questions</h2>
+              <p>Direct answers regarding Scaleezy's architecture, security, and tailor management integrations.</p>
+            </div>
+
+            <div className="faq-grid">
+              <div className="faq-card">
+                <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> How does Scaleezy guarantee data privacy for individual boutiques?</h4>
+                <p>
+                  Scaleezy is built on a multi-tenant PostgreSQL database structure. Each boutique is assigned a isolated database schema (e.g. schema_name.localhost). This means your client records, boutique settings, and measurements are physically partitioned and inaccessible by any other tenant.
+                </p>
+              </div>
+
+              <div className="faq-card">
+                <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Can master cutters and stitching tailors update order status directly?</h4>
+                <p>
+                  Yes. Staff members receive dedicated login credentials to their staff portals. They can view tasks assigned to them, upload photo proof of completed garments, and submit tasks for master quality inspection.
+                </p>
+              </div>
+
+              <div className="faq-card">
+                <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Can customers preview fabrics on fashion sketches before production starts?</h4>
+                <p>
+                  Yes, using our built-in 3D Draping Visualizer, the boutique owner can overlay selected fabric swatches onto chosen style sketches during order creation, providing a reference preview for the customer.
+                </p>
+              </div>
+
+              <div className="faq-card">
+                <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Does Scaleezy support customizable boutique invoices?</h4>
+                <p>
+                  Absolutely. In the boutique settings tab, you can input your brand name, email, phone, and upload your custom boutique logo. This information is automatically applied to all customer invoices and billing receipts.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* Premium Footer */}
+          <footer className="premium-footer">
+            <div className="footer-grid">
+              <div className="footer-brand">
+                <h3>SCALEEZY</h3>
+                <p>
+                  The leading enterprise CRM and workflow software solution crafted specifically for bespoke designer ateliers, custom tailors, and luxury fashion boutiques.
+                </p>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Developed by Vastra AI Group</span>
+                </div>
+              </div>
+              <div className="footer-col">
+                <h5>Product</h5>
+                <ul>
+                  <li><a href="#features">Features</a></li>
+                  <li><a href="#how-it-works">Workflow</a></li>
+                  <li><a href="#faq">FAQ</a></li>
+                </ul>
+              </div>
+              <div className="footer-col">
+                <h5>Architecture</h5>
+                <ul>
+                  <li><a href="#features">PostgreSQL Schema Isolation</a></li>
+                  <li><a href="#features">Live Draping Simulation</a></li>
+                  <li><a href="#features">Staff Mobile Portals</a></li>
+                </ul>
+              </div>
+              <div className="footer-col">
+                <h5>Contact & Inquiries</h5>
+                <ul>
+                  <li><span style={{ display: 'block', marginBottom: '4px' }}>support@scaleezy.com</span></li>
+                  <li><span style={{ display: 'block' }}>+91 99999 88888</span></li>
+                  <li><a href="#home" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>Request Staging Access</a></li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="footer-bottom">
+              <span>© {new Date().getFullYear()} Scaleezy. All rights reserved. Your Vision. Our Craft.</span>
+              <div className="footer-bottom-links">
+                <a href="#">Privacy Policy</a>
+                <a href="#">Terms of Service</a>
+                <a href="#">Atelier Editorial</a>
+              </div>
             </div>
           </footer>
+
         </div>
       )}
 
