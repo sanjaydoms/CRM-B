@@ -6822,49 +6822,19 @@ function App() {
                   </tr>
                 </thead>
                 <tbody style={{ fontSize: '12px' }}>
-                  <tr style={{ borderBottom: '1px solid #f1f3f5' }}>
-                    <td style={{ padding: '12px 8px' }}>
-                      <strong>Base Price ({customerForm.garment_type})</strong>
-                      <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>Standard pattern cuts and styling specifications</span>
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>₹{parseFloat(confirmedOrder.base_price || 0).toLocaleString('en-IN')}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid #f1f3f5' }}>
-                    <td style={{ padding: '12px 8px' }}>
-                      <strong>Fabric Charges</strong>
-                      <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                        {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} - 3 meters` : 'Customer supplied fabric'}
+                  <tr style={{ borderBottom: '2px solid #eaecef' }}>
+                    <td style={{ padding: '16px 8px' }}>
+                      <strong style={{ fontSize: '14px', color: '#0f291e' }}>Bespoke Handcrafted {customerForm.garment_type}</strong>
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        Custom garment design tailored to individual measurement specifications.
+                      </span>
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        Fabric: {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer Supplied Fabric'}
                       </span>
                     </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>₹{parseFloat(confirmedOrder.fabric_price || 0).toLocaleString('en-IN')}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid #f1f3f5' }}>
-                    <td style={{ padding: '12px 8px' }}>
-                      <strong>Embroidery & Artisan Work</strong>
-                      <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>Custom thread work, sequence, and detailing</span>
+                    <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>
+                      ₹{parseFloat(confirmedOrder.total_amount || 0).toLocaleString('en-IN')}
                     </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>₹{parseFloat(confirmedOrder.embroidery_price || 0).toLocaleString('en-IN')}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid #f1f3f5' }}>
-                    <td style={{ padding: '12px 8px' }}>
-                      <strong>Customization Charges</strong>
-                      <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>Personal size specifications and alterations</span>
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>₹{parseFloat(confirmedOrder.customization_price || 0).toLocaleString('en-IN')}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid #f1f3f5' }}>
-                    <td style={{ padding: '12px 8px' }}>
-                      <strong>Tailoring Charges</strong>
-                      <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>Stitching and pattern matching by {selectedTailor?.name || 'assigned tailor'}</span>
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>₹{parseFloat(confirmedOrder.tailoring_charges || 0).toLocaleString('en-IN')}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '2px solid #eaecef' }}>
-                    <td style={{ padding: '12px 8px' }}>
-                      <strong>Packaging & Handling</strong>
-                      <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>Atelier box packing and shipping validation</span>
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>₹{parseFloat(confirmedOrder.packaging_handling || 0).toLocaleString('en-IN')}</td>
                   </tr>
                 </tbody>
               </table>
@@ -6872,22 +6842,26 @@ function App() {
               {/* Subtotal & Taxes Breakdown */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '12px' }}>
                 <div style={{ width: '250px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Subtotal</span>
-                    <strong style={{ fontWeight: 600 }}>₹{((parseFloat(confirmedOrder.total_amount) || 0) / 1.05).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Taxes (GST 5%)</span>
-                    <strong style={{ fontWeight: 600 }}>₹{parseFloat(confirmedOrder.taxes || 0).toLocaleString('en-IN')}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 6px 0', borderTop: '2px solid #0f291e', marginTop: '6px', fontSize: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 6px 0', borderTop: '2px solid #0f291e', fontSize: '16px' }}>
                     <span style={{ fontWeight: 700, color: '#0f291e' }}>Total Amount</span>
                     <strong style={{ fontWeight: 800, color: '#107c41' }}>₹{parseFloat(confirmedOrder.total_amount || 0).toLocaleString('en-IN')}</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '10px', color: 'var(--text-secondary)', borderTop: '1px solid #eaecef', marginTop: '6px' }}>
-                    <span>Payment Mode</span>
-                    <span>{confirmedOrder.payment_status}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)', borderTop: '1px solid #eaecef', marginTop: '6px' }}>
+                    <span>Payment Status</span>
+                    <strong style={{ fontWeight: 600 }}>{confirmedOrder.payment_status}</strong>
                   </div>
+                  {confirmedOrder.advance_paid > 0 && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        <span>Advance Paid</span>
+                        <strong style={{ fontWeight: 600 }}>₹{parseFloat(confirmedOrder.advance_paid).toLocaleString('en-IN')}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        <span>Balance Due</span>
+                        <strong style={{ fontWeight: 600 }}>₹{(parseFloat(confirmedOrder.total_amount) - parseFloat(confirmedOrder.advance_paid)).toLocaleString('en-IN')}</strong>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
