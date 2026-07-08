@@ -1230,6 +1230,60 @@ function App() {
                   <p>Reduced manual tailor logbook updating and scheduling</p>
                 </div>
               </div>
+
+              {/* NEW SECTION: Testimonials */}
+              <section className="feature-grid-section" style={{ background: '#ffffff', padding: '80px 5%' }}>
+                <div className="sec-title-group">
+                  <h2>Preferred by Luxury Designers</h2>
+                  <p>Read how leading haute couture houses and bridal boutiques optimize operations with Scaleezy.</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto' }}>
+                  <div style={{ padding: '30px', background: '#faf9f6', borderRadius: '12px', border: '1px solid #eaecef', textAlign: 'left' }}>
+                    <div style={{ display: 'flex', gap: '4px', color: '#b07c40', marginBottom: '16px' }}>
+                      <Star size={16} /><Star size={16} /><Star size={16} /><Star size={16} /><Star size={16} />
+                    </div>
+                    <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6, fontStyle: 'italic', marginBottom: '20px' }}>
+                      "Migrating our manual size registries to Scaleezy's digital measurement ledger has saved our master cutters hours. The live draping preview helps align client expectations instantly."
+                    </p>
+                    <strong style={{ display: 'block', fontSize: '14px', color: '#0f291e' }}>Priya Sen</strong>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Creative Director, Sen Haute Couture (Mumbai)</span>
+                  </div>
+                  <div style={{ padding: '30px', background: '#faf9f6', borderRadius: '12px', border: '1px solid #eaecef', textAlign: 'left' }}>
+                    <div style={{ display: 'flex', gap: '4px', color: '#b07c40', marginBottom: '16px' }}>
+                      <Star size={16} /><Star size={16} /><Star size={16} /><Star size={16} /><Star size={16} />
+                    </div>
+                    <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6, fontStyle: 'italic', marginBottom: '20px' }}>
+                      "Having separate staff logins for masters and tailors keeps our workfloor organized. The automated WhatsApp status notifications have reduced incoming client follow-up calls by 80%."
+                    </p>
+                    <strong style={{ display: 'block', fontSize: '14px', color: '#0f291e' }}>Marc Laurent</strong>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Founder, Laurent Atelier (Paris)</span>
+                  </div>
+                </div>
+              </section>
+
+              {/* NEW SECTION: Technology Overview */}
+              <section className="feature-grid-section" style={{ background: '#faf9f6', padding: '80px 5%' }}>
+                <div style={{ maxWidth: '900px', margin: '0 auto', textAlign: 'center' }}>
+                  <h2 style={{ fontSize: '32px', fontFamily: 'var(--font-serif)', color: '#0f291e', marginBottom: '16px' }}>Safe, Secure, and Isolated Multi-Tenant Infrastructure</h2>
+                  <p style={{ fontSize: '15px', color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: '32px' }}>
+                    Scaleezy is engineered using isolated database partitioning. Every boutique workspace receives its own private database schema context. This ensures absolute protection of your design intellectual properties, client contacts, and sizing files.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: '30px', flexWrap: 'wrap' }}>
+                    <div style={{ background: '#fff', border: '1px solid #eaecef', padding: '20px 30px', borderRadius: '8px' }}>
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Database Type</span>
+                      <strong style={{ fontSize: '16px', color: '#0f291e' }}>PostgreSQL Schemas</strong>
+                    </div>
+                    <div style={{ background: '#fff', border: '1px solid #eaecef', padding: '20px 30px', borderRadius: '8px' }}>
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Security Layer</span>
+                      <strong style={{ fontSize: '16px', color: '#0f291e' }}>Django Token Auth</strong>
+                    </div>
+                    <div style={{ background: '#fff', border: '1px solid #eaecef', padding: '20px 30px', borderRadius: '8px' }}>
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>API Protocol</span>
+                      <strong style={{ fontSize: '16px', color: '#0f291e' }}>RESTful JSON Headers</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </>
           )}
 
@@ -1294,6 +1348,28 @@ function App() {
                   <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>🧾 Automatically calculates advance deposits</span>
                 </div>
               </div>
+
+              {/* NEW SECTION: Measurement Points Details */}
+              <div style={{ marginTop: '100px', borderTop: '1px solid #eaecef', paddingTop: '80px' }}>
+                <div className="sec-title-group" style={{ marginBottom: '50px' }}>
+                  <h2>Advanced Measurement Ledger Specifics</h2>
+                  <p>Detailed listing of measurement variables recorded per customer type in our system.</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto', textAlign: 'left' }}>
+                  <div style={{ padding: '24px', background: '#faf9f6', borderRadius: '8px' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px' }}>Women's Ledger Metrics</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Bust circumference, Upper Waist, Lower Waist, Hips, Shoulder width, Arm Hole, Sleeve Length, Front Neck Depth, Back Neck Depth, and Total Garment Length.</p>
+                  </div>
+                  <div style={{ padding: '24px', background: '#faf9f6', borderRadius: '8px' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px' }}>Men's Ledger Metrics</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Chest circumference, Waist, Seat/Hips, Shoulder width, Arm length, Collar size, Bicep circumference, Cuff width, Inseam length, and Shirt/Sherwani Length.</p>
+                  </div>
+                  <div style={{ padding: '24px', background: '#faf9f6', borderRadius: '8px' }}>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px' }}>Kids Ledger Metrics</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Chest width, Waist width, Total Height, Age indicator, Shoulder length, Inseam parameters, and adjustable ease presets.</p>
+                  </div>
+                </div>
+              </div>
             </section>
           )}
 
@@ -1352,6 +1428,21 @@ function App() {
                   </p>
                 </div>
               </div>
+
+              {/* NEW SECTION: Quality feedback loop */}
+              <div style={{ marginTop: '100px', borderTop: '1px solid #eaecef', paddingTop: '80px', maxWidth: '800px', margin: '100px auto 0 auto' }}>
+                <h3 style={{ fontSize: '24px', fontWeight: 600, color: '#0f291e', marginBottom: '16px', textAlign: 'center' }}>Integrated Quality Inspection Loop</h3>
+                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.7, textAlign: 'center', marginBottom: '32px' }}>
+                  Our proprietary workflow eliminates fit errors. When a tailor submits a completed garment, the system alerts the master cutter. If the master cutter rejects the garment due to sizing discrepancy, they log comments and requested modifications. The order automatically flows back to the tailor's backlog with notifications.
+                </p>
+                <div style={{ background: '#fff', border: '1px solid #eaecef', padding: '24px', borderRadius: '12px', display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Stitching Completed</span>
+                  <span style={{ color: 'var(--text-muted)' }}>➔</span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#b07c40' }}>Master Inspection</span>
+                  <span style={{ color: 'var(--text-muted)' }}>➔</span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#107c41' }}>Auto Client Alerts</span>
+                </div>
+              </div>
             </section>
           )}
 
@@ -1366,7 +1457,7 @@ function App() {
                 </p>
               </div>
 
-              <div className="faq-grid" style={{ gap: '40px' }}>
+              <div className="faq-grid" style={{ gap: '40px', marginBottom: '80px' }}>
                 <div className="faq-card" style={{ background: '#faf9f6' }}>
                   <h4 style={{ color: '#0f291e', fontSize: '16px' }}><HelpCircle size={18} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> How does database isolation work in Scaleezy?</h4>
                   <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', marginTop: '8px' }}>
@@ -1392,6 +1483,28 @@ function App() {
                   </p>
                 </div>
               </div>
+
+              {/* NEW SECTION: Additional technical FAQs */}
+              <div style={{ borderTop: '1px solid #eaecef', paddingTop: '80px' }}>
+                <div className="sec-title-group" style={{ marginBottom: '50px' }}>
+                  <h2>Security & Staging Infrastructure FAQs</h2>
+                  <p>In-depth responses regarding server operations, security keys, and ledger configurations.</p>
+                </div>
+                <div className="faq-grid" style={{ gap: '30px' }}>
+                  <div className="faq-card" style={{ background: '#ffffff' }}>
+                    <h4 style={{ color: '#0f291e', fontSize: '15px' }}><HelpCircle size={16} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> Is custom measurement data encrypted?</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                      <strong>Yes. Sizing logs and customer data are encrypted in transit</strong> using TLS 1.3 encryption protocol, and databases use static disk level encryption.
+                    </p>
+                  </div>
+                  <div className="faq-card" style={{ background: '#ffffff' }}>
+                    <h4 style={{ color: '#0f291e', fontSize: '15px' }}><HelpCircle size={16} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> Do you back up design assets and sketch files?</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                      <strong>Absolutely. Systems execute daily incremental backups</strong> of PostgreSQL schemas and design sketch uploads, persisting back-ups securely for 30 days.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </section>
           )}
 
@@ -1406,7 +1519,7 @@ function App() {
                 </p>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '48px', maxWidth: '1100px', margin: '0 auto', alignItems: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '48px', maxWidth: '1100px', margin: '0 auto', alignItems: 'center', marginBottom: '80px' }}>
                 <div style={{ textAlign: 'left' }}>
                   <h3 style={{ fontSize: '24px', fontWeight: 600, color: '#0f291e', marginBottom: '20px' }}>Ready-to-Use Cloud Staging</h3>
                   <p style={{ fontSize: '14.5px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '24px' }}>
@@ -1429,6 +1542,38 @@ function App() {
                   <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600 }} onClick={() => { setSignupStep(1); setView('signup'); }}>
                     Launch Boutique CRM
                   </button>
+                </div>
+              </div>
+
+              {/* NEW SECTION: Pricing Grid */}
+              <div style={{ borderTop: '1px solid #eaecef', paddingTop: '80px' }}>
+                <div className="sec-title-group" style={{ marginBottom: '50px' }}>
+                  <h2>Boutique Subscription Plans</h2>
+                  <p>Flexible plan options customized to the size and order volume of your fashion business.</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '30px', maxWidth: '1000px', margin: '0 auto', textAlign: 'left' }}>
+                  <div style={{ padding: '30px', background: '#fff', border: '1px solid #eaecef', borderRadius: '12px' }}>
+                    <h4 style={{ fontSize: '18px', color: '#0f291e', margin: '0 0 10px 0' }}>Boutique Starter</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>For independent master tailors and single designer workshops.</p>
+                    <strong style={{ fontSize: '24px', display: 'block', color: '#0f291e', marginBottom: '20px' }}>₹1,499<span style={{ fontSize: '14px', fontWeight: 'normal' }}> / month</span></strong>
+                    <ul style={{ paddingLeft: '20px', fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <li>Up to 100 client cards</li>
+                      <li>Standard measurement ledgers</li>
+                      <li>Branded receipt billing (PDF)</li>
+                    </ul>
+                  </div>
+                  <div style={{ padding: '30px', background: '#fff', border: '2px solid var(--accent-text, #b07c40)', borderRadius: '12px', position: 'relative' }}>
+                    <span style={{ position: 'absolute', top: '-12px', left: '20px', background: '#b07c40', color: '#fff', padding: '2px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase' }}>Most Popular</span>
+                    <h4 style={{ fontSize: '18px', color: '#0f291e', margin: '0 0 10px 0' }}>Atelier Professional</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>For mid-sized multi-staff boutique stores and bridal houses.</p>
+                    <strong style={{ fontSize: '24px', display: 'block', color: '#0f291e', marginBottom: '20px' }}>₹2,999<span style={{ fontSize: '14px', fontWeight: 'normal' }}> / month</span></strong>
+                    <ul style={{ paddingLeft: '20px', fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <li>Unlimited client database cards</li>
+                      <li>3D Fabric Draping Visualizer</li>
+                      <li>Dedicated Master & Tailor apps</li>
+                      <li>Automated SMS client alerts</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             </section>
