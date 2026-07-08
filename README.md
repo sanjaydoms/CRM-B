@@ -4,7 +4,7 @@ A premium, multi-tenant Customer Relationship Management (CRM) platform for bout
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 The project is structured as a monorepo consisting of a **Django Backend** and a **Vite React Frontend**:
 
@@ -20,7 +20,7 @@ The project is structured as a monorepo consisting of a **Django Backend** and a
 
 ---
 
-## ⚙️ Backend Core Configurations
+## Backend Core Configurations
 
 ### 1. Multi-Tenancy (`django-tenants`)
 The backend uses **schema-based multi-tenancy**. Each boutique has its own isolated database schema (e.g. `sanjay_boutique`, `aditi_boutique`) under a single shared PostgreSQL database.
@@ -42,7 +42,7 @@ Instead of local media folders, the application uploads files (such as customer 
 
 ---
 
-## 🚦 API Reference & Endpoint Map
+## API Reference & Endpoint Map
 
 All backend APIs are prefixed with `/api/` and require token-based authentication (except login/signup):
 
@@ -61,7 +61,7 @@ All backend APIs are prefixed with `/api/` and require token-based authenticatio
 
 ---
 
-## 💻 Local Development Setup
+## Local Development Setup
 
 ### Prerequisite
 Ensure you have `npm`, `python3`, and a virtual environment tool installed.
@@ -97,7 +97,7 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
 
 ---
 
-## 🚀 Production Deployment Guide
+## Production Deployment Guide
 
 ### Django Backend (Render)
 * **Build Command:**
