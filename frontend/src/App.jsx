@@ -1235,42 +1235,63 @@ function App() {
 
           {/* PAGE 2: FEATURES */}
           {view === 'features' && (
-            <section className="feature-grid-section">
-              <div className="sec-title-group">
-                <h2>Product Features & Capabilities</h2>
-                <p>An in-depth look at the specialized tools built inside the Scaleezy CRM ecosystem.</p>
+            <section className="feature-grid-section" style={{ background: '#ffffff', padding: '100px 5%' }}>
+              <div className="sec-title-group" style={{ marginBottom: '80px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>The Digital Engine of Luxury Ateliers</span>
+                <h2 style={{ fontSize: '42px', fontFamily: 'var(--font-serif)', color: '#0f291e', margin: '0 0 16px 0' }}>Bespoke Tailoring Operations Built for the Web</h2>
+                <p style={{ fontSize: '16px', color: 'var(--text-secondary)', maxWidth: '700px', margin: '0 auto', lineHeight: 1.6 }}>
+                  Scaleezy is a specialized Customer Relationship Management (CRM) and ERP utility configured to power custom-made designer boutiques, tailors, and luxury dressmaking studios.
+                </p>
               </div>
 
-              <div className="feature-card-grid">
-                <div className="feature-detail-card">
-                  <div className="feature-icon-wrapper"><Sparkles size={20} /></div>
-                  <h3>3D Fabric Draping Visualizer</h3>
-                  <p>Overlay digitised fabric swatches onto sketch templates in real-time. Provide client reference mockups before cutting into high-value silk or brocades.</p>
+              <div className="feature-card-grid" style={{ gap: '40px' }}>
+                <div className="feature-detail-card" style={{ background: '#faf9f6' }}>
+                  <div className="feature-icon-wrapper" style={{ background: '#fff' }}><Sparkles size={20} /></div>
+                  <h3>Live 3D Fabric Draping Visualizer</h3>
+                  <p>
+                    <strong>Why it is necessary:</strong> Minimizes customer design confusion by overlaying texture swatches dynamically onto digital sketches. Sourced fabrics (such as satin, georgette, and crepe) are mapped with proper shading.
+                  </p>
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>✨ Slashes alteration rates by up to 35%</span>
                 </div>
-                <div className="feature-detail-card">
-                  <div className="feature-icon-wrapper"><Scissors size={20} /></div>
-                  <h3>Dynamic Size Ledgers</h3>
-                  <p>Log comprehensive size records for men, women, and children. Fields adapt to gender and garment selections, ensuring tailors have exact fit info.</p>
+                <div className="feature-detail-card" style={{ background: '#faf9f6' }}>
+                  <div className="feature-icon-wrapper" style={{ background: '#fff' }}><Scissors size={20} /></div>
+                  <h3>Bespoke Size Ledgers</h3>
+                  <p>
+                    <strong>Why it is necessary:</strong> Body measurements are multi-dimensional. Scaleezy records distinct size dimensions for men, women, and kids, adapting forms dynamically to the chosen garment classification.
+                  </p>
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>📏 Custom configurations for 15+ body metrics</span>
                 </div>
-                <div className="feature-detail-card">
-                  <div className="feature-icon-wrapper"><Users size={20} /></div>
-                  <h3>Double-Level Staff Assignment</h3>
-                  <p>Delegate master cutting patterns and stitching duties separately. Monitor the progress of each order phase as staff submit completion reports.</p>
+                <div className="feature-detail-card" style={{ background: '#faf9f6' }}>
+                  <div className="feature-icon-wrapper" style={{ background: '#fff' }}><Users size={20} /></div>
+                  <h3>Double-Tier Assignment Pipeline</h3>
+                  <p>
+                    <strong>Why it is necessary:</strong> High fashion workflows partition tasks. Assign supervising Master Cutters for fabric styling/patterns, and tailors for manual stitching and detail finishing.
+                  </p>
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>👔 Streamlined hand-offs between cutters and tailors</span>
                 </div>
-                <div className="feature-detail-card">
-                  <div className="feature-icon-wrapper"><ShieldCheck size={20} /></div>
-                  <h3>Isolated Database Tenants</h3>
-                  <p>Strict data segregation using PostgreSQL schemas. Your data is isolated and secured, completely protected from any other registered boutique.</p>
+                <div className="feature-detail-card" style={{ background: '#faf9f6' }}>
+                  <div className="feature-icon-wrapper" style={{ background: '#fff' }}><ShieldCheck size={20} /></div>
+                  <h3>Isolated Database Schema Architecture</h3>
+                  <p>
+                    <strong>Why it is necessary:</strong> Customer privacy is critical. Scaleezy partitions all data securely inside separate PostgreSQL schemas, preventing cross-tenant access.
+                  </p>
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>🔒 Enterprise-grade database isolation standards</span>
                 </div>
-                <div className="feature-detail-card">
-                  <div className="feature-icon-wrapper"><MessageSquare size={20} /></div>
-                  <h3>Automated Customer Alerts</h3>
-                  <p>Keep clients updated automatically. Send instant alerts when orders move from "Stitching" to "Quality Check" to "Ready for Dispatch".</p>
+                <div className="feature-detail-card" style={{ background: '#faf9f6' }}>
+                  <div className="feature-icon-wrapper" style={{ background: '#fff' }}><MessageSquare size={20} /></div>
+                  <h3>Automated Customer Progress Notifications</h3>
+                  <p>
+                    <strong>Why it is necessary:</strong> Modern clients expect status updates. Scaleezy sends automatic alerts to customers via SMS or email when their garment moves into Quality Check or Ready for Dispatch.
+                  </p>
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>📱 High-frequency engagement without manual labor</span>
                 </div>
-                <div className="feature-detail-card">
-                  <div className="feature-icon-wrapper"><FileText size={20} /></div>
-                  <h3>Custom Branded Receipts</h3>
-                  <p>Print clean receipts with your boutique's customized header logo, contact info, payment modes, advance payouts, and outstanding balances.</p>
+                <div className="feature-detail-card" style={{ background: '#faf9f6' }}>
+                  <div className="feature-icon-wrapper" style={{ background: '#fff' }}><FileText size={20} /></div>
+                  <h3>Custom Logo Billing Invoicing</h3>
+                  <p>
+                    <strong>Why it is necessary:</strong> Clear receipts foster client trust. Output professional invoices showing product listings, payments completed, and total balances, customized with your boutique logo.
+                  </p>
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>🧾 Automatically calculates advance deposits</span>
                 </div>
               </div>
             </section>
@@ -1278,42 +1299,57 @@ function App() {
 
           {/* PAGE 3: LIFECYCLE */}
           {view === 'lifecycle' && (
-            <section className="feature-grid-section" style={{ background: '#fff' }}>
-              <div className="sec-title-group">
-                <h2>The Bespoke Garment Lifecycle</h2>
-                <p>Track the step-by-step workflow of a custom outfit from initial booking to delivery.</p>
+            <section className="feature-grid-section" style={{ background: '#faf9f6', padding: '100px 5%' }}>
+              <div className="sec-title-group" style={{ marginBottom: '80px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>The Bespoke Garment Journey</span>
+                <h2 style={{ fontSize: '42px', fontFamily: 'var(--font-serif)', color: '#0f291e', margin: '0 0 16px 0' }}>Bespoke Order Lifecycle & Tracking</h2>
+                <p style={{ fontSize: '16px', color: 'var(--text-secondary)', maxWidth: '700px', margin: '0 auto', lineHeight: 1.6 }}>
+                  Scaleezy structures the production lifecycle of an outfit into 6 trace-verified milestones, keeping boutique owners, masters, tailors, and customers fully aligned.
+                </p>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto' }}>
-                <div className="lifecycle-step-card">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '40px', maxWidth: '1200px', margin: '0 auto' }}>
+                <div className="lifecycle-step-card" style={{ borderTop: '4px solid var(--accent-text, #b07c40)' }}>
                   <div className="lifecycle-step-num">1</div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Consultation & Fit Record</h3>
-                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>Record customer details, select garment type, and fill out precise measurement dimensions inside the ledger.</p>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px', color: '#0f291e' }}>Consultation & Ledger Entry</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    Register client details, define garment types, choose pattern variables, and log exact measurements in the database ledger.
+                  </p>
                 </div>
-                <div className="lifecycle-step-card">
+                <div className="lifecycle-step-card" style={{ borderTop: '4px solid var(--accent-text, #b07c40)' }}>
                   <div className="lifecycle-step-num">2</div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>AI Draping Preview</h3>
-                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>Upload design sketch references and drape fabrics digitally so the customer can visualize and approve the style combination.</p>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px', color: '#0f291e' }}>Fabric Selection & AI Preview</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    Select catalog fabrics or register client-supplied textiles. Overlay swatches onto style templates using the 3D draping tool to get final design approval.
+                  </p>
                 </div>
-                <div className="lifecycle-step-card">
+                <div className="lifecycle-step-card" style={{ borderTop: '4px solid var(--accent-text, #b07c40)' }}>
                   <div className="lifecycle-step-num">3</div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Pattern Cutting (Master)</h3>
-                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>The assigned Master Cutter retrieves measurements from their mobile portal, styles the template, and cuts the fabric.</p>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px', color: '#0f291e' }}>Pattern Cutting (Master)</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    The assigned Master Cutter checks measurements on their mobile dashboard, prepares the template, and marks the fabric sections for precision cuts.
+                  </p>
                 </div>
-                <div className="lifecycle-step-card">
+                <div className="lifecycle-step-card" style={{ borderTop: '4px solid var(--accent-text, #b07c40)' }}>
                   <div className="lifecycle-step-num">4</div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Stitching & Assembly</h3>
-                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>The assigned tailor stitches the panels, finishes embroidery accents, and uploads a verification photo upon completion.</p>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px', color: '#0f291e' }}>Garment Assembly (Tailor)</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    The stitching tailor finishes the assembly, embroidery, and lining. Upon completion, they upload a photo via their staff app for quality inspection.
+                  </p>
                 </div>
-                <div className="lifecycle-step-card">
+                <div className="lifecycle-step-card" style={{ borderTop: '4px solid var(--accent-text, #b07c40)' }}>
                   <div className="lifecycle-step-num">5</div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Master Quality Check</h3>
-                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>The Master inspects the assembled garment against measurements. If approved, the order advances to "Ready for Dispatch".</p>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px', color: '#0f291e' }}>Atelier Quality Check</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    The Master reviews the final output against database specifications. Approved garments trigger auto-notifications; failed checks return the order to the tailor.
+                  </p>
                 </div>
-                <div className="lifecycle-step-card">
+                <div className="lifecycle-step-card" style={{ borderTop: '4px solid var(--accent-text, #b07c40)' }}>
                   <div className="lifecycle-step-num">6</div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '10px' }}>Dispatch & Delivery</h3>
-                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>The client is notified automatically. The invoice is finalized, advance payment reconciled, and the outfit is handed over.</p>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px', color: '#0f291e' }}>Dispatch & Account Balance</h3>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    The client receives a delivery notification. The final invoice is printed, outstanding accounts are settled, and the bespoke outfit is delivered.
+                  </p>
                 </div>
               </div>
             </section>
@@ -1321,28 +1357,39 @@ function App() {
 
           {/* PAGE 4: FAQ */}
           {view === 'faq' && (
-            <section className="aeo-faq-section">
-              <div className="sec-title-group">
-                <h2>Frequently Asked Questions</h2>
-                <p>Find direct answers to common queries regarding database schemas, customization, and staff management.</p>
+            <section className="aeo-faq-section" style={{ padding: '100px 5%', background: '#ffffff' }}>
+              <div className="sec-title-group" style={{ marginBottom: '80px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>Clear Answers for Designer Ateliers</span>
+                <h2 style={{ fontSize: '42px', fontFamily: 'var(--font-serif)', color: '#0f291e', margin: '0 0 16px 0' }}>Boutique CRM Frequently Asked Questions</h2>
+                <p style={{ fontSize: '16px', color: 'var(--text-secondary)', maxWidth: '700px', margin: '0 auto', lineHeight: 1.6 }}>
+                  Direct, detailed technical and operational specifications compiled to assist boutique managers in migrating workflows.
+                </p>
               </div>
 
-              <div className="faq-grid">
-                <div className="faq-card">
-                  <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> How does database isolation work in Scaleezy?</h4>
-                  <p>Every registered boutique is provisioned with a private schema partition. This database separation ensures that customer contact lists, measurements, and catalog designs are 100% secure and isolated.</p>
+              <div className="faq-grid" style={{ gap: '40px' }}>
+                <div className="faq-card" style={{ background: '#faf9f6' }}>
+                  <h4 style={{ color: '#0f291e', fontSize: '16px' }}><HelpCircle size={18} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> How does database isolation work in Scaleezy?</h4>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                    <strong>Scaleezy isolates data using individual PostgreSQL database schemas.</strong> Every boutique gets a dedicated database partition. Your measurements, client list, and sketches are inaccessible to other registered tenants, guaranteeing complete security.
+                  </p>
                 </div>
-                <div className="faq-card">
-                  <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Can tailors see all customer billing files?</h4>
-                  <p>No. Tailors can only access their personal dashboard containing assigned stitching tasks, design sketches, and specific sizing measurements. Billing files are restricted to boutique owners.</p>
+                <div className="faq-card" style={{ background: '#faf9f6' }}>
+                  <h4 style={{ color: '#0f291e', fontSize: '16px' }}><HelpCircle size={18} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> Can tailors access invoicing and boutique billing records?</h4>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                    <strong>No. Staff login accounts are strictly partitioned by role.</strong> Stitching tailors and master cutters only access assigned tasks and fit measurements. Financial files, billing histories, and settings are restricted to the boutique owner.
+                  </p>
                 </div>
-                <div className="faq-card">
-                  <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> How does the 3D Draping preview help client sales?</h4>
-                  <p>By superimposing digital fabric swatches onto sketch designs, clients can align on the exact aesthetic before stitching, reducing misunderstandings and cost alterations.</p>
+                <div className="faq-card" style={{ background: '#faf9f6' }}>
+                  <h4 style={{ color: '#0f291e', fontSize: '16px' }}><HelpCircle size={18} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> Can we change the GST rate or currency indicators?</h4>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                    <strong>Yes, all parameters are managed inside the Settings panel.</strong> Boutique owners can set tax rates, currency signs, upload logos, edit address lines, and define custom service charges for invoices.
+                  </p>
                 </div>
-                <div className="faq-card">
-                  <h4><HelpCircle size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} /> Can we customize the GST tax rates on invoices?</h4>
-                  <p>Yes. The tax settings, boutique brand logo, currency indicators, and custom service charges are fully editable within the Boutique Settings control panel.</p>
+                <div className="faq-card" style={{ background: '#faf9f6' }}>
+                  <h4 style={{ color: '#0f291e', fontSize: '16px' }}><HelpCircle size={18} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} /> What happens when a quality check check fails?</h4>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                    <strong>The order is returned to the tailor's workspace with comments.</strong> If the master rejects a garment during inspection, the status reverts to "Design & Creation". The tailor is notified of the required changes and comments via their app.
+                  </p>
                 </div>
               </div>
             </section>
@@ -1350,32 +1397,36 @@ function App() {
 
           {/* PAGE 5: FOR BOUTIQUES */}
           {view === 'boutiques' && (
-            <section className="feature-grid-section" style={{ background: '#fff' }}>
-              <div className="sec-title-group">
-                <h2>Dedicated Solutions for Boutique Owners</h2>
-                <p>Run your atelier with modern cloud infrastructure designed to grow your business.</p>
+            <section className="feature-grid-section" style={{ background: '#faf9f6', padding: '100px 5%' }}>
+              <div className="sec-title-group" style={{ marginBottom: '80px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>Atelier Growth Solutions</span>
+                <h2 style={{ fontSize: '42px', fontFamily: 'var(--font-serif)', color: '#0f291e', margin: '0 0 16px 0' }}>Boutique Workspace Provisioning</h2>
+                <p style={{ fontSize: '16px', color: 'var(--text-secondary)', maxWidth: '700px', margin: '0 auto', lineHeight: 1.6 }}>
+                  Run your atelier on modern cloud infrastructure designed to grow your business. Scaleezy supports instant workspace staging.
+                </p>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px', maxWidth: '1000px', margin: '0 auto', textAlign: 'left' }}>
-                <div>
-                  <h3 style={{ fontSize: '22px', fontWeight: 600, color: '#0f291e', marginBottom: '16px' }}>Ready-to-Use Cloud Staging</h3>
-                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '24px' }}>
-                    Scaleezy supports instant workspace provisioning. Sign up today and get your custom subdomain (e.g. `yourbrand.scaleezy.com`) configured instantly with your own isolated PostgreSQL tables.
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '48px', maxWidth: '1100px', margin: '0 auto', alignItems: 'center' }}>
+                <div style={{ textAlign: 'left' }}>
+                  <h3 style={{ fontSize: '24px', fontWeight: 600, color: '#0f291e', marginBottom: '20px' }}>Ready-to-Use Cloud Staging</h3>
+                  <p style={{ fontSize: '14.5px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '24px' }}>
+                    Create your boutique profile today and receive a dedicated cloud staging site (e.g. `yourbrand.scaleezy.com`) pre-configured with secure multi-tenant tables.
                   </p>
-                  <ul style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
-                    <li><strong>No-Installation CRM:</strong> Works on desktop, iPads, and mobile browsers.</li>
-                    <li><strong>Pre-Loaded Fabric Catalog:</strong> Upload your own fabrics or use our default library.</li>
-                    <li><strong>Integrated SMS Alerts:</strong> Keep your clients notified without writing any code.</li>
+                  <ul style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    <li><strong>No-Installation App:</strong> Access from any desktop, iPad, or mobile browser.</li>
+                    <li><strong>Custom Branding:</strong> Personalize invoices and portals with your brand's assets.</li>
+                    <li><strong>Pre-configured Fabrics:</strong> Upload custom textile catalogs or use our default presets.</li>
+                    <li><strong>SMS Client Gateway:</strong> Automated order status updates sent directly to customers.</li>
                   </ul>
                 </div>
 
-                <div style={{ background: '#faf9f6', padding: '40px', borderRadius: '16px', border: '1px solid #eaecef', display: 'flex', flexDirection: 'column', justifyItems: 'center', alignItems: 'center', textAlign: 'center' }}>
-                  <Sparkles size={36} style={{ color: 'var(--accent-text, #b07c40)', marginBottom: '16px' }} />
-                  <h4 style={{ fontSize: '18px', fontWeight: 600, color: '#0f291e', marginBottom: '12px' }}>Start Your 14-Day Free Trial</h4>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-                    Experience the modern workflow solution preferred by 500+ luxury ateliers.
+                <div style={{ background: '#ffffff', padding: '50px 40px', borderRadius: '16px', border: '1px solid #eaecef', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', boxShadow: '0 8px 30px rgba(0,0,0,0.02)' }}>
+                  <Sparkles size={40} style={{ color: 'var(--accent-text, #b07c40)', marginBottom: '20px' }} />
+                  <h4 style={{ fontSize: '20px', fontWeight: 600, color: '#0f291e', marginBottom: '12px' }}>Start Your 14-Day Free Trial</h4>
+                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '32px', lineHeight: 1.5 }}>
+                    Migrate your atelier logbooks to Scaleezy. Experience the modern workflow solution preferred by 500+ luxury boutiques.
                   </p>
-                  <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '12px' }} onClick={() => { setSignupStep(1); setView('signup'); }}>
+                  <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600 }} onClick={() => { setSignupStep(1); setView('signup'); }}>
                     Launch Boutique CRM
                   </button>
                 </div>
