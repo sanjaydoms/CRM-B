@@ -1286,23 +1286,110 @@ function App() {
               </section>
 
               {/* NEW SECTION: Lookbook Collections Showcase */}
-              <section className="feature-grid-section" style={{ background: '#ffffff', padding: '80px 5%' }}>
+              <section className="feature-grid-section" style={{ background: '#ffffff', padding: '80px 5%', borderTop: '1px solid #eaecef' }}>
                 <div className="sec-title-group">
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>Interactive Atelier Showcases</span>
                   <h2>Aesthetic Lookbook Collections</h2>
                   <p>Incorporate premium catalog cards to organize design catalogs by season or theme.</p>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto', textAlign: 'left' }}>
-                  <div style={{ background: '#faf9f6', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef' }}>
-                    <h4 style={{ color: '#0f291e', marginBottom: '8px' }}>Heritage Bridal</h4>
-                    <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Zardozi embroidered lehengas and classic silk sherwanis.</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto', textAlign: 'left' }}>
+                  <div style={{ background: '#faf9f6', padding: '30px', borderRadius: '12px', border: '1px solid #eaecef' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>COLLECTION 01</span>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px', fontSize: '18px', fontWeight: 600 }}>Heritage Bridal</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Zardozi embroidered lehengas and classic silk sherwanis tailored with hand-woven silk fabrics.</p>
                   </div>
-                  <div style={{ background: '#faf9f6', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef' }}>
-                    <h4 style={{ color: '#0f291e', marginBottom: '8px' }}>Festive Velvet</h4>
-                    <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Plush heavy-velvet kurtas and anarkalis with gold thread highlights.</p>
+                  <div style={{ background: '#faf9f6', padding: '30px', borderRadius: '12px', border: '1px solid #eaecef' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>COLLECTION 02</span>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px', fontSize: '18px', fontWeight: 600 }}>Festive Velvet</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Plush heavy-velvet kurtas and anarkalis with gold thread highlights and custom linings.</p>
                   </div>
-                  <div style={{ background: '#faf9f6', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef' }}>
-                    <h4 style={{ color: '#0f291e', marginBottom: '8px' }}>Modern Couture</h4>
-                    <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Contemporary western-cut gowns and tailored structure tuxedo lines.</p>
+                  <div style={{ background: '#faf9f6', padding: '30px', borderRadius: '12px', border: '1px solid #eaecef' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>COLLECTION 03</span>
+                    <h4 style={{ color: '#0f291e', marginBottom: '12px', fontSize: '18px', fontWeight: 600 }}>Modern Couture</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Contemporary western-cut gowns and tailored structure tuxedo lines for evening wear.</p>
+                  </div>
+                </div>
+              </section>
+
+              {/* NEW SECTION: Customer Experience Pillars */}
+              <section className="feature-grid-section" style={{ background: '#faf9f6', padding: '80px 5%', borderTop: '1px solid #eaecef' }}>
+                <div className="sec-title-group">
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>Operational Excellence</span>
+                  <h2>Four Pillars of the Scaleezy Experience</h2>
+                  <p>How our technology translates traditional tailoring craft into digital workflow precision.</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto', textAlign: 'left' }}>
+                  <div style={{ background: '#ffffff', padding: '24px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                    <h4 style={{ fontSize: '16px', color: '#0f291e', marginBottom: '8px' }}>1. Sizing Consultation</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Multi-dimensional digital ledgers remove hand-written measurement errors and build individual client profile archives.</p>
+                  </div>
+                  <div style={{ background: '#ffffff', padding: '24px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                    <h4 style={{ fontSize: '16px', color: '#0f291e', marginBottom: '8px' }}>2. AI Swatch Mapping</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>3D draping visualizer overlays fabric texture swatches directly on sketches so customers preview patterns before cutting.</p>
+                  </div>
+                  <div style={{ background: '#ffffff', padding: '24px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                    <h4 style={{ fontSize: '16px', color: '#0f291e', marginBottom: '8px' }}>3. Pattern Drafting</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Supervising Master Cutters access coordinates on dedicated staff app portals to optimize fabric slicing cuts.</p>
+                  </div>
+                  <div style={{ background: '#ffffff', padding: '24px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                    <h4 style={{ fontSize: '16px', color: '#0f291e', marginBottom: '8px' }}>4. Artisan Crafting</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>Stitching tailors verify measurements, assemble the garment panels, and upload verification photos to request Master QA audits.</p>
+                  </div>
+                </div>
+              </section>
+
+              {/* NEW SECTION: Analytics Summary preview */}
+              <section className="feature-grid-section" style={{ background: '#ffffff', padding: '80px 5%', borderTop: '1px solid #eaecef' }}>
+                <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '48px', alignItems: 'center', textAlign: 'left' }}>
+                  <div>
+                    <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>Enterprise Insights</span>
+                    <h3 style={{ fontSize: '28px', fontFamily: 'var(--font-serif)', color: '#0f291e', marginBottom: '16px', lineHeight: 1.25 }}>Operations & Financial Analytics Dashboard</h3>
+                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '24px' }}>
+                      Boutique owners manage complete store performance metrics in real-time. Know exactly which garments are stuck in cutting or stitching, track monthly revenue averages, monitor fabric stock volume levels, and review outstanding accounts.
+                    </p>
+                    <button className="btn-primary" style={{ padding: '10px 24px', borderRadius: '6px' }} onClick={() => setView('login')}>View Live Staging Demo</button>
+                  </div>
+                  <div style={{ background: '#faf9f6', border: '1px solid #eaecef', padding: '32px', borderRadius: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Garment Throughput</span>
+                      <strong style={{ fontSize: '24px', color: '#0f291e', display: 'block', margin: '4px 0' }}>94.2%</strong>
+                      <span style={{ fontSize: '11.5px', color: '#107c41', fontWeight: 600 }}>↑ +2.4% this quarter</span>
+                    </div>
+                    <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Average Fitting Alterations</span>
+                      <strong style={{ fontSize: '24px', color: '#0f291e', display: 'block', margin: '4px 0' }}>1.8%</strong>
+                      <span style={{ fontSize: '11.5px', color: '#107c41', fontWeight: 600 }}>↓ Reduced from 12%</span>
+                    </div>
+                    <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef', gridColumn: 'span 2' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Outstandings Reconciled</span>
+                      <strong style={{ fontSize: '24px', color: '#0f291e', display: 'block', margin: '4px 0' }}>₹14,50,000</strong>
+                      <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Collected via digital payment invoicing auto-reminders</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* NEW SECTION: Communication Matrix */}
+              <section className="feature-grid-section" style={{ background: '#faf9f6', padding: '80px 5%', borderTop: '1px solid #eaecef' }}>
+                <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>Real-time Gateway</span>
+                  <h3 style={{ fontSize: '32px', fontFamily: 'var(--font-serif)', color: '#0f291e', marginBottom: '16px' }}>Multi-Channel Customer Notification Matrix</h3>
+                  <p style={{ fontSize: '15px', color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: '32px' }}>
+                    Maintain instant connectivity with custom buyers. Scaleezy coordinates automatic notification triggers across major message channels, keeping client accounts informed as tailors update orders.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                    <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef', textAlign: 'left' }}>
+                      <strong style={{ fontSize: '14px', color: '#0f291e', display: 'block', marginBottom: '6px' }}>WhatsApp Integration</strong>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>Sends templates with PDF receipt links, measurement summaries, and fit previews.</p>
+                    </div>
+                    <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef', textAlign: 'left' }}>
+                      <strong style={{ fontSize: '14px', color: '#0f291e', display: 'block', marginBottom: '6px' }}>SMS Gateway</strong>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>Delivers instant verification codes and short milestone alerts upon status updates.</p>
+                    </div>
+                    <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #eaecef', textAlign: 'left' }}>
+                      <strong style={{ fontSize: '14px', color: '#0f291e', display: 'block', marginBottom: '6px' }}>Email Logs</strong>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>Dispatches full billing statements, alteration log history audits, and design templates.</p>
+                    </div>
                   </div>
                 </div>
               </section>
