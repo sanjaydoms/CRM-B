@@ -242,6 +242,7 @@ function App() {
 
   // Search & Filters for dashboard
   const [searchQuery, setSearchQuery] = useState('');
+  const [customerTypeFilter, setCustomerTypeFilter] = useState('All');
   const [ordersSearch, setOrdersSearch] = useState('');
   const [ordersFilterTab, setOrdersFilterTab] = useState('All');
   const [invoiceSearch, setInvoiceSearch] = useState('');
@@ -2834,22 +2835,51 @@ function App() {
                   </div>
                 </header>
 
+                {/* Customer Type Filters */}
+                <div style={{ display: 'flex', gap: '12px', marginTop: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                  {['All', 'Women', 'Men', 'Kids'].map(type => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setCustomerTypeFilter(type)}
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        border: '1px solid',
+                        borderColor: customerTypeFilter === type ? 'var(--accent-text, #b07c40)' : 'var(--border-color)',
+                        background: customerTypeFilter === type ? 'var(--accent-color, #fcf6ee)' : 'transparent',
+                        color: customerTypeFilter === type ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="customers-list-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {customersList.filter(cust => {
                     const term = searchQuery.toLowerCase();
-                    return (cust.first_name + ' ' + cust.last_name).toLowerCase().includes(term) ||
-                           cust.mobile_number.includes(term) ||
-                           (cust.email_address && cust.email_address.toLowerCase().includes(term));
+                    const matchesSearch = (cust.first_name + ' ' + cust.last_name).toLowerCase().includes(term) ||
+                                          cust.mobile_number.includes(term) ||
+                                          (cust.email_address && cust.email_address.toLowerCase().includes(term));
+                    const matchesType = customerTypeFilter === 'All' || cust.customer_type === customerTypeFilter;
+                    return matchesSearch && matchesType;
                   }).length === 0 ? (
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>No customers found matching "{searchQuery}"</span>
+                      <span style={{ color: 'var(--text-muted)' }}>No customers found matching current filters</span>
                     </div>
                   ) : (
                     customersList.filter(cust => {
                       const term = searchQuery.toLowerCase();
-                      return (cust.first_name + ' ' + cust.last_name).toLowerCase().includes(term) ||
-                             cust.mobile_number.includes(term) ||
-                             (cust.email_address && cust.email_address.toLowerCase().includes(term));
+                      const matchesSearch = (cust.first_name + ' ' + cust.last_name).toLowerCase().includes(term) ||
+                                            cust.mobile_number.includes(term) ||
+                                            (cust.email_address && cust.email_address.toLowerCase().includes(term));
+                      const matchesType = customerTypeFilter === 'All' || cust.customer_type === customerTypeFilter;
+                      return matchesSearch && matchesType;
                     }).map(cust => (
                       <div key={cust.id} className="customer-detail-card responsive-customer-card" style={{
                         background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
@@ -2882,7 +2912,7 @@ function App() {
                                    {cust.segment}
                                  </span>
                                </div>
-                               <span style={{ fontSize: '12px', color: 'var(--accent-color, #d4af37)', textTransform: 'uppercase', fontWeight: 600 }}>{cust.customer_type}</span>
+                               <span style={{ fontSize: '12px', color: 'var(--accent-text, #b07c40)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>{cust.customer_type}</span>
                              </div>
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
@@ -2936,19 +2966,20 @@ function App() {
                             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI Customer Intelligence has analyzed {cust.orders?.length || 0} order(s) and preferences.</span>
                           </div>
                           <button 
-                            className="btn-outline" 
                             onClick={() => setExpandedDna(prev => ({ ...prev, [cust.id]: !prev[cust.id] }))}
                             style={{
-                              padding: '6px 14px',
+                              padding: '8px 16px',
                               fontSize: '12px',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '6px',
-                              borderColor: 'rgba(212, 175, 55, 0.4)',
-                              color: 'var(--accent-color, #d4af37)',
-                              background: expandedDna[cust.id] ? 'rgba(212, 175, 55, 0.1)' : 'transparent',
+                              border: '1px solid var(--accent-text, #b07c40)',
+                              color: 'var(--accent-text, #b07c40)',
+                              background: expandedDna[cust.id] ? 'var(--accent-color, #fcf6ee)' : 'transparent',
                               borderRadius: '6px',
-                              cursor: 'pointer'
+                              cursor: 'pointer',
+                              fontWeight: '600',
+                              transition: 'all 0.2s ease'
                             }}
                           >
                             <Sparkles size={14} />
