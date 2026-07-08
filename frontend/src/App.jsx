@@ -1379,44 +1379,74 @@ function App() {
 
       {/* 2. SIGN IN SCREEN (Image 2) */}
       {view === 'login' && (
-        <div className="auth-page">
-          <div className="auth-logo">SCALEEZY</div>
-          <div className="auth-logo-sub">YOUR VISION. OUR CRAFT.</div>
+        <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
+          
+          {/* Back to Home Button */}
+          <button 
+            onClick={() => setView('landing')}
+            style={{
+              position: 'absolute',
+              top: '30px',
+              left: '5%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: '#fff',
+              border: '1px solid #eaecef',
+              padding: '10px 18px',
+              borderRadius: '99px',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              fontSize: '13px',
+              fontWeight: '600',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--accent-text, #b07c40)'; e.currentTarget.style.color = 'var(--accent-text, #b07c40)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = '#eaecef'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
+            <ArrowLeft size={16} />
+            Back to Home
+          </button>
 
-          <div className="auth-card">
-            <h2 className="auth-title">Welcome back 👋</h2>
-            <p className="auth-subtitle">Login to continue your custom creation journey.</p>
+          <div className="auth-logo" style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', color: '#0f291e', fontWeight: 700, letterSpacing: '2px', marginBottom: '4px' }}>SCALEEZY</div>
+          <div className="auth-logo-sub" style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '32px' }}>YOUR VISION. OUR CRAFT.</div>
+
+          <div className="auth-card" style={{ maxWidth: '420px', width: '100%', background: '#fff', border: '1px solid #eaecef', borderRadius: '16px', padding: '40px', boxShadow: '0 8px 30px rgba(0,0,0,0.02)' }}>
+            <h2 className="auth-title" style={{ fontSize: '24px', color: '#0f291e', fontWeight: 600, margin: '0 0 8px 0' }}>Welcome back 👋</h2>
+            <p className="auth-subtitle" style={{ fontSize: '13.5px', color: 'var(--text-secondary)', margin: '0 0 32px 0' }}>Login to continue your custom creation journey.</p>
             
-            <form onSubmit={handleLoginSubmit} className="auth-form">
-              <div className="form-group">
-                <label className="form-label">Email or Mobile Number</label>
-                <div className="input-wrapper">
-                  <Mail size={16} className="input-icon-left" />
+            <form onSubmit={handleLoginSubmit} className="auth-form" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Email or Mobile Number</label>
+                <div className="input-wrapper" style={{ position: 'relative' }}>
+                  <Mail size={16} className="input-icon-left" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                   <input 
                     type="text" 
                     placeholder="Enter your email or mobile number"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
+                    style={{ width: '100%', padding: '12px 14px 12px 42px', fontSize: '14px', borderRadius: '8px', border: '1px solid #eaecef', outline: 'none' }}
                     required
                   />
                 </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Password</label>
-                <div className="input-wrapper">
-                  <Lock size={16} className="input-icon-left" />
+              <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Password</label>
+                <div className="input-wrapper" style={{ position: 'relative' }}>
+                  <Lock size={16} className="input-icon-left" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                   <input 
                     type={showLoginPassword ? "text" : "password"} 
                     placeholder="Enter your password"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
-                    style={{ paddingRight: '40px' }}
+                    style={{ width: '100%', padding: '12px 40px 12px 42px', fontSize: '14px', borderRadius: '8px', border: '1px solid #eaecef', outline: 'none' }}
                     required
                   />
                   <button 
                     type="button"
-                    style={{ position: 'absolute', right: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
                     onClick={() => setShowLoginPassword(!showLoginPassword)}
                   >
                     {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -1424,43 +1454,38 @@ function App() {
                 </div>
               </div>
 
-              <div className="auth-remember-row">
-                <label className="remember-me-checkbox">
-                  <input type="checkbox" defaultChecked />
+              <div className="auth-remember-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', margin: '6px 0 10px 0' }}>
+                <label className="remember-me-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                  <input type="checkbox" defaultChecked style={{ accentColor: '#b07c40' }} />
                   Remember me
                 </label>
-                <a href="#" className="forgot-password-link">Forgot password?</a>
+                <a href="#" className="forgot-password-link" style={{ color: 'var(--accent-text, #b07c40)', textDecoration: 'none', fontWeight: 500 }}>Forgot password?</a>
               </div>
 
-              <button type="submit" className="btn-primary" style={{ justifyContent: 'center', padding: '14px' }}>
-                Login
+              <button type="submit" className="btn-primary" style={{ justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600, fontSize: '14px' }}>
+                Login to Workspace
               </button>
             </form>
 
-            <div className="divider-container">OR CONTINUE WITH</div>
+            <div className="divider-container" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', color: 'var(--text-muted)', margin: '24px 0', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              <div style={{ flex: 1, height: '1px', background: '#eaecef' }}></div>
+              OR CONTINUE WITH
+              <div style={{ flex: 1, height: '1px', background: '#eaecef' }}></div>
+            </div>
 
-            <div className="social-auth-buttons">
-              <button className="social-btn">
+            <div className="social-auth-buttons" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button className="social-btn" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #eaecef', background: '#fff', fontSize: '13px', cursor: 'pointer' }}>
                 <Compass size={16} />
                 Continue with Google
               </button>
-              <button className="social-btn">
+              <button className="social-btn" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #eaecef', background: '#fff', fontSize: '13px', cursor: 'pointer' }}>
                 <User size={16} />
                 Continue with Apple
               </button>
-              <button className="social-btn">
-                <MessageSquare size={16} />
-                Continue with WhatsApp
-              </button>
             </div>
 
-            <div className="accent-banner" style={{ justifyContent: 'center' }}>
-              <ShieldCheck size={16} />
-              <span><strong>Secure. Private. Yours.</strong> Your personal data and custom preferences are safe with us.</span>
-            </div>
-
-            <div className="auth-card-footer">
-              Don't have a boutique account? <a href="#" onClick={() => { setSignupStep(1); setView('signup'); }}>Signup</a>
+            <div className="auth-card-footer" style={{ borderTop: '1px solid #eaecef', marginTop: '32px', paddingTop: '20px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+              Don't have a boutique account? <a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600, textDecoration: 'none' }} onClick={() => { setSignupStep(1); setView('signup'); }}>Signup</a>
             </div>
           </div>
         </div>
@@ -1468,9 +1493,38 @@ function App() {
 
       {/* 3. SIGN UP SCREEN (Image 3) */}
       {view === 'signup' && (
-        <div className="auth-page">
-          <div className="auth-logo">SCALEEZY</div>
-          <div className="auth-logo-sub">YOUR VISION. OUR CRAFT.</div>
+        <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
+          
+          {/* Back to Home Button */}
+          <button 
+            onClick={() => setView('landing')}
+            style={{
+              position: 'absolute',
+              top: '30px',
+              left: '5%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: '#fff',
+              border: '1px solid #eaecef',
+              padding: '10px 18px',
+              borderRadius: '99px',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              fontSize: '13px',
+              fontWeight: '600',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--accent-text, #b07c40)'; e.currentTarget.style.color = 'var(--accent-text, #b07c40)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = '#eaecef'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
+            <ArrowLeft size={16} />
+            Back to Home
+          </button>
+
+          <div className="auth-logo" style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', color: '#0f291e', fontWeight: 700, letterSpacing: '2px', marginBottom: '4px' }}>SCALEEZY</div>
+          <div className="auth-logo-sub" style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '32px' }}>YOUR VISION. OUR CRAFT.</div>
 
           {/* Auth Steps Tracker */}
           <div className="auth-steps-tracker">
