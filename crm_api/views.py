@@ -301,6 +301,22 @@ def create_order_notifications(order, created=False):
                 recipient_email=order.tailor.user.email if order.tailor.user else None
             )
 
+        if status == 'Quality Check':
+            # Notify Owner
+            Notification.objects.create(
+                title=f"Garment Stitching Completed: {order.order_id}",
+                message=f"Order {order.order_id} stitching has been completed by {order.tailor.name if order.tailor else 'the tailor'} and is now pending Quality Check.",
+                recipient_role="Owner"
+            )
+            # Notify Master
+            if order.master:
+                Notification.objects.create(
+                    title=f"Quality Check Required: {order.order_id}",
+                    message=f"Order {order.order_id} stitching has been completed by {order.tailor.name if order.tailor else 'the tailor'} and is ready for your Quality Check.",
+                    recipient_role="Master",
+                    recipient_email=order.master.user.email if order.master.user else None
+                )
+
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all().order_by('-order_date')
     serializer_class = OrderSerializer
