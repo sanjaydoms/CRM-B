@@ -52,6 +52,52 @@ class Measurement(models.Model):
     def __str__(self):
         return f"Measurements for {self.customer.first_name} {self.customer.last_name}"
 
+    def save(self, *args, **kwargs):
+        # Determine if values changed relative to the latest history entry
+        last_history = MeasurementHistory.objects.filter(customer=self.customer).order_by('-changed_at').first()
+        changed = False
+        if not last_history:
+            changed = True
+        else:
+            if (last_history.bust != self.bust or
+                last_history.waist != self.waist or
+                last_history.hips != self.hips or
+                last_history.shoulder != self.shoulder or
+                last_history.arm_length != self.arm_length or
+                last_history.neck != self.neck or
+                last_history.length != self.length or
+                last_history.additional_measurements != self.additional_measurements):
+                changed = True
+        
+        super().save(*args, **kwargs)
+        if changed:
+            MeasurementHistory.objects.create(
+                customer=self.customer,
+                bust=self.bust,
+                waist=self.waist,
+                hips=self.hips,
+                shoulder=self.shoulder,
+                arm_length=self.arm_length,
+                neck=self.neck,
+                length=self.length,
+                additional_measurements=self.additional_measurements
+            )
+
+class MeasurementHistory(models.Model):
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='measurement_history')
+    bust = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    waist = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    hips = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    shoulder = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    arm_length = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    neck = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    length = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    additional_measurements = models.JSONField(default=dict, blank=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Measurement history for {self.customer.first_name} {self.customer.last_name} at {self.changed_at}"
+
 class DesignPreference(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='design_preferences')
     notes = models.TextField(blank=True, null=True)

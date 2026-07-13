@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory, BoutiqueSettings
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory, BoutiqueSettings, MeasurementHistory
 
 class BoutiqueSettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -26,6 +26,11 @@ class MeasurementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Measurement
         fields = ['bust', 'waist', 'hips', 'shoulder', 'arm_length', 'neck', 'length', 'additional_measurements']
+
+class MeasurementHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MeasurementHistory
+        fields = ['id', 'bust', 'waist', 'hips', 'shoulder', 'arm_length', 'neck', 'length', 'additional_measurements', 'changed_at']
 
 class DesignPreferenceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -66,6 +71,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
 class CustomerSerializer(serializers.ModelSerializer):
     measurements = MeasurementSerializer(required=False)
+    measurement_history = MeasurementHistorySerializer(many=True, read_only=True)
     design_preferences = DesignPreferenceSerializer(many=True, read_only=True)
     fabric_selections = FabricSelectionSerializer(many=True, read_only=True)
     orders = OrderSerializer(many=True, read_only=True)
@@ -83,7 +89,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             'silhouette', 'embellishments', 'pattern_style', 'occasion',
             'custom_requirements', 'date_of_birth', 'occupation',
             'preferred_communication', 'notes', 'profile_photo',
-            'measurements', 'design_preferences', 'fabric_selections', 'orders',
+            'measurements', 'measurement_history', 'design_preferences', 'fabric_selections', 'orders',
             'style_dna', 'segment', 'total_spend', 'order_count', 'created_at', 'updated_at'
         ]
 
