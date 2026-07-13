@@ -2428,10 +2428,31 @@ function App() {
                             </div>
                             
                             {/* Price / Scope */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', background: 'var(--surface-color)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                              <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>
-                              <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</span></div>
-                              <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-color)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: (currentUser.role !== 'Tailor' || order.customer_measurements) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px' }}>
+                                {currentUser.role !== 'Tailor' && <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>}
+                                <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</span></div>
+                                <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
+                              </div>
+
+                              {/* Client specifications and measurements passed to Tailor flow */}
+                              {order.customer_measurements && (
+                                <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                    <span>Dress / Garment Type: <span style={{ color: 'var(--accent-text, #b07c40)' }}>{order.customer_garment_type || 'Custom Item'}</span></span>
+                                    <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>📍 Sizing Blueprint Passed From Master</span>
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px', background: 'rgba(0,0,0,0.015)', padding: '8px', borderRadius: '6px' }}>
+                                    <div>Bust: <strong>{order.customer_measurements.bust || '—'} in</strong></div>
+                                    <div>Waist: <strong>{order.customer_measurements.waist || '—'} in</strong></div>
+                                    <div>Hips: <strong>{order.customer_measurements.hips || '—'} in</strong></div>
+                                    <div>Shoulder: <strong>{order.customer_measurements.shoulder || '—'} in</strong></div>
+                                    <div>Arm: <strong>{order.customer_measurements.arm_length || '—'} in</strong></div>
+                                    <div>Neck: <strong>{order.customer_measurements.neck || '—'} in</strong></div>
+                                    <div>Length: <strong>{order.customer_measurements.length || '—'} in</strong></div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                              {/* Delivery Information */}

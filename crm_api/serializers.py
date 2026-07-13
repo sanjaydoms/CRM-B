@@ -51,13 +51,15 @@ class OrderSerializer(serializers.ModelSerializer):
     tailor_name = serializers.CharField(source='tailor.name', read_only=True)
     master_name = serializers.CharField(source='master.name', read_only=True)
     customer_name = serializers.SerializerMethodField()
+    customer_garment_type = serializers.CharField(source='customer.garment_type', read_only=True)
+    customer_measurements = MeasurementSerializer(source='customer.measurements', read_only=True)
     stage_histories = OrderStageHistorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'order_id', 'customer', 'customer_name', 'tailor', 'tailor_name',
-            'master', 'master_name',
+            'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type', 'customer_measurements',
+            'tailor', 'tailor_name', 'master', 'master_name',
             'payment_status', 'order_status', 'base_price', 'fabric_price',
             'embroidery_price', 'customization_price', 'tailoring_charges',
             'packaging_handling', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
