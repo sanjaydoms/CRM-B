@@ -66,6 +66,27 @@ const getColorCircleStyle = (colorName) => {
   return '#fbeedb';
 };
 
+const getVisibleMeasurementFields = (stitchParts) => {
+  const allFields = ['bust', 'waist', 'hips', 'shoulder', 'arm_length', 'neck', 'length'];
+  if (!stitchParts || stitchParts.length === 0) return allFields;
+  
+  const hasUpper = stitchParts.some(p => ['Blouse', 'Blouse / Choli', 'Kurta / Kameez', 'Sherwani Top', 'Anarkali Dress', 'Gown Body', 'Kurti Top'].includes(p));
+  const hasLower = stitchParts.some(p => ['Skirt', 'Salwar / Bottom', 'Pants / Churidar', 'Bottom Churidar', 'Petticoat'].includes(p));
+  
+  const fields = [];
+  if (hasUpper) {
+    fields.push('bust', 'shoulder', 'arm_length', 'neck');
+  }
+  if (hasLower) {
+    fields.push('hips');
+  }
+  if (hasUpper || hasLower) {
+    fields.push('waist', 'length');
+  }
+  
+  return allFields.filter(f => fields.includes(f));
+};
+
 const getTailorAvatarUrl = (name) => {
   if (!name) return '';
   const n = name.toLowerCase();
@@ -2439,17 +2460,31 @@ function App() {
                               {order.customer_measurements && (
                                 <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                                    <span>Dress / Garment Type: <span style={{ color: 'var(--accent-text, #b07c40)' }}>{order.customer_garment_type || 'Custom Item'}</span></span>
+                                    <span>
+                                      Dress / Garment Type: <span style={{ color: 'var(--accent-text, #b07c40)' }}>{order.customer_garment_type || 'Custom Item'}</span>
+                                      {(() => {
+                                        const parts = order.customer_measurements.additional_measurements?.stitch_parts || [];
+                                        return parts.length > 0 && ` (${parts.join(', ')})`;
+                                      })()}
+                                    </span>
                                     <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>📍 Sizing Blueprint Passed From Master</span>
                                   </div>
                                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px', background: 'rgba(0,0,0,0.015)', padding: '8px', borderRadius: '6px' }}>
-                                    <div>Bust: <strong>{order.customer_measurements.bust || '—'} in</strong></div>
-                                    <div>Waist: <strong>{order.customer_measurements.waist || '—'} in</strong></div>
-                                    <div>Hips: <strong>{order.customer_measurements.hips || '—'} in</strong></div>
-                                    <div>Shoulder: <strong>{order.customer_measurements.shoulder || '—'} in</strong></div>
-                                    <div>Arm: <strong>{order.customer_measurements.arm_length || '—'} in</strong></div>
-                                    <div>Neck: <strong>{order.customer_measurements.neck || '—'} in</strong></div>
-                                    <div>Length: <strong>{order.customer_measurements.length || '—'} in</strong></div>
+                                    {(() => {
+                                      const parts = order.customer_measurements.additional_measurements?.stitch_parts || [];
+                                      const visible = getVisibleMeasurementFields(parts);
+                                      return (
+                                        <>
+                                          {visible.includes('bust') && <div>Bust: <strong>{order.customer_measurements.bust || '—'} in</strong></div>}
+                                          {visible.includes('waist') && <div>Waist: <strong>{order.customer_measurements.waist || '—'} in</strong></div>}
+                                          {visible.includes('hips') && <div>Hips: <strong>{order.customer_measurements.hips || '—'} in</strong></div>}
+                                          {visible.includes('shoulder') && <div>Shoulder: <strong>{order.customer_measurements.shoulder || '—'} in</strong></div>}
+                                          {visible.includes('arm_length') && <div>Arm: <strong>{order.customer_measurements.arm_length || '—'} in</strong></div>}
+                                          {visible.includes('neck') && <div>Neck: <strong>{order.customer_measurements.neck || '—'} in</strong></div>}
+                                          {visible.includes('length') && <div>Length: <strong>{order.customer_measurements.length || '—'} in</strong></div>}
+                                        </>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               )}
@@ -3806,13 +3841,21 @@ function App() {
                           <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Body Measurements</h5>
                           {cust.measurements ? (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '13px' }}>
-                              <div>Bust: <span style={{ fontWeight: 600 }}>{cust.measurements.bust || '—'} in</span></div>
-                              <div>Waist: <span style={{ fontWeight: 600 }}>{cust.measurements.waist || '—'} in</span></div>
-                              <div>Hips: <span style={{ fontWeight: 600 }}>{cust.measurements.hips || '—'} in</span></div>
-                              <div>Shoulder: <span style={{ fontWeight: 600 }}>{cust.measurements.shoulder || '—'} in</span></div>
-                              <div>Arm: <span style={{ fontWeight: 600 }}>{cust.measurements.arm_length || '—'} in</span></div>
-                              <div>Neck: <span style={{ fontWeight: 600 }}>{cust.measurements.neck || '—'} in</span></div>
-                              <div>Length: <span style={{ fontWeight: 600 }}>{cust.measurements.length || '—'} in</span></div>
+                              {(() => {
+                                const parts = cust.measurements.additional_measurements?.stitch_parts || [];
+                                const visible = getVisibleMeasurementFields(parts);
+                                return (
+                                  <>
+                                    {visible.includes('bust') && <div>Bust: <span style={{ fontWeight: 600 }}>{cust.measurements.bust || '—'} in</span></div>}
+                                    {visible.includes('waist') && <div>Waist: <span style={{ fontWeight: 600 }}>{cust.measurements.waist || '—'} in</span></div>}
+                                    {visible.includes('hips') && <div>Hips: <span style={{ fontWeight: 600 }}>{cust.measurements.hips || '—'} in</span></div>}
+                                    {visible.includes('shoulder') && <div>Shoulder: <span style={{ fontWeight: 600 }}>{cust.measurements.shoulder || '—'} in</span></div>}
+                                    {visible.includes('arm_length') && <div>Arm: <span style={{ fontWeight: 600 }}>{cust.measurements.arm_length || '—'} in</span></div>}
+                                    {visible.includes('neck') && <div>Neck: <span style={{ fontWeight: 600 }}>{cust.measurements.neck || '—'} in</span></div>}
+                                    {visible.includes('length') && <div>Length: <span style={{ fontWeight: 600 }}>{cust.measurements.length || '—'} in</span></div>}
+                                  </>
+                                );
+                              })()}
                             </div>
                           ) : (
                             <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No size measurements logged yet.</span>
@@ -3823,7 +3866,7 @@ function App() {
                         <div style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', paddingLeft: '24px' }}>
                           <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Bespoke Profile</h5>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '12px' }}>
-                            <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Garment: {cust.garment_type}</span>
+                            <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Garment: {cust.garment_type}{cust.measurements?.additional_measurements?.stitch_parts?.length > 0 ? ` (${cust.measurements.additional_measurements.stitch_parts.join(', ')})` : ''}</span>
                             {cust.neckline_style && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Neck: {cust.neckline_style}</span>}
                             {cust.sleeve_style && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Sleeve: {cust.sleeve_style}</span>}
                             {cust.silhouette && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Silhouette: {cust.silhouette}</span>}
@@ -4113,19 +4156,35 @@ function App() {
                       borderRadius: '12px',
                       padding: '24px'
                     }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
-                        Body Measurements & Sizing
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Body Measurements & Sizing</span>
+                        {(() => {
+                          const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
+                          return parts.length > 0 && (
+                            <span style={{ fontSize: '12px', background: 'rgba(176,124,64,0.1)', color: 'var(--accent-text, #b07c40)', padding: '4px 10px', borderRadius: '4px', fontWeight: 600 }}>
+                              Stitching: {parts.join(', ')}
+                            </span>
+                          );
+                        })()}
                       </h3>
                       {selectedDirectoryCustomer.measurements ? (
                         <>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                            <div>Bust: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.bust || '—'} in</span></div>
-                            <div>Waist: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.waist || '—'} in</span></div>
-                            <div>Hips: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.hips || '—'} in</span></div>
-                            <div>Shoulder: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.shoulder || '—'} in</span></div>
-                            <div>Arm Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.arm_length || '—'} in</span></div>
-                            <div>Neck: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.neck || '—'} in</span></div>
-                            <div>Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.length || '—'} in</span></div>
+                            {(() => {
+                              const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
+                              const visible = getVisibleMeasurementFields(parts);
+                              return (
+                                <>
+                                  {visible.includes('bust') && <div>Bust: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.bust || '—'} in</span></div>}
+                                  {visible.includes('waist') && <div>Waist: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.waist || '—'} in</span></div>}
+                                  {visible.includes('hips') && <div>Hips: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.hips || '—'} in</span></div>}
+                                  {visible.includes('shoulder') && <div>Shoulder: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.shoulder || '—'} in</span></div>}
+                                  {visible.includes('arm_length') && <div>Arm Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.arm_length || '—'} in</span></div>}
+                                  {visible.includes('neck') && <div>Neck: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.neck || '—'} in</span></div>}
+                                  {visible.includes('length') && <div>Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.length || '—'} in</span></div>}
+                                </>
+                              );
+                            })()}
                             <div>Occasion Preference: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.occasion || '—'}</span></div>
                           </div>
                           {selectedDirectoryCustomer.measurement_history && selectedDirectoryCustomer.measurement_history.length > 0 && (
@@ -4138,6 +4197,8 @@ function App() {
                                   const dateStr = new Date(hist.changed_at).toLocaleDateString('en-US', {
                                     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                                   });
+                                  const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
+                                  const visible = getVisibleMeasurementFields(parts);
                                   return (
                                     <div key={hist.id || idx} style={{
                                       background: 'rgba(0,0,0,0.015)',
@@ -4151,13 +4212,13 @@ function App() {
                                         <span>{dateStr}</span>
                                       </div>
                                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', color: 'var(--text-secondary)' }}>
-                                        <div>Bust: <strong style={{ color: 'var(--text-primary)' }}>{hist.bust || '—'}</strong></div>
-                                        <div>Waist: <strong style={{ color: 'var(--text-primary)' }}>{hist.waist || '—'}</strong></div>
-                                        <div>Hips: <strong style={{ color: 'var(--text-primary)' }}>{hist.hips || '—'}</strong></div>
-                                        <div>Shoulder: <strong style={{ color: 'var(--text-primary)' }}>{hist.shoulder || '—'}</strong></div>
-                                        <div>Arm: <strong style={{ color: 'var(--text-primary)' }}>{hist.arm_length || '—'}</strong></div>
-                                        <div>Neck: <strong style={{ color: 'var(--text-primary)' }}>{hist.neck || '—'}</strong></div>
-                                        <div>Length: <strong style={{ color: 'var(--text-primary)' }}>{hist.length || '—'}</strong></div>
+                                        {visible.includes('bust') && <div>Bust: <strong style={{ color: 'var(--text-primary)' }}>{hist.bust || '—'}</strong></div>}
+                                        {visible.includes('waist') && <div>Waist: <strong style={{ color: 'var(--text-primary)' }}>{hist.waist || '—'}</strong></div>}
+                                        {visible.includes('hips') && <div>Hips: <strong style={{ color: 'var(--text-primary)' }}>{hist.hips || '—'}</strong></div>}
+                                        {visible.includes('shoulder') && <div>Shoulder: <strong style={{ color: 'var(--text-primary)' }}>{hist.shoulder || '—'}</strong></div>}
+                                        {visible.includes('arm_length') && <div>Arm: <strong style={{ color: 'var(--text-primary)' }}>{hist.arm_length || '—'}</strong></div>}
+                                        {visible.includes('neck') && <div>Neck: <strong style={{ color: 'var(--text-primary)' }}>{hist.neck || '—'}</strong></div>}
+                                        {visible.includes('length') && <div>Length: <strong style={{ color: 'var(--text-primary)' }}>{hist.length || '—'}</strong></div>}
                                       </div>
                                     </div>
                                   );
@@ -5791,7 +5852,32 @@ function App() {
                       <label className="form-label">Garment Type <span className="required">*</span></label>
                       <select 
                         value={customerForm.garment_type}
-                        onChange={(e) => setCustomerForm({...customerForm, garment_type: e.target.value})}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const defaultParts = {
+                            'Saree': ['Blouse'],
+                            'Lehenga': ['Blouse / Choli', 'Skirt'],
+                            'Suit': ['Kurta / Kameez', 'Salwar / Bottom'],
+                            'Sherwani': ['Sherwani Top', 'Pants / Churidar'],
+                            'Anarkali': ['Anarkali Dress'],
+                            'Gown': ['Gown Body'],
+                            'Kurti': ['Kurti Top']
+                          }[val] || [];
+                          
+                          const additional = {
+                            ...(customerForm.measurements?.additional_measurements || {}),
+                            stitch_parts: defaultParts
+                          };
+                          
+                          setCustomerForm({
+                            ...customerForm,
+                            garment_type: val,
+                            measurements: {
+                              ...(customerForm.measurements || {}),
+                              additional_measurements: additional
+                            }
+                          });
+                        }}
                         className="form-control"
                       >
                         <option value="Lehenga">Lehenga</option>
@@ -5802,6 +5888,62 @@ function App() {
                         <option value="Kurti">Kurti</option>
                         <option value="Sherwani">Sherwani</option>
                       </select>
+                    </div>
+                  </div>
+
+                  {/* Stitch Parts Selection Grid */}
+                  <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
+                    <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '8px' }}>Parts to Stitch / Customize</label>
+                    <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                      {({
+                        'Saree': ['Blouse', 'Petticoat', 'Draping'],
+                        'Lehenga': ['Blouse / Choli', 'Skirt', 'Dupatta'],
+                        'Suit': ['Kurta / Kameez', 'Salwar / Bottom', 'Dupatta'],
+                        'Sherwani': ['Sherwani Top', 'Pants / Churidar'],
+                        'Anarkali': ['Anarkali Dress', 'Bottom Churidar', 'Dupatta'],
+                        'Gown': ['Gown Body'],
+                        'Kurti': ['Kurti Top']
+                      }[customerForm.garment_type || 'Lehenga'] || []).map(part => {
+                        const currentParts = customerForm.measurements?.additional_measurements?.stitch_parts || {
+                          'Saree': ['Blouse'],
+                          'Lehenga': ['Blouse / Choli', 'Skirt'],
+                          'Suit': ['Kurta / Kameez', 'Salwar / Bottom'],
+                          'Sherwani': ['Sherwani Top', 'Pants / Churidar'],
+                          'Anarkali': ['Anarkali Dress'],
+                          'Gown': ['Gown Body'],
+                          'Kurti': ['Kurti Top']
+                        }[customerForm.garment_type || 'Lehenga'] || [];
+                        
+                        const isChecked = currentParts.includes(part);
+                        return (
+                          <label key={part} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', cursor: 'pointer', color: 'var(--text-primary)' }}>
+                            <input 
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                let updatedParts;
+                                if (e.target.checked) {
+                                  updatedParts = [...currentParts, part];
+                                } else {
+                                  updatedParts = currentParts.filter(p => p !== part);
+                                }
+                                const newAdditional = {
+                                  ...(customerForm.measurements?.additional_measurements || {}),
+                                  stitch_parts: updatedParts
+                                };
+                                setCustomerForm({
+                                  ...customerForm,
+                                  measurements: {
+                                    ...(customerForm.measurements || {}),
+                                    additional_measurements: newAdditional
+                                  }
+                                });
+                              }}
+                            />
+                            {part}
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -6003,13 +6145,17 @@ function App() {
                 </div>
 
                 <div className="content-card">
-                  <div className="card-title">
-                    <Scissors size={20} />
-                    Body Specifications (inches)
+                  <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Scissors size={20} /> Body Specifications (inches)</span>
+                    {customerForm.measurements?.additional_measurements?.stitch_parts && (
+                      <span style={{ fontSize: '12px', background: 'rgba(176,124,64,0.1)', color: 'var(--accent-text, #b07c40)', padding: '4px 10px', borderRadius: '4px', fontWeight: 600 }}>
+                        Stitching: {customerForm.measurements.additional_measurements.stitch_parts.join(', ')}
+                      </span>
+                    )}
                   </div>
 
                   <div className="form-grid-2">
-                    {Object.keys(customerForm.measurements || {}).map(field => (
+                    {getVisibleMeasurementFields(customerForm.measurements?.additional_measurements?.stitch_parts).map(field => (
                       <div className="form-group" key={field}>
                         <label className="form-label" style={{ textTransform: 'capitalize' }}>
                           {field.replace('_', ' ')} (in)
