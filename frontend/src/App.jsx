@@ -2335,6 +2335,12 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); }}><Scissors size={16} /> Manage Tailors</a>
                   <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); }}><Sparkles size={16} /> Manage Designs</a>
                 </>
+              ) : currentUser.role === 'Master' ? (
+                <>
+                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); }}><Scissors size={16} /> My Assignments</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); }}><ShoppingBag size={16} /> Manage Orders</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); }}><Users size={16} /> Customers</a>
+                </>
               ) : (
                 <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); }}><Scissors size={16} /> My Assignments</a>
               )}
@@ -2503,6 +2509,59 @@ function App() {
                                 </div>
                               )}
                             </div>
+
+                            {/* Master Verification Checklist */}
+                            {currentUser.role === 'Master' && (
+                              <div style={{
+                                marginTop: '12px',
+                                padding: '16px',
+                                background: 'rgba(212,175,55,0.03)',
+                                border: '1px solid rgba(212,175,55,0.15)',
+                                borderRadius: '8px',
+                                textAlign: 'left'
+                              }}>
+                                <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  👑 Master Production Verification Checklist
+                                </h4>
+                                
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px 16px' }}>
+                                  {[
+                                    { key: 'dress_cutting', label: 'Dress & Pattern Cutting' },
+                                    { key: 'thread', label: 'Matching Thread & Accents' },
+                                    { key: 'hemming', label: 'Hemming & Seam Finishes' },
+                                    ...(order.customer_garment_type === 'Saree' ? [{ key: 'fall_pico', label: 'Fall & Pico / Peack' }] : []),
+                                    { key: 'hook_buttons', label: 'Hook or Buttons Closure' },
+                                    { key: 'pressing', label: 'Garment Steam Pressing' },
+                                    { key: 'dispatch_trial', label: 'Dispatch or Fit Trial Ready' }
+                                  ].map(item => {
+                                    const isChecked = order.master_verification?.[item.key] || false;
+                                    return (
+                                      <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                                        <input 
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={async (e) => {
+                                            const updatedVerification = {
+                                              ...(order.master_verification || {}),
+                                              [item.key]: e.target.checked
+                                            };
+                                            try {
+                                              await api.updateOrder(order.id, { master_verification: updatedVerification });
+                                              fetchDashboardAndConfig();
+                                            } catch (err) {
+                                              alert("Failed to update verification check: " + err.message);
+                                            }
+                                          }}
+                                        />
+                                        <span style={{ textDecoration: isChecked ? 'line-through' : 'none', color: isChecked ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+                                          {item.label}
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
 
                             {/* Submit Completion Section */}
                             {currentUser.role === 'Tailor' && (
@@ -3531,6 +3590,19 @@ function App() {
                               <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                                 Client: <strong>{order.customer_name}</strong> | Created: {new Date(order.order_date).toLocaleDateString()}
                               </div>
+                              {(() => {
+                                const v = order.master_verification || {};
+                                const total = 6 + (order.customer_garment_type === 'Saree' ? 1 : 0);
+                                const checked = Object.values(v).filter(Boolean).length;
+                                if (checked > 0) {
+                                  return (
+                                    <div style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(212,175,55,0.08)', padding: '2px 8px', borderRadius: '4px', marginTop: '4px' }}>
+                                      <span>👑 Master Verified: {checked}/{total} items ({Math.round((checked/total)*100)}%)</span>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -3641,6 +3713,58 @@ function App() {
                               <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? new Date(order.estimated_delivery).toLocaleDateString() : 'TBD'}</div>
                             </div>
                           </div>
+
+                          {/* Master Verification Checklist in Orders Tab */}
+                          {currentUser.role === 'Master' && (
+                            <div style={{
+                              padding: '16px',
+                              background: 'rgba(212,175,55,0.03)',
+                              border: '1px solid rgba(212,175,55,0.15)',
+                              borderRadius: '8px',
+                              textAlign: 'left'
+                            }}>
+                              <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                👑 Master Production Verification Checklist
+                              </h4>
+                              
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px 16px' }}>
+                                {[
+                                  { key: 'dress_cutting', label: 'Dress & Pattern Cutting' },
+                                  { key: 'thread', label: 'Matching Thread & Accents' },
+                                  { key: 'hemming', label: 'Hemming & Seam Finishes' },
+                                  ...(order.customer_garment_type === 'Saree' ? [{ key: 'fall_pico', label: 'Fall & Pico / Peack' }] : []),
+                                  { key: 'hook_buttons', label: 'Hook or Buttons Closure' },
+                                  { key: 'pressing', label: 'Garment Steam Pressing' },
+                                  { key: 'dispatch_trial', label: 'Dispatch or Fit Trial Ready' }
+                                ].map(item => {
+                                  const isChecked = order.master_verification?.[item.key] || false;
+                                  return (
+                                    <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                                      <input 
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={async (e) => {
+                                          const updatedVerification = {
+                                            ...(order.master_verification || {}),
+                                            [item.key]: e.target.checked
+                                          };
+                                          try {
+                                            await api.updateOrder(order.id, { master_verification: updatedVerification });
+                                            fetchDashboardAndConfig();
+                                          } catch (err) {
+                                            alert("Failed to update verification check: " + err.message);
+                                          }
+                                        }}
+                                      />
+                                      <span style={{ textDecoration: isChecked ? 'line-through' : 'none', color: isChecked ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+                                        {item.label}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
 
                           {/* Bottom Row: Delivery details */}
                           <div style={{
