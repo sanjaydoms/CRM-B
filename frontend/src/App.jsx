@@ -4151,7 +4151,7 @@ function App() {
             {dashboardTab === 'customers' && selectedDirectoryCustomer && (
               <div className="customer-detail-view-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 {/* Back Navigation & Main Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="customer-detail-header-row">
                   <button 
                     onClick={() => setSelectedDirectoryCustomer(null)}
                     style={{
@@ -4169,7 +4169,7 @@ function App() {
                     <ArrowLeft size={16} /> Back to Customer Directory
                   </button>
 
-                  <div style={{ display: 'flex', gap: '12px' }}>
+                  <div className="customer-detail-header-actions">
                     {/* Flow Option 1: Re-use Existing Design */}
                     <button 
                       className="btn-outline" 
@@ -4229,16 +4229,8 @@ function App() {
                 </div>
 
                 {/* Customer Main Banner */}
-                <div style={{
-                  background: 'var(--surface-color)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '12px',
-                  padding: '24px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '24px'
-                }}>
-                  <div className="user-avatar-circle" style={{ width: '80px', height: '80px', fontSize: '24px', borderRadius: '50%', overflow: 'hidden' }}>
+                <div className="customer-detail-banner-card">
+                  <div className="user-avatar-circle" style={{ width: '80px', height: '80px', fontSize: '24px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
                     <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(selectedDirectoryCustomer.first_name)}`} alt="Profile" />
                   </div>
                    <div>

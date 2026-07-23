@@ -2683,8 +2683,30 @@ table.data-table tbody tr:hover {
    ========================================== */
 .responsive-customer-card {
   display: grid;
-  grid-template-columns: 1fr 1.5fr 1.5fr;
+  grid-template-columns: 1.2fr 1fr;
   gap: 24px;
+}
+
+.customer-detail-banner-card {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.customer-detail-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.customer-detail-header-actions {
+  display: flex;
+  gap: 12px;
 }
 
 .responsive-style-dna-grid {
@@ -2896,6 +2918,32 @@ table.data-table tbody tr:hover {
     flex-direction: column !important;
     align-items: stretch !important;
     gap: 8px !important;
+  }
+
+  /* Internal Pages Customer Details */
+  .customer-detail-banner-card {
+    flex-direction: column !important;
+    text-align: center !important;
+    align-items: center !important;
+    gap: 16px !important;
+  }
+  .customer-detail-header-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+  .customer-detail-header-actions {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  /* Onboarding Visual Steps Timeline */
+  .flow-steps-visual {
+    flex-direction: column !important;
+    gap: 16px !important;
+  }
+  .flow-step-arrow {
+    display: none !important;
   }
 }
 
