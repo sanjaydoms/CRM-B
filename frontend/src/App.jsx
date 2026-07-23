@@ -360,38 +360,43 @@ function App() {
   const fetchDashboardAndConfig = async () => {
     setLoading(true);
     try {
-      const dbData = await api.getDashboard();
-      setDashboardData(dbData);
-      
-      const tailorList = await api.getTailors();
-      setTailors(tailorList);
-      
-      const fabricList = await api.getFabrics();
-      setFabrics(fabricList);
+      const [
+        dbDataRes,
+        tailorListRes,
+        fabricListRes,
+        designListRes,
+        custListRes,
+        ordListRes,
+        settingsDataRes
+      ] = await Promise.allSettled([
+        api.getDashboard(),
+        api.getTailors(),
+        api.getFabrics(),
+        api.getAllBoutiqueDesigns(),
+        api.getCustomers(),
+        api.getOrders(),
+        api.getBoutiqueSettings()
+      ]);
 
-      const designList = await api.getAllBoutiqueDesigns();
-      setAllDesigns(designList);
+      const dbData = dbDataRes.status === 'fulfilled' ? dbDataRes.value : null;
+      if (dbData) {
+        setDashboardData(dbData);
+        if (dbData.recent_orders?.length > 0) {
+          setSelectedDashboardOrder(dbData.recent_orders[0]);
+        }
+      }
 
-      const custList = await api.getCustomers();
-      setCustomersList(custList);
-      setAllCustomers(custList);
-
-      const ordList = await api.getOrders();
-      setOrdersList(ordList);
+      if (tailorListRes.status === 'fulfilled') setTailors(tailorListRes.value);
+      if (fabricListRes.status === 'fulfilled') setFabrics(fabricListRes.value);
+      if (designListRes.status === 'fulfilled') setAllDesigns(designListRes.value);
+      if (custListRes.status === 'fulfilled') {
+        setCustomersList(custListRes.value);
+        setAllCustomers(custListRes.value);
+      }
+      if (ordListRes.status === 'fulfilled') setOrdersList(ordListRes.value);
+      if (settingsDataRes.status === 'fulfilled') setBoutiqueSettings(settingsDataRes.value);
 
       await fetchNotifications();
-
-      try {
-        const settingsData = await api.getBoutiqueSettings();
-        setBoutiqueSettings(settingsData);
-      } catch (settingsErr) {
-        console.error("Failed to load boutique settings", settingsErr);
-      }
-
-      // Default select first order in the dashboard tracker
-      if (dbData?.recent_orders?.length > 0) {
-        setSelectedDashboardOrder(dbData.recent_orders[0]);
-      }
     } catch (err) {
       console.error("Error loading dashboard configs", err);
     } finally {
