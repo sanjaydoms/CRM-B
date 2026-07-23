@@ -3668,9 +3668,30 @@ function App() {
                             borderRadius: '12px',
                             padding: '40px',
                             textAlign: 'center',
-                            color: 'var(--text-muted)'
+                            color: 'var(--text-muted)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '12px'
                           }}>
-                            No orders found matching the criteria.
+                            <span>No orders found matching the criteria.</span>
+                            {ordersList.length === 0 && (
+                              <button 
+                                className="btn-secondary" 
+                                style={{ padding: '8px 16px', fontSize: '12px' }}
+                                onClick={async () => {
+                                  try {
+                                    await api.seedMockData();
+                                    alert("Mock data seeded successfully! Page will refresh.");
+                                    window.location.reload();
+                                  } catch (err) {
+                                    alert("Failed to seed data: " + err.message);
+                                  }
+                                }}
+                              >
+                                Seed Mock Data
+                              </button>
+                            )}
                           </div>
                         );
                       }
