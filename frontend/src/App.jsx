@@ -2421,20 +2421,20 @@ function App() {
                             gap: '12px'
                           }}>
                             {/* Order Header */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div className="assignment-card-header">
                               <div>
                                 <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</span>
                                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                                   Client: {order.customer_name} | Est. Delivery: {order.estimated_delivery ? new Date(order.estimated_delivery).toLocaleDateString() : 'TBD'}
                                 </div>
                               </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                                 <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
                                   {order.order_status}
                                 </span>
                                 <select 
                                   className="form-control"
-                                  style={{ fontSize: '12px', padding: '4px 10px', width: '160px' }}
+                                  style={{ fontSize: '12px', padding: '4px 10px', width: '160px', margin: 0 }}
                                   value={order.order_status}
                                   onChange={(e) => {
                                     api.updateOrderStatus(order.id, e.target.value)
@@ -2456,7 +2456,7 @@ function App() {
                             
                             {/* Price / Scope */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-color)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: (currentUser.role !== 'Tailor' || order.customer_measurements) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px' }}>
+                              <div className="assignment-card-sub-info" style={{ borderBottom: (currentUser.role !== 'Tailor' || order.customer_measurements) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px', fontSize: '13px' }}>
                                 {currentUser.role !== 'Tailor' && <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>}
                                 <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</span></div>
                                 <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
@@ -2465,7 +2465,7 @@ function App() {
                               {/* Client specifications and measurements passed to Tailor flow */}
                               {order.customer_measurements && (
                                 <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  <div className="assignment-card-blueprint-header" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                                     <span>
                                       Dress / Garment Type: <span style={{ color: 'var(--accent-text, #b07c40)' }}>{order.customer_garment_type || 'Custom Item'}</span>
                                       {(() => {

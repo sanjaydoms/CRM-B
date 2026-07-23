@@ -2828,6 +2828,27 @@ table.data-table tbody tr:hover {
   }
 }
 
+.assignment-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.assignment-card-sub-info {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assignment-card-blueprint-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 @media (max-width: 600px) {
   .quick-action-button-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -2944,6 +2965,22 @@ table.data-table tbody tr:hover {
   }
   .flow-step-arrow {
     display: none !important;
+  }
+
+  /* Assignments Card Responsiveness */
+  .assignment-card-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+  .assignment-card-sub-info {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  .assignment-card-blueprint-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px !important;
   }
 }
 
