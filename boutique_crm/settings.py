@@ -155,11 +155,19 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    'https://boutique.scaleezy.com',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+]
+CORS_ALLOW_CREDENTIALS = True
 
 from corsheaders.defaults import default_headers
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-tenant-id',
 ]
+
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://gbdabwahffdgdykbujpx.supabase.co')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', 'sb_publishable_ywe7hKYBjIy9waeT3oTOWQ_kF2ySzjO')

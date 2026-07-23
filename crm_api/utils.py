@@ -17,18 +17,21 @@ def seed_tenant_defaults():
 
     # Seed Boutique Fabrics
     fabrics = [
-        {"name": "Silk Dupion", "material": "Pure Silk", "color": "Dusty Rose", "price_per_meter": 1850.00, "image_url": "fabric_01.jpg"},
-        {"name": "Banarasi Silk", "material": "Zari Silk", "color": "Metallic Gold", "price_per_meter": 2850.00, "image_url": "fabric_02.jpg"},
-        {"name": "Linen Blend", "material": "Linen", "color": "Charcoal Black", "price_per_meter": 1250.00, "image_url": "fabric_03.jpg"},
-        {"name": "Raw Silk", "material": "Silk", "color": "Royal Blue", "price_per_meter": 1850.00, "image_url": "fabric_04.jpg"},
-        {"name": "Cotton Slub", "material": "Cotton", "color": "Olive Green", "price_per_meter": 950.00, "image_url": "fabric_05.jpg"},
+        {"name": "Silk Dupion", "material": "Pure Silk", "color": "Dusty Rose", "price_per_meter": 1850.00, "image_url": "https://images.unsplash.com/photo-1558171813-4c088753af8f?w=400"},
+        {"name": "Banarasi Silk", "material": "Zari Silk", "color": "Metallic Gold", "price_per_meter": 2850.00, "image_url": "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400"},
+        {"name": "Linen Blend", "material": "Linen", "color": "Charcoal Black", "price_per_meter": 1250.00, "image_url": "https://images.unsplash.com/photo-1553775927-a071d5a6a39a?w=400"},
+        {"name": "Raw Silk", "material": "Silk", "color": "Royal Blue", "price_per_meter": 1850.00, "image_url": "https://images.unsplash.com/photo-1539008835657-9e8e62c8425b?w=400"},
+        {"name": "Cotton Slub", "material": "Cotton", "color": "Olive Green", "price_per_meter": 950.00, "image_url": "https://images.unsplash.com/photo-1605721911519-3dfeb3be25e7?w=400"},
     ]
 
     for f in fabrics:
-        BoutiqueFabric.objects.get_or_create(
+        fab_obj, created = BoutiqueFabric.objects.get_or_create(
             name=f["name"],
             defaults={"material": f["material"], "color": f["color"], "price_per_meter": f["price_per_meter"], "image_url": f["image_url"]}
         )
+        if not created and ('fabric_' in str(fab_obj.image_url) or not str(fab_obj.image_url).startswith('http')):
+            fab_obj.image_url = f["image_url"]
+            fab_obj.save()
 
     # Seed Boutique & AI Designs
     designs = [
@@ -38,7 +41,7 @@ def seed_tenant_defaults():
             "garment_type": "Lehenga",
             "neckline_style": "Sweetheart",
             "sleeve_style": "Half Sleeve",
-            "image_url": "design_ai_01.jpg",
+            "image_url": "https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=400",
             "is_boutique": False,
             "description": "Exquisite silver zari embroidery on pastel hues.",
             "price": 0.0
@@ -48,7 +51,7 @@ def seed_tenant_defaults():
             "garment_type": "Lehenga",
             "neckline_style": "Sweetheart",
             "sleeve_style": "Half Sleeve",
-            "image_url": "design_ai_02.jpg",
+            "image_url": "https://images.unsplash.com/photo-1597983073492-bc24058b375b?w=400",
             "is_boutique": False,
             "description": "Traditional bridal red lehenga with intricate handcrafting.",
             "price": 0.0
@@ -110,7 +113,7 @@ def seed_tenant_defaults():
             "garment_type": "Lehenga",
             "neckline_style": "Sweetheart",
             "sleeve_style": "Half Sleeve",
-            "image_url": "design_cat_01.jpg",
+            "image_url": "https://images.unsplash.com/photo-1518049368264-7a13d7825d19?w=400",
             "is_boutique": True,
             "description": "Luxury royal velvet with hand-sewn metallic threads.",
             "price": 45000.00
@@ -120,7 +123,7 @@ def seed_tenant_defaults():
             "garment_type": "Gown",
             "neckline_style": "V-Neck",
             "sleeve_style": "Cap Sleeve",
-            "image_url": "design_cat_02.jpg",
+            "image_url": "https://images.unsplash.com/photo-1566174053879-31528523f8ae?w=400",
             "is_boutique": True,
             "description": "Stunning silk gown with fine lace appliques.",
             "price": 32000.00
@@ -148,7 +151,7 @@ def seed_tenant_defaults():
     ]
 
     for d in designs:
-        BoutiqueDesign.objects.get_or_create(
+        des_obj, created = BoutiqueDesign.objects.get_or_create(
             name=d["name"],
             defaults={
                 "garment_type": d["garment_type"],
@@ -160,6 +163,9 @@ def seed_tenant_defaults():
                 "price": d["price"]
             }
         )
+        if not created and ('design_' in str(des_obj.image_url) or not str(des_obj.image_url).startswith('http')):
+            des_obj.image_url = d["image_url"]
+            des_obj.save()
 
     # Seed Customers & Orders only for Sanjay's Boutique
     from django.db import connection
