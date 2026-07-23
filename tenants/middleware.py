@@ -1,6 +1,6 @@
 from django.db import connection
 from django_tenants.middleware.main import TenantMainMiddleware
-from django_tenants.utils import get_tenant_model, get_public_schema_name, get_tenant_domain_model
+from django_tenants.utils import get_tenant_model, get_public_schema_name, get_tenant_domain_model, schema_context
 
 class TenantHeaderMiddleware(TenantMainMiddleware):
     def process_request(self, request):
@@ -17,7 +17,19 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
             except tenant_model.DoesNotExist:
                 pass
         
-        # 2. If not resolved via header, fallback to hostname (default django-tenants behavior)
+        # 2. If not resolved via header, fallback to Authorization Token context search
+        if not tenant:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Token "):
+                token_key = auth_header.split(" ")[1]
+                for t in tenant_model.objects.exclude(schema_name='public'):
+                    with schema_context(t.schema_name):
+                        from rest_framework.authtoken.models import Token
+                        if Token.objects.filter(key=token_key).exists():
+                            tenant = t
+                            break
+
+        # 3. If not resolved via token, fallback to hostname (default django-tenants behavior)
         if not tenant:
             hostname = self.hostname_from_request(request)
             domain_model = get_tenant_domain_model()
