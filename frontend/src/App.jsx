@@ -6846,7 +6846,20 @@ function App() {
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {tailors.filter(t => t.role === 'Master').length === 0 ? (
-                        <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors available. Add one in staff settings.</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors available. Add one to continue:</div>
+                          <button 
+                            className="btn-primary" 
+                            style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            onClick={() => {
+                              setEditingTailor(null);
+                              setTailorForm({ name: '', email: '', specialty: 'Ethnic & Bridal Cutting', rating: 5.0, status: 'Available', role: 'Master' });
+                              setShowTailorModal(true);
+                            }}
+                          >
+                            <Plus size={14} /> Add Master Tailor
+                          </button>
+                        </div>
                       ) : (
                         tailors.filter(t => t.role === 'Master').map(t => (
                           <div 
@@ -6890,7 +6903,20 @@ function App() {
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {tailors.filter(t => t.role !== 'Master').length === 0 ? (
-                        <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors available. Add one in staff settings.</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors available. Add one to continue:</div>
+                          <button 
+                            className="btn-primary" 
+                            style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            onClick={() => {
+                              setEditingTailor(null);
+                              setTailorForm({ name: '', email: '', specialty: 'Assembly & Detailing', rating: 5.0, status: 'Available', role: 'Tailor' });
+                              setShowTailorModal(true);
+                            }}
+                          >
+                            <Plus size={14} /> Add Stitching Tailor
+                          </button>
+                        </div>
                       ) : (
                         tailors.filter(t => t.role !== 'Master').map(t => (
                           <div 
