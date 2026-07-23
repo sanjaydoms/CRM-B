@@ -283,6 +283,31 @@ export const api = {
     return res.json();
   },
 
+  async transitionStage(orderId, stageKey, status, comments, imageFiles = [], performedById = null) {
+    const formData = new FormData();
+    formData.append('stage_key', stageKey);
+    formData.append('status', status);
+    if (comments) formData.append('comments', comments);
+    if (performedById) formData.append('performed_by_id', performedById);
+    
+    if (imageFiles && imageFiles.length > 0) {
+      imageFiles.forEach(file => {
+        formData.append('images', file);
+      });
+    }
+
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/transition/`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to transition stage');
+    }
+    return res.json();
+  },
+
   async updateOrder(orderId, orderData) {
     const res = await fetch(`${BASE_URL}/orders/${orderId}/`, {
       method: 'PATCH',

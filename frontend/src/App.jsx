@@ -279,6 +279,8 @@ function App() {
   const [activeReviewOrder, setActiveReviewOrder] = useState(null);
   const [stageReviewComments, setStageReviewComments] = useState('');
   const [stageReviewImage, setStageReviewImage] = useState(null);
+  const [selectedStageObj, setSelectedStageObj] = useState(null);
+  const [selectedPerformerId, setSelectedPerformerId] = useState('');
 
   const [notifications, setNotifications] = useState([]);
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
@@ -2757,49 +2759,91 @@ function App() {
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Order ID: {selectedDashboardOrder.order_id}</div>
                         </div>
 
-                        <div className="order-progress-steps-list">
+                        <div style={{ marginTop: '12px', marginBottom: '16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
+                            <span>PRODUCTION PROGRESS</span>
+                            <span>{(() => {
+                              const stages = selectedDashboardOrder.stages || [];
+                              const completed = stages.filter(s => s.status === 'COMPLETED').length;
+                              const pct = stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
+                              return `${pct}% (${completed}/${stages.length} Stages)`;
+                            })()}</span>
+                          </div>
+                          <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{
+                              height: '100%',
+                              width: `${(() => {
+                                const stages = selectedDashboardOrder.stages || [];
+                                const completed = stages.filter(s => s.status === 'COMPLETED').length;
+                                return stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
+                              })()}%`,
+                              background: 'linear-gradient(90deg, #d4af37, #b07c40)',
+                              transition: 'width 0.3s ease'
+                            }}></div>
+                          </div>
+                        </div>
+
+                        <div className="order-progress-steps-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                           {(() => {
-                            const stages = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
-                            const currentIdx = stages.indexOf(selectedDashboardOrder.order_status);
-                            
-                            return stages.map((title, idx) => {
-                                let state = 'upcoming';
-                                let sub = 'Upcoming';
-                                
-                                if (idx < currentIdx) {
-                                  state = 'completed';
-                                  if (title === 'Received') {
-                                    sub = new Date(selectedDashboardOrder.order_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-                                  } else {
-                                    sub = 'Completed';
-                                  }
-                                } else if (idx === currentIdx) {
-                                  state = 'current';
-                                  sub = 'In Progress';
-                                }
-                                
-                                return (
-                                  <div 
-                                    key={idx} 
-                                    className={`progress-step-item ${state === 'completed' ? 'completed' : state === 'current' ? 'active' : ''}`}
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() => {
-                                      setActiveReviewStage(title);
-                                      setActiveReviewOrder(selectedDashboardOrder);
-                                      setStageReviewComments('');
-                                      setStageReviewImage(null);
-                                    }}
-                                  >
-                                    <div className="progress-step-dot"></div>
-                                    <div className="progress-step-info">
-                                      <span className="progress-step-title">{title === 'Received' ? 'Order Received' : title}</span>
-                                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{sub}</span>
+                            const stages = selectedDashboardOrder.stages || [];
+                            return stages.map((stage, idx) => {
+                              const isCompleted = stage.status === 'COMPLETED';
+                              const isInProgress = stage.status === 'IN_PROGRESS';
+                              const isPaused = stage.status === 'PAUSED';
+                              const isSkipped = stage.status === 'SKIPPED';
+                              
+                              let statusColor = '#555'; // NOT_STARTED
+                              let statusText = 'Not Started';
+                              if (isCompleted) { statusColor = '#10b981'; statusText = 'Completed'; }
+                              else if (isInProgress) { statusColor = '#3b82f6'; statusText = 'In Progress'; }
+                              else if (isPaused) { statusColor = '#f59e0b'; statusText = 'Paused'; }
+                              else if (isSkipped) { statusColor = '#9ca3af'; statusText = 'Skipped'; }
+                              
+                              return (
+                                <div 
+                                  key={stage.id || stage.stage_key} 
+                                  className={`progress-step-item ${isCompleted ? 'completed' : isInProgress ? 'active' : ''}`}
+                                  style={{
+                                    cursor: 'pointer',
+                                    padding: '10px 12px',
+                                    borderRadius: '8px',
+                                    border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+                                    background: isInProgress ? 'rgba(59, 130, 246, 0.05)' : 'rgba(255,255,255,0.01)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    margin: 0
+                                  }}
+                                  onClick={() => {
+                                    setActiveReviewStage(stage.stage_name);
+                                    setActiveReviewOrder(selectedDashboardOrder);
+                                    setSelectedStageObj(stage);
+                                    setStageReviewComments(stage.comments || '');
+                                    setStageReviewImage(null);
+                                  }}
+                                >
+                                  <div className="progress-step-dot" style={{ backgroundColor: statusColor, width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 }}></div>
+                                  <div className="progress-step-info" style={{ flex: 1, marginLeft: '12px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span className="progress-step-title" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{stage.stage_name}</span>
+                                      <span style={{
+                                        fontSize: '8px',
+                                        padding: '1px 5px',
+                                        borderRadius: '3px',
+                                        backgroundColor: `${statusColor}1c`,
+                                        color: statusColor,
+                                        fontWeight: 700
+                                      }}>{statusText.toUpperCase()}</span>
                                     </div>
-                                    <span className={`progress-step-state-tag ${state === 'completed' ? 'completed' : state === 'current' ? 'current' : ''}`}>
-                                      {state === 'completed' ? 'Completed' : state === 'current' ? 'In Progress' : ''}
-                                    </span>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
+                                      <span>{stage.performed_by_name ? `By: ${stage.performed_by_name}` : ''}</span>
+                                      <span>
+                                        {stage.completed_at ? new Date(stage.completed_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}) : 
+                                         stage.started_at ? `Started: ${new Date(stage.started_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}` : ''}
+                                      </span>
+                                    </div>
                                   </div>
-                                );
+                                </div>
+                              );
                             });
                           })()}
                         </div>
@@ -3637,19 +3681,27 @@ function App() {
                             overflowX: 'auto',
                             gap: '4px'
                           }}>
-                            {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map((stage, idx, arr) => {
-                              const currentIdx = arr.indexOf(order.order_status);
-                              const isCompleted = idx < currentIdx;
-                              const isCurrent = idx === currentIdx;
+                            {(order.stages || []).map((stage, idx, arr) => {
+                              const isCompleted = stage.status === 'COMPLETED';
+                              const isInProgress = stage.status === 'IN_PROGRESS';
+                              const isPaused = stage.status === 'PAUSED';
+                              const isSkipped = stage.status === 'SKIPPED';
                               
+                              let statusColor = 'var(--border-color)';
+                              if (isCompleted) statusColor = '#10b981';
+                              else if (isInProgress) statusColor = '#3b82f6';
+                              else if (isPaused) statusColor = '#f59e0b';
+                              else if (isSkipped) statusColor = '#9ca3af';
+
                               return (
                                 <div 
-                                  key={stage} 
-                                  style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '90px', cursor: 'pointer' }}
+                                  key={stage.id || stage.stage_key} 
+                                  style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '95px', cursor: 'pointer' }}
                                   onClick={() => {
-                                    setActiveReviewStage(stage);
+                                    setActiveReviewStage(stage.stage_name);
                                     setActiveReviewOrder(order);
-                                    setStageReviewComments('');
+                                    setSelectedStageObj(stage);
+                                    setStageReviewComments(stage.comments || '');
                                     setStageReviewImage(null);
                                   }}
                                 >
@@ -3658,25 +3710,25 @@ function App() {
                                       width: '10px',
                                       height: '10px',
                                       borderRadius: '50%',
-                                      backgroundColor: isCompleted ? '#107c41' : isCurrent ? 'var(--text-primary)' : 'var(--border-color)',
-                                      border: isCurrent ? '2px solid #d4af37' : 'none',
-                                      boxShadow: isCurrent ? '0 0 0 2px rgba(212,175,55,0.4)' : 'none'
+                                      backgroundColor: statusColor,
+                                      border: isInProgress ? '2px solid #fff' : 'none',
+                                      boxShadow: isInProgress ? '0 0 0 2px #3b82f6' : 'none'
                                     }} />
                                     <span style={{
                                       fontSize: '9px',
-                                      fontWeight: isCurrent ? 700 : 500,
-                                      color: isCompleted ? '#107c41' : isCurrent ? 'var(--text-primary)' : 'var(--text-muted)',
+                                      fontWeight: isInProgress ? 700 : 500,
+                                      color: isCompleted ? '#10b981' : isInProgress ? '#3b82f6' : 'var(--text-muted)',
                                       textAlign: 'center',
                                       whiteSpace: 'nowrap'
                                     }}>
-                                      {stage === 'Received' ? 'Received' : stage}
+                                      {stage.stage_name}
                                     </span>
                                   </div>
                                   {idx < arr.length - 1 && (
                                     <div style={{
                                       height: '2px',
                                       flex: 1,
-                                      backgroundColor: isCompleted ? '#107c41' : 'var(--border-color)',
+                                      backgroundColor: isCompleted ? '#10b981' : 'var(--border-color)',
                                       minWidth: '10px',
                                       marginTop: '-14px'
                                     }} />
@@ -8171,17 +8223,21 @@ function App() {
             borderRadius: '12px',
             border: '1px solid var(--border-color)',
             width: '500px',
-            maxWidth: '90%',
+            maxWidth: '95%',
             padding: '24px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
             display: 'flex',
             flexDirection: 'column',
-            gap: '20px'
+            gap: '20px',
+            maxHeight: '90vh',
+            overflowY: 'auto'
           }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0, fontFamily: 'var(--font-serif)' }}>Stage Review: {activeReviewStage}</h3>
+                <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0, fontFamily: 'var(--font-serif)' }}>
+                  {selectedStageObj ? `Production Stage: ${selectedStageObj.stage_name}` : `Stage Review: ${activeReviewStage}`}
+                </h3>
                 <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Order ID: {activeReviewOrder.order_id}</span>
               </div>
               <button 
@@ -8190,115 +8246,246 @@ function App() {
                 onClick={() => {
                   setActiveReviewStage(null);
                   setActiveReviewOrder(null);
+                  setSelectedStageObj(null);
+                  setSelectedPerformerId('');
                 }}
               >
                 Close
               </button>
             </div>
 
-            {/* Existing Review Data */}
-            {(() => {
-              const record = activeReviewOrder.stage_histories?.find(h => h.stage === activeReviewStage);
-              if (record) {
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: 'rgba(0,0,0,0.01)', border: '1px solid var(--border-color)', padding: '16px', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      <span>Reviewed by: <strong>{record.completed_by_name || 'Boutique Staff'}</strong></span>
-                      <span>{new Date(record.completed_at).toLocaleDateString()}</span>
-                    </div>
-                    {record.comments && (
-                      <p style={{ fontSize: '13px', color: 'var(--text-primary)', margin: 0, fontStyle: 'italic' }}>
-                        "{record.comments}"
-                      </p>
-                    )}
-                    {record.image && (
-                      <div style={{ marginTop: '8px' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Uploaded Progress Photo:</span>
-                        <a href={record.image} target="_blank" rel="noreferrer">
-                          <img 
-                            src={record.image} 
-                            alt={`${activeReviewStage} Photo`} 
-                            style={{
-                              width: '100%',
-                              maxHeight: '220px',
-                              objectFit: 'contain',
-                              borderRadius: '6px',
-                              border: '1px solid var(--border-color)'
-                            }}
-                          />
-                        </a>
-                      </div>
-                    )}
+            {/* Stage Info Details */}
+            {selectedStageObj && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Current Status:</span>
+                  <span style={{
+                    fontWeight: 700,
+                    color: selectedStageObj.status === 'COMPLETED' ? '#10b981' : selectedStageObj.status === 'IN_PROGRESS' ? '#3b82f6' : selectedStageObj.status === 'PAUSED' ? '#f59e0b' : '#777'
+                  }}>{selectedStageObj.status.toUpperCase()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>SLA / Target Time:</span>
+                  <span>{selectedStageObj.sla_hours} Hours</span>
+                </div>
+                {selectedStageObj.started_at && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Started At:</span>
+                    <span>{new Date(selectedStageObj.started_at).toLocaleString()}</span>
                   </div>
-                );
-              }
-              return (
-                <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                  No review feedback or progress photos submitted for this stage yet.
-                </div>
-              );
-            })()}
-
-            {/* Submit New Review Form */}
-            {(!currentUser.role || currentUser.role === 'Owner') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                borderTop: '1px solid var(--border-color)',
-                paddingTop: '16px'
-              }}>
-                <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                  Submit Stage Feedback & Photos
-                </h4>
-                
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Review Comments</label>
-                  <textarea 
-                    className="form-control"
-                    style={{ height: '60px', fontSize: '13px' }}
-                    placeholder="Enter design reviews, quality checks, stylist logs, or shipment notes..."
-                    value={stageReviewComments}
-                    onChange={(e) => setStageReviewComments(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Stage Image Uploader</label>
-                  <input 
-                    type="file" 
-                    className="form-control"
-                    style={{ fontSize: '13px' }}
-                    accept="image/*"
-                    onChange={(e) => setStageReviewImage(e.target.files[0])}
-                  />
-                </div>
-
-                <button 
-                  className="btn-primary" 
-                  style={{ width: '100%', marginTop: '8px' }}
-                  onClick={async () => {
-                    try {
-                      await api.submitStageReview(
-                        activeReviewOrder.id,
-                        activeReviewStage,
-                        stageReviewComments,
-                        stageReviewImage,
-                        currentUser.first_name
-                      );
-                      alert("Stage review submitted successfully!");
-                      setActiveReviewStage(null);
-                      setActiveReviewOrder(null);
-                      fetchDashboardAndConfig();
-                    } catch (err) {
-                      alert("Failed to submit review: " + err.message);
-                    }
-                  }}
-                >
-                  Confirm & Submit Stage Review
-                </button>
+                )}
+                {selectedStageObj.completed_at && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Completed At:</span>
+                    <span>{new Date(selectedStageObj.completed_at).toLocaleString()}</span>
+                  </div>
+                )}
+                {selectedStageObj.duration_seconds > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Actual Duration:</span>
+                    <span>{(() => {
+                      const mins = Math.floor(selectedStageObj.duration_seconds / 60);
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs > 0) return `${hrs}h ${mins % 60}m`;
+                      return `${mins}m`;
+                    })()}</span>
+                  </div>
+                )}
+                {selectedStageObj.performed_by_name && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Assigned Performer:</span>
+                    <span><strong>{selectedStageObj.performed_by_name}</strong></span>
+                  </div>
+                )}
               </div>
             )}
+
+            {/* Existing Stage Feedbacks / Notes */}
+            {selectedStageObj && selectedStageObj.comments && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.01)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Active Notes / Logs:</span>
+                <p style={{ fontSize: '12px', fontStyle: 'italic', margin: 0 }}>"{selectedStageObj.comments}"</p>
+              </div>
+            )}
+
+            {/* Photo Gallery for Stage Attachments */}
+            {selectedStageObj && selectedStageObj.attachments && selectedStageObj.attachments.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Progress Photos ({selectedStageObj.attachments.length}):</span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '8px' }}>
+                  {selectedStageObj.attachments.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noreferrer">
+                      <img src={url} alt={`attachment-${i}`} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-color)' }} />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Submit New Transition / Action controls */}
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                Manage Stage Transition
+              </h4>
+
+              {/* Performer Assignment Dropdown */}
+              {(!currentUser.role || currentUser.role === 'Owner' || currentUser.role === 'Master') && (
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assign Performer (Staff/Tailor)</label>
+                  <select 
+                    className="form-control"
+                    style={{ fontSize: '12px', padding: '6px' }}
+                    value={selectedPerformerId}
+                    onChange={(e) => setSelectedPerformerId(e.target.value)}
+                  >
+                    <option value="">-- Select Tailor / Master --</option>
+                    {tailors.map(t => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Comments / Fitting Logs</label>
+                <textarea 
+                  className="form-control"
+                  style={{ height: '60px', fontSize: '12px' }}
+                  placeholder="Enter notes, alterations details, or comments..."
+                  value={stageReviewComments}
+                  onChange={(e) => setStageReviewComments(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Upload Progress Photo</label>
+                <input 
+                  type="file" 
+                  className="form-control"
+                  style={{ fontSize: '12px' }}
+                  accept="image/*"
+                  onChange={(e) => setStageReviewImage(e.target.files[0])}
+                />
+              </div>
+
+              {/* Action Buttons Panel */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                {selectedStageObj && (selectedStageObj.status === 'NOT_STARTED' || selectedStageObj.status === 'PAUSED') && (
+                  <button 
+                    className="btn-primary" 
+                    style={{ background: '#3b82f6', color: '#fff', fontSize: '12px', padding: '8px' }}
+                    onClick={async () => {
+                      try {
+                        await api.transitionStage(
+                          activeReviewOrder.id,
+                          selectedStageObj.stage_key,
+                          'IN_PROGRESS',
+                          stageReviewComments,
+                          stageReviewImage ? [stageReviewImage] : [],
+                          selectedPerformerId || null
+                        );
+                        alert("Stage started successfully!");
+                        setActiveReviewStage(null);
+                        setActiveReviewOrder(null);
+                        setSelectedStageObj(null);
+                        setSelectedPerformerId('');
+                        fetchDashboardAndConfig();
+                      } catch (err) {
+                        alert("Failed to transition: " + err.message);
+                      }
+                    }}
+                  >
+                    Start In-Progress
+                  </button>
+                )}
+
+                {selectedStageObj && selectedStageObj.status === 'IN_PROGRESS' && (
+                  <>
+                    <button 
+                      className="btn-secondary" 
+                      style={{ background: '#f59e0b', color: '#fff', border: 'none', fontSize: '12px', padding: '8px' }}
+                      onClick={async () => {
+                        try {
+                          await api.transitionStage(
+                            activeReviewOrder.id,
+                            selectedStageObj.stage_key,
+                            'PAUSED',
+                            stageReviewComments,
+                            stageReviewImage ? [stageReviewImage] : [],
+                            selectedPerformerId || null
+                          );
+                          alert("Stage paused successfully!");
+                          setActiveReviewStage(null);
+                          setActiveReviewOrder(null);
+                          setSelectedStageObj(null);
+                          setSelectedPerformerId('');
+                          fetchDashboardAndConfig();
+                        } catch (err) {
+                          alert("Failed to transition: " + err.message);
+                        }
+                      }}
+                    >
+                      Pause Stage
+                    </button>
+                    <button 
+                      className="btn-primary" 
+                      style={{ background: '#10b981', color: '#fff', fontSize: '12px', padding: '8px' }}
+                      onClick={async () => {
+                        try {
+                          await api.transitionStage(
+                            activeReviewOrder.id,
+                            selectedStageObj.stage_key,
+                            'COMPLETED',
+                            stageReviewComments,
+                            stageReviewImage ? [stageReviewImage] : [],
+                            selectedPerformerId || null
+                          );
+                          alert("Stage completed successfully!");
+                          setActiveReviewStage(null);
+                          setActiveReviewOrder(null);
+                          setSelectedStageObj(null);
+                          setSelectedPerformerId('');
+                          fetchDashboardAndConfig();
+                        } catch (err) {
+                          alert("Failed to transition: " + err.message);
+                        }
+                      }}
+                    >
+                      Complete Stage
+                    </button>
+                  </>
+                )}
+
+                {selectedStageObj && selectedStageObj.status !== 'COMPLETED' && selectedStageObj.status !== 'SKIPPED' && (
+                  <button 
+                    className="btn-secondary" 
+                    style={{ fontSize: '12px', padding: '8px' }}
+                    onClick={async () => {
+                      try {
+                        await api.transitionStage(
+                          activeReviewOrder.id,
+                          selectedStageObj.stage_key,
+                          'SKIPPED',
+                          stageReviewComments,
+                          stageReviewImage ? [stageReviewImage] : [],
+                          selectedPerformerId || null
+                        );
+                        alert("Stage skipped successfully!");
+                        setActiveReviewStage(null);
+                        setActiveReviewOrder(null);
+                        setSelectedStageObj(null);
+                        setSelectedPerformerId('');
+                        fetchDashboardAndConfig();
+                      } catch (err) {
+                        alert("Failed to transition: " + err.message);
+                      }
+                    }}
+                  >
+                    Skip Stage
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -1,5 +1,9 @@
 from rest_framework import serializers
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory, BoutiqueSettings, MeasurementHistory
+from .models import (
+    Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order,
+    BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory,
+    BoutiqueSettings, MeasurementHistory, OrderStage, OrderActivity
+)
 
 class BoutiqueSettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -47,6 +51,20 @@ class OrderStageHistorySerializer(serializers.ModelSerializer):
         model = OrderStageHistory
         fields = '__all__'
 
+class OrderStageSerializer(serializers.ModelSerializer):
+    performed_by_name = serializers.CharField(source='performed_by.name', read_only=True)
+    
+    class Meta:
+        model = OrderStage
+        fields = '__all__'
+
+class OrderActivitySerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.first_name', read_only=True)
+
+    class Meta:
+        model = OrderActivity
+        fields = '__all__'
+
 class OrderSerializer(serializers.ModelSerializer):
     tailor_name = serializers.CharField(source='tailor.name', read_only=True)
     master_name = serializers.CharField(source='master.name', read_only=True)
@@ -54,6 +72,8 @@ class OrderSerializer(serializers.ModelSerializer):
     customer_garment_type = serializers.CharField(source='customer.garment_type', read_only=True)
     customer_measurements = MeasurementSerializer(source='customer.measurements', read_only=True)
     stage_histories = OrderStageHistorySerializer(many=True, read_only=True)
+    stages = OrderStageSerializer(many=True, read_only=True)
+    activities = OrderActivitySerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
@@ -65,7 +85,8 @@ class OrderSerializer(serializers.ModelSerializer):
             'packaging_handling', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
             'delivery_method', 'courier_service', 'tracking_number', 'delivery_address',
             'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image',
-            'master_verification', 'stage_histories'
+            'master_verification', 'stage_histories', 'current_stage_key', 'production_status',
+            'stages', 'activities'
         ]
 
     def get_customer_name(self, obj):

@@ -183,9 +183,46 @@ class Order(models.Model):
     tailor_comments = models.TextField(blank=True, null=True)
     completed_garment_image = models.ImageField(upload_to='completed_garments/', blank=True, null=True)
     master_verification = models.JSONField(default=dict, blank=True)
+    
+    # Workflow integration
+    current_stage_key = models.CharField(max_length=100, default="created")
+    production_status = models.CharField(max_length=50, default="NOT_STARTED") # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
 
     def __str__(self):
         return f"Order {self.order_id} - {self.customer.first_name} {self.customer.last_name}"
+
+class OrderStage(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='stages')
+    stage_key = models.CharField(max_length=100)
+    stage_name = models.CharField(max_length=100)
+    status = models.CharField(max_length=50, default="NOT_STARTED") # NOT_STARTED, IN_PROGRESS, COMPLETED, SKIPPED
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.IntegerField(default=0) # Total tracking duration in seconds
+    performed_by = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True)
+    comments = models.TextField(blank=True, null=True)
+    attachments = models.JSONField(default=list, blank=True) # list of image URLs
+    sequence = models.IntegerField(default=0)
+    sla_hours = models.IntegerField(default=24)
+
+    class Meta:
+        ordering = ['sequence']
+
+    def __str__(self):
+        return f"{self.order.order_id} - {self.stage_name} ({self.status})"
+
+class OrderActivity(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='activities')
+    event_type = models.CharField(max_length=100) # e.g. STAGE_TRANSITION, ASSIGNMENT, ALTERATION
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    metadata = models.JSONField(default=dict, blank=True) # e.g., {"old_stage": "...", "new_stage": "...", "comments": "..."}
+
+    class Meta:
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.order.order_id} - {self.event_type} at {self.timestamp}"
 
 class OrderStageHistory(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='stage_histories')
@@ -209,12 +246,29 @@ class Notification(models.Model):
     def __str__(self):
         return f"{self.recipient_role} - {self.title}"
 
+def get_default_workflow():
+    return [
+        {"key": "created", "name": "Created", "sla_hours": 12, "roles": ["Owner", "Master"]},
+        {"key": "measurements_completed", "name": "Measurements Completed", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "fabric_confirmed", "name": "Fabric Confirmed", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "assigned_to_tailor", "name": "Assigned to Tailor", "sla_hours": 12, "roles": ["Owner", "Master"]},
+        {"key": "stitching_in_progress", "name": "Stitching In Progress", "sla_hours": 72, "roles": ["Owner", "Tailor"]},
+        {"key": "stitching_completed", "name": "Stitching Completed", "sla_hours": 12, "roles": ["Owner", "Tailor"]},
+        {"key": "master_quality_check", "name": "Master Quality Check", "sla_hours": 12, "roles": ["Owner", "Master"]},
+        {"key": "trial_scheduled", "name": "Trial Scheduled", "sla_hours": 48, "roles": ["Owner", "Master"]},
+        {"key": "trial_completed", "name": "Trial Completed", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "ready_for_delivery", "name": "Ready for Delivery", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "delivered", "name": "Delivered", "sla_hours": 12, "roles": ["Owner", "Master"]}
+    ]
+
 class BoutiqueSettings(models.Model):
     name = models.CharField(max_length=255, default="Scaleezy Atelier")
     address = models.TextField(default="123 Atelier Way, Fashion District")
     phone = models.CharField(max_length=50, default="+91 9999999999")
     email = models.EmailField(default="contact@scaleezy.com")
     logo = models.ImageField(upload_to='fabrics/', blank=True, null=True)
+    workflow_config = models.JSONField(default=get_default_workflow, blank=True)
 
     def __str__(self):
         return self.name
