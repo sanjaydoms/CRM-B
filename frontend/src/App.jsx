@@ -281,6 +281,23 @@ function App() {
   const [stageReviewImage, setStageReviewImage] = useState(null);
   const [selectedStageObj, setSelectedStageObj] = useState(null);
   const [selectedPerformerId, setSelectedPerformerId] = useState('');
+  const [globalError, setGlobalError] = useState(null);
+
+  useEffect(() => {
+    const handleErr = (event) => {
+      setGlobalError(event.error ? event.error.stack || event.error.message : event.message);
+    };
+    const handleRejection = (event) => {
+      const reason = event.reason;
+      setGlobalError(reason ? reason.stack || reason.message || String(reason) : 'Unhandled promise rejection');
+    };
+    window.addEventListener('error', handleErr);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleErr);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, []);
 
   const [notifications, setNotifications] = useState([]);
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
@@ -891,6 +908,20 @@ function App() {
     const query = searchModalQuery.toLowerCase();
     return fullName.includes(query) || c.mobile_number.includes(query);
   });
+
+  if (globalError) {
+    return (
+      <div style={{ padding: '24px', background: '#7f1d1d', color: '#fef2f2', height: '100vh', fontFamily: 'monospace', overflowY: 'auto' }}>
+        <h2 style={{ margin: '0 0 16px 0', fontSize: '20px' }}>Atelier CRM Runtime Error</h2>
+        <pre style={{ whiteSpace: 'pre-wrap', fontSize: '14px', background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '8px' }}>
+          {globalError}
+        </pre>
+        <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="btn-secondary" style={{ marginTop: '16px', background: '#fff', color: '#7f1d1d', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}>
+          Clear Session & Reload
+        </button>
+      </div>
+    );
+  }
 
   if (loading && !dashboardData && view === 'landing') {
     return (
