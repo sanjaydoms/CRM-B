@@ -641,15 +641,8 @@ function App() {
     setView('wizard');
   };
 
-  const openExistingCustomerModal = async () => {
+  const openExistingCustomerModal = () => {
     setShowSearchModal(true);
-    try {
-      // Query customers from backend
-      const res = await api.getDashboard();
-      setAllCustomers(res.recent_customers || []);
-    } catch (e) {
-      console.error(e);
-    }
   };
 
   // Wizard Step actions
@@ -2756,23 +2749,8 @@ function App() {
                         Loading active orders...
                       </div>
                     ) : !dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
-                      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                        <span>No active custom orders. Click "New Custom Order" to begin!</span>
-                        <button 
-                          className="btn-secondary" 
-                          style={{ padding: '8px 16px', fontSize: '12px' }}
-                          onClick={async () => {
-                            try {
-                              await api.seedMockData();
-                              alert("Mock data seeded successfully! Page will refresh.");
-                              window.location.reload();
-                            } catch (err) {
-                              alert("Failed to seed data: " + err.message);
-                            }
-                          }}
-                        >
-                          Seed Mock Data
-                        </button>
+                      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No active custom orders. Click "New Custom Order" to begin!
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -3668,30 +3646,9 @@ function App() {
                             borderRadius: '12px',
                             padding: '40px',
                             textAlign: 'center',
-                            color: 'var(--text-muted)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '12px'
+                            color: 'var(--text-muted)'
                           }}>
-                            <span>No orders found matching the criteria.</span>
-                            {ordersList.length === 0 && (
-                              <button 
-                                className="btn-secondary" 
-                                style={{ padding: '8px 16px', fontSize: '12px' }}
-                                onClick={async () => {
-                                  try {
-                                    await api.seedMockData();
-                                    alert("Mock data seeded successfully! Page will refresh.");
-                                    window.location.reload();
-                                  } catch (err) {
-                                    alert("Failed to seed data: " + err.message);
-                                  }
-                                }}
-                              >
-                                Seed Mock Data
-                              </button>
-                            )}
+                            No orders found matching the criteria.
                           </div>
                         );
                       }
@@ -4036,35 +3993,20 @@ function App() {
                 <div className="customers-list-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {customersList.filter(cust => {
                     const term = searchQuery.toLowerCase();
-                    const matchesSearch = (cust.first_name + ' ' + cust.last_name).toLowerCase().includes(term) ||
-                                          cust.mobile_number.includes(term) ||
+                    const matchesSearch = ((cust.first_name || '') + ' ' + (cust.last_name || '')).toLowerCase().includes(term) ||
+                                          (cust.mobile_number || '').includes(term) ||
                                           (cust.email_address && cust.email_address.toLowerCase().includes(term));
                     const matchesType = customerTypeFilter === 'All' || cust.customer_type === customerTypeFilter;
                     return matchesSearch && matchesType;
                   }).length === 0 ? (
-                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                       <span style={{ color: 'var(--text-muted)' }}>No customers found matching current filters</span>
-                      <button 
-                        className="btn-secondary" 
-                        style={{ padding: '8px 16px', fontSize: '12px' }}
-                        onClick={async () => {
-                          try {
-                            await api.seedMockData();
-                            alert("Mock data seeded successfully! Page will refresh.");
-                            window.location.reload();
-                          } catch (err) {
-                            alert("Failed to seed data: " + err.message);
-                          }
-                        }}
-                      >
-                        Seed Mock Data
-                      </button>
                     </div>
                   ) : (
                     customersList.filter(cust => {
                       const term = searchQuery.toLowerCase();
-                      const matchesSearch = (cust.first_name + ' ' + cust.last_name).toLowerCase().includes(term) ||
-                                            cust.mobile_number.includes(term) ||
+                      const matchesSearch = ((cust.first_name || '') + ' ' + (cust.last_name || '')).toLowerCase().includes(term) ||
+                                            (cust.mobile_number || '').includes(term) ||
                                             (cust.email_address && cust.email_address.toLowerCase().includes(term));
                       const matchesType = customerTypeFilter === 'All' || cust.customer_type === customerTypeFilter;
                       return matchesSearch && matchesType;

@@ -164,7 +164,10 @@ class LogoutView(views.APIView):
     def post(self, request):
         try:
             # Token will be deleted within the active tenant schema
-            request.user.auth_token.delete()
+            try:
+                request.user.auth_token.delete()
+            except Exception:
+                pass
             return Response({"success": "Successfully logged out"}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

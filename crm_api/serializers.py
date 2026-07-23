@@ -90,7 +90,9 @@ class OrderSerializer(serializers.ModelSerializer):
         ]
 
     def get_customer_name(self, obj):
-        return f"{obj.customer.first_name} {obj.customer.last_name}"
+        if obj.customer:
+            return f"{obj.customer.first_name} {obj.customer.last_name}"
+        return 'Unknown Customer'
 
 class CustomerSerializer(serializers.ModelSerializer):
     measurements = MeasurementSerializer(required=False)
@@ -120,7 +122,7 @@ class CustomerSerializer(serializers.ModelSerializer):
         return sum(float(o.total_amount) for o in obj.orders.all())
 
     def get_order_count(self, obj):
-        return obj.orders.count()
+        return len(obj.orders.all())
 
     def get_segment(self, obj):
         total_spend = self.get_total_spend(obj)
@@ -138,8 +140,8 @@ class CustomerSerializer(serializers.ModelSerializer):
         # 1. Calculate Budget Category
         orders = obj.orders.all()
         avg_price = 0
-        if orders.exists():
-            avg_price = sum(o.total_amount for o in orders) / orders.count()
+        if len(orders) > 0:
+            avg_price = sum(o.total_amount for o in orders) / len(orders)
         else:
             # Estimate from garment type
             prices = {
@@ -202,7 +204,7 @@ class CustomerSerializer(serializers.ModelSerializer):
 
         # 5. Visit Pattern & Risk Status & Next Action
         last_visit_date = obj.created_at.date()
-        if orders.exists():
+        if len(orders) > 0:
             last_visit_date = max(o.order_date for o in orders).date()
         
         from django.utils import timezone

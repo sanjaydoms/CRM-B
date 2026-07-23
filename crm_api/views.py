@@ -92,7 +92,10 @@ class CustomerViewSet(viewsets.ModelViewSet):
         customer = self.get_object()
         is_boutique_fabric = request.data.get('is_boutique_fabric', 'true').lower() == 'true'
         fabric_name = request.data.get('fabric_name', '')
-        fabric_price = float(request.data.get('fabric_price', 0.0))
+        try:
+            fabric_price = float(request.data.get('fabric_price', 0.0))
+        except (ValueError, TypeError):
+            fabric_price = 0.0
 
         # Handle fabric image uploads
         image_urls = []
@@ -133,12 +136,17 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 pass
 
         # Pricing components
-        base_price = float(request.data.get('base_price', 0.0))
-        fabric_price = float(request.data.get('fabric_price', 0.0))
-        embroidery_price = float(request.data.get('embroidery_price', 0.0))
-        customization_price = float(request.data.get('customization_price', 0.0))
-        tailoring_charges = float(request.data.get('tailoring_charges', 0.0))
-        packaging_handling = float(request.data.get('packaging_handling', 0.0))
+        def safe_float(val, default=0.0):
+            try:
+                return float(val) if val not in (None, '') else default
+            except (ValueError, TypeError):
+                return default
+        base_price = safe_float(request.data.get('base_price', 0.0))
+        fabric_price = safe_float(request.data.get('fabric_price', 0.0))
+        embroidery_price = safe_float(request.data.get('embroidery_price', 0.0))
+        customization_price = safe_float(request.data.get('customization_price', 0.0))
+        tailoring_charges = safe_float(request.data.get('tailoring_charges', 0.0))
+        packaging_handling = safe_float(request.data.get('packaging_handling', 0.0))
         
         # Calculate subtotal, taxes (5%), and total
         subtotal = base_price + fabric_price + embroidery_price + customization_price + tailoring_charges + packaging_handling
@@ -191,7 +199,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
             advance_paid=advance_paid,
             amount_paid=amount_paid,
             current_stage_key='measurements_completed' if has_measurements else 'created',
-            production_status='COMPLETED' if has_measurements else 'IN_PROGRESS'
+            production_status='IN_PROGRESS'
         )
 
         # Initialize workflow stages
@@ -428,6 +436,18 @@ class OrderViewSet(viewsets.ModelViewSet):
         new_status = request.data.get('status')
         if new_status:
             order.order_status = new_status
+            # Sync current_stage_key based on status
+            reverse_status_map = {
+                'Received': 'created',
+                'Confirmed': 'fabric_confirmed',
+                'Design & Creation': 'assigned_to_tailor',
+                'Quality Check': 'stitching_completed',
+                'Ready for Dispatch': 'ready_for_delivery',
+                'Shipped': 'ready_for_delivery',
+                'Delivered': 'delivered'
+            }
+            if new_status in reverse_status_map:
+                order.current_stage_key = reverse_status_map[new_status]
             order.save()
             if old_status != new_status:
                 create_order_notifications(order, created=False)
@@ -446,6 +466,14 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.completed_garment_image = image
             
         order.order_status = 'Quality Check'
+        order.current_stage_key = 'stitching_completed'
+        # Also update stage status
+        stitching_stage = order.stages.filter(stage_key='stitching_completed').first()
+        if stitching_stage:
+            from django.utils import timezone as tz
+            stitching_stage.status = 'COMPLETED'
+            stitching_stage.completed_at = tz.now()
+            stitching_stage.save()
         order.save()
         
         create_order_notifications(order, created=False)
@@ -585,7 +613,14 @@ class OrderViewSet(viewsets.ModelViewSet):
         
         # Update order current stage and status
         order.current_stage_key = stage_key
-        order.production_status = new_status
+        # Compute overall production status from all stages
+        all_stages = list(order.stages.all())
+        if all(s.status == 'COMPLETED' for s in all_stages):
+            order.production_status = 'COMPLETED'
+        elif any(s.status == 'IN_PROGRESS' for s in all_stages):
+            order.production_status = 'IN_PROGRESS'
+        else:
+            order.production_status = 'IN_PROGRESS'  # Default to in progress when any stage is being worked on
         
         # Map back to order.order_status for legacy compatibility
         status_map = {
@@ -629,6 +664,10 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.tailor.status = 'Available'
             order.tailor.save()
             
+        if stage_key == 'delivered' and new_status == 'COMPLETED' and order.master:
+            order.master.status = 'Available'
+            order.master.save()
+            
         # Trigger notifications
         create_order_notifications(order, created=False)
         
@@ -669,7 +708,9 @@ class DashboardView(views.APIView):
     def get(self, request):
         total_customers = Customer.objects.count()
         total_orders = Order.objects.count()
-        revenue = Order.objects.filter(payment_status='Paid').aggregate(Sum('total_amount'))['total_amount__sum'] or 0.0
+        paid_revenue = Order.objects.filter(payment_status='Paid').aggregate(Sum('total_amount'))['total_amount__sum'] or 0.0
+        partial_revenue = Order.objects.filter(payment_status='Partially Paid').aggregate(Sum('advance_paid'))['advance_paid__sum'] or 0.0
+        revenue = float(paid_revenue) + float(partial_revenue)
         
         status_counts = Order.objects.values('order_status').annotate(count=Count('id'))
         
@@ -679,13 +720,13 @@ class DashboardView(views.APIView):
         ).prefetch_related(
             'stages', 'stages__performed_by', 'activities', 'activities__user'
         ).all().order_by('-order_date')[:5]
-        recent_orders_data = OrderSerializer(recent_orders, many=True).data
+        recent_orders_data = OrderSerializer(recent_orders, many=True, context={'request': request}).data
 
         # Recent customers
         recent_customers = Customer.objects.prefetch_related(
             'orders', 'orders__stages', 'orders__activities', 'orders__tailor', 'orders__master'
         ).all().order_by('-created_at')[:5]
-        recent_customers_data = CustomerSerializer(recent_customers, many=True).data
+        recent_customers_data = CustomerSerializer(recent_customers, many=True, context={'request': request}).data
 
         return Response({
             'stats': {
