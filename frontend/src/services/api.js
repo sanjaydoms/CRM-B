@@ -90,6 +90,18 @@ export const api = {
     return data;
   },
 
+  async seedMockData() {
+    const res = await fetch(`${BASE_URL}/auth/seed-data/`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to seed mock data');
+    }
+    return res.json();
+  },
+
   // Get dashboard data
   async getDashboard() {
     const res = await fetch(`${BASE_URL}/dashboard/`, {

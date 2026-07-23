@@ -194,3 +194,14 @@ class MeView(views.APIView):
             "tailor_id": tailor_id,
             "tenant_id": connection.schema_name
         }, status=status.HTTP_200_OK)
+
+class SeedDataView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from crm_api.utils import seed_tenant_defaults
+        try:
+            seed_tenant_defaults()
+            return Response({"success": "Tenant data seeded successfully"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
