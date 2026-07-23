@@ -356,169 +356,31 @@ class OrderViewSet(viewsets.ModelViewSet):
     def transition_stage(self, request, pk=None):
         order = self.get_object()
         stage_key = request.data.get('stage_key')
-        new_status = request.data.get('status') # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
+        new_status = request.data.get('status')
         comments = request.data.get('comments', '')
         performer_id = request.data.get('performed_by_id')
-        
+
         if not stage_key or not new_status:
             return Response({'error': 'stage_key and status are required'}, status=status.HTTP_400_BAD_REQUEST)
-            
-        # Get matching OrderStage
-        try:
-            order_stage = order.stages.get(stage_key=stage_key)
-        except OrderStage.DoesNotExist:
-            return Response({'error': f'Stage {stage_key} does not exist for this order'}, status=status.HTTP_400_BAD_REQUEST)
-            
-        # Fetch configurations (e.g. roles)
-        config, _ = BoutiqueSettings.objects.get_or_create(id=1)
-        workflow_stages = config.workflow_config
-        stage_conf = next((s for s in workflow_stages if s['key'] == stage_key), {})
-        
-        # 1. Permission checks
-        user = request.user
-        user_role = 'Owner' # Default fallback
-        if user.is_authenticated and not user.is_superuser:
-            # Check Tailor profile role
-            tailor_profile = getattr(user, 'tailor_profile', None)
-            if tailor_profile:
-                user_role = tailor_profile.role # 'Master' or 'Tailor'
-            else:
-                user_role = 'Staff'
-        elif not user.is_authenticated:
-            user_role = 'Staff'
-                
-        allowed_roles = stage_conf.get('roles', [])
-        if allowed_roles and user_role not in allowed_roles and not user.is_superuser and user_role != 'Owner':
-            return Response({'error': f'Role {user_role} is not authorized to update {order_stage.stage_name}'}, status=status.HTTP_403_FORBIDDEN)
-            
-        # 2. Validation & Blocking Rules
-        # Rule A: Cannot Deliver (delivered) before quality check (master_quality_check is completed)
-        if stage_key == 'delivered' and new_status == 'COMPLETED':
-            qc_stage = order.stages.filter(stage_key='master_quality_check').first()
-            if qc_stage and qc_stage.status != 'COMPLETED':
-                return Response({'error': 'Cannot deliver order before Master Quality Check is completed.'}, status=status.HTTP_400_BAD_REQUEST)
-                
-        # Rule B: Cannot start stitching (stitching_in_progress) before Tailor is assigned
-        if stage_key == 'stitching_in_progress' and new_status == 'IN_PROGRESS':
-            if not order.tailor:
-                return Response({'error': 'Cannot start stitching. No tailor is assigned to this order.'}, status=status.HTTP_400_BAD_REQUEST)
-                
-        # Rule C: Cannot assign tailor (assigned_to_tailor) without measurements
-        if stage_key == 'assigned_to_tailor' and new_status == 'COMPLETED':
-            meas_stage = order.stages.filter(stage_key='measurements_completed').first()
-            if meas_stage and meas_stage.status != 'COMPLETED':
-                # Double check customer model directly
-                has_measurements = hasattr(order.customer, 'measurements') and (
-                    order.customer.measurements.bust or order.customer.measurements.waist or order.customer.measurements.hips
-                )
-                if not has_measurements:
-                    return Response({'error': 'Cannot assign tailor. Measurements are not completed for this customer.'}, status=status.HTTP_400_BAD_REQUEST)
-                    
-        # Rule D: Cannot schedule trial (trial_scheduled) before stitching is completed
-        if stage_key == 'trial_scheduled' and new_status == 'COMPLETED':
-            stitch_stage = order.stages.filter(stage_key='stitching_completed').first()
-            if stitch_stage and stitch_stage.status != 'COMPLETED':
-                return Response({'error': 'Cannot schedule trial before stitching is completed.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Apply state transitions
-        from django.utils import timezone
-        old_status = order_stage.status
-        order_stage.status = new_status
-        order_stage.comments = comments
-        
-        if performer_id:
-            try:
-                order_stage.performed_by = Tailor.objects.get(id=performer_id)
-            except Tailor.DoesNotExist:
-                pass
-        elif user.is_authenticated and user_role in ['Master', 'Tailor']:
-            # Auto-assign if the logged-in user has a tailor profile
-            order_stage.performed_by = getattr(user, 'tailor_profile', None)
-            
-        # Time and duration tracking
-        if new_status == 'IN_PROGRESS' and old_status != 'IN_PROGRESS':
-            order_stage.started_at = timezone.now()
-        elif new_status == 'COMPLETED' and old_status != 'COMPLETED':
-            if not order_stage.started_at:
-                order_stage.started_at = timezone.now()
-            order_stage.completed_at = timezone.now()
-            # Calculate duration in seconds
-            delta = order_stage.completed_at - order_stage.started_at
-            order_stage.duration_seconds = int(delta.total_seconds())
-            
-        # Handle images upload for the stage
-        files = request.FILES.getlist('images')
-        image_urls = list(order_stage.attachments)
-        for f in files:
-            path = f"stage_attachments/order_{order.id}/{uuid.uuid4()}_{f.name}"
-            saved_path = default_storage.save(path, ContentFile(f.read()))
-            image_urls.append(request.build_absolute_uri(default_storage.url(saved_path)))
-        order_stage.attachments = image_urls
-        
-        order_stage.save()
-        
-        # Update order current stage and status
-        order.current_stage_key = stage_key
-        # Compute overall production status from all stages
-        all_stages = list(order.stages.all())
-        if all(s.status == 'COMPLETED' for s in all_stages):
-            order.production_status = 'COMPLETED'
-        elif any(s.status == 'IN_PROGRESS' for s in all_stages):
-            order.production_status = 'IN_PROGRESS'
-        else:
-            order.production_status = 'IN_PROGRESS'  # Default to in progress when any stage is being worked on
-        
-        # Map back to order.order_status for legacy compatibility
-        status_map = {
-            'created': 'Received',
-            'measurements_completed': 'Confirmed',
-            'fabric_confirmed': 'Confirmed',
-            'pattern_cutting': 'Design & Creation',
-            'assigned_to_tailor': 'Design & Creation',
-            'stitching_in_progress': 'Design & Creation',
-            'stitching_completed': 'Quality Check',
-            'master_quality_check': 'Ready for Dispatch' if new_status == 'COMPLETED' else 'Quality Check',
-            'trial_scheduled': 'Ready for Dispatch',
-            'trial_completed': 'Ready for Dispatch',
-            'ready_for_delivery': 'Ready for Dispatch',
-            'delivered': 'Delivered'
-        }
-        if stage_key in status_map:
-            order.order_status = status_map[stage_key]
-        order.save()
-        
-        # Log to OrderActivity
-        creator = user if user.is_authenticated else None
-        OrderActivity.objects.create(
-            order=order,
-            event_type='STAGE_TRANSITION',
-            user=creator,
-            metadata={
-                "stage_key": stage_key,
-                "stage_name": order_stage.stage_name,
-                "old_status": old_status,
-                "new_status": new_status,
-                "comments": comments
-            }
-        )
-        
-        # Sync tailor statuses
-        if stage_key == 'stitching_in_progress' and new_status == 'IN_PROGRESS' and order.tailor:
-            order.tailor.status = 'Busy'
-            order.tailor.save()
-        elif stage_key == 'stitching_completed' and new_status == 'COMPLETED' and order.tailor:
-            order.tailor.status = 'Available'
-            order.tailor.save()
-            
-        if stage_key == 'delivered' and new_status == 'COMPLETED' and order.master:
-            order.master.status = 'Available'
-            order.master.save()
-            
-        # Trigger notifications
-        create_order_notifications(order, created=False)
-        
-        serializer = OrderSerializer(order)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        from domains.orders.services import OrderService
+        try:
+            updated_order = OrderService.transition_order_stage(
+                order=order,
+                stage_key=stage_key,
+                new_status=new_status,
+                comments=comments,
+                performer_id=performer_id,
+                user=request.user,
+                files=request.FILES.getlist('images'),
+                request=request
+            )
+            serializer = OrderSerializer(updated_order)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except ValueError as ve:
+            return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class NotificationViewSet(viewsets.ModelViewSet):
     queryset = Notification.objects.all().order_by('-created_at')
