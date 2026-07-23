@@ -2812,4 +2812,115 @@ table.data-table tbody tr:hover {
   }
 }
 
+/* Comprehensive Mobile & Tablet Responsiveness Overrides */
+@media (max-width: 768px) {
+  /* Public Landing Page Navbar & Navigation */
+  .landing-navbar {
+    padding: 16px 20px !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+    align-items: center !important;
+    text-align: center !important;
+  }
+  .landing-nav-links {
+    gap: 16px 20px !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    margin: 8px 0 !important;
+  }
+  .landing-nav-actions {
+    width: 100% !important;
+    justify-content: center !important;
+    gap: 12px !important;
+    flex-wrap: wrap !important;
+  }
+
+  /* Hero Banner Responsiveness */
+  .landing-hero {
+    padding: 60px 20px !important;
+    text-align: center !important;
+    align-items: center !important;
+  }
+  .landing-hero h1 {
+    font-size: 36px !important;
+    max-width: 100% !important;
+  }
+  .landing-hero p.hero-subtitle {
+    font-size: 15px !important;
+    max-width: 100% !important;
+  }
+  .hero-cta-group {
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 12px !important;
+    align-items: center !important;
+  }
+  .hero-cta-group button,
+  .hero-cta-group a {
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  /* Grid Layouts & Sections */
+  .features-grid,
+  .features-split-section,
+  .dashboard-stats-grid,
+  .lookbook-grid,
+  .lookbooks-masonry,
+  .express-timeline-grid,
+  .boutiques-directory-grid,
+  .ops-analytics-grid,
+  .pillars-grid,
+  .pricing-tier-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* Tables & Lists */
+  .comparison-table-container,
+  .permissions-matrix-container,
+  .table-responsive {
+    overflow-x: auto !important;
+    display: block !important;
+    width: 100% !important;
+  }
+  
+  /* Portal Responsive Header */
+  .portal-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+  .portal-header-right {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Smaller screens */
+  .landing-hero h1 {
+    font-size: 28px !important;
+  }
+  .landing-nav-links {
+    font-size: 12px !important;
+    gap: 10px 12px !important;
+  }
+  .portal-menu {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+  }
+  .portal-menu-item {
+    justify-content: center !important;
+  }
+  .modal-content {
+    width: 95% !important;
+    padding: 16px !important;
+  }
+}
+
+
 
