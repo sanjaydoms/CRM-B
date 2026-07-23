@@ -6,12 +6,12 @@ class Customer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    mobile_number = models.CharField(max_length=20, unique=True)
-    email_address = models.EmailField(max_length=254, blank=True, null=True)
+    mobile_number = models.CharField(max_length=20, unique=True, db_index=True)
+    email_address = models.EmailField(max_length=254, blank=True, null=True, db_index=True)
     address = models.TextField(blank=True, null=True)
     city_region = models.CharField(max_length=100, blank=True, null=True)
     source = models.CharField(max_length=50, default="Walk In") # Walk In, Instagram, Referral, etc.
-    customer_type = models.CharField(max_length=50, default="Women") # Women, Men, Kids
+    customer_type = models.CharField(max_length=50, default="Women", db_index=True) # Women, Men, Kids
     garment_type = models.CharField(max_length=100, default="Lehenga")
     neckline_style = models.CharField(max_length=100, blank=True, null=True)
     sleeve_style = models.CharField(max_length=100, blank=True, null=True)
@@ -32,7 +32,7 @@ class Customer(models.Model):
     # Files
     profile_photo = models.ImageField(upload_to='customer_profiles/', blank=True, null=True)
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -155,12 +155,12 @@ class Tailor(models.Model):
         return f"{self.name} - {self.role} ({self.status})"
 
 class Order(models.Model):
-    order_id = models.CharField(max_length=50, unique=True) # e.g. T2B-240529-7856
+    order_id = models.CharField(max_length=50, unique=True, db_index=True) # e.g. T2B-240529-7856
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='orders')
     tailor = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
     master = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='supervised_orders')
-    payment_status = models.CharField(max_length=50, default="Pending") # Pending, Paid
-    order_status = models.CharField(max_length=50, default="Received") # Received, Confirmed, Stylist Review, Design & Creation, Quality Check, Ready for Dispatch, Shipped, Delivered
+    payment_status = models.CharField(max_length=50, default="Pending", db_index=True) # Pending, Paid
+    order_status = models.CharField(max_length=50, default="Received", db_index=True) # Received, Confirmed, Stylist Review, Design & Creation, Quality Check, Ready for Dispatch, Shipped, Delivered
     delivery_method = models.CharField(max_length=50, default="Direct Pickup") # Direct Pickup, Courier
     courier_service = models.CharField(max_length=100, blank=True, null=True)
     tracking_number = models.CharField(max_length=100, blank=True, null=True)
@@ -178,15 +178,15 @@ class Order(models.Model):
     advance_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     
-    order_date = models.DateTimeField(auto_now_add=True)
+    order_date = models.DateTimeField(auto_now_add=True, db_index=True)
     estimated_delivery = models.DateField(blank=True, null=True)
     tailor_comments = models.TextField(blank=True, null=True)
     completed_garment_image = models.ImageField(upload_to='completed_garments/', blank=True, null=True)
     master_verification = models.JSONField(default=dict, blank=True)
     
     # Workflow integration
-    current_stage_key = models.CharField(max_length=100, default="created")
-    production_status = models.CharField(max_length=50, default="NOT_STARTED") # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
+    current_stage_key = models.CharField(max_length=100, default="created", db_index=True)
+    production_status = models.CharField(max_length=50, default="NOT_STARTED", db_index=True) # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
 
     def __str__(self):
         return f"Order {self.order_id} - {self.customer.first_name} {self.customer.last_name}"
