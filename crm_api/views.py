@@ -22,7 +22,10 @@ from .serializers import (
 )
 
 class CustomerViewSet(viewsets.ModelViewSet):
-    queryset = Customer.objects.all().order_by('-created_at')
+    queryset = Customer.objects.prefetch_related(
+        'orders', 'orders__stages', 'orders__activities', 'orders__tailor', 'orders__master',
+        'measurement_history', 'design_preferences', 'fabric_selections'
+    ).all().order_by('-created_at')
     serializer_class = CustomerSerializer
 
     @action(detail=True, methods=['GET'], url_path='measurement-history')
@@ -399,7 +402,11 @@ def create_order_notifications(order, created=False):
                 )
 
 class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.all().order_by('-order_date')
+    queryset = Order.objects.select_related(
+        'customer', 'tailor', 'master', 'customer__measurements'
+    ).prefetch_related(
+        'stages', 'stages__performed_by', 'activities', 'activities__user'
+    ).all().order_by('-order_date')
     serializer_class = OrderSerializer
 
     def perform_update(self, serializer):
@@ -667,11 +674,17 @@ class DashboardView(views.APIView):
         status_counts = Order.objects.values('order_status').annotate(count=Count('id'))
         
         # Recent orders with customer and tailor detail
-        recent_orders = Order.objects.all().order_by('-order_date')[:5]
+        recent_orders = Order.objects.select_related(
+            'customer', 'tailor', 'master', 'customer__measurements'
+        ).prefetch_related(
+            'stages', 'stages__performed_by', 'activities', 'activities__user'
+        ).all().order_by('-order_date')[:5]
         recent_orders_data = OrderSerializer(recent_orders, many=True).data
 
         # Recent customers
-        recent_customers = Customer.objects.all().order_by('-created_at')[:5]
+        recent_customers = Customer.objects.prefetch_related(
+            'orders', 'orders__stages', 'orders__activities', 'orders__tailor', 'orders__master'
+        ).all().order_by('-created_at')[:5]
         recent_customers_data = CustomerSerializer(recent_customers, many=True).data
 
         return Response({

@@ -311,7 +311,7 @@ function App() {
           setDashboardTab('overview');
         }
         setView('dashboard');
-        fetchDashboardAndConfig();
+        await fetchDashboardAndConfig();
       }
     } catch (e) {
       console.log("No saved session");
@@ -891,6 +891,23 @@ function App() {
     const query = searchModalQuery.toLowerCase();
     return fullName.includes(query) || c.mobile_number.includes(query);
   });
+
+  if (loading && !dashboardData && view === 'landing') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#0f291e', color: '#fff', fontSize: '18px', fontFamily: 'var(--font-sans, sans-serif)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ border: '4px solid rgba(255,255,255,0.1)', borderTop: '4px solid #d4af37', borderRadius: '50%', width: '40px', height: '40px', animation: 'spin 1s linear infinite', margin: '0 auto 16px auto' }}></div>
+          <span>Loading Atelier CRM...</span>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
