@@ -83,7 +83,11 @@ export const api = {
       localStorage.removeItem('token');
       return null;
     }
-    return res.json();
+    const data = await res.json();
+    if (data.tenant_id) {
+      localStorage.setItem('tenant_id', data.tenant_id);
+    }
+    return data;
   },
 
   // Get dashboard data

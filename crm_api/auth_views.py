@@ -191,5 +191,6 @@ class MeView(views.APIView):
             "email": user.email,
             "username": user.username,
             "role": role,
-            "tailor_id": tailor_id
+            "tailor_id": tailor_id,
+            "tenant_id": connection.schema_name
         }, status=status.HTTP_200_OK)
