@@ -4001,7 +4001,8 @@ function App() {
                     const matchesSearch = ((cust.first_name || '') + ' ' + (cust.last_name || '')).toLowerCase().includes(term) ||
                                           (cust.mobile_number || '').includes(term) ||
                                           (cust.email_address && cust.email_address.toLowerCase().includes(term));
-                    const matchesType = customerTypeFilter === 'All' || cust.customer_type === customerTypeFilter;
+                    const matchesType = customerTypeFilter === 'All' || 
+                                          (cust.customer_type && cust.customer_type.toLowerCase() === customerTypeFilter.toLowerCase());
                     return matchesSearch && matchesType;
                   }).length === 0 ? (
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -4013,7 +4014,8 @@ function App() {
                       const matchesSearch = ((cust.first_name || '') + ' ' + (cust.last_name || '')).toLowerCase().includes(term) ||
                                             (cust.mobile_number || '').includes(term) ||
                                             (cust.email_address && cust.email_address.toLowerCase().includes(term));
-                      const matchesType = customerTypeFilter === 'All' || cust.customer_type === customerTypeFilter;
+                      const matchesType = customerTypeFilter === 'All' || 
+                                            (cust.customer_type && cust.customer_type.toLowerCase() === customerTypeFilter.toLowerCase());
                       return matchesSearch && matchesType;
                     }).map(cust => (
                       <div key={cust.id} className="customer-detail-card responsive-customer-card" style={{

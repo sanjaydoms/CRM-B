@@ -108,12 +108,40 @@ class OrderService:
 
         OrderStage.objects.bulk_create(stages_to_create)
 
+        # Step 5: Task Engine Integration - Create Production Tasks for Order
+        from apps.production.models import ProductionTask
+        from apps.activities.models import UniversalActivity
+
+        tasks_to_create = [
+            ProductionTask(order=order, title="Verify Measurements & Requirements", stage_key="measurements_completed", assigned_to=master or tailor, sequence=1, priority="HIGH"),
+            ProductionTask(order=order, title="Fabric & Lining Selection Approval", stage_key="fabric_confirmed", assigned_to=master or tailor, sequence=2, priority="MEDIUM"),
+            ProductionTask(order=order, title="Pattern Cutting & Drafting", stage_key="pattern_cutting", assigned_to=master, sequence=3, priority="HIGH"),
+            ProductionTask(order=order, title="Garment Assembly & Stitching", stage_key="stitching_in_progress", assigned_to=tailor, sequence=4, priority="URGENT"),
+            ProductionTask(order=order, title="Embellishment & Finishing", stage_key="stitching_completed", assigned_to=tailor, sequence=5, priority="MEDIUM"),
+            ProductionTask(order=order, title="Master Quality Control Inspection", stage_key="master_quality_check", assigned_to=master, sequence=6, priority="HIGH"),
+            ProductionTask(order=order, title="Customer Fitting Trial", stage_key="trial_scheduled", assigned_to=master, sequence=7, priority="MEDIUM"),
+            ProductionTask(order=order, title="Final Packaging & Dispatch Preparation", stage_key="ready_for_delivery", assigned_to=master or tailor, sequence=8, priority="MEDIUM"),
+        ]
+        ProductionTask.objects.bulk_create(tasks_to_create)
+
         creator_user = user if (user and user.is_authenticated) else None
         OrderActivity.objects.create(
             order=order,
             event_type='ORDER_CREATED',
             user=creator_user,
-            metadata={"message": f"Order {order.order_id} created."}
+            metadata={"message": f"Order {order.order_id} created with initial production tasks."}
+        )
+
+        UniversalActivity.objects.create(
+            user=creator_user,
+            user_name_snapshot=creator_user.get_full_name() or creator_user.username if creator_user else "System",
+            module="orders",
+            entity_type="Order",
+            entity_id=order.order_id,
+            action="ORDER_CREATED",
+            title=f"New Order {order.order_id}",
+            description=f"Order created for client {customer.first_name} {customer.last_name} (Total: ₹{order.total_amount:.2f})",
+            new_value={"order_id": order.order_id, "total_amount": float(order.total_amount)}
         )
 
         create_order_notifications(order, created=True)

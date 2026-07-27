@@ -50,6 +50,9 @@ TENANT_APPS = [
     'django.contrib.contenttypes',
     'rest_framework.authtoken',
     'crm_api',
+    'apps.production',
+    'apps.activities',
+    'apps.scheduling',
 ]
 
 INSTALLED_APPS = list(set(SHARED_APPS + TENANT_APPS))

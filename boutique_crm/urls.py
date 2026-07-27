@@ -22,6 +22,9 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('crm_api.urls')),
+    path('api/production/', include('apps.production.urls')),
+    path('api/activities/', include('apps.activities.urls')),
+    path('api/scheduling/', include('apps.scheduling.urls')),
 ]
 
 if settings.DEBUG:
