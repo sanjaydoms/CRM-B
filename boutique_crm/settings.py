@@ -158,12 +158,18 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False
 
-from corsheaders.defaults import default_headers
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*$",
+    r"^http://.*$",
+]
+
+from corsheaders.defaults import default_headers, default_methods
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-tenant-id',
 ]
+CORS_ALLOW_METHODS = list(default_methods)
 
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://gbdabwahffdgdykbujpx.supabase.co')
