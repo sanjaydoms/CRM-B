@@ -15,9 +15,9 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.conf import settings
-from django.conf.urls.static import static
+from django.views.static import serve
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -28,6 +28,21 @@ urlpatterns = [
     path('api/design-studio/', include('apps.design_studio.urls')),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Media is served in every environment, not just DEBUG. Uploads use
+# FileSystemStorage (the Supabase driver is bypassed -- see STORAGES in
+# settings), and the seeded catalogue images are committed to the repo, so the
+# files are on disk wherever the app runs. The old DEBUG-only route meant that
+# on Render every fabric and design image 404'd, because nothing was left to
+# serve them.
+#
+# django.conf.urls.static.static() cannot do this: it returns an empty list when
+# DEBUG is False by design, which is what hid the problem. serve() resolves
+# paths under document_root and rejects traversal outside it.
+#
+# Uploads still live on Render's ephemeral disk, so anything a user uploads is
+# lost on the next deploy. Fixing that means real object storage, not a URL
+# route.
+urlpatterns += [
+    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+]
 

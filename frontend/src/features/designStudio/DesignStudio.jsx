@@ -1,17 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, FolderOpen, Search, Sparkles, X } from 'lucide-react';
 import { api } from '../../services/api';
-
-// Seeded catalogue rows store a bare filename rather than a URL. The gallery
-// has to render both those and fully-qualified external image URLs.
-const MEDIA_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/api\/?$/, '');
-
-const resolveImage = (url) => {
-  if (!url) return '';
-  if (/^https?:\/\//i.test(url) || url.startsWith('data:')) return url;
-  if (url.startsWith('/')) return `${MEDIA_BASE}${url}`;
-  return `${MEDIA_BASE}/media/${url}`;
-};
+import { resolveMediaUrl as resolveImage } from '../../services/media';
 
 const SOURCE_LABELS = {
   catalogue: 'Boutique Catalogue',

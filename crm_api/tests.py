@@ -4,6 +4,8 @@ from rest_framework.test import APIClient
 from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
 from django_tenants.test.cases import TenantTestCase
+from django.conf import settings
+from django.test import override_settings
 import datetime
 
 from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, OrderStage
@@ -495,3 +497,36 @@ class BoutiqueCRMTests(TenantTestCase):
         response = self.client.delete(detail_url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(BoutiqueDesign.objects.filter(id=design_id).exists())
+
+
+class MediaServingTests(TenantTestCase):
+    """Catalogue imagery has to load in production, not just in DEBUG.
+
+    Uploads use FileSystemStorage and the seeded fabric and design images are
+    committed to the repo, but the media route used to be registered only when
+    DEBUG was True. On Render, where DEBUG is False, that left every fabric and
+    design image returning 404 with nothing to serve them.
+    """
+
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.owner_email = "media@test.com"
+        tenant.name = "Media Atelier"
+        return tenant
+
+    def setUp(self):
+        super().setUp()
+        self.media_file = settings.MEDIA_ROOT / "fabric_02.jpg"
+
+    @override_settings(DEBUG=False)
+    def test_media_is_served_with_debug_off(self):
+        if not self.media_file.exists():
+            self.skipTest("seeded media is not present in this checkout")
+        response = self.client.get("/media/fabric_02.jpg")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Content-Type"], "image/jpeg")
+
+    @override_settings(DEBUG=False)
+    def test_media_route_rejects_traversal_outside_the_media_root(self):
+        response = self.client.get("/media/../boutique_crm/settings.py")
+        self.assertNotEqual(response.status_code, 200)

@@ -8,6 +8,7 @@ import {
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History
 } from 'lucide-react';
 import { api } from './services/api';
+import { resolveMediaUrl } from './services/media';
 import DesignStudio from './features/designStudio/DesignStudio';
 
 const GARMENT_PRICES = {
@@ -3227,7 +3228,7 @@ function App() {
                             border: '1px solid rgba(255,255,255,0.1)'
                           }}>
                             {fabric.image_url ? (
-                              <img src={fabric.image_url} alt={fabric.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <img src={resolveMediaUrl(fabric.image_url)} alt={fabric.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             ) : (
                               <span style={{ fontSize: '10px', textTransform: 'uppercase', color: '#fff', fontWeight: 600, textShadow: '1px 1px 2px rgba(0,0,0,0.5)' }}>
                                 {fabric.color}
@@ -3587,7 +3588,7 @@ function App() {
                             overflow: 'hidden'
                           }}>
                             <img 
-                              src={design.image_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400'} 
+                              src={resolveMediaUrl(design.image_url, 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400')} 
                               alt={design.name} 
                               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             />
@@ -6603,8 +6604,7 @@ function App() {
                         {fabrics
                           .filter(f => fabricFilter === 'All' || f.material === fabricFilter)
                           .map(f => {
-                            const isSeedImage = f.image_url.startsWith('fabric_');
-                            const resolvedImg = isSeedImage ? `http://localhost:8000/media/${f.image_url}` : f.image_url;
+                            const resolvedImg = resolveMediaUrl(f.image_url);
                             return (
                               <div 
                                 key={f.id} 
@@ -6912,7 +6912,7 @@ function App() {
                           {fabricTab === 'boutique' && selectedFabric ? (
                             <>
                               <div style={{ width: '48px', height: '48px', borderRadius: '6px', backgroundColor: '#f1f3f5', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
-                                <img src={selectedFabric.image_url ? (selectedFabric.image_url.startsWith('fabric_') ? `http://localhost:8000/media/${selectedFabric.image_url}` : selectedFabric.image_url) : ''} alt="Fabric" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <img src={resolveMediaUrl(selectedFabric.image_url)} alt="Fabric" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                               </div>
                               <div>
                                 <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>FABRIC</span>
@@ -8476,7 +8476,7 @@ function App() {
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Selected Fabric Swatch</span>
                 <div style={{ width: '100%', height: '180px', overflow: 'hidden', borderRadius: '6px' }}>
                   <img 
-                    src={selectedFabric.image_url ? (selectedFabric.image_url.startsWith('fabric_') ? `http://localhost:8000/media/${selectedFabric.image_url}` : selectedFabric.image_url) : 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400'} 
+                    src={resolveMediaUrl(selectedFabric.image_url, 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400')} 
                     alt="Fabric Swatch" 
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                   />
