@@ -1,13 +1,10 @@
 """Access control.
 
-These assert the behaviour the platform should have. They are expected failures
-today: DEFAULT_PERMISSION_CLASSES is AllowAny, so every business endpoint is
-readable and writable with no credentials. Setting it to IsAuthenticated turns
-them green -- treat a passing run here as the signal that the gap is closed, and
-delete the expectedFailure markers at that point.
+Business endpoints require a token. These guard that: until recently every one
+of them was readable and writable with no credentials at all, so an anonymous
+caller could pull a boutique's whole client list -- names, phone numbers,
+addresses, measurements and revenue -- and write to it.
 """
-
-import unittest
 
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -42,22 +39,18 @@ class UnauthenticatedAccessTests(TenantTestCase):
         self.client = APIClient()
         self.client.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
 
-    @unittest.expectedFailure
     def test_client_directory_requires_authentication(self):
         response = self.client.get(reverse("customer-list"))
         self.assertIn(response.status_code, (401, 403))
 
-    @unittest.expectedFailure
     def test_order_book_requires_authentication(self):
         response = self.client.get(reverse("order-list"))
         self.assertIn(response.status_code, (401, 403))
 
-    @unittest.expectedFailure
     def test_revenue_dashboard_requires_authentication(self):
         response = self.client.get(reverse("dashboard"))
         self.assertIn(response.status_code, (401, 403))
 
-    @unittest.expectedFailure
     def test_creating_a_client_requires_authentication(self):
         response = self.client.post(reverse("customer-list"), {
             "first_name": "Injected", "last_name": "Record",
@@ -65,18 +58,13 @@ class UnauthenticatedAccessTests(TenantTestCase):
         }, format="json")
         self.assertIn(response.status_code, (401, 403))
 
-    @unittest.expectedFailure
     def test_deleting_a_client_requires_authentication(self):
         response = self.client.delete(
             reverse("customer-detail", args=[self.customer.id]))
         self.assertIn(response.status_code, (401, 403))
 
-    @unittest.expectedFailure
-    def test_revenue_is_not_readable_without_authentication(self):
+    def test_anonymous_caller_cannot_read_client_pii(self):
+        """The concrete exposure: this used to return name, mobile and address."""
         response = self.client.get(reverse("customer-list"))
-        if response.status_code == 200:
-            # Today an anonymous caller reads name, mobile, address and spend.
-            self.fail(
-                "anonymous caller read client PII: "
-                + str(response.json()[0]["mobile_number"])
-            )
+        self.assertNotEqual(response.status_code, 200)
+        self.assertNotIn("12 Residential Road", response.content.decode())

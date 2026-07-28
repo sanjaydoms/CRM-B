@@ -234,10 +234,10 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
-    # SECURITY WARNING: every business endpoint is world-readable/writable with this
-    # setting. Switch to IsAuthenticated before this handles real boutique data.
+    # Business endpoints require a token. Sign-up and login opt out explicitly
+    # via permission_classes on their own views.
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ],
 }
 
