@@ -7,6 +7,7 @@ from django.contrib.auth.models import User
 from django.db import connection
 from tenants.models import BoutiqueTenant, Domain
 from django_tenants.utils import schema_context
+from core.roles import resolve_user_role
 
 class SignupView(views.APIView):
     permission_classes = [AllowAny]
@@ -133,12 +134,8 @@ class LoginView(views.APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Check if they have a tailor profile
-            role = 'Owner'
-            tailor_id = None
-            if hasattr(user, 'tailor_profile') and user.tailor_profile:
-                role = user.tailor_profile.role
-                tailor_id = user.tailor_profile.id
+            role = resolve_user_role(user)
+            tailor_id = user.tailor_profile.id if getattr(user, 'tailor_profile', None) else None
 
             token, created = Token.objects.get_or_create(user=user)
             return Response({
@@ -177,12 +174,11 @@ class MeView(views.APIView):
 
     def get(self, request):
         user = request.user
-        role = 'Owner'
+        role = resolve_user_role(user)
         tailor_id = None
         if connection.schema_name != 'public':
             try:
-                if hasattr(user, 'tailor_profile') and user.tailor_profile:
-                    role = user.tailor_profile.role
+                if getattr(user, 'tailor_profile', None):
                     tailor_id = user.tailor_profile.id
             except Exception:
                 pass

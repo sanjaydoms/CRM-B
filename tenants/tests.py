@@ -35,8 +35,27 @@ class TenantIsolationTests(TransactionTestCase):
     stale search_path would silently serve one boutique's clients to another.
     """
 
+    def _get_customers(self, token_schema, tenant_header):
+        """Call the directory as a user signed in to `token_schema`, addressing
+        `tenant_header`.
+
+        The token and the header are separate arguments because they are separate
+        concerns -- and because APIClient.credentials() overrides per-request
+        headers, so the tenant header has to travel with the credentials.
+        """
+        from django.contrib.auth.models import User
+        from rest_framework.authtoken.models import Token
+        with schema_context(token_schema):
+            user, _ = User.objects.get_or_create(username=f'probe@{token_schema}')
+            token, _ = Token.objects.get_or_create(user=user)
+            key = token.key
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION='Token ' + key,
+                           HTTP_X_TENANT_ID=tenant_header)
+        return client.get('/api/customers/')
+
     def _names(self, schema):
-        response = APIClient().get('/api/customers/', HTTP_X_TENANT_ID=schema)
+        response = self._get_customers(schema, schema)
         self.assertEqual(response.status_code, 200)
         return sorted(c['first_name'] for c in response.json())
 
@@ -61,7 +80,7 @@ class TenantIsolationTests(TransactionTestCase):
 
             # Warm the connection on a real tenant, then ask for one that does not exist.
             self.assertEqual(self._names('iso_test_c'), ['Dee'])
-            response = APIClient().get('/api/customers/', HTTP_X_TENANT_ID='does_not_exist')
+            response = self._get_customers('iso_test_c', 'does_not_exist')
             # A clean rejection, not a 500 and certainly not tenant C's clients.
             self.assertEqual(response.status_code, 400)
             self.assertIn('Unknown tenant', response.json()['error'])

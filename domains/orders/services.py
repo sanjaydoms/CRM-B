@@ -1,6 +1,7 @@
 import datetime
 import secrets
 from django.db import transaction
+from core.roles import OWNER, resolve_user_role
 from crm_api.models import Order, OrderStage, OrderActivity, Tailor, BoutiqueSettings
 from domains.orders.notifications import create_order_notifications
 
@@ -192,18 +193,13 @@ class OrderService:
         workflow_stages = config.workflow_config
         stage_conf = next((s for s in workflow_stages if s['key'] == stage_key), {})
 
-        user_role = 'Owner'
-        if user and user.is_authenticated and not user.is_superuser:
-            tailor_profile = getattr(user, 'tailor_profile', None)
-            if tailor_profile:
-                user_role = tailor_profile.role
-            else:
-                user_role = 'Staff'
-        elif not user or not user.is_authenticated:
-            user_role = 'Staff'
+        user_role = resolve_user_role(user)
+        if user_role is None:
+            raise ValueError('Sign in to update this order.')
 
+        # The owner can always act; the role list gates staff.
         allowed_roles = stage_conf.get('roles', [])
-        if allowed_roles and user_role not in allowed_roles and not (user and user.is_superuser) and user_role != 'Owner':
+        if user_role != OWNER and allowed_roles and user_role not in allowed_roles:
             raise ValueError(f'Role {user_role} is not authorized to update {order_stage.stage_name}')
 
         if stage_key == 'delivered' and new_status == 'COMPLETED':

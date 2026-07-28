@@ -1,3 +1,5 @@
+import hashlib
+
 from rest_framework import serializers
 from .models import (
     Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order,
@@ -126,7 +128,9 @@ def build_style_dna(obj, avg_price=None, last_order_date=None):
 
     # 2. Colors distribution
     # Seed colors dynamically based on customer attributes or database name
-    h = hash(str(obj.id))
+    # Built-in hash() is salted per process, so this picked a different palette
+    # for the same client after every server restart. A digest keeps it stable.
+    h = int.from_bytes(hashlib.sha256(str(obj.id).encode()).digest()[:8], 'big')
     colors_options = [
         "Blue 80% Green 15% Red 5%",
         "Dusty Rose 60% Ivory 30% Gold 10%",
@@ -135,7 +139,7 @@ def build_style_dna(obj, avg_price=None, last_order_date=None):
         "Peach 50% Mint Green 40% Gold 10%",
         "Crimson Red 90% Antique Gold 10%"
     ]
-    colors = colors_options[abs(h) % len(colors_options)]
+    colors = colors_options[h % len(colors_options)]
 
     # 3. Style Preference
     styles_options = [
@@ -144,7 +148,7 @@ def build_style_dna(obj, avg_price=None, last_order_date=None):
         "Indo-Western 70% | Traditional 30%",
         "Minimalist 60% | Royal Heritage 40%"
     ]
-    style = styles_options[abs(h >> 2) % len(styles_options)]
+    style = styles_options[(h >> 8) % len(styles_options)]
 
     # 4. Size Category
     size = "M (consistent)"

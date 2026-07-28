@@ -250,8 +250,9 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.save()
         
         create_order_notifications(order, created=False)
-        
-        serializer = OrderSerializer(order)
+
+        # Re-read so the updated stitching stage is reflected -- see transition.
+        serializer = OrderSerializer(OrderRepository.get_by_id(order.pk))
         return Response(serializer.data)
 
     @action(detail=True, methods=['POST'], url_path='submit-stage-review')
@@ -301,7 +302,10 @@ class OrderViewSet(viewsets.ModelViewSet):
                 files=request.FILES.getlist('images'),
                 request=request
             )
-            serializer = OrderSerializer(updated_order)
+            # Re-read: `order` was loaded with its stages prefetched, so the
+            # cache still holds the pre-transition rows and would serialise the
+            # stage as unchanged even though the write succeeded.
+            serializer = OrderSerializer(OrderRepository.get_by_id(updated_order.pk))
             return Response(serializer.data, status=status.HTTP_200_OK)
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
