@@ -46,7 +46,10 @@ SECRET_KEY = os.environ.get(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+# Defaults to False so a deploy that forgets to set it cannot serve tracebacks --
+# with DEBUG on, any unauthenticated request that errors returns source paths and
+# settings. Local development turns it back on via .env.
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',') if h]
 
@@ -112,19 +115,27 @@ TEMPLATES = [
 WSGI_APPLICATION = 'boutique_crm.wsgi.application'
 
 
+# Only DB_PASSWORD is a secret. The project ref, region and username are public
+# identifiers and keep defaults so a deploy that sets just DB_PASSWORD -- which is
+# all the README ever asked for -- still connects.
 DATABASES = {
     'default': {
         'ENGINE': 'django_tenants.postgresql_backend',
         'NAME': os.environ.get('DB_NAME', 'postgres'),
-        'USER': os.environ.get('DB_USER', ''),
+        'USER': os.environ.get('DB_USER', 'postgres.gbdabwahffdgdykbujpx'),
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', ''),
+        'HOST': os.environ.get('DB_HOST', 'aws-1-ap-southeast-1.pooler.supabase.com'),
         'PORT': os.environ.get('DB_PORT', '6543'),
-        # Opening a connection to the pooler costs ~350ms; with the default of 0
-        # every request paid that before its first query. django-tenants resets
-        # search_path on each request, so reused connections stay tenant-isolated
-        # (see tenants tests). Set DB_CONN_MAX_AGE=0 to go back to per-request.
-        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '60')),
+        # Port 6543 is Supabase's *transaction* pooler: pgbouncer already pools, and
+        # it makes clients wait for a free server slot rather than erroring. Holding
+        # Django-side persistent connections on top of that burns client slots and
+        # turns contention into request hangs, so this must stay 0 while HOST points
+        # at the pooler. Only raise it against a direct connection (port 5432).
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '0')),
+        'OPTIONS': {
+            # Never let a request hang on the network; fail fast and visibly.
+            'connect_timeout': int(os.environ.get('DB_CONNECT_TIMEOUT', '10')),
+        },
     }
 }
 
