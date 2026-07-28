@@ -335,6 +335,98 @@ class OrderCreationTests(WorkflowTestBase):
         self.assertEqual(OrderStage.objects.filter(order__customer=customer).count(), 0)
 
 
+class MasterJourneyTests(WorkflowTestBase):
+    """The full path a supervising master walks, as the API sees it."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        self.client.credentials(
+            HTTP_AUTHORIZATION="Token " + Token.objects.create(user=self.master_user).key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+
+    def _transition(self, order, stage_key, new_status="COMPLETED"):
+        return self.client.post(
+            reverse("order-transition-stage", args=[order.id]),
+            {"stage_key": stage_key, "status": new_status}, format="multipart",
+        )
+
+    def test_master_sees_the_orders_they_supervise(self):
+        mine = self.make_order()
+        other_master = Tailor.objects.create(name="Other", specialty="X", role="Master")
+        theirs = self.make_order(
+            customer=self.make_customer(mobile="9811111111"), master=False)
+        theirs.master = other_master
+        theirs.save()
+
+        body = self.client.get(reverse("order-list")).json()
+        supervised = [o for o in body if o["master"] == self.master.id]
+        self.assertIn(mine.order_id, [o["order_id"] for o in supervised])
+
+    def test_master_walks_an_order_from_cutting_to_delivered(self):
+        order = self.make_order()
+
+        # Stages the master owns.
+        self.assertEqual(self._transition(order, "fabric_confirmed").status_code, 200)
+        self.assertEqual(self._transition(order, "pattern_cutting").status_code, 200)
+        self.assertEqual(self._transition(order, "assigned_to_tailor").status_code, 200)
+
+        # Stitching belongs to the tailor -- the master is refused, with a reason.
+        blocked = self._transition(order, "stitching_in_progress", "IN_PROGRESS")
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIn("not authorized", blocked.json()["error"].lower())
+
+        # Delivery is refused until the master's own quality check is done.
+        early = self._transition(order, "delivered")
+        self.assertEqual(early.status_code, 400)
+        self.assertIn("quality check", early.json()["error"].lower())
+
+        # The tailor does their part.
+        for stage_key in ["stitching_in_progress", "stitching_completed"]:
+            OrderService.transition_order_stage(
+                order=order, stage_key=stage_key,
+                new_status="COMPLETED", user=self.tailor_user,
+            )
+        for stage_key in ["master_quality_check", "trial_scheduled", "trial_completed",
+                          "ready_for_delivery", "delivered"]:
+            self.assertEqual(self._transition(order, stage_key).status_code, 200, stage_key)
+
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Delivered")
+        self.assertEqual(order.stages.filter(status="COMPLETED").count(), 12)
+
+    def test_master_work_is_attributed_to_them(self):
+        order = self.make_order()
+        self._transition(order, "pattern_cutting")
+        self.assertEqual(self.stage(order, "pattern_cutting").performed_by, self.master)
+
+    def test_completing_delivery_frees_the_master(self):
+        order = self.make_order()
+        self.master.status = "Busy"
+        self.master.save()
+        OrderService.transition_order_stage(
+            order=order, stage_key="stitching_completed",
+            new_status="COMPLETED", user=self.tailor_user,
+        )
+        self._transition(order, "master_quality_check")
+        self._transition(order, "delivered")
+        self.master.refresh_from_db()
+        self.assertEqual(self.master.status, "Available")
+
+    def test_master_cannot_mark_delivered_through_the_status_shortcut(self):
+        """The assignments screen exposes a status dropdown; it must obey the
+        same guards as the stage tracker."""
+        order = self.make_order()
+        response = self.client.patch(
+            reverse("order-update-status", args=[order.id]),
+            {"status": "Delivered"}, format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        order.refresh_from_db()
+        self.assertNotEqual(order.order_status, "Delivered")
+
+
 class TransitionEndpointTests(WorkflowTestBase):
     """The HTTP surface around the workflow engine."""
 
@@ -361,6 +453,70 @@ class TransitionEndpointTests(WorkflowTestBase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("quality check", response.json()["error"].lower())
+
+    def test_update_status_cannot_skip_the_quality_check(self):
+        """The status dropdown used to bypass every guard.
+
+        A master could mark a garment Delivered while the quality check had
+        never started -- the client was told it shipped, the production record
+        showed nothing done.
+        """
+        order = self.make_order()
+        response = self.client.patch(
+            reverse("order-update-status", args=[order.id]),
+            {"status": "Delivered"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        order.refresh_from_db()
+        self.assertNotEqual(order.order_status, "Delivered")
+        self.assertEqual(self.stage(order, "delivered").status, "NOT_STARTED")
+
+    def test_update_status_advances_the_matching_stage(self):
+        order = self.make_order()
+        response = self.client.patch(
+            reverse("order-update-status", args=[order.id]),
+            {"status": "Confirmed"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.stage(order, "fabric_confirmed").status, "COMPLETED")
+
+    def test_update_status_in_the_right_order_reaches_delivered(self):
+        order = self.make_order()
+        for target in ["Quality Check", "Ready for Dispatch", "Delivered"]:
+            if target == "Delivered":
+                # Quality check is a stage of its own, not a client-facing status.
+                self.complete(order, "master_quality_check")
+            response = self.client.patch(
+                reverse("order-update-status", args=[order.id]),
+                {"status": target}, format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, target)
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Delivered")
+        self.assertEqual(self.stage(order, "delivered").status, "COMPLETED")
+
+    def test_tailor_cannot_use_update_status_to_reach_a_master_stage(self):
+        order = self.make_order()
+        client = APIClient()
+        client.credentials(
+            HTTP_AUTHORIZATION="Token " + Token.objects.create(user=self.tailor_user).key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        response = client.patch(
+            reverse("order-update-status", args=[order.id]),
+            {"status": "Ready for Dispatch"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_status_without_a_stage_is_recorded_as_is(self):
+        order = self.make_order()
+        response = self.client.patch(
+            reverse("order-update-status", args=[order.id]),
+            {"status": "Stylist Review"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Stylist Review")
 
     def test_successful_transition_returns_the_updated_order(self):
         order = self.make_order()

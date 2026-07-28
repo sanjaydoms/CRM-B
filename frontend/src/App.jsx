@@ -107,6 +107,80 @@ const getTailorTags = (name) => {
   return ['Custom', 'Tailoring'];
 };
 
+// Clickable twelve-stage timeline. Shown on the owner's order registry and on a
+// master's assignments board, so it lives here rather than being written twice.
+function StageTimeline({ stages, onSelectStage }) {
+  if (!stages || stages.length === 0) {
+    return (
+      <div style={{
+        margin: '8px 0', padding: '12px 16px', background: 'var(--surface-color)',
+        borderRadius: '8px', border: '1px solid var(--border-color)',
+        fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center'
+      }}>
+        No production stages recorded for this order.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      margin: '8px 0', padding: '12px 16px', background: 'var(--surface-color)',
+      borderRadius: '8px', border: '1px solid var(--border-color)',
+      overflowX: 'auto', gap: '4px'
+    }}>
+      {stages.map((stage, idx, arr) => {
+        const isCompleted = stage.status === 'COMPLETED';
+        const isInProgress = stage.status === 'IN_PROGRESS';
+        const isPaused = stage.status === 'PAUSED';
+        const isSkipped = stage.status === 'SKIPPED';
+
+        let statusColor = 'var(--border-color)';
+        if (isCompleted) statusColor = '#10b981';
+        else if (isInProgress) statusColor = '#3b82f6';
+        else if (isPaused) statusColor = '#f59e0b';
+        else if (isSkipped) statusColor = '#9ca3af';
+
+        return (
+          <div
+            key={stage.id || stage.stage_key}
+            role="button"
+            tabIndex={0}
+            title={`${stage.stage_name} — ${stage.status.replace('_', ' ').toLowerCase()}`}
+            style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '95px', cursor: 'pointer' }}
+            onClick={() => onSelectStage(stage)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectStage(stage); } }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1 }}>
+              <div style={{
+                width: '10px', height: '10px', borderRadius: '50%',
+                backgroundColor: statusColor,
+                border: isInProgress ? '2px solid #fff' : 'none',
+                boxShadow: isInProgress ? '0 0 0 2px #3b82f6' : 'none'
+              }} />
+              <span style={{
+                fontSize: '9px',
+                fontWeight: isInProgress ? 700 : 500,
+                color: isCompleted ? '#10b981' : isInProgress ? '#3b82f6' : 'var(--text-muted)',
+                textAlign: 'center', whiteSpace: 'nowrap'
+              }}>
+                {stage.stage_name}
+              </span>
+            </div>
+            {idx < arr.length - 1 && (
+              <div style={{
+                height: '2px', flex: 1,
+                backgroundColor: isCompleted ? '#10b981' : 'var(--border-color)',
+                minWidth: '10px', marginTop: '-14px'
+              }} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function App() {
   const [view, setView] = useState('landing'); // 'landing', 'login', 'signup', 'dashboard', 'order-selector', 'wizard', 'confirmed'
   const [dashboardTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs'
@@ -892,6 +966,15 @@ function App() {
     const query = searchModalQuery.toLowerCase();
     return fullName.includes(query) || (c.mobile_number || '').includes(query);
   });
+
+  // Opens the stage review panel for a given order and stage.
+  const openStageReview = (order, stage) => {
+    setActiveReviewStage(stage.stage_name);
+    setActiveReviewOrder(order);
+    setSelectedStageObj(stage);
+    setStageReviewComments(stage.comments || '');
+    setStageReviewImage(null);
+  };
 
   // The directory list returns flat rows without orders or measurement history,
   // so opening a client fetches the full record. The summary row is shown right
@@ -2564,6 +2647,21 @@ function App() {
                               )}
                             </div>
 
+                            {/* Production stages -- a master runs most of the
+                                workflow, so the tracker belongs on the screen
+                                they land on, not only on the order registry. */}
+                            {(currentUser.role === 'Master' || currentUser.role === 'Owner' || !currentUser.role) && (
+                              <div>
+                                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>
+                                  Production Stages — select a stage to update
+                                </div>
+                                <StageTimeline
+                                  stages={order.stages}
+                                  onSelectStage={(stage) => openStageReview(order, stage)}
+                                />
+                              </div>
+                            )}
+
                              {/* Delivery Information */}
                             <div style={{ fontSize: '13px', background: 'rgba(0,0,0,0.01)', padding: '12px', borderRadius: '8px', border: '1px dashed var(--border-color)', marginTop: '4px' }}>
                               <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>Delivery Method: {order.delivery_method}</div>
@@ -3735,74 +3833,10 @@ function App() {
                           </div>
 
                           {/* Horizontal Progress Timeline */}
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            margin: '8px 0',
-                            padding: '12px 16px',
-                            background: 'var(--surface-color)',
-                            borderRadius: '8px',
-                            border: '1px solid var(--border-color)',
-                            overflowX: 'auto',
-                            gap: '4px'
-                          }}>
-                            {(order.stages || []).map((stage, idx, arr) => {
-                              const isCompleted = stage.status === 'COMPLETED';
-                              const isInProgress = stage.status === 'IN_PROGRESS';
-                              const isPaused = stage.status === 'PAUSED';
-                              const isSkipped = stage.status === 'SKIPPED';
-                              
-                              let statusColor = 'var(--border-color)';
-                              if (isCompleted) statusColor = '#10b981';
-                              else if (isInProgress) statusColor = '#3b82f6';
-                              else if (isPaused) statusColor = '#f59e0b';
-                              else if (isSkipped) statusColor = '#9ca3af';
-
-                              return (
-                                <div 
-                                  key={stage.id || stage.stage_key} 
-                                  style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '95px', cursor: 'pointer' }}
-                                  onClick={() => {
-                                    setActiveReviewStage(stage.stage_name);
-                                    setActiveReviewOrder(order);
-                                    setSelectedStageObj(stage);
-                                    setStageReviewComments(stage.comments || '');
-                                    setStageReviewImage(null);
-                                  }}
-                                >
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1 }}>
-                                    <div style={{
-                                      width: '10px',
-                                      height: '10px',
-                                      borderRadius: '50%',
-                                      backgroundColor: statusColor,
-                                      border: isInProgress ? '2px solid #fff' : 'none',
-                                      boxShadow: isInProgress ? '0 0 0 2px #3b82f6' : 'none'
-                                    }} />
-                                    <span style={{
-                                      fontSize: '9px',
-                                      fontWeight: isInProgress ? 700 : 500,
-                                      color: isCompleted ? '#10b981' : isInProgress ? '#3b82f6' : 'var(--text-muted)',
-                                      textAlign: 'center',
-                                      whiteSpace: 'nowrap'
-                                    }}>
-                                      {stage.stage_name}
-                                    </span>
-                                  </div>
-                                  {idx < arr.length - 1 && (
-                                    <div style={{
-                                      height: '2px',
-                                      flex: 1,
-                                      backgroundColor: isCompleted ? '#10b981' : 'var(--border-color)',
-                                      minWidth: '10px',
-                                      marginTop: '-14px'
-                                    }} />
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
+                          <StageTimeline
+                            stages={order.stages}
+                            onSelectStage={(stage) => openStageReview(order, stage)}
+                          />
 
                           {/* Middle Row: Assignment & Financials */}
                           <div style={{

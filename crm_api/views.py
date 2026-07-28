@@ -202,30 +202,53 @@ class OrderViewSet(viewsets.ModelViewSet):
         if old_status != order.order_status:
             create_order_notifications(order, created=False)
 
+    # A client-facing status corresponds to completing a specific stage. Statuses
+    # absent here (e.g. Stylist Review) carry no stage meaning.
+    STATUS_TO_STAGE = {
+        'Received': 'created',
+        'Confirmed': 'fabric_confirmed',
+        'Design & Creation': 'assigned_to_tailor',
+        'Quality Check': 'stitching_completed',
+        'Ready for Dispatch': 'ready_for_delivery',
+        'Shipped': 'ready_for_delivery',
+        'Delivered': 'delivered',
+    }
+
     @action(detail=True, methods=['PATCH'], url_path='update-status')
     def update_status(self, request, pk=None):
+        """Advance an order by naming its client-facing status.
+
+        This used to write order_status directly, with no role check and no
+        sequencing guard, which let anyone mark a garment Delivered while the
+        quality check had never been started -- the client was told the piece
+        had shipped while the production record showed nothing done. It now goes
+        through the same workflow engine as the stage tracker, so both routes
+        enforce one set of rules and the stage rows stay in step.
+        """
         order = self.get_object()
-        old_status = order.order_status
         new_status = request.data.get('status')
-        if new_status:
-            order.order_status = new_status
-            # Sync current_stage_key based on status
-            reverse_status_map = {
-                'Received': 'created',
-                'Confirmed': 'fabric_confirmed',
-                'Design & Creation': 'assigned_to_tailor',
-                'Quality Check': 'stitching_completed',
-                'Ready for Dispatch': 'ready_for_delivery',
-                'Shipped': 'ready_for_delivery',
-                'Delivered': 'delivered'
-            }
-            if new_status in reverse_status_map:
-                order.current_stage_key = reverse_status_map[new_status]
-            order.save()
-            if old_status != new_status:
+        if not new_status:
+            return Response({'error': 'no status provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage_key = self.STATUS_TO_STAGE.get(new_status)
+        if not stage_key:
+            # No stage maps to this status; record it without touching the workflow.
+            if order.order_status != new_status:
+                order.order_status = new_status
+                order.save(update_fields=['order_status'])
                 create_order_notifications(order, created=False)
             return Response({'status': 'status updated', 'order_status': order.order_status})
-        return Response({'error': 'no status provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            updated = OrderService.transition_order_stage(
+                order=order,
+                stage_key=stage_key,
+                new_status='COMPLETED',
+                user=request.user,
+            )
+        except ValueError as ve:
+            return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': 'status updated', 'order_status': updated.order_status})
 
     @action(detail=True, methods=['PATCH'], url_path='submit-completion')
     def submit_completion(self, request, pk=None):
@@ -237,21 +260,22 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.tailor_comments = comments
         if image is not None:
             order.completed_garment_image = image
-            
-        order.order_status = 'Quality Check'
-        order.current_stage_key = 'stitching_completed'
-        # Also update stage status
-        stitching_stage = order.stages.filter(stage_key='stitching_completed').first()
-        if stitching_stage:
-            from django.utils import timezone as tz
-            stitching_stage.status = 'COMPLETED'
-            stitching_stage.completed_at = tz.now()
-            stitching_stage.save()
         order.save()
-        
-        create_order_notifications(order, created=False)
 
-        # Re-read so the updated stitching stage is reflected -- see transition.
+        # Completing stitching goes through the workflow engine rather than
+        # writing the stage row by hand, so the role check, the timing fields
+        # and the derived order status all behave as they do everywhere else.
+        try:
+            OrderService.transition_order_stage(
+                order=order,
+                stage_key='stitching_completed',
+                new_status='COMPLETED',
+                comments=comments or '',
+                user=request.user,
+            )
+        except ValueError as ve:
+            return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = OrderSerializer(OrderRepository.get_by_id(order.pk))
         return Response(serializer.data)
 
