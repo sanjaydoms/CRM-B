@@ -441,6 +441,16 @@ export const api = {
     return res.json();
   },
 
+  // Full customer record, including nested orders and measurement history.
+  // The list endpoint returns flat rows, so open a client through this.
+  async getCustomer(customerId) {
+    const res = await fetch(`${BASE_URL}/customers/${customerId}/`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to fetch customer');
+    return res.json();
+  },
+
   async getOrders() {
     const res = await fetch(`${BASE_URL}/orders/`, {
       headers: getHeaders()

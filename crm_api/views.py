@@ -27,7 +27,17 @@ from domains.orders.services import OrderService
 class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
 
+    def get_serializer_class(self):
+        # The directory list gets flat rows; nesting every client's full order
+        # tree there made the payload ~119KB for 25 clients. Opening a client
+        # hits retrieve, which still returns orders and history in full.
+        if self.action == 'list':
+            return CustomerSummarySerializer
+        return CustomerSerializer
+
     def get_queryset(self):
+        if self.action == 'list':
+            return CustomerRepository.summary_queryset()
         return CustomerRepository.get_all()
 
     @action(detail=True, methods=['GET'], url_path='measurement-history')

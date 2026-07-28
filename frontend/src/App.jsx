@@ -246,6 +246,7 @@ function App() {
   const [selectedDashboardOrder, setSelectedDashboardOrder] = useState(null);
   const [expandedDna, setExpandedDna] = useState({});
   const [selectedDirectoryCustomer, setSelectedDirectoryCustomer] = useState(null);
+  const [directoryDetailLoading, setDirectoryDetailLoading] = useState(false);
 
   // Backend fetched collections
   const [dashboardData, setDashboardData] = useState(null);
@@ -892,8 +893,26 @@ function App() {
     return fullName.includes(query) || (c.mobile_number || '').includes(query);
   });
 
-  // Customer Directory rows. Memoised because the list carries each client's full
-  // order tree, and it was previously filtered twice on every keystroke.
+  // The directory list returns flat rows without orders or measurement history,
+  // so opening a client fetches the full record. The summary row is shown right
+  // away and replaced in place, keeping the panel populated while it loads.
+  const openDirectoryCustomer = async (summaryRow) => {
+    setSelectedDirectoryCustomer(summaryRow);
+    setDirectoryDetailLoading(true);
+    try {
+      const full = await api.getCustomer(summaryRow.id);
+      setSelectedDirectoryCustomer((current) =>
+        current && current.id === full.id ? full : current
+      );
+    } catch (err) {
+      console.error('Failed to load customer detail', err);
+    } finally {
+      setDirectoryDetailLoading(false);
+    }
+  };
+
+  // Customer Directory rows. Memoised because this was previously filtered twice
+  // on every keystroke -- once for the empty check, once for the map.
   const directoryCustomers = React.useMemo(() => {
     const term = searchQuery.toLowerCase();
     return customersList.filter(cust => {
@@ -4021,7 +4040,7 @@ function App() {
                         {/* Profile Info */}
                         <div 
                           style={{ display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer' }}
-                          onClick={() => setSelectedDirectoryCustomer(cust)}
+                          onClick={() => openDirectoryCustomer(cust)}
                         >
                           <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                             <div className="user-avatar-circle" style={{ width: '56px', height: '56px' }}>
@@ -4102,7 +4121,7 @@ function App() {
                         <div style={{ gridColumn: 'span 3', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <Sparkles size={16} style={{ color: 'var(--accent-color, #d4af37)' }} />
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI Customer Intelligence has analyzed {cust.orders?.length || 0} order(s) and preferences.</span>
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI Customer Intelligence has analyzed {cust.order_count ?? cust.orders?.length ?? 0} order(s) and preferences.</span>
                           </div>
                           <button 
                             onClick={() => setExpandedDna(prev => ({ ...prev, [cust.id]: !prev[cust.id] }))}
@@ -4452,7 +4471,9 @@ function App() {
                       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
                         Order History
                       </h3>
-                      {!selectedDirectoryCustomer.orders || selectedDirectoryCustomer.orders.length === 0 ? (
+                      {directoryDetailLoading && !selectedDirectoryCustomer.orders ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading order history…</p>
+                      ) : !selectedDirectoryCustomer.orders || selectedDirectoryCustomer.orders.length === 0 ? (
                         <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No orders have been placed by this customer yet.</p>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

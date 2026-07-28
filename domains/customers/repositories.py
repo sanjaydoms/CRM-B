@@ -23,11 +23,17 @@ CUSTOMER_PREFETCH = (
 class CustomerRepository:
     @staticmethod
     def summary_queryset():
-        """Flat rows for CustomerSummarySerializer -- no order trees fetched."""
-        from django.db.models import Count, Sum
-        return Customer.objects.annotate(
+        """Rows for CustomerSummarySerializer -- no order rows are read.
+
+        Everything the serializer derives from orders (spend, count, average
+        price, last order date) is computed in SQL here instead.
+        """
+        from django.db.models import Avg, Count, Max, Sum
+        return Customer.objects.select_related('measurements').annotate(
             orders_count=Count('orders', distinct=True),
             orders_total_spend=Sum('orders__total_amount'),
+            orders_avg_price=Avg('orders__total_amount'),
+            orders_last_date=Max('orders__order_date'),
         ).order_by('-created_at')
 
     @staticmethod

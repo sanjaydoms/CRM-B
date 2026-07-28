@@ -226,6 +226,88 @@ class BoutiqueCRMTests(TenantTestCase):
         self.assertEqual(order.taxes, 90.00)
         self.assertEqual(order.total_amount, 1890.00)
 
+    def _customer_with_order(self, amount=30000.00, mobile="9876543210"):
+        customer = Customer.objects.create(
+            first_name="Jane", last_name="Doe", mobile_number=mobile, garment_type="Lehenga"
+        )
+        Measurement.objects.create(customer=customer, bust=36.00, waist=28.00)
+        Order.objects.create(
+            order_id=f"T2B-LIST-{mobile[-4:]}",
+            customer=customer,
+            tailor=self.tailor,
+            payment_status="Paid",
+            base_price=amount,
+            total_amount=amount,
+        )
+        return customer
+
+    def test_customer_list_omits_nested_orders(self):
+        """The directory list must stay flat -- see CustomerSummarySerializer."""
+        self.authenticate_client()
+        self._customer_with_order()
+
+        response = self.client.get(reverse('customer-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = response.json()[0]
+        for heavy in ('orders', 'measurement_history', 'design_preferences', 'fabric_selections'):
+            self.assertNotIn(heavy, row, f"{heavy} must not be nested in the list payload")
+
+    def test_customer_list_keeps_fields_the_directory_card_renders(self):
+        self.authenticate_client()
+        self._customer_with_order(amount=30000.00)
+
+        row = self.client.get(reverse('customer-list')).json()[0]
+
+        self.assertEqual(row['order_count'], 1)
+        self.assertEqual(row['total_spend'], 30000.00)
+        self.assertEqual(row['segment'], 'HVC')
+        self.assertEqual(row['measurements']['bust'], '36.00')
+        # Style DNA is derived from annotations, not from loaded order rows.
+        self.assertIn('30,000', row['style_dna']['budget'])
+        self.assertIn('risk_level', row['style_dna'])
+
+    def test_customer_detail_still_returns_full_orders(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+
+        response = self.client.get(reverse('customer-detail', args=[customer.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(len(body['orders']), 1)
+        self.assertEqual(body['orders'][0]['order_id'], 'T2B-LIST-3210')
+        self.assertIn('stages', body['orders'][0])
+        self.assertIn('measurement_history', body)
+
+    def test_customer_list_query_count_does_not_grow_with_customers(self):
+        """Guards against the N+1 that made this endpoint take 14s.
+
+        Asserts the invariant rather than a fixed number: tripling the number of
+        clients must not add a single query.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self.authenticate_client()
+
+        def list_query_count():
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get(reverse('customer-list'))
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return len(ctx.captured_queries)
+
+        for i in range(3):
+            self._customer_with_order(mobile=f"90000000{i:02d}")
+        baseline = list_query_count()
+
+        for i in range(3, 9):
+            self._customer_with_order(mobile=f"90000000{i:02d}")
+        self.assertEqual(
+            list_query_count(), baseline,
+            "customer list query count grew with the number of customers (N+1)",
+        )
+
     def test_dashboard_stats(self):
         self.authenticate_client()
         customer = Customer.objects.create(
