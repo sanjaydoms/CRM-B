@@ -79,6 +79,7 @@ TENANT_APPS = [
     'apps.production',
     'apps.activities',
     'apps.scheduling',
+    'apps.design_studio',
 ]
 
 INSTALLED_APPS = list(set(SHARED_APPS + TENANT_APPS))
@@ -240,5 +241,21 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
 }
+
+
+# --- AI Design Studio ---------------------------------------------------
+# The studio's intelligence is pluggable. Left unset it uses a deterministic
+# rule-based engine that needs no credentials and costs nothing, so design
+# discovery works out of the box. Point this at another implementation of
+# apps.design_studio.intelligence.base.DesignIntelligence to swap it.
+DESIGN_STUDIO_INTELLIGENCE = os.environ.get(
+    'DESIGN_STUDIO_INTELLIGENCE',
+    'apps.design_studio.intelligence.rules.RuleBasedIntelligence',
+)
+
+# External design sources stay dormant until credentialed. Each is reported to
+# the gallery as unavailable rather than failing a search.
+DESIGN_STUDIO_PINTEREST_TOKEN = os.environ.get('DESIGN_STUDIO_PINTEREST_TOKEN', '')
+DESIGN_STUDIO_GOOGLE_API_KEY = os.environ.get('DESIGN_STUDIO_GOOGLE_API_KEY', '')
 
 

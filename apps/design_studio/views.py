@@ -1,0 +1,224 @@
+from django.shortcuts import get_object_or_404
+from rest_framework import status, viewsets, views
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+from apps.activities.models import UniversalActivity
+from core.roles import resolve_user_role
+from crm_api.models import Customer, Order
+
+from . import services
+from .context import build_context
+from .intelligence.registry import get_intelligence
+from .models import DesignAsset, DesignBoard, DesignBoardItem
+from .permissions import MASTER, DesignStudioPermission, OwnerOnly, visible_boards
+from .providers.registry import source_status
+from .serializers import (
+    DesignAssetSerializer, DesignBoardItemSerializer, DesignBoardSerializer,
+    DiscoverRequestSerializer, TailorBriefSerializer,
+)
+
+
+def _log(request, board, action_name, title, description, new_value=None):
+    user = request.user if request.user.is_authenticated else None
+    UniversalActivity.objects.create(
+        user=user,
+        user_name_snapshot=(user.get_full_name() or user.username) if user else "System",
+        module="design_studio",
+        entity_type="DesignBoard",
+        entity_id=str(board.id),
+        action=action_name,
+        title=title,
+        description=description,
+        new_value=new_value or {},
+    )
+
+
+class DesignContextView(views.APIView):
+    """What the studio knows about a customer before it searches anything."""
+
+    permission_classes = [OwnerOnly]
+
+    def get(self, request):
+        customer_id = request.query_params.get('customer_id')
+        if not customer_id:
+            return Response({'detail': 'customer_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        customer = get_object_or_404(Customer.objects.select_related('measurements'), pk=customer_id)
+        order_input = {
+            key: request.query_params[key]
+            for key in ('garment_type', 'occasion', 'budget', 'delivery_timeline')
+            if request.query_params.get(key)
+        }
+        context = build_context(customer, order_input)
+        return Response({
+            'context': context.to_dict(),
+            'suggested_queries': get_intelligence().generate_queries(context),
+            'sources': source_status(),
+        })
+
+
+class DesignDiscoveryView(views.APIView):
+    """Search every available source and return ranked, explained results."""
+
+    permission_classes = [OwnerOnly]
+
+    def post(self, request):
+        payload = DiscoverRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+
+        customer = get_object_or_404(
+            Customer.objects.select_related('measurements'), pk=data['customer_id'])
+
+        outcome = services.discover(
+            customer,
+            order_input={
+                'garment_type': data.get('garment_type', ''),
+                'occasion': data.get('occasion', ''),
+                'budget': data.get('budget'),
+                'delivery_timeline': data.get('delivery_timeline', ''),
+            },
+            extra_keywords=data.get('keywords'),
+            sources=data.get('sources'),
+            limit=data.get('limit', 40),
+        )
+
+        return Response({
+            'context': outcome['context'].to_dict(),
+            'queries': outcome['queries'],
+            'sources': outcome['sources'],
+            'results': [candidate.to_dict() for candidate in outcome['results']],
+        })
+
+
+class DesignAssetViewSet(viewsets.ModelViewSet):
+    """The boutique's own design library: uploads, favourites, imports."""
+
+    queryset = DesignAsset.objects.all()
+    serializer_class = DesignAssetSerializer
+    permission_classes = [DesignStudioPermission]
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+
+    @action(detail=True, methods=['POST'], url_path='favourite')
+    def favourite(self, request, pk=None):
+        asset = self.get_object()
+        asset.is_favourite = not asset.is_favourite
+        asset.save(update_fields=['is_favourite', 'updated_at'])
+        return Response(self.get_serializer(asset).data)
+
+
+class DesignBoardViewSet(viewsets.ModelViewSet):
+    serializer_class = DesignBoardSerializer
+    permission_classes = [DesignStudioPermission]
+
+    def get_queryset(self):
+        queryset = (DesignBoard.objects
+                    .select_related('customer', 'order')
+                    .prefetch_related('items'))
+        customer_id = self.request.query_params.get('customer_id')
+        if customer_id:
+            queryset = queryset.filter(customer_id=customer_id)
+        order_id = self.request.query_params.get('order_id')
+        if order_id:
+            queryset = queryset.filter(order__order_id=order_id)
+        return visible_boards(queryset, self.request.user)
+
+    def get_serializer_class(self):
+        # A tailor gets the production brief, not the whole deliberation.
+        if resolve_user_role(self.request.user) == 'Tailor':
+            return TailorBriefSerializer
+        return DesignBoardSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+
+    @action(detail=True, methods=['POST'], url_path='items')
+    def add_item(self, request, pk=None):
+        """Shortlist a gallery result onto this board."""
+        board = self.get_object()
+        position = board.items.count()
+        item = services.item_from_candidate(board, request.data, position=position)
+        item.full_clean(exclude=['board'])
+        item.save()
+        _log(request, board, "DESIGN_SHORTLISTED",
+             f"Design shortlisted: {item.title or item.source}",
+             f"Added a {item.source} reference to {board.customer.first_name}'s design board.",
+             {"title": item.title, "source": item.source, "match_score": item.match_score})
+        return Response(DesignBoardItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['DELETE'], url_path=r'items/(?P<item_id>[^/.]+)')
+    def remove_item(self, request, pk=None, item_id=None):
+        board = self.get_object()
+        item = get_object_or_404(board.items, pk=item_id)
+        item.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['POST'], url_path=r'items/(?P<item_id>[^/.]+)/select')
+    def select_item(self, request, pk=None, item_id=None):
+        board = self.get_object()
+        item = get_object_or_404(board.items, pk=item_id)
+        services.select_item(board, item)
+        _log(request, board, "DESIGN_SELECTED", f"Design selected: {item.title or item.source}",
+             f"Selected the final design for {board.customer.first_name}.",
+             {"title": item.title, "match_score": item.match_score})
+        return Response(self.get_serializer(board).data)
+
+    @action(detail=True, methods=['PATCH'], url_path=r'items/(?P<item_id>[^/.]+)/customise')
+    def customise_item(self, request, pk=None, item_id=None):
+        """Owner edits to the design: attributes, notes, tailor instructions."""
+        board = self.get_object()
+        item = get_object_or_404(board.items, pk=item_id)
+
+        attributes = request.data.get('attributes')
+        if isinstance(attributes, dict):
+            merged = dict(item.attributes or {})
+            merged.update(attributes)
+            item.attributes = merged
+        for field in ('customer_notes', 'tailor_instructions'):
+            if field in request.data:
+                setattr(item, field, request.data[field] or '')
+        item.save(update_fields=['attributes', 'customer_notes', 'tailor_instructions'])
+        return Response(DesignBoardItemSerializer(item).data)
+
+    @action(detail=True, methods=['PATCH'], url_path=r'items/(?P<item_id>[^/.]+)/production-notes')
+    def production_notes(self, request, pk=None, item_id=None):
+        """A Master's note on how the approved design should be executed."""
+        board = self.get_object()
+        item = get_object_or_404(board.items, pk=item_id)
+        role = resolve_user_role(request.user)
+        if role == MASTER and board.status != DesignBoard.STATUS_APPROVED:
+            return Response(
+                {'detail': 'Production notes can only be added to an approved design.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        item.production_notes = request.data.get('production_notes', '') or ''
+        item.production_notes_by = getattr(request.user, 'tailor_profile', None)
+        item.save(update_fields=['production_notes', 'production_notes_by'])
+        return Response(DesignBoardItemSerializer(item).data)
+
+    @action(detail=True, methods=['POST'], url_path='approve')
+    def approve(self, request, pk=None):
+        board = self.get_object()
+        try:
+            services.approve_board(board, request.user)
+        except ValueError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        _log(request, board, "DESIGN_APPROVED", "Design approved",
+             f"Design approved for {board.customer.first_name}.")
+        return Response(self.get_serializer(board).data)
+
+    @action(detail=True, methods=['POST'], url_path='save-to-order')
+    def save_to_order(self, request, pk=None):
+        board = self.get_object()
+        order_ref = request.data.get('order_id')
+        if not order_ref:
+            return Response({'detail': 'order_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        order = get_object_or_404(Order, order_id=order_ref)
+        try:
+            services.save_to_order(board, order)
+        except ValueError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        _log(request, board, "DESIGN_SAVED_TO_ORDER", f"Design saved to {order.order_id}",
+             f"The approved design is now attached to order {order.order_id}.")
+        return Response(self.get_serializer(board).data)

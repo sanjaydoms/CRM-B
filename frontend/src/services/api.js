@@ -480,5 +480,111 @@ export const api = {
     });
     if (!res.ok) throw new Error('Failed to mark notifications as read');
     return res.json();
+  },
+
+  // --- AI Design Studio ---------------------------------------------
+  async getDesignContext(customerId, orderInput = {}) {
+    const url = new URL(`${BASE_URL}/design-studio/context/`);
+    url.searchParams.append('customer_id', customerId);
+    Object.entries(orderInput).forEach(([key, value]) => {
+      if (value) url.searchParams.append(key, value);
+    });
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load design context');
+    return res.json();
+  },
+
+  async discoverDesigns(payload) {
+    const res = await fetch(`${BASE_URL}/design-studio/discover/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to search designs');
+    return res.json();
+  },
+
+  async createDesignBoard(customerId, title = '', contextSnapshot = {}, queries = []) {
+    const res = await fetch(`${BASE_URL}/design-studio/boards/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        customer: customerId,
+        title,
+        context_snapshot: contextSnapshot,
+        search_queries: queries
+      })
+    });
+    if (!res.ok) throw new Error('Failed to create design board');
+    return res.json();
+  },
+
+  async getDesignBoards(params = {}) {
+    const url = new URL(`${BASE_URL}/design-studio/boards/`);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value) url.searchParams.append(key, value);
+    });
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load design boards');
+    return res.json();
+  },
+
+  async addDesignToBoard(boardId, design) {
+    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(design)
+    });
+    if (!res.ok) throw new Error('Failed to shortlist design');
+    return res.json();
+  },
+
+  async removeDesignFromBoard(boardId, itemId) {
+    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to remove design');
+    return true;
+  },
+
+  async selectBoardDesign(boardId, itemId) {
+    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/select/`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to select design');
+    return res.json();
+  },
+
+  async customiseBoardDesign(boardId, itemId, changes) {
+    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/customise/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(changes)
+    });
+    if (!res.ok) throw new Error('Failed to save customisation');
+    return res.json();
+  },
+
+  async approveDesignBoard(boardId) {
+    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/approve/`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed to approve design');
+    return data;
+  },
+
+  async saveDesignBoardToOrder(boardId, orderId) {
+    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/save-to-order/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ order_id: orderId })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed to attach design to order');
+    return data;
   }
 };

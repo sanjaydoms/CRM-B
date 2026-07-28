@@ -25,6 +25,7 @@ urlpatterns = [
     path('api/production/', include('apps.production.urls')),
     path('api/activities/', include('apps.activities.urls')),
     path('api/scheduling/', include('apps.scheduling.urls')),
+    path('api/design-studio/', include('apps.design_studio.urls')),
 ]
 
 if settings.DEBUG:

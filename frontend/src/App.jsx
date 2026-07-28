@@ -8,6 +8,7 @@ import {
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History
 } from 'lucide-react';
 import { api } from './services/api';
+import DesignStudio from './features/designStudio/DesignStudio';
 
 const GARMENT_PRICES = {
   'Lehenga': 32000,
@@ -215,11 +216,11 @@ function App() {
   const [designNotes, setDesignNotes] = useState('');
   const [designFiles, setDesignFiles] = useState([]);
   const [designPreviews, setDesignPreviews] = useState([]);
-  const [designSourceTab, setDesignSourceTab] = useState('references'); // 'references', 'ai', 'catalog'
+  const [designSourceTab, setDesignSourceTab] = useState('studio'); // 'studio', 'references'
+  // Board id and selection handed up by the Design Studio, attached to the
+  // order once it is created in step 6.
+  const [designBoard, setDesignBoard] = useState({ boardId: null, selected: null, approved: false });
   const [selectedDesignTemplates, setSelectedDesignTemplates] = useState([]);
-  const [aiSuggestions, setAiSuggestions] = useState([]);
-  const [boutiqueDesigns, setBoutiqueDesigns] = useState([]);
-  const [designsLoading, setDesignsLoading] = useState(false);
   const [fabricTab, setFabricTab] = useState('boutique'); // 'my-fabric', 'boutique'
   const [paymentPhase, setPaymentPhase] = useState(false);
   const [paymentOption, setPaymentOption] = useState('full'); // 'full' or 'partial'
@@ -231,25 +232,6 @@ function App() {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState('');
 
-  // Fetch dynamic AI Suggestions and Boutique Designs on entering Step 3
-  useEffect(() => {
-    const fetchDynamicDesigns = async () => {
-      if (currentStep === 3 && customerId) {
-        setDesignsLoading(true);
-        try {
-          const ai = await api.getAISuggestions(customerId);
-          const boutique = await api.getBoutiqueDesigns(customerId);
-          setAiSuggestions(ai);
-          setBoutiqueDesigns(boutique);
-        } catch (err) {
-          console.error("Failed to load suggestions & boutique designs", err);
-        } finally {
-          setDesignsLoading(false);
-        }
-      }
-    };
-    fetchDynamicDesigns();
-  }, [currentStep, customerId]);
   const [fabricFiles, setFabricFiles] = useState([]);
   const [fabricPreviews, setFabricPreviews] = useState([]);
   const [selectedFabric, setSelectedFabric] = useState(null);
@@ -822,6 +804,15 @@ function App() {
 
     try {
       const order = await api.createOrder(customerId, payload);
+      // The design board is built in step 3, before an order exists to hold
+      // it. Attach it now so the approved reference travels into production.
+      if (designBoard.boardId && designBoard.approved) {
+        try {
+          await api.saveDesignBoardToOrder(designBoard.boardId, order.order_id);
+        } catch (err) {
+          console.error("Could not attach the design board to the order", err);
+        }
+      }
       setConfirmedOrder(order);
       setView('confirmed');
     } catch (err) {
@@ -5926,7 +5917,7 @@ function App() {
               {[
                 { number: 1, label: 'Personal details', sub: 'Completed' },
                 { number: 2, label: 'Measurements', sub: 'Completed' },
-                { number: 3, label: 'Design Discovery', sub: 'Style preferences' },
+                { number: 3, label: 'AI Design Studio', sub: 'Discover & approve design' },
                 { number: 4, label: 'Fabric Selection', sub: 'Choose fabrics' },
                 { number: 5, label: 'Tailor Assignment', sub: 'Assign tailor' },
                 { number: 6, label: 'Complete & Create Order', sub: 'review & confirm' }
@@ -6443,94 +6434,46 @@ function App() {
               </>
             )}
 
-            {/* STEP 3: Design Discovery */}
+            {/* STEP 3: AI Design Studio */}
             {currentStep === 3 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Design Preferences</h1>
-                  <p className="page-subtitle">Help us understand your style. Share references or explore ideas from our AI and curated collections to create a look that's uniquely yours.</p>
+                  <h1 className="page-title">AI Design Studio</h1>
+                  <p className="page-subtitle">Designs matched to this client's measurements, occasion, budget and order history — searched across your catalogue, past orders and saved library, and ranked with the reason for every suggestion.</p>
                 </div>
 
                 <div className="content-card">
-                  {/* Three-tab Source Selector Grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
-                    <div 
-                      className={`quick-action-item ${designSourceTab === 'references' ? 'active-border' : ''}`}
+                  <div className="tabs-header">
+                    <button
+                      className={`tab-btn ${designSourceTab === 'studio' ? 'active' : ''}`}
+                      onClick={() => setDesignSourceTab('studio')}
+                    >
+                      <Sparkles size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                      Design Studio
+                    </button>
+                    <button
+                      className={`tab-btn ${designSourceTab === 'references' ? 'active' : ''}`}
                       onClick={() => setDesignSourceTab('references')}
-                      style={{ 
-                        flexDirection: 'row', 
-                        alignItems: 'center', 
-                        justifyContent: 'flex-start',
-                        textAlign: 'left', 
-                        padding: '16px',
-                        cursor: 'pointer',
-                        borderColor: designSourceTab === 'references' ? 'var(--text-primary)' : 'var(--border-color)',
-                        backgroundColor: designSourceTab === 'references' ? '#fafbfc' : '#fff'
-                      }}
                     >
-                      <div className="quick-action-icon-box" style={{ width: '32px', height: '32px', flexShrink: 0 }}>
-                        <Upload size={14} />
-                      </div>
-                      <div style={{ marginLeft: '12px' }}>
-                        <h4 style={{ fontSize: '13px', fontWeight: 600 }}>My References</h4>
-                        <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Share your design inspiration</p>
-                      </div>
-                    </div>
-
-                    <div 
-                      className={`quick-action-item ${designSourceTab === 'ai' ? 'active-border' : ''}`}
-                      onClick={() => setDesignSourceTab('ai')}
-                      style={{ 
-                        flexDirection: 'row', 
-                        alignItems: 'center', 
-                        justifyContent: 'flex-start',
-                        textAlign: 'left', 
-                        padding: '16px',
-                        cursor: 'pointer',
-                        borderColor: designSourceTab === 'ai' ? 'var(--text-primary)' : 'var(--border-color)',
-                        backgroundColor: designSourceTab === 'ai' ? '#fafbfc' : '#fff'
-                      }}
-                    >
-                      <div className="quick-action-icon-box" style={{ width: '32px', height: '32px', flexShrink: 0 }}>
-                        <Sparkles size={14} />
-                      </div>
-                      <div style={{ marginLeft: '12px' }}>
-                        <h4 style={{ fontSize: '13px', fontWeight: 600 }}>AI Suggestions</h4>
-                        <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Get ideas curated for you</p>
-                      </div>
-                    </div>
-
-                    <div 
-                      className={`quick-action-item ${designSourceTab === 'catalog' ? 'active-border' : ''}`}
-                      onClick={() => setDesignSourceTab('catalog')}
-                      style={{ 
-                        flexDirection: 'row', 
-                        alignItems: 'center', 
-                        justifyContent: 'flex-start',
-                        textAlign: 'left', 
-                        padding: '16px',
-                        cursor: 'pointer',
-                        borderColor: designSourceTab === 'catalog' ? 'var(--text-primary)' : 'var(--border-color)',
-                        backgroundColor: designSourceTab === 'catalog' ? '#fafbfc' : '#fff'
-                      }}
-                    >
-                      <div className="quick-action-icon-box" style={{ width: '32px', height: '32px', flexShrink: 0 }}>
-                        <FolderOpen size={14} />
-                      </div>
-                      <div style={{ marginLeft: '12px' }}>
-                        <h4 style={{ fontSize: '13px', fontWeight: 600 }}>Boutique Catalog</h4>
-                        <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Explore our collections</p>
-                      </div>
-                    </div>
+                      <Upload size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                      My References
+                    </button>
                   </div>
 
-                  {/* Multi-source banner */}
-                  <div className="accent-banner" style={{ margin: '4px 0 12px', backgroundColor: '#fdf6ed', borderColor: '#fbeedb', color: '#c08030', justifyContent: 'center' }}>
-                    <Sparkles size={14} />
-                    <span>You can select one or more sources</span>
-                  </div>
+                  {designSourceTab === 'studio' && (
+                    <DesignStudio
+                      customerId={customerId}
+                      orderInput={{
+                        garment_type: customerForm.garment_type,
+                        occasion: customerForm.occasion,
+                        budget: quotePrices.base
+                      }}
+                      notes={designNotes}
+                      onNotesChange={setDesignNotes}
+                      onBoardChange={setDesignBoard}
+                    />
+                  )}
 
-                  {/* Tab contents */}
                   {designSourceTab === 'references' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                       <div className="card-title">
@@ -6543,12 +6486,12 @@ function App() {
                         </div>
                         <div className="drag-drop-text">Drag & drop images here or <span>Upload Images</span></div>
                         <div className="drag-drop-subtext">JPG, PNG up to 10MB each • You can upload up to 10 images</div>
-                        <input 
-                          type="file" 
-                          id="design-picker" 
-                          multiple 
-                          accept="image/*" 
-                          style={{ display: 'none' }} 
+                        <input
+                          type="file"
+                          id="design-picker"
+                          multiple
+                          accept="image/*"
+                          style={{ display: 'none' }}
                           onChange={handleDesignFilesChange}
                         />
                       </div>
@@ -6571,158 +6514,6 @@ function App() {
                       )}
                     </div>
                   )}
-
-                  {designsLoading ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
-                      <div style={{
-                        width: '32px',
-                        height: '32px',
-                        border: '3px solid #f3f3f3',
-                        borderTop: '3px solid var(--accent-color, #c08030)',
-                        borderRadius: '50%',
-                        animation: 'spin 1s linear infinite',
-                        marginBottom: '16px'
-                      }}></div>
-                      <style>{`
-                        @keyframes spin {
-                          0% { transform: rotate(0deg); }
-                          100% { transform: rotate(360deg); }
-                        }
-                      `}</style>
-                      <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Personalizing design recommendations...</div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Querying templates matching your {customerForm.garment_type} preferences</div>
-                    </div>
-                  ) : (
-                    <>
-                      {designSourceTab === 'ai' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                          <div className="card-title">
-                            <Sparkles size={18} />
-                            AI Suggestions Curated For You
-                          </div>
-                          
-                          {aiSuggestions.length === 0 ? (
-                            <div style={{ padding: '32px 16px', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: '8px', color: 'var(--text-secondary)' }}>
-                              <Sparkles size={24} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
-                              <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)' }}>No suggestions matching style criteria</div>
-                              <div style={{ fontSize: '11px', marginTop: '2px' }}>Try uploading your own references or updating measurements style selections.</div>
-                            </div>
-                          ) : (
-                            <div className="fabrics-grid">
-                              {aiSuggestions.map((item, idx) => {
-                                const isSeedImage = item.image_url.startsWith('design_');
-                                const resolvedImg = isSeedImage ? `http://localhost:8000/media/${item.image_url}` : item.image_url;
-                                const isSelected = selectedDesignTemplates.includes(resolvedImg);
-                                return (
-                                  <div 
-                                    key={idx}
-                                    className={`fabric-card ${isSelected ? 'selected' : ''}`}
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setSelectedDesignTemplates(prev => prev.filter(u => u !== resolvedImg));
-                                      } else {
-                                        setSelectedDesignTemplates(prev => [...prev, resolvedImg]);
-                                      }
-                                    }}
-                                  >
-                                    <div className="fabric-image-container">
-                                      <img src={resolvedImg} alt={item.name} />
-                                      {isSelected && (
-                                        <div className="fabric-badge">
-                                          <Check size={14} />
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div className="fabric-details">
-                                      <span className="fabric-title">{item.name}</span>
-                                      {item.description && (
-                                        <span className="fabric-subtitle" style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px', display: 'block' }}>
-                                          {item.description}
-                                        </span>
-                                      )}
-                                      {item.neckline_style === customerForm.neckline_style && customerForm.neckline_style && (
-                                        <span style={{ display: 'inline-block', fontSize: '9px', backgroundColor: '#e2f5ec', color: '#107c41', padding: '2px 6px', borderRadius: '99px', marginTop: '6px', fontWeight: 500 }}>
-                                          Matched {item.neckline_style}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {designSourceTab === 'catalog' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                          <div className="card-title">
-                            <FolderOpen size={18} />
-                            Explore Boutique Collections
-                          </div>
-                          
-                          {boutiqueDesigns.length === 0 ? (
-                            <div style={{ padding: '32px 16px', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: '8px', color: 'var(--text-secondary)' }}>
-                              <FolderOpen size={24} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
-                              <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)' }}>No boutique designs available</div>
-                              <div style={{ fontSize: '11px', marginTop: '2px' }}>There are currently no catalog designs in stock for this garment type ({customerForm.garment_type}).</div>
-                            </div>
-                          ) : (
-                            <div className="fabrics-grid">
-                              {boutiqueDesigns.map((item, idx) => {
-                                const isSeedImage = item.image_url.startsWith('design_');
-                                const resolvedImg = isSeedImage ? `http://localhost:8000/media/${item.image_url}` : item.image_url;
-                                const isSelected = selectedDesignTemplates.includes(resolvedImg);
-                                return (
-                                  <div 
-                                    key={idx}
-                                    className={`fabric-card ${isSelected ? 'selected' : ''}`}
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setSelectedDesignTemplates(prev => prev.filter(u => u !== resolvedImg));
-                                      } else {
-                                        setSelectedDesignTemplates(prev => [...prev, resolvedImg]);
-                                      }
-                                    }}
-                                  >
-                                    <div className="fabric-image-container">
-                                      <img src={resolvedImg} alt={item.name} />
-                                      {isSelected && (
-                                        <div className="fabric-badge">
-                                          <Check size={14} />
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div className="fabric-details">
-                                      <span className="fabric-title">{item.name}</span>
-                                      <span className="fabric-price" style={{ fontWeight: 600, display: 'block', margin: '4px 0', fontSize: '12px', color: 'var(--text-primary)' }}>
-                                        ₹{parseFloat(item.price).toLocaleString('en-IN')}
-                                      </span>
-                                      {item.description && (
-                                        <span className="fabric-subtitle" style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>
-                                          {item.description}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  <div className="form-group">
-                    <label className="form-label">Add Notes (Optional)</label>
-                    <textarea 
-                      value={designNotes}
-                      onChange={(e) => setDesignNotes(e.target.value)}
-                      className="form-control"
-                      placeholder="Tell us what you like about these designs... e.g. color, fit, neckline, embroidery, overall vibe"
-                    />
-                  </div>
                 </div>
               </>
             )}
