@@ -269,6 +269,42 @@ class CustomerSerializer(serializers.ModelSerializer):
             
         return instance
 
+class CustomerSummarySerializer(serializers.ModelSerializer):
+    """Flat customer row for list/summary panels.
+
+    CustomerSerializer nests every order with its stages, activities and stage
+    histories, which is far more than a summary card needs. Spend and order count
+    come from queryset annotations here, so no order rows are fetched at all.
+    """
+
+    total_spend = serializers.SerializerMethodField()
+    order_count = serializers.SerializerMethodField()
+    segment = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Customer
+        fields = [
+            'id', 'first_name', 'last_name', 'mobile_number', 'email_address',
+            'city_region', 'source', 'customer_type', 'garment_type', 'occasion',
+            'profile_photo', 'total_spend', 'order_count', 'segment', 'created_at',
+        ]
+
+    def get_total_spend(self, obj):
+        return float(getattr(obj, 'orders_total_spend', None) or 0)
+
+    def get_order_count(self, obj):
+        count = getattr(obj, 'orders_count', None)
+        return count if count is not None else obj.orders.count()
+
+    def get_segment(self, obj):
+        total_spend = self.get_total_spend(obj)
+        order_count = self.get_order_count(obj)
+        if total_spend >= 75000 or order_count >= 3:
+            return "VIP"
+        if total_spend >= 20000 or order_count >= 1:
+            return "HVC"
+        return "General"
+
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification

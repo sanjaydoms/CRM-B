@@ -10,22 +10,45 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_dotenv(path):
+    """Populate os.environ from a KEY=VALUE file, without overriding real env vars.
+
+    Keeps credentials in a gitignored .env instead of in this file. Deployments
+    (Render, Vercel) set real env vars and have no .env, so this is a no-op there.
+    """
+    if not path.exists():
+        return
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_dotenv(BASE_DIR / '.env')
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-gaq)(f27^uo$j-gx(@g5v#wt49debz18=p61#lslv_9w2o*-w3'
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-local-development-only-do-not-use-in-production',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',') if h]
 
 
 # Application definition
@@ -89,16 +112,19 @@ TEMPLATES = [
 WSGI_APPLICATION = 'boutique_crm.wsgi.application'
 
 
-import os
-
 DATABASES = {
     'default': {
         'ENGINE': 'django_tenants.postgresql_backend',
         'NAME': os.environ.get('DB_NAME', 'postgres'),
-        'USER': os.environ.get('DB_USER', 'postgres.gbdabwahffdgdykbujpx'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'MSK1122@msk'),
-        'HOST': os.environ.get('DB_HOST', 'aws-1-ap-southeast-1.pooler.supabase.com'),
+        'USER': os.environ.get('DB_USER', ''),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', ''),
         'PORT': os.environ.get('DB_PORT', '6543'),
+        # Opening a connection to the pooler costs ~350ms; with the default of 0
+        # every request paid that before its first query. django-tenants resets
+        # search_path on each request, so reused connections stay tenant-isolated
+        # (see tenants tests). Set DB_CONN_MAX_AGE=0 to go back to per-request.
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '60')),
     }
 }
 
@@ -157,13 +183,15 @@ USE_TZ = True
 STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOW_ALL_ORIGINS = True
+# Set CORS_ALLOWED_ORIGINS (comma-separated) in production to lock this down.
+# Credentials stay off: the frontend authenticates with a token header, not cookies.
+_cors_origins = [o for o in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',') if o]
 CORS_ALLOW_CREDENTIALS = False
-
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://.*$",
-    r"^http://.*$",
-]
+if _cors_origins:
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = _cors_origins
+else:
+    CORS_ALLOW_ALL_ORIGINS = True
 
 from corsheaders.defaults import default_headers, default_methods
 CORS_ALLOW_HEADERS = list(default_headers) + [
@@ -172,20 +200,20 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 CORS_ALLOW_METHODS = list(default_methods)
 
 
-SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://gbdabwahffdgdykbujpx.supabase.co')
-SUPABASE_KEY = os.environ.get('SUPABASE_KEY', 'sb_publishable_ywe7hKYBjIy9waeT3oTOWQ_kF2ySzjO')
-SUPABASE_BUCKET = 'boutique-crm'
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'boutique-crm')
 
-if True:  # Use FileSystemStorage for local file uploads to bypass Supabase RLS policies
-    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
-    STORAGES = {
-        "default": {
-            "BACKEND": "django.core.files.storage.FileSystemStorage",
-        },
-        "staticfiles": {
-            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
-        },
-    }
+# Uploads go to the local filesystem; the SupabaseStorage driver in crm_api/storage.py
+# is bypassed because bucket RLS policies reject the publishable key.
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -195,6 +223,8 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
+    # SECURITY WARNING: every business endpoint is world-readable/writable with this
+    # setting. Switch to IsAuthenticated before this handles real boutique data.
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],

@@ -1,6 +1,5 @@
+import os
 import uuid
-import datetime
-import random
 from django.contrib.auth.models import User
 from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
@@ -18,15 +17,18 @@ from .serializers import (
     CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer, 
     FabricSelectionSerializer, TailorSerializer, OrderSerializer, BoutiqueFabricSerializer,
     BoutiqueDesignSerializer, NotificationSerializer, OrderStageHistorySerializer, BoutiqueSettingsSerializer,
-    MeasurementHistorySerializer
+    MeasurementHistorySerializer, CustomerSummarySerializer
 )
+from domains.customers.repositories import CustomerRepository
+from domains.orders.notifications import create_order_notifications
+from domains.orders.repositories import OrderRepository
+from domains.orders.services import OrderService
 
 class CustomerViewSet(viewsets.ModelViewSet):
-    queryset = Customer.objects.prefetch_related(
-        'orders', 'orders__stages', 'orders__activities', 'orders__tailor', 'orders__master',
-        'measurement_history', 'design_preferences', 'fabric_selections'
-    ).all().order_by('-created_at')
     serializer_class = CustomerSerializer
+
+    def get_queryset(self):
+        return CustomerRepository.get_all()
 
     @action(detail=True, methods=['GET'], url_path='measurement-history')
     def measurement_history(self, request, pk=None):
@@ -119,7 +121,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['POST'], url_path='create-order')
     def create_order(self, request, pk=None):
         customer = self.get_object()
-        from domains.orders.services import OrderService
         order = OrderService.create_order_for_customer(customer, request.data, user=request.user)
         serializer = OrderSerializer(order)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -150,10 +151,13 @@ class TailorViewSet(viewsets.ModelViewSet):
                     username = f"{original_username}{counter}"
                     counter += 1
                 
+                # Shared bootstrap password for staff accounts. Override with
+                # TAILOR_DEFAULT_PASSWORD; every tailor otherwise shares one
+                # credential that is visible in this repository.
                 user = User.objects.create_user(
                     username=username,
                     email=tailor.email,
-                    password="TailorSecure2026!",
+                    password=os.environ.get('TAILOR_DEFAULT_PASSWORD', 'TailorSecure2026!'),
                     first_name=tailor.name
                 )
             # Link to tailor
@@ -169,108 +173,21 @@ class BoutiqueDesignViewSet(viewsets.ModelViewSet):
     queryset = BoutiqueDesign.objects.all()
     serializer_class = BoutiqueDesignSerializer
 
-def create_order_notifications(order, created=False):
-    client_name = f"{order.customer.first_name} {order.customer.last_name}"
-    client_email = order.customer.email_address
-    
-    if created:
-        Notification.objects.create(
-            title=f"New Order Received: {order.order_id}",
-            message=f"A new custom order has been received for client {client_name}.",
-            recipient_role="Owner"
-        )
-        Notification.objects.create(
-            title=f"Order Confirmed: {order.order_id}",
-            message=f"Dear {order.customer.first_name}, we have received your order {order.order_id}! We will update you as it progresses.",
-            recipient_role="Customer",
-            recipient_email=client_email
-        )
-        if order.master:
-            Notification.objects.create(
-                title=f"New Assignment: {order.order_id}",
-                message=f"Order {order.order_id} for client {client_name} has been assigned to you as Supervising Master.",
-                recipient_role="Master",
-                recipient_email=order.master.user.email if order.master.user else None
-            )
-        if order.tailor:
-            Notification.objects.create(
-                title=f"New Stitching Task: {order.order_id}",
-                message=f"Order {order.order_id} has been assigned to you for stitching.",
-                recipient_role="Tailor",
-                recipient_email=order.tailor.user.email if order.tailor.user else None
-            )
-    else:
-        status = order.order_status
-        Notification.objects.create(
-            title=f"Order {order.order_id} Update: {status}",
-            message=f"Order {order.order_id} status updated to {status}.",
-            recipient_role="Owner"
-        )
-        
-        cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} status has been updated to: {status}."
-        if status == 'Design & Creation':
-            cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} is now in the Design & Creation phase. Our master tailors are crafting it!"
-        elif status == 'Ready for Dispatch':
-            cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} has passed quality checks and is Ready for Dispatch!"
-        elif status == 'Shipped':
-            if order.delivery_method == 'Courier':
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been Shipped via {order.courier_service or 'Courier'}! Tracking Number: {order.tracking_number or 'TBD'}."
-            else:
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been dispatched for direct pickup!"
-        elif status == 'Delivered':
-            balance = float(order.total_amount) - float(order.amount_paid or 0)
-            if balance > 0:
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered! Please complete your remaining balance of ₹{balance:.2f}."
-            else:
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered. We hope you love your bespoke garment!"
-
-        Notification.objects.create(
-            title=f"Order Update: {status}",
-            message=cust_msg,
-            recipient_role="Customer",
-            recipient_email=client_email
-        )
-
-        if status == 'Design & Creation' and order.tailor:
-            Notification.objects.create(
-                title=f"Stitching Ready: {order.order_id}",
-                message=f"Order {order.order_id} is now in Design & Creation phase and ready for stitching.",
-                recipient_role="Tailor",
-                recipient_email=order.tailor.user.email if order.tailor.user else None
-            )
-
-        if status == 'Quality Check':
-            # Notify Owner
-            Notification.objects.create(
-                title=f"Garment Stitching Completed: {order.order_id}",
-                message=f"Order {order.order_id} stitching has been completed by {order.tailor.name if order.tailor else 'the tailor'} and is now pending Quality Check.",
-                recipient_role="Owner"
-            )
-            # Notify Master
-            if order.master:
-                Notification.objects.create(
-                    title=f"Quality Check Required: {order.order_id}",
-                    message=f"Order {order.order_id} stitching has been completed by {order.tailor.name if order.tailor else 'the tailor'} and is ready for your Quality Check.",
-                    recipient_role="Master",
-                    recipient_email=order.master.user.email if order.master.user else None
-                )
-
 class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.select_related(
-        'customer', 'tailor', 'master', 'customer__measurements'
-    ).prefetch_related(
-        'stages', 'stages__performed_by', 'activities', 'activities__user'
-    ).all().order_by('-order_date')
     serializer_class = OrderSerializer
 
+    def get_queryset(self):
+        return OrderRepository.get_all()
+
     def perform_update(self, serializer):
-        old_status = self.get_object().order_status
+        old_status = serializer.instance.order_status
         order = serializer.save()
         if order.payment_status == 'Paid':
             order.amount_paid = order.total_amount
+            order.save(update_fields=['amount_paid'])
         elif order.payment_status == 'Pending':
             order.amount_paid = 0.00
-        order.save()
+            order.save(update_fields=['amount_paid'])
 
         if old_status != order.order_status:
             create_order_notifications(order, created=False)
@@ -363,7 +280,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         if not stage_key or not new_status:
             return Response({'error': 'stage_key and status are required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        from domains.orders.services import OrderService
         try:
             updated_order = OrderService.transition_order_stage(
                 order=order,
@@ -423,18 +339,13 @@ class DashboardView(views.APIView):
         status_counts = Order.objects.values('order_status').annotate(count=Count('id'))
         
         # Recent orders with customer and tailor detail
-        recent_orders = Order.objects.select_related(
-            'customer', 'tailor', 'master', 'customer__measurements'
-        ).prefetch_related(
-            'stages', 'stages__performed_by', 'activities', 'activities__user'
-        ).all().order_by('-order_date')[:5]
+        recent_orders = OrderRepository.get_all()[:5]
         recent_orders_data = OrderSerializer(recent_orders, many=True, context={'request': request}).data
 
-        # Recent customers
-        recent_customers = Customer.objects.prefetch_related(
-            'orders', 'orders__stages', 'orders__activities', 'orders__tailor', 'orders__master'
-        ).all().order_by('-created_at')[:5]
-        recent_customers_data = CustomerSerializer(recent_customers, many=True, context={'request': request}).data
+        # Recent customers, as flat summary rows -- the dashboard shows name, type
+        # and spend, not each client's full order history.
+        recent_customers = CustomerRepository.summary_queryset()[:5]
+        recent_customers_data = CustomerSummarySerializer(recent_customers, many=True, context={'request': request}).data
 
         return Response({
             'stats': {

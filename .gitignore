@@ -13,3 +13,9 @@ frontend/dist/
 # OS/System
 .DS_Store
 .gemini/
+
+# Logs
+*.log
+
+# Local secrets
+.env

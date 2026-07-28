@@ -282,6 +282,9 @@ function App() {
   const [selectedStageObj, setSelectedStageObj] = useState(null);
   const [selectedPerformerId, setSelectedPerformerId] = useState('');
   const [globalError, setGlobalError] = useState(null);
+  // Names of the dashboard collections that failed to load, so the UI can say so
+  // instead of rendering an empty directory as if the boutique had no clients.
+  const [loadErrors, setLoadErrors] = useState([]);
 
   useEffect(() => {
     const handleErr = (event) => {
@@ -302,14 +305,13 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
 
-  const fetchNotifications = async () => {
-    if (!currentUser) return;
-    try {
-      const data = await api.getNotifications(currentUser.role || 'Owner', currentUser.email);
-      setNotifications(data);
-    } catch (err) {
-      console.error("Failed to load notifications:", err);
-    }
+  // `user` is passed explicitly by callers that have just signed in: setCurrentUser
+  // has not committed yet at that point, so reading it from state would bail out
+  // and leave the bell empty until some later refresh.
+  const fetchNotifications = async (user = currentUser) => {
+    if (!user) return;
+    const data = await api.getNotifications(user.role || 'Owner', user.email);
+    setNotifications(data);
   };
 
   // Persisted Session check
@@ -328,7 +330,7 @@ function App() {
           setDashboardTab('overview');
         }
         setView('dashboard');
-        await fetchDashboardAndConfig();
+        await fetchDashboardAndConfig(user);
       }
     } catch (e) {
       console.log("No saved session");
@@ -357,51 +359,40 @@ function App() {
     return 'https://images.unsplash.com/photo-1518049368264-7a13d7825d19?w=600';
   };
 
-  const fetchDashboardAndConfig = async () => {
+  // Each collection paints as soon as its own request lands rather than waiting on
+  // the slowest one, and a failed request is reported instead of leaving the panel
+  // looking like an empty boutique.
+  const fetchDashboardAndConfig = async (user = currentUser) => {
     setLoading(true);
-    try {
-      const [
-        dbDataRes,
-        tailorListRes,
-        fabricListRes,
-        designListRes,
-        custListRes,
-        ordListRes,
-        settingsDataRes
-      ] = await Promise.allSettled([
-        api.getDashboard(),
-        api.getTailors(),
-        api.getFabrics(),
-        api.getAllBoutiqueDesigns(),
-        api.getCustomers(),
-        api.getOrders(),
-        api.getBoutiqueSettings()
-      ]);
+    setLoadErrors([]);
 
-      const dbData = dbDataRes.status === 'fulfilled' ? dbDataRes.value : null;
-      if (dbData) {
-        setDashboardData(dbData);
-        if (dbData.recent_orders?.length > 0) {
-          setSelectedDashboardOrder(dbData.recent_orders[0]);
+    const load = (label, request, apply) =>
+      request().then(apply, (err) => {
+        console.error(`Failed to load ${label}`, err);
+        setLoadErrors((prev) => (prev.includes(label) ? prev : [...prev, label]));
+      });
+
+    const requests = [
+      load('dashboard', api.getDashboard, (data) => {
+        setDashboardData(data);
+        if (data.recent_orders?.length > 0) {
+          setSelectedDashboardOrder((current) => current || data.recent_orders[0]);
         }
-      }
+      }),
+      load('customers', api.getCustomers, (data) => {
+        setCustomersList(data);
+        setAllCustomers(data);
+      }),
+      load('orders', api.getOrders, setOrdersList),
+      load('tailors', api.getTailors, setTailors),
+      load('fabrics', api.getFabrics, setFabrics),
+      load('designs', api.getAllBoutiqueDesigns, setAllDesigns),
+      load('settings', api.getBoutiqueSettings, setBoutiqueSettings),
+      load('notifications', () => fetchNotifications(user), () => {})
+    ];
 
-      if (tailorListRes.status === 'fulfilled') setTailors(tailorListRes.value);
-      if (fabricListRes.status === 'fulfilled') setFabrics(fabricListRes.value);
-      if (designListRes.status === 'fulfilled') setAllDesigns(designListRes.value);
-      if (custListRes.status === 'fulfilled') {
-        setCustomersList(custListRes.value);
-        setAllCustomers(custListRes.value);
-      }
-      if (ordListRes.status === 'fulfilled') setOrdersList(ordListRes.value);
-      if (settingsDataRes.status === 'fulfilled') setBoutiqueSettings(settingsDataRes.value);
-
-      await fetchNotifications();
-    } catch (err) {
-      console.error("Error loading dashboard configs", err);
-    } finally {
-      setLoading(false);
-    }
+    await Promise.all(requests);
+    setLoading(false);
   };
 
   // Catalog Management Handlers
@@ -535,7 +526,7 @@ function App() {
         setDashboardTab('overview');
       }
       setView('dashboard');
-      fetchDashboardAndConfig();
+      fetchDashboardAndConfig(res.user);
     } catch (err) {
       alert(err.message || "Invalid credentials.");
     }
@@ -577,7 +568,7 @@ function App() {
       setSignupStep(5);
       setTimeout(() => {
         setView('dashboard');
-        fetchDashboardAndConfig();
+        fetchDashboardAndConfig(res.user);
       }, 1500);
     } catch (err) {
       alert(err.message || "Registration failed.");
@@ -895,17 +886,27 @@ function App() {
   };
 
   // Filter lists
-  const filteredDashboardCustomers = dashboardData?.recent_customers?.filter(c => {
-    const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
-    const query = searchQuery.toLowerCase();
-    return fullName.includes(query) || c.mobile_number.includes(query) || c.garment_type.toLowerCase().includes(query);
-  }) || [];
-
   const filteredSearchModalCustomers = allCustomers.filter(c => {
-    const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
+    const fullName = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase();
     const query = searchModalQuery.toLowerCase();
-    return fullName.includes(query) || c.mobile_number.includes(query);
+    return fullName.includes(query) || (c.mobile_number || '').includes(query);
   });
+
+  // Customer Directory rows. Memoised because the list carries each client's full
+  // order tree, and it was previously filtered twice on every keystroke.
+  const directoryCustomers = React.useMemo(() => {
+    const term = searchQuery.toLowerCase();
+    return customersList.filter(cust => {
+      const matchesSearch =
+        ((cust.first_name || '') + ' ' + (cust.last_name || '')).toLowerCase().includes(term) ||
+        (cust.mobile_number || '').includes(term) ||
+        (cust.email_address || '').toLowerCase().includes(term);
+      const matchesType =
+        customerTypeFilter === 'All' ||
+        (cust.customer_type || '').toLowerCase() === customerTypeFilter.toLowerCase();
+      return matchesSearch && matchesType;
+    });
+  }, [customersList, searchQuery, customerTypeFilter]);
 
   if (globalError) {
     return (
@@ -3996,28 +3997,21 @@ function App() {
                 </div>
 
                 <div className="customers-list-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  {customersList.filter(cust => {
-                    const term = searchQuery.toLowerCase();
-                    const matchesSearch = ((cust.first_name || '') + ' ' + (cust.last_name || '')).toLowerCase().includes(term) ||
-                                          (cust.mobile_number || '').includes(term) ||
-                                          (cust.email_address && cust.email_address.toLowerCase().includes(term));
-                    const matchesType = customerTypeFilter === 'All' || 
-                                          (cust.customer_type && cust.customer_type.toLowerCase() === customerTypeFilter.toLowerCase());
-                    return matchesSearch && matchesType;
-                  }).length === 0 ? (
+                  {loading && customersList.length === 0 ? (
+                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Loading customer directory…</span>
+                    </div>
+                  ) : loadErrors.includes('customers') ? (
+                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(127,29,29,0.15)', borderRadius: '12px', border: '1px solid rgba(220,38,38,0.3)' }}>
+                      <div style={{ color: '#fca5a5', marginBottom: '12px' }}>Could not load the customer directory.</div>
+                      <button type="button" className="btn-secondary" onClick={() => fetchDashboardAndConfig()}>Retry</button>
+                    </div>
+                  ) : directoryCustomers.length === 0 ? (
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                       <span style={{ color: 'var(--text-muted)' }}>No customers found matching current filters</span>
                     </div>
                   ) : (
-                    customersList.filter(cust => {
-                      const term = searchQuery.toLowerCase();
-                      const matchesSearch = ((cust.first_name || '') + ' ' + (cust.last_name || '')).toLowerCase().includes(term) ||
-                                            (cust.mobile_number || '').includes(term) ||
-                                            (cust.email_address && cust.email_address.toLowerCase().includes(term));
-                      const matchesType = customerTypeFilter === 'All' || 
-                                            (cust.customer_type && cust.customer_type.toLowerCase() === customerTypeFilter.toLowerCase());
-                      return matchesSearch && matchesType;
-                    }).map(cust => (
+                    directoryCustomers.map(cust => (
                       <div key={cust.id} className="customer-detail-card responsive-customer-card" style={{
                         background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
                         border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',

@@ -1,10 +1,28 @@
 import datetime
-import random
+import secrets
+from django.db import transaction
 from crm_api.models import Order, OrderStage, OrderActivity, Tailor, BoutiqueSettings
-from crm_api.views import create_order_notifications
+from domains.orders.notifications import create_order_notifications
+
+
+def _generate_order_id():
+    """Build a T2B-YYMMDD-NNNN id that is not already taken.
+
+    order_id is unique, and a plain random draw collides often enough at a few
+    dozen orders a day to fail the insert (birthday paradox over 9000 slots).
+    """
+    today = datetime.date.today().strftime('%y%m%d')
+    for _ in range(20):
+        candidate = f"T2B-{today}-{secrets.randbelow(9000) + 1000}"
+        if not Order.objects.filter(order_id=candidate).exists():
+            return candidate
+    # Fall back to a wider space rather than raising on a very busy day.
+    return f"T2B-{today}-{secrets.token_hex(4)}"
+
 
 class OrderService:
     @staticmethod
+    @transaction.atomic
     def create_order_for_customer(customer, data, user=None):
         tailor_id = data.get('tailor_id')
         tailor = Tailor.objects.filter(id=tailor_id).first() if tailor_id else None
@@ -29,9 +47,7 @@ class OrderService:
         taxes = subtotal * 0.05
         total_amount = subtotal + taxes
 
-        today = datetime.date.today().strftime('%y%m%d')
-        rand_num = random.randint(1000, 9999)
-        order_id = f"T2B-{today}-{rand_num}"
+        order_id = _generate_order_id()
         est_delivery = datetime.date.today() + datetime.timedelta(days=15)
 
         payment_status = data.get('payment_status', 'Paid')
@@ -156,14 +172,21 @@ class OrderService:
         return order
 
     @staticmethod
+    @transaction.atomic
     def transition_order_stage(order, stage_key, new_status, comments='', performer_id=None, user=None, files=None, request=None):
         import uuid
         from django.utils import timezone
         from django.core.files.storage import default_storage
         from django.core.files.base import ContentFile
-        from crm_api.models import BoutiqueSettings
 
-        order_stage = order.stages.get(stage_key=stage_key)
+        try:
+            order_stage = order.stages.get(stage_key=stage_key)
+        except OrderStage.DoesNotExist:
+            raise ValueError(f'Unknown stage "{stage_key}" for order {order.order_id}')
+
+        valid_statuses = {'NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED'}
+        if new_status not in valid_statuses:
+            raise ValueError(f'Invalid stage status "{new_status}"')
 
         config, _ = BoutiqueSettings.objects.get_or_create(id=1)
         workflow_stages = config.workflow_config
@@ -244,8 +267,6 @@ class OrderService:
         all_stages = list(order.stages.all())
         if all(s.status == 'COMPLETED' for s in all_stages):
             order.production_status = 'COMPLETED'
-        elif any(s.status == 'IN_PROGRESS' for s in all_stages):
-            order.production_status = 'IN_PROGRESS'
         else:
             order.production_status = 'IN_PROGRESS'
 

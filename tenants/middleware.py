@@ -1,4 +1,5 @@
 from django.db import connection
+from django.http import JsonResponse
 from django_tenants.middleware.main import TenantMainMiddleware
 from django_tenants.utils import get_tenant_model, get_public_schema_name, get_tenant_domain_model, schema_context
 
@@ -6,17 +7,22 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
     def process_request(self, request):
         # 1. First, check request headers for X-Tenant-ID
         tenant_schema = request.headers.get("X-Tenant-ID")
-        
+
         tenant_model = get_tenant_model()
         public_schema_name = get_public_schema_name()
-        
+
         tenant = None
         if tenant_schema and tenant_schema != 'public':
             try:
                 tenant = tenant_model.objects.get(schema_name=tenant_schema)
             except tenant_model.DoesNotExist:
-                pass
-        
+                # Falling through to the public schema here used to surface as a
+                # raw "relation crm_api_customer does not exist" 500, because the
+                # business tables only exist inside tenant schemas.
+                return JsonResponse(
+                    {"error": f"Unknown tenant '{tenant_schema}'."}, status=400
+                )
+
         # 2. If not resolved via header, fallback to Authorization Token context search
         if not tenant:
             auth_header = request.headers.get("Authorization")
