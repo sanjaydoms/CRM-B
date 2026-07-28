@@ -17,7 +17,7 @@ from .serializers import (
     CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer, 
     FabricSelectionSerializer, TailorSerializer, OrderSerializer, BoutiqueFabricSerializer,
     BoutiqueDesignSerializer, NotificationSerializer, OrderStageHistorySerializer, BoutiqueSettingsSerializer,
-    MeasurementHistorySerializer, CustomerSummarySerializer
+    MeasurementHistorySerializer, CustomerSummarySerializer, OrderSummarySerializer
 )
 from domains.customers.repositories import CustomerRepository
 from domains.orders.notifications import create_order_notifications
@@ -348,9 +348,10 @@ class DashboardView(views.APIView):
         
         status_counts = Order.objects.values('order_status').annotate(count=Count('id'))
         
-        # Recent orders with customer and tailor detail
-        recent_orders = OrderRepository.get_all()[:5]
-        recent_orders_data = OrderSerializer(recent_orders, many=True, context={'request': request}).data
+        # Recent orders. The dashboard renders the stage tracker but never the
+        # activity log or stage histories, so those stay out of the payload.
+        recent_orders = OrderRepository.summary_queryset()[:5]
+        recent_orders_data = OrderSummarySerializer(recent_orders, many=True, context={'request': request}).data
 
         # Recent customers, as flat summary rows -- the dashboard shows name, type
         # and spend, not each client's full order history.

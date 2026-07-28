@@ -6,7 +6,7 @@ from rest_framework.authtoken.models import Token
 from django_tenants.test.cases import TenantTestCase
 import datetime
 
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, OrderStage
 
 class BoutiqueCRMTests(TenantTestCase):
     @classmethod
@@ -327,6 +327,51 @@ class BoutiqueCRMTests(TenantTestCase):
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['stats']['total_customers'], 1)
+
+    def test_dashboard_recent_orders_keep_stages_but_drop_unused_relations(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        OrderStage.objects.create(
+            order=order, stage_key='created', stage_name='Created',
+            status='COMPLETED', sequence=0,
+        )
+
+        body = self.client.get(reverse('dashboard')).json()
+
+        recent = body['recent_orders'][0]
+        # The Order Progress tracker renders these.
+        self.assertEqual(len(recent['stages']), 1)
+        self.assertEqual(recent['stages'][0]['stage_name'], 'Created')
+        self.assertIn('customer_name', recent)
+        self.assertIn('estimated_delivery', recent)
+        # Nothing on the dashboard renders these.
+        for unused in ('activities', 'stage_histories', 'customer_measurements'):
+            self.assertNotIn(unused, recent, f"{unused} is not rendered by the dashboard")
+
+    def test_dashboard_query_count_does_not_grow_with_orders(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self.authenticate_client()
+
+        def dashboard_query_count():
+            with CaptureQueriesContext(connection) as ctx:
+                self.assertEqual(
+                    self.client.get(reverse('dashboard')).status_code, status.HTTP_200_OK
+                )
+            return len(ctx.captured_queries)
+
+        for i in range(2):
+            self._customer_with_order(mobile=f"91000000{i:02d}")
+        baseline = dashboard_query_count()
+
+        for i in range(2, 8):
+            self._customer_with_order(mobile=f"91000000{i:02d}")
+        self.assertEqual(
+            dashboard_query_count(), baseline,
+            "dashboard query count grew with the number of orders (N+1)",
+        )
 
     def test_get_ai_suggestions(self):
         self.authenticate_client()

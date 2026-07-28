@@ -14,6 +14,13 @@ ORDER_PREFETCH = (
 
 class OrderRepository:
     @staticmethod
+    def summary_queryset():
+        """Rows for OrderSummarySerializer -- stages only, no activity log."""
+        return Order.objects.select_related('customer', 'tailor', 'master').prefetch_related(
+            'stages', 'stages__performed_by',
+        ).order_by('-order_date')
+
+    @staticmethod
     def base_queryset():
         return Order.objects.select_related(*ORDER_SELECT_RELATED).prefetch_related(*ORDER_PREFETCH)
 

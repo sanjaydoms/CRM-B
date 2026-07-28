@@ -276,6 +276,37 @@ class CustomerSerializer(serializers.ModelSerializer):
             
         return instance
 
+class OrderSummarySerializer(serializers.ModelSerializer):
+    """Order for the dashboard panels.
+
+    Keeps `stages`, which the Order Progress tracker renders, but drops the
+    activity log, stage histories and the customer's measurements -- none of
+    which any dashboard panel reads.
+    """
+
+    tailor_name = serializers.CharField(source='tailor.name', read_only=True)
+    master_name = serializers.CharField(source='master.name', read_only=True)
+    customer_name = serializers.SerializerMethodField()
+    customer_garment_type = serializers.CharField(source='customer.garment_type', read_only=True)
+    stages = OrderStageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type',
+            'tailor', 'tailor_name', 'master', 'master_name',
+            'payment_status', 'order_status', 'total_amount', 'advance_paid', 'amount_paid',
+            'order_date', 'estimated_delivery', 'delivery_method', 'courier_service',
+            'tracking_number', 'delivery_address', 'tailor_comments',
+            'completed_garment_image', 'current_stage_key', 'production_status', 'stages',
+        ]
+
+    def get_customer_name(self, obj):
+        if obj.customer:
+            return f"{obj.customer.first_name} {obj.customer.last_name}"
+        return 'Unknown Customer'
+
+
 class CustomerSummarySerializer(serializers.ModelSerializer):
     """Customer row for the directory list and dashboard panels.
 
