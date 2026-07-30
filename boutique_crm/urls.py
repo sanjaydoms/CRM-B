@@ -26,6 +26,7 @@ urlpatterns = [
     path('api/activities/', include('apps.activities.urls')),
     path('api/scheduling/', include('apps.scheduling.urls')),
     path('api/design-studio/', include('apps.design_studio.urls')),
+    path('api/inventory/', include('apps.inventory.urls')),
 ]
 
 # Media is served in every environment, not just DEBUG. Uploads use

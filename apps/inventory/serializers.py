@@ -1,0 +1,108 @@
+from rest_framework import serializers
+
+from .models import (
+    Category, DEFAULT_UNIT_BY_CATEGORY, InventoryItem, PurchaseOrder,
+    PurchaseOrderLine, StockMovement, Supplier, Unit,
+)
+
+
+class SupplierSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Supplier
+        fields = '__all__'
+
+
+class InventoryItemSerializer(serializers.ModelSerializer):
+    available_stock = serializers.DecimalField(max_digits=12, decimal_places=3, read_only=True)
+    needs_reorder = serializers.BooleanField(read_only=True)
+    is_out_of_stock = serializers.BooleanField(read_only=True)
+    unit_display = serializers.CharField(source='get_unit_display', read_only=True)
+    category_display = serializers.CharField(source='get_category_display', read_only=True)
+    supplier_name = serializers.CharField(source='supplier.name', read_only=True)
+
+    class Meta:
+        model = InventoryItem
+        fields = '__all__'
+        # Stock moves only through InventoryService; letting the API PATCH these
+        # would put the ledger and the balance out of step.
+        read_only_fields = ['current_stock', 'reserved_stock', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        category = attrs.get('category') or getattr(self.instance, 'category', None)
+        if category and not attrs.get('unit') and not self.instance:
+            attrs['unit'] = DEFAULT_UNIT_BY_CATEGORY.get(category, Unit.UNIT)
+        return attrs
+
+
+class InventoryItemSummarySerializer(serializers.ModelSerializer):
+    """Flat row for list views -- no supplier join, no descriptors."""
+
+    available_stock = serializers.DecimalField(max_digits=12, decimal_places=3, read_only=True)
+    needs_reorder = serializers.BooleanField(read_only=True)
+    unit_display = serializers.CharField(source='get_unit_display', read_only=True)
+
+    class Meta:
+        model = InventoryItem
+        fields = [
+            'id', 'item_code', 'name', 'category', 'color', 'unit', 'unit_display',
+            'current_stock', 'reserved_stock', 'available_stock', 'reorder_level',
+            'needs_reorder', 'rack_location', 'status', 'purchase_price',
+        ]
+
+
+class StockMovementSerializer(serializers.ModelSerializer):
+    item_name = serializers.CharField(source='item.name', read_only=True)
+    item_code = serializers.CharField(source='item.item_code', read_only=True)
+    movement_type_display = serializers.CharField(source='get_movement_type_display', read_only=True)
+    order_reference = serializers.CharField(source='order.order_id', read_only=True)
+    performed_by_name = serializers.CharField(source='performed_by.name', read_only=True)
+
+    class Meta:
+        model = StockMovement
+        fields = '__all__'
+        # The ledger is append-only: it is written by InventoryService alone.
+        read_only_fields = [f.name for f in StockMovement._meta.fields]
+
+
+class PurchaseOrderLineSerializer(serializers.ModelSerializer):
+    item_name = serializers.CharField(source='item.name', read_only=True)
+    item_code = serializers.CharField(source='item.item_code', read_only=True)
+    quantity_outstanding = serializers.DecimalField(max_digits=12, decimal_places=3, read_only=True)
+    line_total = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = PurchaseOrderLine
+        fields = [
+            'id', 'item', 'item_name', 'item_code', 'quantity_ordered',
+            'quantity_received', 'quantity_outstanding', 'unit_cost',
+            'line_total', 'batch_number',
+        ]
+        read_only_fields = ['quantity_received']
+
+
+class PurchaseOrderSerializer(serializers.ModelSerializer):
+    lines = PurchaseOrderLineSerializer(many=True, required=False)
+    supplier_name = serializers.CharField(source='supplier.name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    subtotal = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    total = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = PurchaseOrder
+        fields = '__all__'
+        read_only_fields = ['status', 'received_date', 'order_date']
+
+    def create(self, validated_data):
+        lines = validated_data.pop('lines', [])
+        purchase_order = PurchaseOrder.objects.create(**validated_data)
+        for line in lines:
+            PurchaseOrderLine.objects.create(purchase_order=purchase_order, **line)
+        return purchase_order
+
+    def update(self, instance, validated_data):
+        # Lines are managed through the receive action, not by wholesale replacement.
+        validated_data.pop('lines', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
