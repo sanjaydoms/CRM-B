@@ -31,11 +31,17 @@ class InventoryService:
     @staticmethod
     @transaction.atomic
     def record_movement(item, movement_type, quantity, *, stock_delta, reserved_delta,
-                        user=None, order=None, stage_key=None, performed_by=None, remarks=''):
+                        clamp_reserved=False, user=None, order=None, stage_key=None,
+                        performed_by=None, remarks=''):
         """Apply a stock change and write its ledger line.
 
         stock_delta and reserved_delta are signed; a reservation moves only the
         reserved figure, an issue moves both down, a purchase moves stock up.
+
+        clamp_reserved is for issuing: material is often handed to the workroom
+        without having been reserved first, so an issue consumes whatever
+        reservation exists and takes the rest from free stock, rather than
+        failing because there was nothing reserved to release.
         """
         quantity = _as_quantity(quantity)
 
@@ -45,7 +51,10 @@ class InventoryService:
         previous_stock = locked.current_stock
         previous_reserved = locked.reserved_stock
         new_stock = previous_stock + (stock_delta * quantity)
-        new_reserved = previous_reserved + (reserved_delta * quantity)
+        if clamp_reserved and reserved_delta < 0:
+            new_reserved = max(Decimal('0'), previous_reserved - quantity)
+        else:
+            new_reserved = previous_reserved + (reserved_delta * quantity)
 
         if new_stock < 0:
             raise ValueError(
@@ -121,11 +130,15 @@ class InventoryService:
         )
 
     @staticmethod
-    def issue(item, quantity, *, from_reservation=True, **kw):
-        """Handed to production. Leaves the shelf, and clears its reservation."""
+    def issue(item, quantity, **kw):
+        """Handed to production. Leaves the shelf, consuming any reservation.
+
+        Issuing more than was reserved is normal -- the surplus simply comes from
+        free stock. Only the physical balance can block an issue.
+        """
         return InventoryService.record_movement(
             item, StockMovement.Type.ISSUE, quantity,
-            stock_delta=-1, reserved_delta=-1 if from_reservation else 0, **kw
+            stock_delta=-1, reserved_delta=-1, clamp_reserved=True, **kw
         )
 
     @staticmethod

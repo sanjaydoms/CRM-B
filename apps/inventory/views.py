@@ -130,7 +130,6 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
             request, InventoryService.issue,
             order=self._order(request),
             stage_key=request.data.get('stage_key'),
-            from_reservation=str(request.data.get('from_reservation', 'true')).lower() != 'false',
         )
 
     @action(detail=True, methods=['POST'], url_path='return')

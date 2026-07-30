@@ -144,6 +144,29 @@ class StockGuardTests(InventoryTestBase):
         self.assertEqual(item.current_stock, Decimal('30.000'))
         self.assertEqual(item.available_stock, Decimal('22.000'))
 
+    def test_issuing_without_a_reservation_works(self):
+        """Material is often handed to the workroom without being reserved first."""
+        item = self.make_item()
+        InventoryService.stock_in(item, 40, user=self.owner)
+
+        InventoryService.issue(item, 15, user=self.owner)
+
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('25.000'))
+        self.assertEqual(item.reserved_stock, Decimal('0.000'))
+
+    def test_issuing_more_than_reserved_takes_the_rest_from_free_stock(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 40, user=self.owner)
+        InventoryService.reserve(item, 5, user=self.owner)
+
+        InventoryService.issue(item, 12, user=self.owner)
+
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('28.000'))
+        self.assertEqual(item.reserved_stock, Decimal('0.000'), 'the reservation is consumed, not left negative')
+        self.assertEqual(item.available_stock, Decimal('28.000'))
+
     def test_failed_movement_leaves_no_ledger_line(self):
         item = self.make_item()
         InventoryService.stock_in(item, 4, user=self.owner)
@@ -187,20 +210,20 @@ class ReorderAlertTests(InventoryTestBase):
         InventoryService.stock_in(item, 30, user=self.owner)
         self.assertFalse(Notification.objects.filter(title__icontains='Reorder').exists())
 
-        InventoryService.issue(item, 22, from_reservation=False, user=self.owner)
+        InventoryService.issue(item, 22, user=self.owner)
         self.assertTrue(Notification.objects.filter(title__icontains='Reorder level').exists())
 
     def test_running_out_notifies_the_owner(self):
         item = self.make_item(reorder_level=Decimal('0'))
         InventoryService.stock_in(item, 5, user=self.owner)
-        InventoryService.issue(item, 5, from_reservation=False, user=self.owner)
+        InventoryService.issue(item, 5, user=self.owner)
         self.assertTrue(Notification.objects.filter(title__icontains='Out of stock').exists())
 
     def test_the_same_alert_is_not_repeated_while_unread(self):
         item = self.make_item(reorder_level=Decimal('10'))
         InventoryService.stock_in(item, 30, user=self.owner)
-        InventoryService.issue(item, 21, from_reservation=False, user=self.owner)
-        InventoryService.issue(item, 1, from_reservation=False, user=self.owner)
+        InventoryService.issue(item, 21, user=self.owner)
+        InventoryService.issue(item, 1, user=self.owner)
         self.assertEqual(
             Notification.objects.filter(title__icontains='Reorder level').count(), 1
         )

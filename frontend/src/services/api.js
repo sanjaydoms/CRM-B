@@ -489,6 +489,106 @@ export const api = {
     return res.json();
   },
 
+  // --- Inventory ---
+  async getInventoryItems(params = {}) {
+    const url = new URL(`${BASE_URL}/inventory/items/`);
+    Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch inventory');
+    return res.json();
+  },
+
+  async getInventorySummary() {
+    const res = await fetch(`${BASE_URL}/inventory/items/summary/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch inventory summary');
+    return res.json();
+  },
+
+  async getInventoryOptions() {
+    const res = await fetch(`${BASE_URL}/inventory/items/options/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch inventory options');
+    return res.json();
+  },
+
+  async saveInventoryItem(itemData, itemId = null) {
+    const res = await fetch(
+      itemId ? `${BASE_URL}/inventory/items/${itemId}/` : `${BASE_URL}/inventory/items/`,
+      {
+        method: itemId ? 'PATCH' : 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(itemData),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || JSON.stringify(err) || 'Failed to save item');
+    }
+    return res.json();
+  },
+
+  // Every stock change goes through one of the movement endpoints so the ledger
+  // stays in step; the quantity fields themselves are read-only.
+  async moveStock(itemId, movement, payload) {
+    const res = await fetch(`${BASE_URL}/inventory/items/${itemId}/${movement}/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to record stock movement');
+    }
+    return res.json();
+  },
+
+  async getItemMovements(itemId) {
+    const res = await fetch(`${BASE_URL}/inventory/items/${itemId}/movements/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch stock history');
+    return res.json();
+  },
+
+  async getSuppliers() {
+    const res = await fetch(`${BASE_URL}/inventory/suppliers/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch suppliers');
+    return res.json();
+  },
+
+  async createSupplier(data) {
+    const res = await fetch(`${BASE_URL}/inventory/suppliers/`, {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to create supplier');
+    return res.json();
+  },
+
+  async getPurchaseOrders() {
+    const res = await fetch(`${BASE_URL}/inventory/purchase-orders/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch purchase orders');
+    return res.json();
+  },
+
+  async createPurchaseOrder(data) {
+    const res = await fetch(`${BASE_URL}/inventory/purchase-orders/`, {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || JSON.stringify(err) || 'Failed to create purchase order');
+    }
+    return res.json();
+  },
+
+  async receivePurchaseOrder(poId, lines) {
+    const res = await fetch(`${BASE_URL}/inventory/purchase-orders/${poId}/receive/`, {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify({ lines }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to receive goods');
+    }
+    return res.json();
+  },
+
   async getNotifications(role = 'Owner', email = '') {
     const url = new URL(`${BASE_URL}/notifications/`);
     url.searchParams.append('role', role);

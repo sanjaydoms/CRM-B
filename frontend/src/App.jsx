@@ -5,11 +5,12 @@ import {
   MessageSquare, Star, Copy, ShieldCheck, Compass, BarChart2,
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
-  FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History
+  FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
 import DesignStudio from './features/designStudio/DesignStudio';
+import InventoryPanel from './features/inventory/InventoryPanel';
 
 // Mirrors Tailor.ROLE_CHOICES. A boutique run by one generalist keeps using Master;
 // larger studios split the work, and each stage only accepts its own specialists.
@@ -2557,6 +2558,7 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); }}><FileText size={16} /> Invoices</a>
                   <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); }}><BarChart2 size={16} /> Analytics</a>
                   <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); }}><Compass size={16} /> Manage Fabrics</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); }}><Package size={16} /> Inventory</a>
                   <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); }}><Scissors size={16} /> Manage Tailors</a>
                   <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); }}><Sparkles size={16} /> Manage Designs</a>
                 </>
@@ -3276,6 +3278,11 @@ function App() {
                   </div>
                 </div>
               </>
+            )}
+
+            {/* INVENTORY TAB */}
+            {dashboardTab === 'inventory' && (
+              <InventoryPanel currentUser={currentUser} />
             )}
 
             {/* 2. MANAGE FABRICS TAB */}
