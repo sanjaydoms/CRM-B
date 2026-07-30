@@ -279,11 +279,18 @@ class OrderCreationTests(WorkflowTestBase):
         from apps.production.models import ProductionTask
         order = self.make_order()
         tasks = ProductionTask.objects.filter(order=order)
-        self.assertEqual(tasks.count(), 8)
+        self.assertEqual(tasks.count(), 9)
         stitching = tasks.get(stage_key="stitching_in_progress")
         self.assertEqual(stitching.assigned_to, self.tailor)
         cutting = tasks.get(stage_key="pattern_cutting")
         self.assertEqual(cutting.assigned_to, self.master)
+        # Finishing and pressing became stages of their own, so each has its own task.
+        self.assertTrue(tasks.filter(stage_key="finishing").exists())
+        self.assertTrue(tasks.filter(stage_key="pressing").exists())
+        # Every task must point at a stage that actually exists on the order.
+        stage_keys = set(order.stages.values_list("stage_key", flat=True))
+        orphans = set(tasks.values_list("stage_key", flat=True)) - stage_keys
+        self.assertEqual(orphans, set(), f"tasks reference non-existent stages: {orphans}")
 
     def test_order_ids_are_unique_across_many_orders(self):
         ids = set()

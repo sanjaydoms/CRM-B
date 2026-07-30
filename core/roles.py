@@ -14,7 +14,13 @@ OWNER = 'Owner'
 
 
 def resolve_user_role(user):
-    """Return 'Owner', 'Master', 'Tailor', or None for an anonymous caller."""
+    """Return the caller's role, or None for an anonymous caller.
+
+    The role is whatever the Tailor profile carries -- 'Master' and 'Tailor' for a
+    generalist boutique, or one of the specialists (Measurement Master, Pattern
+    Master, Cutting Master, Maggam Master, Finishing Master, Pressing Staff, QC
+    Master) where the studio has split the work. See Tailor.ROLE_CHOICES.
+    """
     if user is None or not getattr(user, 'is_authenticated', False):
         return None
     if user.is_superuser:

@@ -1,5 +1,7 @@
+import json
 import os
 import uuid
+from django.utils import timezone
 from django.contrib.auth.models import User
 from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
@@ -17,7 +19,8 @@ from .serializers import (
     CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer, 
     FabricSelectionSerializer, TailorSerializer, OrderSerializer, BoutiqueFabricSerializer,
     BoutiqueDesignSerializer, NotificationSerializer, OrderStageHistorySerializer, BoutiqueSettingsSerializer,
-    MeasurementHistorySerializer, CustomerSummarySerializer, OrderSummarySerializer
+    MeasurementHistorySerializer, CustomerSummarySerializer, OrderSummarySerializer,
+    OrderStageSerializer
 )
 from domains.customers.repositories import CustomerRepository
 from domains.orders.notifications import create_order_notifications
@@ -53,7 +56,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
         notes = request.data.get('notes', '')
         
         # Handle existing selected URLs
-        import json
         selected_urls = request.data.get('selected_urls', '[]')
         try:
             image_urls = json.loads(selected_urls)
@@ -67,14 +69,65 @@ class CustomerViewSet(viewsets.ModelViewSet):
             saved_path = default_storage.save(path, ContentFile(f.read()))
             image_urls.append(request.build_absolute_uri(default_storage.url(saved_path)))
             
+        # Where the design came from, and any external inspiration links.
+        source = request.data.get('source') or 'BOUTIQUE_CATALOG'
+        valid_sources = {c[0] for c in DesignPreference.SOURCE_CHOICES}
+        if source not in valid_sources:
+            return Response(
+                {'error': f"Unknown design source '{source}'.",
+                 'allowed': sorted(valid_sources)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            reference_links = json.loads(request.data.get('reference_links', '[]'))
+        except Exception:
+            reference_links = []
+        if not isinstance(reference_links, list):
+            reference_links = []
+
         # Create DesignPreference
         pref = DesignPreference.objects.create(
             customer=customer,
             notes=notes,
-            reference_images=image_urls
+            reference_images=image_urls,
+            source=source,
+            reference_links=reference_links,
         )
         serializer = DesignPreferenceSerializer(pref)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['POST'], url_path='design-preferences/(?P<pref_id>[^/.]+)/approve')
+    def approve_design(self, request, pk=None, pref_id=None):
+        """Sign off one design for production.
+
+        Only one design per client may be approved at a time -- approving a new one
+        supersedes the last, so the production checklist has a single answer.
+        """
+        customer = self.get_object()
+        pref = customer.design_preferences.filter(id=pref_id).first()
+        if not pref:
+            return Response({'error': 'Design preference not found for this customer.'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        approved_image = request.data.get('approved_image')
+        if approved_image and approved_image not in (pref.reference_images or []):
+            return Response(
+                {'error': 'approved_image must be one of this design\'s reference images.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        customer.design_preferences.exclude(id=pref.id).filter(is_approved=True).update(
+            is_approved=False, approved_at=None
+        )
+        pref.is_approved = True
+        pref.approved_at = timezone.now()
+        if approved_image:
+            pref.approved_image = approved_image
+        elif not pref.approved_image and pref.reference_images:
+            pref.approved_image = pref.reference_images[0]
+        pref.save()
+
+        return Response(DesignPreferenceSerializer(pref).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['GET'], url_path='ai-suggestions')
     def ai_suggestions(self, request, pk=None):
@@ -303,6 +356,50 @@ class OrderViewSet(viewsets.ModelViewSet):
         
         serializer = OrderSerializer(order)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['POST'], url_path='assign-stage')
+    def assign_stage(self, request, pk=None):
+        """Nominate who should perform a stage, ahead of the work starting.
+
+        Distinct from performed_by, which records who actually did it. Refuses a
+        staff member whose role the stage does not permit, so the assignment cannot
+        contradict the transition rules.
+        """
+        order = self.get_object()
+        stage_key = request.data.get('stage_key')
+        tailor_id = request.data.get('tailor_id')
+
+        if not stage_key:
+            return Response({'error': 'stage_key is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stage = order.stages.filter(stage_key=stage_key).first()
+        if not stage:
+            return Response({'error': f"Unknown stage '{stage_key}' for this order."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        # Passing no tailor_id clears the assignment.
+        if tailor_id in (None, '', 'null'):
+            stage.assigned_to = None
+            stage.save(update_fields=['assigned_to'])
+            return Response(OrderStageSerializer(stage).data, status=status.HTTP_200_OK)
+
+        tailor = Tailor.objects.filter(id=tailor_id).first()
+        if not tailor:
+            return Response({'error': 'Staff member not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        config, _ = BoutiqueSettings.objects.get_or_create(id=1)
+        stage_conf = next((s for s in config.workflow_config if s['key'] == stage_key), {})
+        allowed_roles = stage_conf.get('roles', [])
+        if allowed_roles and tailor.role not in allowed_roles:
+            return Response(
+                {'error': f"{tailor.name} is a {tailor.role} and cannot be assigned to {stage.stage_name}.",
+                 'allowed_roles': allowed_roles},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        stage.assigned_to = tailor
+        stage.save(update_fields=['assigned_to'])
+        return Response(OrderStageSerializer(stage).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['POST'], url_path='transition')
     def transition_stage(self, request, pk=None):

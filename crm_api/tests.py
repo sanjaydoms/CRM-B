@@ -375,6 +375,236 @@ class BoutiqueCRMTests(TenantTestCase):
             "dashboard query count grew with the number of orders (N+1)",
         )
 
+    # --- Specialist roles, design approval, stage assignment ---
+
+    def test_specialist_role_may_advance_its_own_stage(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        stage = OrderStage.objects.create(
+            order=order, stage_key='master_quality_check',
+            stage_name='Master Quality Check', status='NOT_STARTED', sequence=7,
+        )
+        qc = Tailor.objects.create(name="QC Lead", specialty="Inspection", role="QC Master",
+                                   email="qc@test.com")
+        qc_user = User.objects.create_user(username="qc", email="qc@test.com", password="x")
+        qc.user = qc_user
+        qc.save()
+
+        from domains.orders.services import OrderService
+        OrderService.transition_order_stage(
+            order=order, stage_key='master_quality_check', new_status='COMPLETED', user=qc_user,
+        )
+        stage.refresh_from_db()
+        self.assertEqual(stage.status, 'COMPLETED')
+
+    def test_wrong_specialist_is_refused(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        OrderStage.objects.create(
+            order=order, stage_key='master_quality_check',
+            stage_name='Master Quality Check', status='NOT_STARTED', sequence=7,
+        )
+        presser = Tailor.objects.create(name="Presser", specialty="Pressing",
+                                        role="Pressing Staff", email="press@test.com")
+        presser_user = User.objects.create_user(username="press", email="press@test.com", password="x")
+        presser.user = presser_user
+        presser.save()
+
+        from domains.orders.services import OrderService
+        with self.assertRaises(ValueError) as ctx:
+            OrderService.transition_order_stage(
+                order=order, stage_key='master_quality_check', new_status='COMPLETED',
+                user=presser_user,
+            )
+        self.assertIn('not authorized', str(ctx.exception))
+
+    def test_generalist_master_still_works_after_role_split(self):
+        """A boutique with one Master must be unaffected by the specialist roles."""
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        stage = OrderStage.objects.create(
+            order=order, stage_key='master_quality_check',
+            stage_name='Master Quality Check', status='NOT_STARTED', sequence=7,
+        )
+        master = Tailor.objects.create(name="Generalist", specialty="All", role="Master",
+                                       email="gen@test.com")
+        master_user = User.objects.create_user(username="gen", email="gen@test.com", password="x")
+        master.user = master_user
+        master.save()
+
+        from domains.orders.services import OrderService
+        OrderService.transition_order_stage(
+            order=order, stage_key='master_quality_check', new_status='COMPLETED', user=master_user,
+        )
+        stage.refresh_from_db()
+        self.assertEqual(stage.status, 'COMPLETED')
+
+    def test_every_staff_role_has_a_stage_it_can_work_on(self):
+        """A role nobody can be assigned to is a role that does not exist."""
+        from crm_api.models import get_default_workflow
+        workflow = get_default_workflow()
+        homeless = [
+            role for role, _ in Tailor.ROLE_CHOICES
+            if not any(role in stage.get('roles', []) for stage in workflow)
+        ]
+        self.assertEqual(homeless, [], f"roles with no stage to act on: {homeless}")
+
+    def test_maggam_stage_can_be_skipped_for_a_garment_that_needs_no_embroidery(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        stage = OrderStage.objects.create(order=order, stage_key='maggam_work',
+                                          stage_name='Maggam Work', sequence=4)
+
+        from domains.orders.services import OrderService
+        OrderService.transition_order_stage(
+            order=order, stage_key='maggam_work', new_status='SKIPPED', user=self.user,
+        )
+
+        stage.refresh_from_db()
+        self.assertEqual(stage.status, 'SKIPPED')
+
+    def test_finishing_and_pressing_specialists_can_advance_their_stages(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        from domains.orders.services import OrderService
+
+        for key, name, role, username in [
+            ('finishing', 'Hemming & Finishing', 'Finishing Master', 'fin'),
+            ('pressing', 'Pressing', 'Pressing Staff', 'press'),
+        ]:
+            OrderStage.objects.create(order=order, stage_key=key, stage_name=name, sequence=9)
+            staff = Tailor.objects.create(name=f"{role} person", specialty=name,
+                                          role=role, email=f"{username}@test.com")
+            user = User.objects.create_user(username=username, email=f"{username}@test.com",
+                                            password="x")
+            staff.user = user
+            staff.save()
+
+            OrderService.transition_order_stage(
+                order=order, stage_key=key, new_status='COMPLETED', user=user,
+            )
+            self.assertEqual(order.stages.get(stage_key=key).status, 'COMPLETED')
+
+    def test_new_orders_get_the_full_fifteen_stage_workflow(self):
+        self.authenticate_client()
+        customer = Customer.objects.create(first_name="Nita", last_name="R", mobile_number="9600000001")
+        from domains.orders.services import OrderService
+        order = OrderService.create_order_for_customer(customer, {'base_price': 1000}, user=self.user)
+
+        keys = list(order.stages.order_by('sequence').values_list('stage_key', flat=True))
+        for expected in ('maggam_work', 'finishing', 'pressing'):
+            self.assertIn(expected, keys)
+        self.assertLess(keys.index('maggam_work'), keys.index('stitching_in_progress'))
+        self.assertLess(keys.index('finishing'), keys.index('pressing'))
+        self.assertLess(keys.index('pressing'), keys.index('master_quality_check'))
+
+    def test_design_preference_records_source_and_links(self):
+        self.authenticate_client()
+        customer = Customer.objects.create(first_name="Ria", last_name="S", mobile_number="9700000001")
+
+        response = self.client.post(
+            reverse('customer-save-design-preferences', args=[customer.id]),
+            {'notes': 'Sweetheart neckline', 'source': 'PINTEREST',
+             'reference_links': '["https://pin.it/abc"]',
+             'selected_urls': '["https://img.test/a.jpg"]'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()['source'], 'PINTEREST')
+        self.assertEqual(response.json()['source_display'], 'Pinterest Inspiration')
+        self.assertEqual(response.json()['reference_links'], ['https://pin.it/abc'])
+        self.assertFalse(response.json()['is_approved'])
+
+    def test_unknown_design_source_is_rejected(self):
+        self.authenticate_client()
+        customer = Customer.objects.create(first_name="Ria", last_name="S", mobile_number="9700000002")
+        response = self.client.post(
+            reverse('customer-save-design-preferences', args=[customer.id]),
+            {'notes': 'x', 'source': 'TIKTOK'},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_approving_a_design_supersedes_the_previous_one(self):
+        self.authenticate_client()
+        customer = Customer.objects.create(first_name="Ria", last_name="S", mobile_number="9700000003")
+        first = DesignPreference.objects.create(
+            customer=customer, notes='v1', reference_images=['https://img.test/1.jpg'])
+        second = DesignPreference.objects.create(
+            customer=customer, notes='v2', reference_images=['https://img.test/2.jpg'])
+
+        url = reverse('customer-approve-design', args=[customer.id, first.id])
+        self.assertEqual(self.client.post(url).status_code, status.HTTP_200_OK)
+        first.refresh_from_db()
+        self.assertTrue(first.is_approved)
+        self.assertEqual(first.approved_image, 'https://img.test/1.jpg')
+
+        url2 = reverse('customer-approve-design', args=[customer.id, second.id])
+        self.assertEqual(self.client.post(url2).status_code, status.HTTP_200_OK)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertFalse(first.is_approved, "approving a design must supersede the previous one")
+        self.assertTrue(second.is_approved)
+        self.assertIsNone(first.approved_at)
+
+    def test_stage_assignment_accepts_permitted_role(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        OrderStage.objects.create(order=order, stage_key='measurements_completed',
+                                  stage_name='Measurements Completed', sequence=1)
+        mm = Tailor.objects.create(name="Meena", specialty="Measuring", role="Measurement Master")
+
+        response = self.client.post(
+            reverse('order-assign-stage', args=[order.id]),
+            {'stage_key': 'measurements_completed', 'tailor_id': mm.id}, format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()['assigned_to_name'], 'Meena')
+        self.assertEqual(response.json()['assigned_to_role'], 'Measurement Master')
+
+    def test_stage_assignment_refuses_a_role_the_stage_does_not_permit(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        OrderStage.objects.create(order=order, stage_key='measurements_completed',
+                                  stage_name='Measurements Completed', sequence=1)
+        presser = Tailor.objects.create(name="Presser", specialty="Pressing", role="Pressing Staff")
+
+        response = self.client.post(
+            reverse('order-assign-stage', args=[order.id]),
+            {'stage_key': 'measurements_completed', 'tailor_id': presser.id}, format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('cannot be assigned', response.json()['error'])
+
+    def test_stage_assignment_is_distinct_from_who_performed_it(self):
+        self.authenticate_client()
+        customer = self._customer_with_order()
+        order = Order.objects.get(customer=customer)
+        stage = OrderStage.objects.create(order=order, stage_key='measurements_completed',
+                                          stage_name='Measurements Completed', sequence=1)
+        planned = Tailor.objects.create(name="Meena", specialty="Measuring", role="Measurement Master")
+        actual = Tailor.objects.create(name="Stand-in", specialty="Measuring", role="Master")
+
+        self.client.post(reverse('order-assign-stage', args=[order.id]),
+                         {'stage_key': 'measurements_completed', 'tailor_id': planned.id}, format='json')
+        from domains.orders.services import OrderService
+        OrderService.transition_order_stage(
+            order=order, stage_key='measurements_completed', new_status='COMPLETED',
+            performer_id=actual.id, user=self.user,
+        )
+
+        stage.refresh_from_db()
+        self.assertEqual(stage.assigned_to, planned, "assignment must survive the transition")
+        self.assertEqual(stage.performed_by, actual)
+
     def test_get_ai_suggestions(self):
         self.authenticate_client()
         customer = Customer.objects.create(

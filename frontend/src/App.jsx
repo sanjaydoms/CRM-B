@@ -11,6 +11,31 @@ import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
 import DesignStudio from './features/designStudio/DesignStudio';
 
+// Mirrors Tailor.ROLE_CHOICES. A boutique run by one generalist keeps using Master;
+// larger studios split the work, and each stage only accepts its own specialists.
+const STAFF_ROLES = [
+  { value: 'Tailor', label: 'Stitching Tailor', hint: 'Stitches the garment.' },
+  { value: 'Master', label: 'Master Tailor (generalist)', hint: 'Can work on every stage.' },
+  { value: 'Measurement Master', label: 'Measurement Master', hint: 'Takes and verifies client measurements.' },
+  { value: 'Pattern Master', label: 'Pattern Master', hint: 'Drafts the paper pattern.' },
+  { value: 'Cutting Master', label: 'Cutting Master', hint: 'Cuts fabric from the pattern.' },
+  { value: 'Maggam Master', label: 'Maggam Master', hint: 'Runs embroidery before stitching.' },
+  { value: 'Finishing Master', label: 'Finishing Master', hint: 'Hemming and final shaping.' },
+  { value: 'Pressing Staff', label: 'Pressing Staff', hint: 'Presses the garment before dispatch.' },
+  { value: 'QC Master', label: 'QC Master', hint: 'Runs the quality inspection.' },
+];
+
+// Where a design came from. Mirrors DesignPreference.SOURCE_CHOICES.
+const DESIGN_SOURCES = [
+  { value: 'BOUTIQUE_CATALOG', label: 'Boutique catalogue' },
+  { value: 'CUSTOM_DESIGN', label: 'Custom design' },
+  { value: 'PREVIOUS_DESIGN', label: 'Previous design' },
+  { value: 'PINTEREST', label: 'Pinterest' },
+  { value: 'GOOGLE', label: 'Google images' },
+  { value: 'CUSTOMER_SKETCH', label: 'Customer sketch' },
+  { value: 'DESIGNER_SKETCH', label: 'Designer sketch' },
+];
+
 const GARMENT_PRICES = {
   'Lehenga': 32000,
   'Gown': 25000,
@@ -222,6 +247,8 @@ function App() {
   // order once it is created in step 6.
   const [designBoard, setDesignBoard] = useState({ boardId: null, selected: null, approved: false });
   const [selectedDesignTemplates, setSelectedDesignTemplates] = useState([]);
+  const [designSource, setDesignSource] = useState('BOUTIQUE_CATALOG');
+  const [designLinks, setDesignLinks] = useState('');
   const [fabricTab, setFabricTab] = useState('boutique'); // 'my-fabric', 'boutique'
   const [paymentPhase, setPaymentPhase] = useState(false);
   const [paymentOption, setPaymentOption] = useState('full'); // 'full' or 'partial'
@@ -304,6 +331,8 @@ function App() {
   const [expandedDna, setExpandedDna] = useState({});
   const [selectedDirectoryCustomer, setSelectedDirectoryCustomer] = useState(null);
   const [directoryDetailLoading, setDirectoryDetailLoading] = useState(false);
+  const [approvingDesignId, setApprovingDesignId] = useState(null);
+  const [assigningStageKey, setAssigningStageKey] = useState(null);
 
   // Backend fetched collections
   const [dashboardData, setDashboardData] = useState(null);
@@ -434,7 +463,13 @@ function App() {
       load('dashboard', api.getDashboard, (data) => {
         setDashboardData(data);
         if (data.recent_orders?.length > 0) {
-          setSelectedDashboardOrder((current) => current || data.recent_orders[0]);
+          // Keep the user's chosen order selected, but re-read it from the fresh
+          // payload -- holding on to the old object left the stage tracker showing
+          // pre-change data after every refresh.
+          setSelectedDashboardOrder((current) => {
+            if (!current) return data.recent_orders[0];
+            return data.recent_orders.find(o => o.id === current.id) || current;
+          });
         }
       }),
       load('customers', api.getCustomers, (data) => {
@@ -758,7 +793,13 @@ function App() {
 
   const saveStep3 = async () => {
     if (!customerId) return;
-    const res = await api.saveDesignPreferences(customerId, designNotes, designFiles, selectedDesignTemplates);
+    const links = designLinks
+      .split(/[\n,]/)
+      .map(l => l.trim())
+      .filter(Boolean);
+    const res = await api.saveDesignPreferences(
+      customerId, designNotes, designFiles, selectedDesignTemplates, designSource, links
+    );
     return res;
   };
 
@@ -983,6 +1024,47 @@ function App() {
       console.error('Failed to load customer detail', err);
     } finally {
       setDirectoryDetailLoading(false);
+    }
+  };
+
+  // Staff the boutique's workflow allows on a given stage. Mirrors the server-side
+  // check, so the dropdown never offers a choice the API would reject.
+  const eligibleStaffForStage = (stageKey) => {
+    const stageConf = (boutiqueSettings?.workflow_config || []).find(s => s.key === stageKey);
+    const allowed = stageConf?.roles || [];
+    if (allowed.length === 0) return tailors;
+    return tailors.filter(t => allowed.includes(t.role));
+  };
+
+  // Sign off a design. The detail record is refetched so the approved badge and the
+  // superseded state of the other designs both come from the server, not a guess.
+  const handleApproveDesign = async (prefId, fallbackImage) => {
+    if (!selectedDirectoryCustomer) return;
+    setApprovingDesignId(prefId);
+    try {
+      await api.approveDesign(selectedDirectoryCustomer.id, prefId, fallbackImage);
+      const full = await api.getCustomer(selectedDirectoryCustomer.id);
+      setSelectedDirectoryCustomer(current =>
+        current && current.id === full.id ? full : current
+      );
+    } catch (err) {
+      alert(err.message || 'Could not approve this design.');
+    } finally {
+      setApprovingDesignId(null);
+    }
+  };
+
+  // Nominate who should perform a stage. The server refuses a role the stage does
+  // not permit, so the error is surfaced rather than swallowed.
+  const handleAssignStage = async (orderId, stageKey, tailorId) => {
+    setAssigningStageKey(stageKey);
+    try {
+      await api.assignStage(orderId, stageKey, tailorId || null);
+      await fetchDashboardAndConfig();
+    } catch (err) {
+      alert(err.message || 'Could not assign this stage.');
+    } finally {
+      setAssigningStageKey(null);
     }
   };
 
@@ -2993,10 +3075,35 @@ function App() {
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
                                       <span>{stage.performed_by_name ? `By: ${stage.performed_by_name}` : ''}</span>
                                       <span>
-                                        {stage.completed_at ? new Date(stage.completed_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}) : 
+                                        {stage.completed_at ? new Date(stage.completed_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}) :
                                          stage.started_at ? `Started: ${new Date(stage.started_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}` : ''}
                                       </span>
                                     </div>
+
+                                    {/* Who should do this stage, ahead of the work starting.
+                                        Only staff whose role the stage permits are offered. */}
+                                    {!isCompleted && currentUser.role === 'Owner' && (
+                                      <div
+                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}
+                                        onClick={e => e.stopPropagation()}
+                                      >
+                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>Assign:</span>
+                                        <select
+                                          className="form-control"
+                                          style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
+                                          value={stage.assigned_to || ''}
+                                          disabled={assigningStageKey === stage.stage_key}
+                                          onChange={e => handleAssignStage(
+                                            selectedDashboardOrder.id, stage.stage_key, e.target.value
+                                          )}
+                                        >
+                                          <option value="">Unassigned</option>
+                                          {eligibleStaffForStage(stage.stage_key).map(t => (
+                                            <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -4679,20 +4786,67 @@ function App() {
                       {!selectedDirectoryCustomer.design_preferences || selectedDirectoryCustomer.design_preferences.length === 0 ? (
                         <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No saved designs or reference images.</p>
                       ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                           {selectedDirectoryCustomer.design_preferences.map((pref, i) => (
-                            <React.Fragment key={i}>
-                              {pref.reference_images?.map((url, j) => (
-                                <div key={`${i}-${j}`} style={{
-                                  borderRadius: '6px',
-                                  overflow: 'hidden',
-                                  height: '120px',
-                                  border: '1px solid rgba(255,255,255,0.08)'
-                                }}>
-                                  <img src={url} alt="Design Ref" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <div key={pref.id || i} style={{
+                              border: pref.is_approved ? '1px solid rgba(16,185,129,0.5)' : '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              padding: '14px'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                                    {pref.source_display || 'Boutique catalogue'}
+                                  </span>
+                                  {pref.is_approved && (
+                                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
+                                      APPROVED FOR PRODUCTION
+                                    </span>
+                                  )}
                                 </div>
-                              ))}
-                            </React.Fragment>
+                                {!pref.is_approved && pref.id && (
+                                  <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    style={{ fontSize: '12px', padding: '5px 12px' }}
+                                    disabled={approvingDesignId === pref.id}
+                                    onClick={() => handleApproveDesign(pref.id, pref.reference_images?.[0])}
+                                  >
+                                    {approvingDesignId === pref.id ? 'Approving…' : 'Approve for production'}
+                                  </button>
+                                )}
+                              </div>
+
+                              {pref.notes && (
+                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px 0' }}>{pref.notes}</p>
+                              )}
+
+                              {pref.reference_images?.length > 0 && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                  {pref.reference_images.map((url, j) => (
+                                    <div key={`${i}-${j}`} style={{
+                                      borderRadius: '6px',
+                                      overflow: 'hidden',
+                                      height: '120px',
+                                      border: pref.approved_image === url ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)'
+                                    }}>
+                                      <img src={url} alt="Design Ref" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {pref.reference_links?.length > 0 && (
+                                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                  {pref.reference_links.map((link, j) => (
+                                    <a key={j} href={link} target="_blank" rel="noreferrer"
+                                       style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', wordBreak: 'break-all' }}>
+                                      {link}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           ))}
                         </div>
                       )}
@@ -5490,9 +5644,13 @@ function App() {
                       value={tailorForm.role}
                       onChange={e => setTailorForm({...tailorForm, role: e.target.value})}
                     >
-                      <option value="Tailor">Stitching Tailor</option>
-                      <option value="Master">Master Tailor</option>
+                      {STAFF_ROLES.map(r => (
+                        <option key={r.value} value={r.value}>{r.label}</option>
+                      ))}
                     </select>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {STAFF_ROLES.find(r => r.value === tailorForm.role)?.hint || ''}
+                    </span>
                   </div>
 
                   <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
@@ -6480,6 +6638,34 @@ function App() {
                       <div className="card-title">
                         <Upload size={18} />
                         Share Your Design References
+                      </div>
+
+                      {/* Where the design came from, recorded against the order so the
+                          workroom knows whether it is following a catalogue piece or
+                          a client's own sketch. */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Where is this design from?</label>
+                          <select
+                            className="form-control"
+                            value={designSource}
+                            onChange={e => setDesignSource(e.target.value)}
+                          >
+                            {DESIGN_SOURCES.map(s => (
+                              <option key={s.value} value={s.value}>{s.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Inspiration links</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder="Paste Pinterest or image links, comma separated"
+                            value={designLinks}
+                            onChange={e => setDesignLinks(e.target.value)}
+                          />
+                        </div>
                       </div>
                       <div className="drag-drop-zone" onClick={() => document.getElementById('design-picker').click()}>
                         <div className="drag-drop-icon">

@@ -14,6 +14,7 @@ CUSTOMER_PREFETCH = (
     'orders__customer__measurements',
     'orders__stages',
     'orders__stages__performed_by',
+    'orders__stages__assigned_to',
     'orders__activities',
     'orders__activities__user',
     'orders__stage_histories',

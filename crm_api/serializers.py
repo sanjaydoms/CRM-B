@@ -39,9 +39,15 @@ class MeasurementHistorySerializer(serializers.ModelSerializer):
         fields = ['id', 'bust', 'waist', 'hips', 'shoulder', 'arm_length', 'neck', 'length', 'additional_measurements', 'changed_at']
 
 class DesignPreferenceSerializer(serializers.ModelSerializer):
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+
     class Meta:
         model = DesignPreference
-        fields = ['notes', 'reference_images']
+        fields = [
+            'id', 'notes', 'reference_images', 'source', 'source_display',
+            'reference_links', 'approved_image', 'is_approved', 'approved_at',
+        ]
+        read_only_fields = ['approved_at']
 
 class FabricSelectionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -55,7 +61,9 @@ class OrderStageHistorySerializer(serializers.ModelSerializer):
 
 class OrderStageSerializer(serializers.ModelSerializer):
     performed_by_name = serializers.CharField(source='performed_by.name', read_only=True)
-    
+    assigned_to_name = serializers.CharField(source='assigned_to.name', read_only=True)
+    assigned_to_role = serializers.CharField(source='assigned_to.role', read_only=True)
+
     class Meta:
         model = OrderStage
         fields = '__all__'

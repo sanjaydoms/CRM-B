@@ -134,10 +134,11 @@ class OrderService:
             ProductionTask(order=order, title="Fabric & Lining Selection Approval", stage_key="fabric_confirmed", assigned_to=master or tailor, sequence=2, priority="MEDIUM"),
             ProductionTask(order=order, title="Pattern Cutting & Drafting", stage_key="pattern_cutting", assigned_to=master, sequence=3, priority="HIGH"),
             ProductionTask(order=order, title="Garment Assembly & Stitching", stage_key="stitching_in_progress", assigned_to=tailor, sequence=4, priority="URGENT"),
-            ProductionTask(order=order, title="Embellishment & Finishing", stage_key="stitching_completed", assigned_to=tailor, sequence=5, priority="MEDIUM"),
-            ProductionTask(order=order, title="Master Quality Control Inspection", stage_key="master_quality_check", assigned_to=master, sequence=6, priority="HIGH"),
-            ProductionTask(order=order, title="Customer Fitting Trial", stage_key="trial_scheduled", assigned_to=master, sequence=7, priority="MEDIUM"),
-            ProductionTask(order=order, title="Final Packaging & Dispatch Preparation", stage_key="ready_for_delivery", assigned_to=master or tailor, sequence=8, priority="MEDIUM"),
+            ProductionTask(order=order, title="Hemming & Finishing", stage_key="finishing", assigned_to=tailor, sequence=5, priority="MEDIUM"),
+            ProductionTask(order=order, title="Pressing", stage_key="pressing", assigned_to=master or tailor, sequence=6, priority="MEDIUM"),
+            ProductionTask(order=order, title="Master Quality Control Inspection", stage_key="master_quality_check", assigned_to=master, sequence=7, priority="HIGH"),
+            ProductionTask(order=order, title="Customer Fitting Trial", stage_key="trial_scheduled", assigned_to=master, sequence=8, priority="MEDIUM"),
+            ProductionTask(order=order, title="Final Packaging & Dispatch Preparation", stage_key="ready_for_delivery", assigned_to=master or tailor, sequence=9, priority="MEDIUM"),
         ]
         ProductionTask.objects.bulk_create(tasks_to_create)
 
@@ -271,9 +272,12 @@ class OrderService:
             'measurements_completed': 'Confirmed',
             'fabric_confirmed': 'Confirmed',
             'pattern_cutting': 'Design & Creation',
+            'maggam_work': 'Design & Creation',
             'assigned_to_tailor': 'Design & Creation',
             'stitching_in_progress': 'Design & Creation',
             'stitching_completed': 'Quality Check',
+            'finishing': 'Quality Check',
+            'pressing': 'Quality Check',
             'master_quality_check': 'Ready for Dispatch' if new_status == 'COMPLETED' else 'Quality Check',
             'trial_scheduled': 'Ready for Dispatch',
             'trial_completed': 'Ready for Dispatch',

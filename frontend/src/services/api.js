@@ -172,11 +172,13 @@ export const api = {
   },
 
   // Save design preferences (Step 3)
-  async saveDesignPreferences(customerId, notes, imageFiles, selectedUrls = []) {
+  async saveDesignPreferences(customerId, notes, imageFiles, selectedUrls = [], source = 'BOUTIQUE_CATALOG', referenceLinks = []) {
     const formData = new FormData();
     formData.append('notes', notes);
     formData.append('selected_urls', JSON.stringify(selectedUrls));
-    
+    formData.append('source', source);
+    formData.append('reference_links', JSON.stringify(referenceLinks));
+
     imageFiles.forEach(file => {
       formData.append('images', file);
     });
@@ -187,6 +189,34 @@ export const api = {
       body: formData,
     });
     if (!res.ok) throw new Error('Failed to save design preferences');
+    return res.json();
+  },
+
+  // Sign off one design for production. Supersedes any previously approved design.
+  async approveDesign(customerId, prefId, approvedImage = null) {
+    const res = await fetch(`${BASE_URL}/customers/${customerId}/design-preferences/${prefId}/approve/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(approvedImage ? { approved_image: approvedImage } : {}),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to approve design');
+    }
+    return res.json();
+  },
+
+  // Nominate who should perform a stage. Pass tailorId null to clear it.
+  async assignStage(orderId, stageKey, tailorId) {
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/assign-stage/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ stage_key: stageKey, tailor_id: tailorId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to assign stage');
+    }
     return res.json();
   },
 

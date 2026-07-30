@@ -99,10 +99,27 @@ class MeasurementHistory(models.Model):
         return f"Measurement history for {self.customer.first_name} {self.customer.last_name} at {self.changed_at}"
 
 class DesignPreference(models.Model):
+    SOURCE_CHOICES = [
+        ('BOUTIQUE_CATALOG', 'Boutique Catalog'),
+        ('CUSTOM_DESIGN', 'Custom Design'),
+        ('PREVIOUS_DESIGN', 'Previous Design'),
+        ('PINTEREST', 'Pinterest Inspiration'),
+        ('GOOGLE', 'Google Images'),
+        ('CUSTOMER_SKETCH', 'Customer Sketch'),
+        ('DESIGNER_SKETCH', 'Designer Sketch'),
+    ]
+
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='design_preferences')
     notes = models.TextField(blank=True, null=True)
     # JSON list of image paths/URLs
     reference_images = models.JSONField(default=list, blank=True)
+    # Where the design came from, and any external inspiration links (Pinterest etc.)
+    source = models.CharField(max_length=50, choices=SOURCE_CHOICES, default='BOUTIQUE_CATALOG', db_index=True)
+    reference_links = models.JSONField(default=list, blank=True)
+    # The single design signed off for production, chosen from the references above.
+    approved_image = models.CharField(max_length=500, blank=True, null=True)
+    is_approved = models.BooleanField(default=False, db_index=True)
+    approved_at = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
         return f"Design Prefs for {self.customer.first_name}"
@@ -143,11 +160,25 @@ class BoutiqueDesign(models.Model):
         return f"{self.name} ({self.garment_type}) - {'Boutique' if self.is_boutique else 'AI suggestion'}"
 
 class Tailor(models.Model):
+    # A boutique with one generalist keeps using Master; larger studios split the
+    # work across specialists. Both are valid, and a stage accepts either.
+    ROLE_CHOICES = [
+        ('Master', 'Master (generalist)'),
+        ('Tailor', 'Tailor'),
+        ('Measurement Master', 'Measurement Master'),
+        ('Pattern Master', 'Pattern Master'),
+        ('Cutting Master', 'Cutting Master'),
+        ('Maggam Master', 'Maggam Master'),
+        ('Finishing Master', 'Finishing Master'),
+        ('Pressing Staff', 'Pressing Staff'),
+        ('QC Master', 'QC Master'),
+    ]
+
     name = models.CharField(max_length=100)
     specialty = models.CharField(max_length=100)
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=5.00)
     status = models.CharField(max_length=50, default="Available") # Available, Busy
-    role = models.CharField(max_length=50, default="Tailor") # Master, Tailor
+    role = models.CharField(max_length=50, choices=ROLE_CHOICES, default="Tailor")
     email = models.EmailField(blank=True, null=True)
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='tailor_profile')
 
@@ -199,6 +230,10 @@ class OrderStage(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     duration_seconds = models.IntegerField(default=0) # Total tracking duration in seconds
+    # assigned_to is who *should* do this stage; performed_by is who actually did.
+    assigned_to = models.ForeignKey(
+        Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_stages'
+    )
     performed_by = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True)
     comments = models.TextField(blank=True, null=True)
     attachments = models.JSONField(default=list, blank=True) # list of image URLs
@@ -246,16 +281,24 @@ class Notification(models.Model):
     def __str__(self):
         return f"{self.recipient_role} - {self.title}"
 
+# Every stage keeps "Master" alongside its specialist so a boutique staffed by one
+# generalist is unaffected, while a studio that has split the roles can restrict
+# work to the right person. Owner is always permitted, in code, regardless.
 def get_default_workflow():
     return [
         {"key": "created", "name": "Created", "sla_hours": 12, "roles": ["Owner", "Master"]},
-        {"key": "measurements_completed", "name": "Measurements Completed", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "measurements_completed", "name": "Measurements Completed", "sla_hours": 24, "roles": ["Owner", "Master", "Measurement Master"]},
         {"key": "fabric_confirmed", "name": "Fabric Confirmed", "sla_hours": 24, "roles": ["Owner", "Master"]},
-        {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master", "Pattern Master", "Cutting Master"]},
+        # Embroidery happens on cut fabric, before stitching. Not every garment needs
+        # it -- mark the stage SKIPPED on those orders.
+        {"key": "maggam_work", "name": "Maggam Work", "sla_hours": 96, "roles": ["Owner", "Master", "Maggam Master"], "optional": True},
         {"key": "assigned_to_tailor", "name": "Assigned to Tailor", "sla_hours": 12, "roles": ["Owner", "Master"]},
         {"key": "stitching_in_progress", "name": "Stitching In Progress", "sla_hours": 72, "roles": ["Owner", "Tailor"]},
         {"key": "stitching_completed", "name": "Stitching Completed", "sla_hours": 12, "roles": ["Owner", "Tailor"]},
-        {"key": "master_quality_check", "name": "Master Quality Check", "sla_hours": 12, "roles": ["Owner", "Master"]},
+        {"key": "finishing", "name": "Hemming & Finishing", "sla_hours": 24, "roles": ["Owner", "Master", "Finishing Master"]},
+        {"key": "pressing", "name": "Pressing", "sla_hours": 12, "roles": ["Owner", "Master", "Pressing Staff"]},
+        {"key": "master_quality_check", "name": "Master Quality Check", "sla_hours": 12, "roles": ["Owner", "Master", "QC Master"]},
         {"key": "trial_scheduled", "name": "Trial Scheduled", "sla_hours": 48, "roles": ["Owner", "Master"]},
         {"key": "trial_completed", "name": "Trial Completed", "sla_hours": 24, "roles": ["Owner", "Master"]},
         {"key": "ready_for_delivery", "name": "Ready for Delivery", "sla_hours": 24, "roles": ["Owner", "Master"]},

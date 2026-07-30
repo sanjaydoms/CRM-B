@@ -6,6 +6,7 @@ ORDER_SELECT_RELATED = ('customer', 'tailor', 'master', 'customer__measurements'
 ORDER_PREFETCH = (
     'stages',
     'stages__performed_by',
+    'stages__assigned_to',
     'activities',
     'activities__user',
     'stage_histories',
@@ -17,7 +18,7 @@ class OrderRepository:
     def summary_queryset():
         """Rows for OrderSummarySerializer -- stages only, no activity log."""
         return Order.objects.select_related('customer', 'tailor', 'master').prefetch_related(
-            'stages', 'stages__performed_by',
+            'stages', 'stages__performed_by', 'stages__assigned_to',
         ).order_by('-order_date')
 
     @staticmethod
