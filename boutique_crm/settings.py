@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -81,6 +82,7 @@ TENANT_APPS = [
     'apps.scheduling',
     'apps.design_studio',
     'apps.inventory',
+    'apps.catalog',
 ]
 
 INSTALLED_APPS = list(set(SHARED_APPS + TENANT_APPS))
@@ -129,11 +131,23 @@ DATABASES = {
         'HOST': os.environ.get('DB_HOST', 'aws-1-ap-southeast-1.pooler.supabase.com'),
         'PORT': os.environ.get('DB_PORT', '6543'),
         # Port 6543 is Supabase's *transaction* pooler: pgbouncer already pools, and
-        # it makes clients wait for a free server slot rather than erroring. Holding
-        # Django-side persistent connections on top of that burns client slots and
-        # turns contention into request hangs, so this must stay 0 while HOST points
-        # at the pooler. Only raise it against a direct connection (port 5432).
-        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '0')),
+        # it makes clients wait for a free server slot rather than erroring.
+        #
+        # This was 0, which meant every single request paid a fresh TCP connect,
+        # TLS handshake and pooler auth before it could run its first query --
+        # against a database in another region that is more expensive than most
+        # of the queries the request then makes. The original worry about holding
+        # connections was that they burn pooler client slots; the fix for that is
+        # to *bound* them rather than to reopen constantly. Under gunicorn.conf.py
+        # this process holds at most workers * threads (2 * 4 = 8) connections, so
+        # the slot usage is small, fixed and known. Set DB_CONN_MAX_AGE=0 to go
+        # back to connect-per-request if the pooler ever reports slot exhaustion.
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '60')),
+        # Reused connections are only safe on a *transaction* pooler if Django
+        # never opens a server-side cursor, because those outlive the transaction
+        # that pgbouncer hands back to the pool and then fail on a different
+        # backend. Django uses them for .iterator(); this turns that off.
+        'DISABLE_SERVER_SIDE_CURSORS': True,
         'OPTIONS': {
             # Never let a request hang on the network; fail fast and visibly.
             'connect_timeout': int(os.environ.get('DB_CONNECT_TIMEOUT', '10')),
@@ -141,8 +155,19 @@ DATABASES = {
     }
 }
 
-# Fallback to local development DB if USE_LOCAL_DB=True is set
-if os.environ.get('USE_LOCAL_DB') == 'True':
+# Fallback to local development DB if USE_LOCAL_DB=True is set.
+#
+# The test runner defaults to local even when the variable is unset. Without this,
+# `manage.py test` aims the whole suite at the shared Supabase database: it would
+# CREATE and DROP a test_ database on the hosted instance, and when the pooler
+# password is not in the environment it simply fails to connect, so every test
+# errors before it runs. Neither outcome is what "run the tests" should mean.
+# Set USE_LOCAL_DB=False explicitly to test against the remote database anyway.
+_use_local_db = os.environ.get('USE_LOCAL_DB')
+if _use_local_db is None and 'test' in sys.argv:
+    _use_local_db = 'True'
+
+if _use_local_db == 'True':
     DATABASES['default'].update({
         'NAME': 'boutique_crm',
         'USER': 'sanjaykumar',
@@ -154,6 +179,34 @@ if os.environ.get('USE_LOCAL_DB') == 'True':
 DATABASE_ROUTERS = (
     'django_tenants.routers.TenantSyncRouter',
 )
+
+# django_tenants re-issues `SET search_path` on *every* cursor by default, so a
+# single view spent as many round trips announcing its schema as it did reading
+# data -- the dashboard alone ran 11 of them out of 25 queries. Each one is a
+# full round trip to the database, which is invisible against a local Postgres
+# and dominates the response against a hosted one. Setting this makes the search
+# path stick for the life of the connection, which is exactly the semantics we
+# want: the tenant is resolved once per request in TenantHeaderMiddleware and
+# never changes mid-request. Anything that *does* need another schema goes
+# through schema_context, which resets the flag itself.
+# DO NOT turn this on. It looks like free performance and it is not.
+#
+# django_tenants re-issues `SET search_path` on every cursor, which is roughly
+# half the round trips of a typical request here (11 of the dashboard's 25
+# queries). TENANT_LIMIT_SET_CALLS=True collapses those to one per connection,
+# and it does hold up under plain request interleaving -- which is exactly what
+# makes it tempting.
+#
+# It is unsafe because `SET` in Postgres is transactional. A ROLLBACK silently
+# reverts search_path to the session default ("$user", public) while
+# django_tenants' cached flag still says the path is set, so it never re-issues
+# it. Every query after a rolled-back transaction then runs against the *public*
+# schema instead of the tenant's -- reading or writing the wrong boutique's data
+# rather than failing loudly. apps/catalog's tests catch this (18 errors, tables
+# "missing" because the connection quietly fell back to public).
+#
+# Reduce round trips by issuing fewer queries instead; see DashboardView.
+TENANT_LIMIT_SET_CALLS = False
 
 TENANT_MODEL = 'tenants.BoutiqueTenant'
 TENANT_DOMAIN_MODEL = 'tenants.Domain'

@@ -8,7 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
-from django.db.models import Sum, Count
+from django.db.models import Q, Sum, Count
 
 from .models import (
     Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order,
@@ -466,13 +466,22 @@ class NotificationViewSet(viewsets.ModelViewSet):
 class DashboardView(views.APIView):
     def get(self, request):
         total_customers = Customer.objects.count()
-        total_orders = Order.objects.count()
-        paid_revenue = Order.objects.filter(payment_status='Paid').aggregate(Sum('total_amount'))['total_amount__sum'] or 0.0
-        partial_revenue = Order.objects.filter(payment_status='Partially Paid').aggregate(Sum('advance_paid'))['advance_paid__sum'] or 0.0
-        revenue = float(paid_revenue) + float(partial_revenue)
-        
+
+        # The order count and both revenue figures used to be three separate
+        # queries that each scanned the same table, and the dashboard is the
+        # first thing every session loads. Conditional aggregation asks for all
+        # three in one pass, which matters far more than the scan itself when
+        # the database is a network hop away: three round trips become one.
+        order_totals = Order.objects.aggregate(
+            total=Count('id'),
+            paid=Sum('total_amount', filter=Q(payment_status='Paid')),
+            partial=Sum('advance_paid', filter=Q(payment_status='Partially Paid')),
+        )
+        total_orders = order_totals['total']
+        revenue = float(order_totals['paid'] or 0.0) + float(order_totals['partial'] or 0.0)
+
         status_counts = Order.objects.values('order_status').annotate(count=Count('id'))
-        
+
         # Recent orders. The dashboard renders the stage tracker but never the
         # activity log or stage histories, so those stay out of the payload.
         recent_orders = OrderRepository.summary_queryset()[:5]

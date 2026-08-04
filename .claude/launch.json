@@ -3,14 +3,31 @@
   "configurations": [
     {
       "name": "django-backend",
-      "runtimeExecutable": ".venv/bin/python",
-      "runtimeArgs": ["manage.py", "runserver", "8000"],
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "USE_LOCAL_DB=True",
+        ".venv/bin/python",
+        "manage.py",
+        "runserver",
+        "8000"
+      ],
       "port": 8000
+    },
+    {
+      "name": "vite-preview-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "preview", "--", "--port", "4173"],
+      "port": 4173
     },
     {
       "name": "vite-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev"
+      ],
       "port": 5173
     }
   ]

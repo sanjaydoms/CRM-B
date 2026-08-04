@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { 
   Users, ShoppingBag, Scissors, Search, 
   Upload, Check, ArrowRight, ArrowLeft, Heart, 
@@ -9,8 +9,21 @@ import {
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
-import DesignStudio from './features/designStudio/DesignStudio';
-import InventoryPanel from './features/inventory/InventoryPanel';
+// The inventory panel and the design studio are whole screens behind their own
+// tabs, and together they are a sixth of the bundle. Loading them eagerly made
+// every first paint -- including the login screen -- wait on code most sessions
+// never open, so they are fetched when their tab is first shown instead.
+// TemplateForm stays eager: it renders inline in the order wizard, where a
+// loading flicker mid-form would be worse than its few KB.
+const DesignStudio = lazy(() => import('./features/designStudio/DesignStudio'));
+const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
+import TemplateForm from './features/catalog/TemplateForm';
+
+/** Placeholder shown while a lazily loaded screen arrives. */
+const ScreenLoading = () => (
+  <div style={{ padding: '48px', textAlign: 'center', color: '#8a8a8a' }}>Loading...</div>
+);
+import { splitSpec, validateSpec } from './services/templates';
 
 // Mirrors Tailor.ROLE_CHOICES. A boutique run by one generalist keeps using Master;
 // larger studios split the work, and each stage only accepts its own specialists.
@@ -239,6 +252,14 @@ function App() {
   const [profilePhoto, setProfilePhoto] = useState(null);
   const [profilePhotoPreview, setProfilePhotoPreview] = useState(null);
   
+  // Garment templates. `garmentTemplates` is the summary list that fills the
+  // picker; `garmentJobs` is the dresses on this order, each holding the full
+  // template it renders from and the answers given so far. One order can carry a
+  // lehenga, its blouse and a dupatta, so this is a list, not a single value.
+  const [garmentTemplates, setGarmentTemplates] = useState([]);
+  const [garmentJobs, setGarmentJobs] = useState([]);
+  const [garmentErrors, setGarmentErrors] = useState({});
+
   // Wizard Details State
   const [designNotes, setDesignNotes] = useState('');
   const [designFiles, setDesignFiles] = useState([]);
@@ -326,6 +347,74 @@ function App() {
       fabric
     }));
   }, [customerForm.garment_type, selectedFabric, fabricTab]);
+
+  // The garment list drives the whole order form, so it is fetched once and
+  // reused rather than being read from a hardcoded array.
+  useEffect(() => {
+    api.getGarmentTemplates()
+      .then(data => setGarmentTemplates(data.results || data))
+      .catch(err => console.error('Could not load garment templates', err));
+  }, []);
+
+  const addGarment = async (key) => {
+    if (garmentJobs.some(job => job.key === key)) return;
+    try {
+      const template = await api.getGarmentTemplate(key);
+      setGarmentJobs(prev => [...prev, { key, template, values: {} }]);
+      // Pricing, the dashboard and the stage tracker all still read the single
+      // garment_type on the customer. Keep it pointing at the first dress until
+      // those move over to the job list.
+      setCustomerForm(prev => ({
+        ...prev,
+        garment_type: prev.garment_type && garmentJobs.length ? prev.garment_type : template.name,
+      }));
+    } catch (err) {
+      console.error(err);
+      alert('Could not load that garment form.');
+    }
+  };
+
+  const removeGarment = (key) => {
+    setGarmentJobs(prev => prev.filter(job => job.key !== key));
+    setGarmentErrors(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const updateGarmentValues = (key, values) => {
+    setGarmentJobs(prev => prev.map(job => (job.key === key ? { ...job, values } : job)));
+  };
+
+  /** Validate every dress on the order; returns true when all of them pass. */
+  const validateGarments = ({ partial = false } = {}) => {
+    const errors = {};
+    garmentJobs.forEach(job => {
+      const jobErrors = validateSpec(job.template, job.values, { partial });
+      if (Object.keys(jobErrors).length) errors[job.key] = jobErrors;
+    });
+    setGarmentErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  /** Persist one GarmentJob per dress once the order exists to hang them on. */
+  const saveGarmentJobs = async (orderId) => {
+    for (const job of garmentJobs) {
+      const { spec, measurements } = splitSpec(job.template, job.values);
+      try {
+        await api.createGarmentJob({
+          order: orderId,
+          template: job.template.id,
+          spec,
+          measurements,
+        });
+      } catch (err) {
+        console.error(`Could not save the ${job.template.name} on this order`, err);
+        throw err;
+      }
+    }
+  };
 
   // Active Selected Dashboard Order for progress tracker
   const [selectedDashboardOrder, setSelectedDashboardOrder] = useState(null);
@@ -697,6 +786,8 @@ function App() {
     setCourierService('');
     setTrackingNumber('');
     setDeliveryAddress('');
+    setGarmentJobs([]);
+    setGarmentErrors({});
     setCurrentStep(1);
     setView('wizard');
   };
@@ -725,7 +816,9 @@ function App() {
     setCourierService('');
     setTrackingNumber('');
     setDeliveryAddress('');
-    
+    setGarmentJobs([]);
+    setGarmentErrors({});
+
     // Start from the beginning (Step 1: Dress/Garment Type)
     setCurrentStep(1);
     setView('wizard');
@@ -786,9 +879,22 @@ function App() {
 
   const saveStep2 = async () => {
     if (!customerId) return;
-    const res = await api.updateCustomer(customerId, {
-      measurements: customerForm.measurements
+    // The customer record keeps the body measurements, which is what the
+    // directory, the measurement history and the design studio read. Per-dress
+    // numbers live on the garment job; these are the ones that describe the
+    // person, so the newest dress that carries them wins.
+    const body = { ...(customerForm.measurements || {}) };
+    const CUSTOMER_KEYS = {
+      chest: 'bust', waist: 'waist', hip: 'hips', shoulder: 'shoulder', neck: 'neck',
+    };
+    garmentJobs.forEach(job => {
+      Object.entries(CUSTOMER_KEYS).forEach(([templateKey, customerKey]) => {
+        if (job.values[templateKey] !== undefined && job.values[templateKey] !== '') {
+          body[customerKey] = job.values[templateKey];
+        }
+      });
     });
+    const res = await api.updateCustomer(customerId, { measurements: body });
     return res;
   };
 
@@ -847,6 +953,10 @@ function App() {
 
     try {
       const order = await api.createOrder(customerId, payload);
+      // Every dress on the order, with its own spec and measurement snapshot.
+      // Written before the confirmation screen so a failure here is visible
+      // rather than leaving an order with no garment on it.
+      await saveGarmentJobs(order.id);
       // The design board is built in step 3, before an order exists to hold
       // it. Attach it now so the approved reference travels into production.
       if (designBoard.boardId && designBoard.approved) {
@@ -867,9 +977,19 @@ function App() {
   const handleNext = async () => {
     try {
       if (currentStep === 1) {
+        if (garmentJobs.length === 0) {
+          alert("Please choose at least one garment for this order.");
+          return;
+        }
         await saveStep1();
         setCurrentStep(2);
       } else if (currentStep === 2) {
+        // The server validates this again on save; failing here first means the
+        // staff member sees which field is wrong instead of a rejected order.
+        if (!validateGarments()) {
+          alert("Some garment details are missing or invalid — see the highlighted fields.");
+          return;
+        }
         await saveStep2();
         setCurrentStep(3);
       } else if (currentStep === 3) {
@@ -3282,7 +3402,9 @@ function App() {
 
             {/* INVENTORY TAB */}
             {dashboardTab === 'inventory' && (
-              <InventoryPanel currentUser={currentUser} />
+              <Suspense fallback={<ScreenLoading />}>
+                <InventoryPanel currentUser={currentUser} />
+              </Suspense>
             )}
 
             {/* 2. MANAGE FABRICS TAB */}
@@ -6270,103 +6392,47 @@ function App() {
                         <option value="Kids">Kids</option>
                       </select>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Garment Type <span className="required">*</span></label>
-                      <select 
-                        value={customerForm.garment_type}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          const defaultParts = {
-                            'Saree': ['Blouse'],
-                            'Lehenga': ['Blouse / Choli', 'Skirt'],
-                            'Suit': ['Kurta / Kameez', 'Salwar / Bottom'],
-                            'Sherwani': ['Sherwani Top', 'Pants / Churidar'],
-                            'Anarkali': ['Anarkali Dress'],
-                            'Gown': ['Gown Body'],
-                            'Kurti': ['Kurti Top']
-                          }[val] || [];
-                          
-                          const additional = {
-                            ...(customerForm.measurements?.additional_measurements || {}),
-                            stitch_parts: defaultParts
-                          };
-                          
-                          setCustomerForm({
-                            ...customerForm,
-                            garment_type: val,
-                            measurements: {
-                              ...(customerForm.measurements || {}),
-                              additional_measurements: additional
-                            }
-                          });
-                        }}
-                        className="form-control"
-                      >
-                        <option value="Lehenga">Lehenga</option>
-                        <option value="Gown">Gown</option>
-                        <option value="Saree">Saree</option>
-                        <option value="Anarkali">Anarkali</option>
-                        <option value="Suit">Suit</option>
-                        <option value="Kurti">Kurti</option>
-                        <option value="Sherwani">Sherwani</option>
-                      </select>
-                    </div>
                   </div>
 
-                  {/* Stitch Parts Selection Grid */}
+                  {/* Dresses on this order.
+
+                      The garment list, the options in it and the fields each
+                      garment needs all come from /api/catalog/templates/. This
+                      replaced a hardcoded seven-item dropdown and a stitch-parts
+                      map that had to be edited in four places to add a garment.
+
+                      An order holds several dresses -- a lehenga, its blouse and
+                      a dupatta are three -- so this is a multiple choice, and
+                      each one opens its own form in the next step. */}
                   <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
-                    <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '8px' }}>Parts to Stitch / Customize</label>
-                    <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                      {({
-                        'Saree': ['Blouse', 'Petticoat', 'Draping'],
-                        'Lehenga': ['Blouse / Choli', 'Skirt', 'Dupatta'],
-                        'Suit': ['Kurta / Kameez', 'Salwar / Bottom', 'Dupatta'],
-                        'Sherwani': ['Sherwani Top', 'Pants / Churidar'],
-                        'Anarkali': ['Anarkali Dress', 'Bottom Churidar', 'Dupatta'],
-                        'Gown': ['Gown Body'],
-                        'Kurti': ['Kurti Top']
-                      }[customerForm.garment_type || 'Lehenga'] || []).map(part => {
-                        const currentParts = customerForm.measurements?.additional_measurements?.stitch_parts || {
-                          'Saree': ['Blouse'],
-                          'Lehenga': ['Blouse / Choli', 'Skirt'],
-                          'Suit': ['Kurta / Kameez', 'Salwar / Bottom'],
-                          'Sherwani': ['Sherwani Top', 'Pants / Churidar'],
-                          'Anarkali': ['Anarkali Dress'],
-                          'Gown': ['Gown Body'],
-                          'Kurti': ['Kurti Top']
-                        }[customerForm.garment_type || 'Lehenga'] || [];
-                        
-                        const isChecked = currentParts.includes(part);
+                    <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                      Dresses in this Order <span className="required">*</span>
+                    </label>
+                    <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                      Pick every garment being stitched. Each one gets its own measurements and options.
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {garmentTemplates.map(template => {
+                        const chosen = garmentJobs.some(job => job.key === template.key);
                         return (
-                          <label key={part} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', cursor: 'pointer', color: 'var(--text-primary)' }}>
-                            <input 
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                let updatedParts;
-                                if (e.target.checked) {
-                                  updatedParts = [...currentParts, part];
-                                } else {
-                                  updatedParts = currentParts.filter(p => p !== part);
-                                }
-                                const newAdditional = {
-                                  ...(customerForm.measurements?.additional_measurements || {}),
-                                  stitch_parts: updatedParts
-                                };
-                                setCustomerForm({
-                                  ...customerForm,
-                                  measurements: {
-                                    ...(customerForm.measurements || {}),
-                                    additional_measurements: newAdditional
-                                  }
-                                });
-                              }}
-                            />
-                            {part}
-                          </label>
+                          <button
+                            key={template.key}
+                            type="button"
+                            className={chosen ? 'btn-primary' : 'btn-secondary'}
+                            style={{ padding: '7px 14px', fontSize: '13px', borderRadius: '999px', gap: '6px' }}
+                            onClick={() => (chosen ? removeGarment(template.key) : addGarment(template.key))}
+                          >
+                            {chosen ? <Check size={13} /> : <Plus size={13} />}
+                            {template.name}
+                          </button>
                         );
                       })}
                     </div>
+                    {garmentJobs.length === 0 && (
+                      <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '12px' }}>
+                        No garment chosen yet.
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-grid-2">
@@ -6562,41 +6628,59 @@ function App() {
             {currentStep === 2 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Measurements</h1>
-                  <p className="page-subtitle">Record precision measurements for bespoke tailoring. Accurate specifications are stored securely in the client profile.</p>
+                  <h1 className="page-title">Garment Details</h1>
+                  <p className="page-subtitle">Measurements, style options and materials for every dress on this order. Each garment asks only for what it actually needs.</p>
                 </div>
 
-                <div className="content-card">
-                  <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Scissors size={20} /> Body Specifications (inches)</span>
-                    {customerForm.measurements?.additional_measurements?.stitch_parts && (
-                      <span style={{ fontSize: '12px', background: 'rgba(176,124,64,0.1)', color: 'var(--accent-text, #b07c40)', padding: '4px 10px', borderRadius: '4px', fontWeight: 600 }}>
-                        Stitching: {customerForm.measurements.additional_measurements.stitch_parts.join(', ')}
+                {garmentJobs.length === 0 && (
+                  <div className="content-card">
+                    <div style={{ fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                      No garment was chosen in the previous step, so there is nothing to
+                      measure yet. Go back and pick at least one dress.
+                    </div>
+                  </div>
+                )}
+
+                {/* One card per dress. Which fields appear -- and which are
+                    required -- is decided by the template's rules, so a corset
+                    asks about boning and a churidar asks for the calf, without
+                    either question existing in this file. */}
+                {garmentJobs.map(job => (
+                  <div className="content-card" key={job.key}>
+                    <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Scissors size={20} /> {job.template.name}
                       </span>
-                    )}
-                  </div>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '4px 10px', fontSize: '12px' }}
+                        onClick={() => removeGarment(job.key)}
+                      >
+                        <Trash2 size={12} /> Remove
+                      </button>
+                    </div>
 
-                  <div className="form-grid-2">
-                    {getVisibleMeasurementFields(customerForm.measurements?.additional_measurements?.stitch_parts).map(field => (
-                      <div className="form-group" key={field}>
-                        <label className="form-label" style={{ textTransform: 'capitalize' }}>
-                          {field.replace('_', ' ')} (in)
-                        </label>
-                        <input 
-                          type="number" 
-                          step="0.25"
-                          value={customerForm.measurements?.[field] || ''}
-                          onChange={(e) => {
-                            const newMeasurements = {...(customerForm.measurements || {}), [field]: e.target.value};
-                            setCustomerForm({...customerForm, measurements: newMeasurements});
-                          }}
-                          className="form-control" 
-                          placeholder="0.00"
-                        />
-                      </div>
-                    ))}
+                    {['basic', 'measurements', 'style', 'materials', 'production'].map(sectionKey => {
+                      const section = job.template.sections.find(s => s.key === sectionKey);
+                      if (!section) return null;
+                      return (
+                        <div key={sectionKey} style={{ marginBottom: '20px' }}>
+                          <div style={{ fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', margin: '4px 0 12px' }}>
+                            {section.title}
+                          </div>
+                          <TemplateForm
+                            template={job.template}
+                            section={sectionKey}
+                            values={job.values}
+                            errors={garmentErrors[job.key] || {}}
+                            onChange={values => updateGarmentValues(job.key, values)}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
+                ))}
               </>
             )}
 
@@ -6627,17 +6711,19 @@ function App() {
                   </div>
 
                   {designSourceTab === 'studio' && (
-                    <DesignStudio
-                      customerId={customerId}
-                      orderInput={{
-                        garment_type: customerForm.garment_type,
-                        occasion: customerForm.occasion,
-                        budget: quotePrices.base
-                      }}
-                      notes={designNotes}
-                      onNotesChange={setDesignNotes}
-                      onBoardChange={setDesignBoard}
-                    />
+                    <Suspense fallback={<ScreenLoading />}>
+                      <DesignStudio
+                        customerId={customerId}
+                        orderInput={{
+                          garment_type: customerForm.garment_type,
+                          occasion: customerForm.occasion,
+                          budget: quotePrices.base
+                        }}
+                        notes={designNotes}
+                        onNotesChange={setDesignNotes}
+                        onBoardChange={setDesignBoard}
+                      />
+                    </Suspense>
                   )}
 
                   {designSourceTab === 'references' && (

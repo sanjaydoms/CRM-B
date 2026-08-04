@@ -106,11 +106,27 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
   ```
 * **Start Command:**
   ```bash
-  gunicorn boutique_crm.wsgi:application
+  gunicorn -c gunicorn.conf.py boutique_crm.wsgi:application
   ```
+  The `-c gunicorn.conf.py` is not optional. Without it gunicorn runs its
+  default of a single sync worker with a single thread, so the API serves one
+  request at a time -- and the dashboard opens by firing eight at once, which
+  then queue behind each other. Measured on eight concurrent requests each
+  waiting 300ms on the database: **2.47s with the defaults, 0.35s with the
+  config file.**
+* **Region:** put the service in the same region as the Supabase database
+  (`ap-southeast-1`). Every request makes several database round trips, so a
+  cross-region service pays that latency several times over per request. This is
+  the single biggest lever left and it is pure configuration.
 * **Environment Variables:**
   * Configure your `DB_PASSWORD`, `SUPABASE_KEY`, and `SUPABASE_URL` under settings.
   * Optionally set `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, and `DJANGO_SUPERUSER_PASSWORD` to create a custom administrator account automatically.
+  * `WEB_CONCURRENCY` / `GUNICORN_THREADS` tune the worker pool. Their product is
+    also the cap on database connections held, which is what keeps
+    `CONN_MAX_AGE` safe against Supabase's pooler.
+* **Instance tier:** free instances sleep after ~15 minutes idle and take tens of
+  seconds to wake, which reads to a user as the whole app hanging on first load.
+  No amount of application tuning covers that -- it needs a paid instance.
 
 ### React Frontend (Vercel)
 * **Root Directory:** `frontend`

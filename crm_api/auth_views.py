@@ -50,6 +50,12 @@ class SignupView(views.APIView):
                 is_primary=True
             )
             
+            # The tenant middleware caches schema lookups, so a schema name that
+            # was probed before this boutique existed would keep resolving to
+            # "unknown tenant" until the cache expired.
+            from tenants.middleware import clear_tenant_cache
+            clear_tenant_cache()
+
             # Switch connection to the tenant's new schema context
             connection.set_tenant(tenant)
 
