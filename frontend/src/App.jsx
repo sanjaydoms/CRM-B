@@ -447,6 +447,10 @@ function App() {
   const [expandedDna, setExpandedDna] = useState({});
   const [selectedDirectoryCustomer, setSelectedDirectoryCustomer] = useState(null);
   const [directoryDetailLoading, setDirectoryDetailLoading] = useState(false);
+  // Which order in the customer profile is expanded to show its production
+  // progress. Opening a client's order used to throw them into the new-order
+  // wizard, so there was no way to answer "where is my dress?" from the profile.
+  const [expandedCustomerOrderId, setExpandedCustomerOrderId] = useState(null);
   const [approvingDesignId, setApprovingDesignId] = useState(null);
   const [assigningStageKey, setAssigningStageKey] = useState(null);
 
@@ -870,8 +874,20 @@ function App() {
   };
 
   const saveStep1 = async () => {
-    if (!customerForm.first_name || !customerForm.last_name || !customerForm.mobile_number) {
-      alert("Please fill in First Name, Last Name, and Mobile Number.");
+    // Name, email, phone and address are what the boutique needs to reach the
+    // customer and deliver to them. Everything else on this form is optional --
+    // city and source used to be starred but were never actually enforced, so
+    // the asterisks were telling staff something untrue.
+    const missing = [
+      [!customerForm.first_name, 'First Name'],
+      [!customerForm.last_name, 'Last Name'],
+      [!customerForm.email_address, 'Email Address'],
+      [!customerForm.mobile_number, 'Mobile Number'],
+      [!customerForm.address, 'Address'],
+    ].filter(([isMissing]) => isMissing).map(([, label]) => label);
+
+    if (missing.length) {
+      alert(`Please fill in: ${missing.join(', ')}.`);
       throw new Error("Validation failed");
     }
     
@@ -4791,75 +4807,142 @@ function App() {
                         <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No orders have been placed by this customer yet.</p>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {selectedDirectoryCustomer.orders.map(order => (
+                          {selectedDirectoryCustomer.orders.map(order => {
+                            // The row opens the order's production progress.
+                            // It used to jump straight into the new-order
+                            // wizard, so a client asking "where is my dress?"
+                            // could not be answered from their own profile.
+                            const isOpen = expandedCustomerOrderId === order.id;
+                            const stages = order.stages || [];
+                            const done = stages.filter(s => s.status === 'COMPLETED').length;
+                            const current = stages.find(s => s.status === 'IN_PROGRESS');
+                            return (
                             <div key={order.id} style={{
                               background: 'rgba(0,0,0,0.015)',
-                              border: '1px solid var(--border-color)',
+                              border: `1px solid ${isOpen ? 'var(--accent-color, #d4af37)' : 'var(--border-color)'}`,
                               borderRadius: '8px',
-                              padding: '16px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center'
+                              padding: '16px'
                             }}>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</div>
-                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                  Date: {new Date(order.order_date).toLocaleDateString()} | Tailor: {order.tailor_name || 'Not assigned'}
+                              <div
+                                onClick={() => setExpandedCustomerOrderId(isOpen ? null : order.id)}
+                                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', gap: '12px' }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                    Date: {new Date(order.order_date).toLocaleDateString()} | Tailor: {order.tailor_name || 'Not assigned'}
+                                  </div>
+                                  {stages.length > 0 && (
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                      Progress: {done}/{stages.length} stages
+                                      {current ? ` · currently ${current.stage_name}` : ''}
+                                    </div>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                  <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--accent-color, #d4af37)', fontSize: '14px' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
+                                    <span style={{
+                                      display: 'inline-block',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      fontSize: '11px',
+                                      marginTop: '4px',
+                                      background: order.order_status === 'Delivered' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 191, 36, 0.15)',
+                                      color: order.order_status === 'Delivered' ? '#34d399' : '#fbbf24'
+                                    }}>
+                                      {order.order_status}
+                                    </span>
+                                  </div>
+                                  <ChevronRight
+                                    size={16}
+                                    style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', color: 'var(--text-muted)' }}
+                                  />
                                 </div>
                               </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                <div style={{ textAlign: 'right' }}>
-                                  <div style={{ fontWeight: 700, color: 'var(--accent-color, #d4af37)', fontSize: '14px' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
-                                  <span style={{
-                                    display: 'inline-block',
-                                    padding: '2px 8px',
-                                    borderRadius: '12px',
-                                    fontSize: '11px',
-                                    marginTop: '4px',
-                                    background: order.order_status === 'Delivered' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 191, 36, 0.15)',
-                                    color: order.order_status === 'Delivered' ? '#34d399' : '#fbbf24'
-                                  }}>
-                                    {order.order_status}
-                                  </span>
+
+                              {isOpen && (
+                                <div style={{ marginTop: '16px', borderTop: '1px dashed var(--border-color)', paddingTop: '12px' }}>
+                                  <StageTimeline
+                                    stages={stages}
+                                    onSelectStage={(stage) => openStageReview(order, stage)}
+                                  />
+
+                                  {stages.length > 0 && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '8px', marginTop: '12px' }}>
+                                      {stages.map(stage => (
+                                        <div key={stage.stage_key} style={{
+                                          fontSize: '11px',
+                                          padding: '8px 10px',
+                                          borderRadius: '6px',
+                                          background: 'var(--surface-color)',
+                                          border: '1px solid var(--border-color)'
+                                        }}>
+                                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{stage.stage_name}</div>
+                                          <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
+                                            {stage.status.replace('_', ' ').toLowerCase()}
+                                            {stage.assigned_to_name ? ` · ${stage.assigned_to_name}` : ''}
+                                          </div>
+                                          {stage.completed_at && (
+                                            <div style={{ color: 'var(--text-muted)' }}>
+                                              {new Date(stage.completed_at).toLocaleDateString()}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12px', color: 'var(--text-muted)', marginTop: '12px' }}>
+                                    <span>Payment: <strong style={{ color: 'var(--text-primary)' }}>{order.payment_status}</strong></span>
+                                    <span>Delivery: <strong style={{ color: 'var(--text-primary)' }}>{order.delivery_method}</strong></span>
+                                    {order.estimated_delivery && (
+                                      <span>Expected: <strong style={{ color: 'var(--text-primary)' }}>{new Date(order.estimated_delivery).toLocaleDateString()}</strong></span>
+                                    )}
+                                  </div>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCustomerId(selectedDirectoryCustomer.id);
+                                      setCustomerForm({
+                                        ...DEFAULT_CUSTOMER_DATA,
+                                        ...selectedDirectoryCustomer,
+                                        measurements: selectedDirectoryCustomer.measurements || DEFAULT_CUSTOMER_DATA.measurements
+                                      });
+                                      setQuotePrices({
+                                        base: order.base_price,
+                                        fabric: order.fabric_price,
+                                        embroidery: order.embroidery_price,
+                                        customization: order.customization_price,
+                                        tailoring: order.tailoring_charges,
+                                        packaging: order.packaging_handling
+                                      });
+                                      setCurrentStep(3);
+                                      setView('wizard');
+                                    }}
+                                    style={{
+                                      background: 'rgba(212, 175, 55, 0.1)',
+                                      border: '1px solid rgba(212, 175, 55, 0.3)',
+                                      color: 'var(--accent-color, #d4af37)',
+                                      borderRadius: '6px',
+                                      padding: '6px 12px',
+                                      fontSize: '11px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      marginTop: '12px'
+                                    }}
+                                  >
+                                    <Copy size={12} />
+                                    Reorder Style
+                                  </button>
                                 </div>
-                                <button 
-                                  onClick={() => {
-                                    setCustomerId(selectedDirectoryCustomer.id);
-                                    setCustomerForm({
-                                      ...DEFAULT_CUSTOMER_DATA,
-                                      ...selectedDirectoryCustomer,
-                                      measurements: selectedDirectoryCustomer.measurements || DEFAULT_CUSTOMER_DATA.measurements
-                                    });
-                                    setQuotePrices({
-                                      base: order.base_price,
-                                      fabric: order.fabric_price,
-                                      embroidery: order.embroidery_price,
-                                      customization: order.customization_price,
-                                      tailoring: order.tailoring_charges,
-                                      packaging: order.packaging_handling
-                                    });
-                                    setCurrentStep(3);
-                                    setView('wizard');
-                                  }}
-                                  style={{
-                                    background: 'rgba(212, 175, 55, 0.1)',
-                                    border: '1px solid rgba(212, 175, 55, 0.3)',
-                                    color: 'var(--accent-color, #d4af37)',
-                                    borderRadius: '6px',
-                                    padding: '6px 12px',
-                                    fontSize: '11px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px'
-                                  }}
-                                >
-                                  <Copy size={12} />
-                                  Reorder Style
-                                </button>
-                              </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -6383,7 +6466,7 @@ function App() {
                       </div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Email Address</label>
+                      <label className="form-label">Email Address <span className="required">*</span></label>
                       <input 
                         type="email" 
                         value={customerForm.email_address || ''}
@@ -6407,7 +6490,7 @@ function App() {
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">City / Region <span className="required">*</span></label>
+                      <label className="form-label">City / Region</label>
                       <input 
                         type="text" 
                         value={customerForm.city_region || ''}
@@ -6417,7 +6500,7 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Source <span className="required">*</span></label>
+                      <label className="form-label">Source</label>
                       <select 
                         value={customerForm.source}
                         onChange={(e) => setCustomerForm({...customerForm, source: e.target.value})}
@@ -6433,7 +6516,7 @@ function App() {
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Customer Type <span className="required">*</span></label>
+                      <label className="form-label">Customer Type</label>
                       <select 
                         value={customerForm.customer_type}
                         onChange={(e) => setCustomerForm({...customerForm, customer_type: e.target.value})}

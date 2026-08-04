@@ -60,6 +60,10 @@ def one_of(f, values):
     return {'field': f, 'op': 'in', 'value': values}
 
 
+def all_of(*rules):
+    return {'all': list(rules)}
+
+
 # --- fields shared by every garment ---------------------------------------
 #
 # Defined once and merged into all twelve, so a change reaches every form at
@@ -82,7 +86,9 @@ COMMON_BASIC = [
     field('design_reference_links', 'Reference Links', 'text', repeatable=True),
     field('trial_required', 'Trial Required', 'boolean'),
     field('trial_date', 'Trial Date', 'date', when=eq('trial_required', True)),
-    field('delivery_date', 'Delivery Date', 'date', required=True),
+    # Optional: a walk-in is often taken before a date is agreed, and blocking
+    # the order on it pushed staff into typing a placeholder they never revisit.
+    field('delivery_date', 'Delivery Date', 'date'),
     field('urgency', 'Urgency', 'select', options=['Normal', 'Express'], default='normal'),
     field('priority', 'Priority', 'select', options=['Low', 'Medium', 'High'], default='medium'),
 ]
@@ -173,17 +179,25 @@ TEMPLATES = [
                 field('services', 'Services Required', 'multiselect', required=True, options=[
                     'Stitching', 'Fall', 'Pico', ('fall_pico', 'Fall + Pico'),
                     'Tassel Work', 'Saree Finishing', ('polishing', 'Polishing / Steam')]),
+                # Each option group belongs to a service. Asking about tassels
+                # on a fall-and-pico job, or about the border when nothing is
+                # being stitched, is a question with no answer -- so the group
+                # appears only once the service that needs it is ticked.
                 field('border', 'Border', 'select', options=[
-                    ('with_border', 'With Border'), ('without_border', 'Without Border')]),
+                    ('with_border', 'With Border'), ('without_border', 'Without Border')],
+                      when=one_of('services', ['stitching', 'saree_finishing'])),
                 field('backing', 'Backing', 'select', options=[
-                    ('with_backing', 'With Backing'), ('without_backing', 'Without Backing')]),
+                    ('with_backing', 'With Backing'), ('without_backing', 'Without Backing')],
+                      when=one_of('services', ['stitching', 'saree_finishing'])),
                 field('fall_type', 'Fall', 'select', options=['Big Fall', 'Small Fall'],
                       when=one_of('services', ['fall', 'fall_pico'])),
                 field('pico_type', 'Pico', 'select', options=['Standard', 'Premium'],
                       when=one_of('services', ['pico', 'fall_pico'])),
                 field('tassels', 'Tassels', 'select', options=[
-                    'No Tassels', 'Hand Made', 'Readymade', 'Knot Style']),
-                field('petticoat_required', 'Petticoat Required', 'boolean'),
+                    'No Tassels', 'Hand Made', 'Readymade', 'Knot Style'],
+                      when=one_of('services', ['tassel_work'])),
+                field('petticoat_required', 'Petticoat Required', 'boolean',
+                      when=one_of('services', ['stitching'])),
                 field('petticoat_waist_finish', 'Petticoat Waist Finish', 'multiselect',
                       options=WAIST_FINISH, when=eq('petticoat_required', True)),
             ],
@@ -192,9 +206,14 @@ TEMPLATES = [
                 material('border_used', 'Border Used', Inv.BORDER,
                          when=eq('border', 'with_border')),
                 material('lining', 'Lining', Inv.LINING),
-                material('fall_cloth', 'Fall Cloth', Inv.LINING),
+                material('fall_cloth', 'Fall Cloth', Inv.LINING,
+                         when=one_of('services', ['fall', 'fall_pico'])),
+                # neq is true for an unanswered field, so this needs the service
+                # gate too -- otherwise the tassel material appeared on an order
+                # with no tassel work on it at all.
                 material('tassels_material', 'Tassels', Inv.EMBELLISHMENT,
-                         when=neq('tassels', 'no_tassels')),
+                         when=all_of(one_of('services', ['tassel_work']),
+                                     neq('tassels', 'no_tassels'))),
                 material('thread_colour', 'Thread Colour', Inv.STITCHING),
             ],
         },

@@ -117,8 +117,41 @@ class ValidationTests(CatalogTestCase):
     def test_required_fields_are_reported_together(self):
         with self.assertRaises(SpecValidationError) as caught:
             validate_spec(self.saree, {})
+        # Delivery date is deliberately not here: an order is often taken before
+        # a date is agreed, and requiring it only produced placeholder dates.
+        self.assertEqual(set(caught.exception.errors), {'saree_type', 'services'})
+
+    def test_delivery_date_is_optional_on_every_garment(self):
+        for template in GarmentTemplate.objects.all():
+            field = next(
+                f for s in template.sections.all() for f in s.fields.all()
+                if f.key == 'delivery_date'
+            )
+            self.assertFalse(field.is_required, f"{template.key} still demands a delivery date")
+
+    def test_service_groups_appear_only_for_the_services_chosen(self):
+        style = self.saree.sections.get(key='style')
+        visible = lambda services: {
+            f.key for f in style.fields.all() if is_visible(f, {'services': services})
+        }
+
+        # Fall and pico work asks nothing about borders, tassels or petticoats.
+        self.assertEqual(visible(['fall_pico']), {'services', 'fall_type', 'pico_type'})
+        # Stitching does not ask how the fall should be cut.
         self.assertEqual(
-            set(caught.exception.errors), {'saree_type', 'services', 'delivery_date'}
+            visible(['stitching']), {'services', 'border', 'backing', 'petticoat_required'}
+        )
+        self.assertIn('tassels', visible(['tassel_work']))
+        self.assertNotIn('tassels', visible(['stitching']))
+
+    def test_tassel_material_needs_the_service_not_just_an_unset_field(self):
+        # `neq` is true for an unanswered field, so without the service gate the
+        # tassel material appeared on orders with no tassel work at all.
+        materials = self.saree.sections.get(key='materials')
+        tassels = next(f for f in materials.fields.all() if f.key == 'tassels_material')
+        self.assertFalse(is_visible(tassels, {'services': ['stitching']}))
+        self.assertTrue(
+            is_visible(tassels, {'services': ['tassel_work'], 'tassels': 'hand_made'})
         )
 
     def test_hidden_fields_are_dropped_not_rejected(self):
