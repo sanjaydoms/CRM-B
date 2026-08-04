@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { 
   Users, ShoppingBag, Scissors, Search, 
   Upload, Check, ArrowRight, ArrowLeft, Heart, 
@@ -18,6 +18,7 @@ import { resolveMediaUrl } from './services/media';
 const DesignStudio = lazy(() => import('./features/designStudio/DesignStudio'));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
 import TemplateForm from './features/catalog/TemplateForm';
+import GarmentSummary from './features/catalog/GarmentSummary';
 
 /** Placeholder shown while a lazily loaded screen arrives. */
 const ScreenLoading = () => (
@@ -378,18 +379,26 @@ function App() {
     try {
       const template = await api.getGarmentTemplate(key);
       setGarmentJobs(prev => [...prev, { key, template, values: {} }]);
-      // Pricing, the dashboard and the stage tracker all still read the single
-      // garment_type on the customer. Keep it pointing at the first dress until
-      // those move over to the job list.
-      setCustomerForm(prev => ({
-        ...prev,
-        garment_type: prev.garment_type && garmentJobs.length ? prev.garment_type : template.name,
-      }));
     } catch (err) {
       console.error(err);
       alert('Could not load that garment form.');
     }
   };
+
+  // Pricing, the dashboard and the stage tracker still read the single
+  // garment_type on the customer, so it follows the first dress on the order
+  // until those move over to the job list.
+  //
+  // Derived rather than assigned inside addGarment: that read garmentJobs from
+  // the closure, so two garments added in the same tick both saw an empty list
+  // and the second overwrote the first -- the cost sidebar then named the wrong
+  // garment. Deriving also keeps it right when the first dress is removed.
+  useEffect(() => {
+    const first = garmentJobs[0]?.template?.name;
+    if (first) {
+      setCustomerForm(prev => (prev.garment_type === first ? prev : { ...prev, garment_type: first }));
+    }
+  }, [garmentJobs]);
 
   const removeGarment = (key) => {
     setGarmentJobs(prev => prev.filter(job => job.key !== key));
@@ -991,7 +1000,30 @@ function App() {
     }
   };
 
-  const handleNext = async () => {
+  // One click, one call.
+  //
+  // Every wizard CTA is an async handler that talks to the API, and none of them
+  // guarded against being entered twice. A double-click on Next ran saveStep1
+  // twice, which is two createCustomer POSTs and two customer records for one
+  // person. The ref is what does the work: a second click in the same tick sees
+  // it synchronously, where a state flag would not have re-rendered yet. The
+  // state is only so the button can show it is busy.
+  const actionInFlight = useRef(false);
+  const [ctaBusy, setCtaBusy] = useState(false);
+
+  const runOnce = useCallback(async (action) => {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
+    setCtaBusy(true);
+    try {
+      await action();
+    } finally {
+      actionInFlight.current = false;
+      setCtaBusy(false);
+    }
+  }, []);
+
+  const performNext = async () => {
     try {
       if (currentStep === 1) {
         if (garmentJobs.length === 0) {
@@ -1044,7 +1076,7 @@ function App() {
     }
   };
 
-  const handleSaveDraft = async () => {
+  const performSaveDraft = async () => {
     try {
       if (currentStep === 1) {
         await saveStep1();
@@ -1063,6 +1095,9 @@ function App() {
       alert("Failed to save draft.");
     }
   };
+
+  const handleNext = () => runOnce(performNext);
+  const handleSaveDraft = () => runOnce(performSaveDraft);
 
   // Image Upload Handlers
   const handleProfilePhotoChange = (e) => {
@@ -7220,8 +7255,16 @@ function App() {
                             <div style={{ width: '48px', height: '48px', borderRadius: '6px', backgroundColor: '#f1f3f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShoppingBag size={20} /></div>
                           )}
                           <div>
-                            <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>GARMENT</span>
-                            <span style={{ fontSize: '13px', fontWeight: 600 }}>{customerForm.customer_type} • {customerForm.garment_type}</span>
+                            <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>
+                              {garmentJobs.length > 1 ? `GARMENTS (${garmentJobs.length})` : 'GARMENT'}
+                            </span>
+                            {/* Every dress on the order, not just the first --
+                                a lehenga with its blouse and dupatta is three. */}
+                            <span style={{ fontSize: '13px', fontWeight: 600 }}>
+                              {customerForm.customer_type} • {garmentJobs.length
+                                ? garmentJobs.map(job => job.template.name).join(', ')
+                                : customerForm.garment_type}
+                            </span>
                           </div>
                         </div>
 
@@ -7324,46 +7367,23 @@ function App() {
                       )}
                     </div>
 
-                    {/* Section 2: Measurements */}
+                    {/* Section 2: Garment details.
+                        Previously a decorative card showing a measurement count
+                        and a hardcoded "98% accuracy". It never showed a single
+                        thing the staff had actually typed, so the review step
+                        could not be used to check the order. */}
                     <div className="content-card">
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                         <div className="card-title" style={{ margin: 0 }}>
                           <Scissors size={20} />
-                          2. Measurements
+                          2. Garment Details
                         </div>
                         <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => setCurrentStep(2)}>
                           Edit
                         </button>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '20px', backgroundColor: '#fcfdfd', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                        <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#f1f3f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><User size={20} /></div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '13px', fontWeight: 600 }}>Default Set</span>
-                            <span style={{ fontSize: '9px', backgroundColor: '#fbeedb', color: '#c08030', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>Primary</span>
-                          </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Body Specifications (inches)</span>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>
-                            {Object.keys(customerForm.measurements || {}).filter(k => k !== 'additional_measurements' && customerForm.measurements?.[k]).length || 10}
-                          </span>
-                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Measurements</span>
-                        </div>
-                        <div style={{ width: '1px', height: '32px', backgroundColor: 'var(--border-color)' }}></div>
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>98%</span>
-                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Accuracy Score</span>
-                        </div>
-                        <div style={{ width: '1px', height: '32px', backgroundColor: 'var(--border-color)' }}></div>
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 600, display: 'block' }}>
-                            {new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </span>
-                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Measured On</span>
-                        </div>
-                      </div>
+                      <GarmentSummary jobs={garmentJobs} onEdit={() => setCurrentStep(2)} />
                     </div>
 
                     {/* Section 3: Tailor Details */}
@@ -7494,11 +7514,11 @@ function App() {
                         <ArrowLeft size={16} /> Back: Tailor Assignment
                       </button>
                       <div style={{ display: 'flex', gap: '12px' }}>
-                        <button className="btn-secondary" onClick={handleSaveDraft}>
+                        <button className="btn-secondary" onClick={handleSaveDraft} disabled={ctaBusy}>
                           Save as Draft
                         </button>
-                        <button className="btn-primary" onClick={handleNext}>
-                          Create Order & Pay <ArrowRight size={16} />
+                        <button className="btn-primary" onClick={handleNext} disabled={ctaBusy} style={{ opacity: ctaBusy ? 0.6 : 1 }}>
+                          {ctaBusy ? 'Working…' : <>Create Order & Pay <ArrowRight size={16} /></>}
                         </button>
                       </div>
                     </div>
@@ -7694,11 +7714,11 @@ function App() {
                         <ArrowLeft size={16} /> Back: Tailor Assignment
                       </button>
                       <div style={{ display: 'flex', gap: '12px' }}>
-                        <button className="btn-secondary" onClick={handleSaveDraft}>
+                        <button className="btn-secondary" onClick={handleSaveDraft} disabled={ctaBusy}>
                           Save as Draft
                         </button>
-                        <button className="btn-primary" onClick={handleNext} disabled={!agreedToTerms} style={{ opacity: agreedToTerms ? 1 : 0.6 }}>
-                          Confirm Order & Continue <ArrowRight size={16} />
+                        <button className="btn-primary" onClick={handleNext} disabled={!agreedToTerms || ctaBusy} style={{ opacity: (agreedToTerms && !ctaBusy) ? 1 : 0.6 }}>
+                          {ctaBusy ? 'Placing the order…' : <>Confirm Order & Continue <ArrowRight size={16} /></>}
                         </button>
                       </div>
                     </div>
@@ -7815,7 +7835,13 @@ function App() {
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
-                    <div style={{ fontSize: '14px', fontWeight: 600 }}>{customerForm.customer_type} • {customerForm.garment_type}</div>
+                    {/* Name every dress. The breakdown below still prices the
+                        first one only -- see the base-price row. */}
+                    <div style={{ fontSize: '14px', fontWeight: 600 }}>
+                      {customerForm.customer_type} • {garmentJobs.length
+                        ? garmentJobs.map(job => job.template.name).join(', ')
+                        : customerForm.garment_type}
+                    </div>
                     <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                       Fabric: {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer fabric'}
                     </div>
@@ -8110,13 +8136,12 @@ function App() {
           <div className="footer-right-actions">
             {/* Show Save as Draft only if they are creating a new customer profile (Step 1 or 2) */}
             {currentStep < 3 && (
-              <button className="btn-secondary" onClick={handleSaveDraft}>
+              <button className="btn-secondary" onClick={handleSaveDraft} disabled={ctaBusy}>
                 Save as Draft
               </button>
             )}
-            <button className="btn-primary" onClick={handleNext}>
-              {currentStep === 5 ? 'Confirm Order' : 'Next'}
-              <ArrowRight size={16} />
+            <button className="btn-primary" onClick={handleNext} disabled={ctaBusy} style={{ opacity: ctaBusy ? 0.6 : 1 }}>
+              {ctaBusy ? 'Working…' : <>{currentStep === 5 ? 'Confirm Order' : 'Next'}<ArrowRight size={16} /></>}
             </button>
           </div>
         </div>
