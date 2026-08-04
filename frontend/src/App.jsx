@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { 
   Users, ShoppingBag, Scissors, Search, 
   Upload, Check, ArrowRight, ArrowLeft, Heart, 
@@ -259,6 +259,7 @@ function App() {
   const [garmentTemplates, setGarmentTemplates] = useState([]);
   const [garmentJobs, setGarmentJobs] = useState([]);
   const [garmentErrors, setGarmentErrors] = useState({});
+  const [garmentTemplatesError, setGarmentTemplatesError] = useState(null);
 
   // Wizard Details State
   const [designNotes, setDesignNotes] = useState('');
@@ -348,13 +349,29 @@ function App() {
     }));
   }, [customerForm.garment_type, selectedFabric, fabricTab]);
 
-  // The garment list drives the whole order form, so it is fetched once and
-  // reused rather than being read from a hardcoded array.
-  useEffect(() => {
-    api.getGarmentTemplates()
-      .then(data => setGarmentTemplates(data.results || data))
-      .catch(err => console.error('Could not load garment templates', err));
+  // The garment list drives the whole order form, and comes from the catalogue
+  // rather than a hardcoded array.
+  //
+  // Loaded per signed-in user, not on mount. The endpoint needs a token, and
+  // on mount there is none -- the app opens on the landing page and the user
+  // logs in afterwards. Fetching once on mount meant the request 401'd, the
+  // list stayed empty, and the order form offered no garments at all.
+  const loadGarmentTemplates = useCallback(async () => {
+    if (!localStorage.getItem('token')) return;
+    setGarmentTemplatesError(null);
+    try {
+      const data = await api.getGarmentTemplates();
+      setGarmentTemplates(data.results || data);
+    } catch (err) {
+      console.error('Could not load garment templates', err);
+      setGarmentTemplates([]);
+      setGarmentTemplatesError(err.message || 'Could not load the garment list.');
+    }
   }, []);
+
+  useEffect(() => {
+    loadGarmentTemplates();
+  }, [currentUser, loadGarmentTemplates]);
 
   const addGarment = async (key) => {
     if (garmentJobs.some(job => job.key === key)) return;
@@ -6428,7 +6445,28 @@ function App() {
                         );
                       })}
                     </div>
-                    {garmentJobs.length === 0 && (
+                    {/* An empty picker used to render as a blank box with no
+                        explanation, which looks identical to "the boutique has
+                        no garments" and leaves the order form unusable. Say what
+                        went wrong and offer the retry. */}
+                    {garmentTemplates.length === 0 && (
+                      <div style={{ fontSize: '12.5px', color: garmentTemplatesError ? '#c0392b' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span>
+                          {garmentTemplatesError
+                            ? `The garment list could not be loaded — ${garmentTemplatesError}`
+                            : 'Loading the garment list…'}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '12px' }}
+                          onClick={loadGarmentTemplates}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {garmentTemplates.length > 0 && garmentJobs.length === 0 && (
                       <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '12px' }}>
                         No garment chosen yet.
                       </div>
