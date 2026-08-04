@@ -1,0 +1,254 @@
+<title>Scaleezy — Customer Inputs</title>
+
+<style>
+  :root {
+    --ground: #faf8f4; --panel: #ffffff; --ink: #12211b; --ink-soft: #46564e;
+    --thread: #8a9a92; --rule: #e2ded4; --gold: #96682f; --gold-soft: #f0e6d6;
+    --req: #a8511f; --opt: #5b7a6c;
+    --serif: ui-serif, Georgia, "Iowan Old Style", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground:#0d1512; --panel:#131d19; --ink:#e7ebe7; --ink-soft:#a3b0a8;
+      --thread:#74857c; --rule:#263029; --gold:#d4af37; --gold-soft:#2a2418;
+      --req:#e08a4e; --opt:#7fae9a; }
+  }
+  :root[data-theme="dark"] { --ground:#0d1512; --panel:#131d19; --ink:#e7ebe7; --ink-soft:#a3b0a8;
+    --thread:#74857c; --rule:#263029; --gold:#d4af37; --gold-soft:#2a2418; --req:#e08a4e; --opt:#7fae9a; }
+  :root[data-theme="light"] { --ground:#faf8f4; --panel:#ffffff; --ink:#12211b; --ink-soft:#46564e;
+    --thread:#8a9a92; --rule:#e2ded4; --gold:#96682f; --gold-soft:#f0e6d6; --req:#a8511f; --opt:#5b7a6c; }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+    font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 28px 100px; }
+
+  .masthead { border-bottom: 2px solid var(--ink); padding: 48px 0 20px; margin-bottom: 8px; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--gold); margin: 0 0 14px; }
+  .masthead h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(2rem, 5vw, 2.7rem);
+    line-height: 1.1; margin: 0 0 12px; text-wrap: balance; }
+  .masthead p { font-size: 1.02rem; color: var(--ink-soft); max-width: 62ch; margin: 0 0 18px; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 8px 24px; font-family: var(--mono); font-size: 11.5px; color: var(--thread); }
+  .meta-row b { color: var(--ink-soft); font-weight: 600; }
+
+  nav.toc { margin: 28px 0 0; padding: 16px 20px; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; }
+  nav.toc .toc-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--thread); margin-bottom: 10px; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  nav.toc a { color: var(--ink-soft); text-decoration: none; font-size: 13.5px; }
+  nav.toc a:hover { color: var(--gold); }
+
+  section { padding-top: 40px; scroll-margin-top: 20px; }
+  h2 { font-family: var(--serif); font-weight: 400; font-size: 1.45rem; margin: 0 0 4px; display: flex;
+    gap: 12px; align-items: baseline; text-wrap: balance; }
+  h2 .n { font-family: var(--mono); font-size: 0.66rem; color: var(--gold); letter-spacing: 0.08em; }
+  .status-line { font-size: 12.5px; color: var(--thread); margin: 0 0 16px; font-family: var(--mono); }
+  h3 { font-size: 0.9rem; font-weight: 700; margin: 22px 0 8px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  code { font-family: var(--mono); font-size: 0.84em; background: var(--gold-soft); padding: 0.1em 0.36em; border-radius: 3px; }
+
+  .scroller { overflow-x: auto; margin: 0 0 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 480px; }
+  th { text-align: left; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--thread); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--ink); }
+  td { padding: 7px 12px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.k { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+  td.req { color: var(--req); font-weight: 700; font-size: 11px; font-family: var(--mono); white-space: nowrap; }
+  td.opt { color: var(--opt); font-size: 11px; font-family: var(--mono); white-space: nowrap; }
+
+  .note { border: 1px solid var(--rule); border-left: 3px solid var(--gold); background: var(--panel);
+    padding: 13px 16px; border-radius: 2px; margin: 0 0 18px; font-size: 13.5px; max-width: 66ch; }
+  .note .nh { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--gold); font-weight: 700; margin-bottom: 5px; }
+  .note p:last-child { margin: 0; }
+
+  .legend { display: flex; gap: 20px; font-size: 12px; color: var(--ink-soft); margin: 0 0 16px; font-family: var(--mono); }
+  .legend span.req { color: var(--req); font-weight: 700; }
+  .legend span.opt { color: var(--opt); }
+
+  footer { border-top: 2px solid var(--ink); margin-top: 52px; padding-top: 16px; font-family: var(--mono);
+    font-size: 11px; color: var(--thread); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Scaleezy Boutique CRM — Reference</p>
+    <h1>Customer Inputs</h1>
+    <p>Every field the system captures about a client, across the intake wizard, the client
+    directory, and order creation — grouped by where in the workflow it's collected.</p>
+    <div class="meta-row">
+      <span><b>Source</b> Customer, Measurement, DesignPreference, FabricSelection, Order models</span>
+      <span><b>Branch</b> Test</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#s1">1 — Personal &amp; contact details</a></li>
+      <li><a href="#s2">2 — Style profile (garment preferences)</a></li>
+      <li><a href="#s3">3 — Body measurements</a></li>
+      <li><a href="#s4">4 — Design preferences</a></li>
+      <li><a href="#s5">5 — Fabric selection</a></li>
+      <li><a href="#s6">6 — Order &amp; delivery details</a></li>
+      <li><a href="#s7">7 — What we don't ask for</a></li>
+    </ol>
+  </nav>
+
+  <section id="s1">
+    <h2><span class="n">01</span>Personal &amp; contact details</h2>
+    <p class="status-line">Step 1 of the order wizard, or entered directly in the client directory</p>
+    <div class="legend"><span class="req">■ required</span><span class="opt">■ optional</span></div>
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:150px">Field</th><th style="width:70px"></th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="k">First name</td><td class="req">Required</td><td>—</td></tr>
+          <tr><td class="k">Last name</td><td class="req">Required</td><td>—</td></tr>
+          <tr><td class="k">Mobile number</td><td class="req">Required</td><td>Must be unique across the boutique — used to look up returning clients</td></tr>
+          <tr><td class="k">Email address</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Address</td><td class="opt">Optional</td><td>Free text</td></tr>
+          <tr><td class="k">City / region</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Date of birth</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Occupation</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Preferred communication</td><td class="opt">Optional</td><td>WhatsApp, Call, or Email — defaults to WhatsApp</td></tr>
+          <tr><td class="k">How they found us</td><td class="opt">Optional</td><td>Walk In, Instagram, Referral, etc. — defaults to Walk In</td></tr>
+          <tr><td class="k">Profile photo</td><td class="opt">Optional</td><td>Image upload</td></tr>
+          <tr><td class="k">Internal notes</td><td class="opt">Optional</td><td>Staff-facing, not shown to the client</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="n">02</span>Style profile</h2>
+    <p class="status-line">Step 1 of the order wizard — the garment brief</p>
+    <p>Captured once per client record. These describe the general look they want, ahead of
+    picking a specific fabric or catalogue design.</p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:170px">Field</th><th style="width:70px"></th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Customer type</td><td class="req">Required</td><td>Women, Men, or Kids — defaults to Women</td></tr>
+          <tr><td class="k">Garment type</td><td class="req">Required</td><td>e.g. Lehenga, Saree, Gown, Kurti, Sherwani — defaults to Lehenga</td></tr>
+          <tr><td class="k">Occasion</td><td class="opt">Optional</td><td>e.g. Wedding, Festive, Everyday</td></tr>
+          <tr><td class="k">Neckline style</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Sleeve style</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Back style</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Length preference</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Silhouette</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Embellishments</td><td class="opt">Optional</td><td>Free text description</td></tr>
+          <tr><td class="k">Pattern style</td><td class="opt">Optional</td><td>—</td></tr>
+          <tr><td class="k">Custom requirements</td><td class="opt">Optional</td><td>Free text — anything not covered by the fields above</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s3">
+    <h2><span class="n">03</span>Body measurements</h2>
+    <p class="status-line">Step 2 of the order wizard</p>
+    <p>Seven standard measurements, plus room for anything garment-specific. Every time a
+    client's measurements are changed, the previous version is kept automatically — there's a
+    full history, not just the current numbers.</p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:150px">Field</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Bust</td><td rowspan="7">All optional individually, but the intake step expects at least the ones relevant to the garment type. Recorded to two decimal places.</td></tr>
+          <tr><td class="k">Waist</td></tr>
+          <tr><td class="k">Hips</td></tr>
+          <tr><td class="k">Shoulder</td></tr>
+          <tr><td class="k">Arm length</td></tr>
+          <tr><td class="k">Neck</td></tr>
+          <tr><td class="k">Length</td></tr>
+          <tr><td class="k">Additional measurements</td><td>Open-ended — for parts specific to a garment (e.g. sleeve circumference on a fitted blouse) that don't fit the seven standard fields</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <div class="nh">Why this matters downstream</div>
+      <p>Measurements are checked, not just stored: an order can't move to "assigned to tailor"
+      until measurements exist, and Style DNA's size estimate reads directly from the bust figure.</p>
+    </div>
+  </section>
+
+  <section id="s4">
+    <h2><span class="n">04</span>Design preferences</h2>
+    <p class="status-line">Step 3 of the order wizard</p>
+    <p>What the garment should look like, and where that look came from.</p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:170px">Field</th><th style="width:70px"></th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Notes</td><td class="opt">Optional</td><td>Free text describing the design</td></tr>
+          <tr><td class="k">Reference images</td><td class="opt">Optional</td><td>Uploaded photos, or images selected from the catalogue</td></tr>
+          <tr><td class="k">Source</td><td class="req">Required</td><td>Boutique catalogue, Custom design, Previous design, Pinterest, Google images, Customer sketch, or Designer sketch — defaults to Boutique catalogue</td></tr>
+          <tr><td class="k">Reference links</td><td class="opt">Optional</td><td>External inspiration URLs, e.g. a Pinterest board</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:13px;color:var(--ink-soft)">A design can later be marked <em>approved for
+    production</em> by staff, with one reference image chosen as the final look — that's a
+    staff action, not a customer input, so it's covered in the features note rather than here.</p>
+  </section>
+
+  <section id="s5">
+    <h2><span class="n">05</span>Fabric selection</h2>
+    <p class="status-line">Step 4 of the order wizard</p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:170px">Field</th><th style="width:70px"></th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Fabric source</td><td class="req">Required</td><td>From the boutique's fabric catalogue, or customer-supplied</td></tr>
+          <tr><td class="k">Fabric name</td><td class="req">Required</td><td>Picked from catalogue, or entered for a customer-supplied fabric</td></tr>
+          <tr><td class="k">Fabric price</td><td class="opt">Optional</td><td>Only relevant for customer-supplied fabric being valued into the order</td></tr>
+          <tr><td class="k">Fabric photos</td><td class="opt">Optional</td><td>Photos of the customer's own fabric, if supplied</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s6">
+    <h2><span class="n">06</span>Order &amp; delivery details</h2>
+    <p class="status-line">Steps 5–6 of the order wizard</p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:170px">Field</th><th style="width:70px"></th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Assigned tailor</td><td class="opt">Optional</td><td>Chosen by staff, not the customer</td></tr>
+          <tr><td class="k">Assigned master</td><td class="opt">Optional</td><td>Chosen by staff, not the customer</td></tr>
+          <tr><td class="k">Payment status</td><td class="req">Required</td><td>Paid, Partially Paid, or Pending — defaults to Paid</td></tr>
+          <tr><td class="k">Advance paid</td><td class="opt">Optional</td><td>Only used when payment is partial</td></tr>
+          <tr><td class="k">Delivery method</td><td class="req">Required</td><td>Direct Pickup or Courier — defaults to Direct Pickup</td></tr>
+          <tr><td class="k">Courier service</td><td class="opt">Optional</td><td>Only when delivery method is Courier</td></tr>
+          <tr><td class="k">Tracking number</td><td class="opt">Optional</td><td>Only when delivery method is Courier</td></tr>
+          <tr><td class="k">Delivery address</td><td class="opt">Optional</td><td>Only when delivery method is Courier</td></tr>
+          <tr><td class="k">Price breakdown</td><td class="opt">Optional</td><td>Base, fabric, embroidery, customisation, tailoring and packaging charges — each defaults to zero if not entered; 5% tax is added automatically</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s7">
+    <h2><span class="n">07</span>What we don't ask for</h2>
+    <p>Worth stating plainly, since it shapes what the client-facing side of the product can
+    ever show them:</p>
+    <ul style="max-width:66ch">
+      <li>The customer never logs in and never fills in any of these fields themselves — every
+      input above is entered by boutique staff, on the customer's behalf, during a conversation
+      or fitting</li>
+      <li>No consent or communication-preference capture beyond the single "preferred
+      communication channel" field</li>
+      <li>No payment details are collected or stored — payment status is recorded, not processed</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>Scaleezy Boutique CRM — Customer Inputs Reference</span>
+    <span>Compiled from crm_api/models.py, crm_api/views.py, domains/orders/services.py</span>
+  </footer>
+</div>

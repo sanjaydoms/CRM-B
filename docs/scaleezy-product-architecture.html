@@ -1,0 +1,1089 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Product, feature and architecture reference for the Scaleezy Boutique CRM.">
+<title>Scaleezy Boutique CRM — Product &amp; Architecture</title>
+</head>
+<body>
+<style>
+  :root {
+    --ground:      #faf8f4;
+    --panel:       #ffffff;
+    --ink:         #12211b;
+    --ink-soft:    #46564e;
+    --thread:      #8a9a92;
+    --rule:        #e2ded4;
+    --atelier:     #0f291e;
+    --gold:        #96682f;
+    --gold-soft:   #f0e6d6;
+    --live:        #2f7d5d;
+    --gap:         #a8511f;
+    --risk:        #9b2c2c;
+    --plate:       #f4f1e9;
+    --plate-ink:   #22322a;
+
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+    --measure: 68ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:    #0d1512;
+      --panel:     #131d19;
+      --ink:       #e7ebe7;
+      --ink-soft:  #a3b0a8;
+      --thread:    #74857c;
+      --rule:      #263029;
+      --atelier:   #cbb072;
+      --gold:      #d4af37;
+      --gold-soft: #2a2418;
+      --live:      #5cc396;
+      --gap:       #e08a4e;
+      --risk:      #e07070;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:    #0d1512;
+    --panel:     #131d19;
+    --ink:       #e7ebe7;
+    --ink-soft:  #a3b0a8;
+    --thread:    #74857c;
+    --rule:      #263029;
+    --atelier:   #cbb072;
+    --gold:      #d4af37;
+    --gold-soft: #2a2418;
+    --live:      #5cc396;
+    --gap:       #e08a4e;
+    --risk:      #e07070;
+  }
+  :root[data-theme="light"] {
+    --ground:    #faf8f4;
+    --panel:     #ffffff;
+    --ink:       #12211b;
+    --ink-soft:  #46564e;
+    --thread:    #8a9a92;
+    --rule:      #e2ded4;
+    --atelier:   #0f291e;
+    --gold:      #96682f;
+    --gold-soft: #f0e6d6;
+    --live:      #2f7d5d;
+    --gap:       #a8511f;
+    --risk:      #9b2c2c;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: 56px;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 32px 120px;
+    align-items: start;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    grid-column: 1 / -1;
+    border-bottom: 2px solid var(--ink);
+    padding: 56px 0 20px;
+    margin-bottom: 8px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin: 0 0 14px;
+  }
+  .masthead h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(2.1rem, 5vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  .masthead .standfirst {
+    font-size: 1.06rem;
+    color: var(--ink-soft);
+    max-width: 62ch;
+    margin: 0 0 22px;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--thread);
+    letter-spacing: 0.03em;
+  }
+  .meta-row b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ---------- toc ---------- */
+  nav.toc {
+    position: sticky;
+    top: 28px;
+    font-size: 13.5px;
+    line-height: 1.45;
+  }
+  nav.toc .toc-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--thread);
+    padding-bottom: 10px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  nav.toc a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    display: flex;
+    gap: 9px;
+    border-left: 2px solid transparent;
+    padding-left: 9px;
+    margin-left: -11px;
+  }
+  nav.toc a:hover { color: var(--gold); border-left-color: var(--gold); }
+  nav.toc a:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 2px; }
+  nav.toc .n { font-family: var(--mono); font-size: 11px; color: var(--thread); padding-top: 2px; }
+
+  /* ---------- sections ---------- */
+  main { min-width: 0; }
+  section { padding-top: 46px; scroll-margin-top: 22px; }
+  section > * { max-width: var(--measure); }
+  section > .full { max-width: none; }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 1.72rem;
+    line-height: 1.18;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+    display: flex;
+    gap: 14px;
+    align-items: baseline;
+  }
+  h2 .n {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--gold);
+    letter-spacing: 0.08em;
+    flex: none;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.005em;
+    margin: 34px 0 8px;
+  }
+  h4 {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--thread);
+    font-weight: 600;
+    margin: 26px 0 10px;
+  }
+  p { margin: 0 0 14px; }
+  a { color: var(--gold); }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.845em;
+    background: var(--gold-soft);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+  ul, ol { margin: 0 0 14px; padding-left: 1.25em; }
+  li { margin-bottom: 6px; }
+  li::marker { color: var(--thread); }
+
+  .lede {
+    font-size: 1.02rem;
+    color: var(--ink-soft);
+    border-left: 2px solid var(--gold);
+    padding-left: 16px;
+    margin: 0 0 24px;
+  }
+
+  /* ---------- tables ---------- */
+  .scroller { overflow-x: auto; margin: 0 0 20px; -webkit-overflow-scrolling: touch; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13.5px;
+    min-width: 520px;
+  }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--thread);
+    font-weight: 600;
+    padding: 0 14px 8px 0;
+    border-bottom: 1px solid var(--ink);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12.5px; padding-right: 0; }
+  td.k { font-family: var(--mono); font-size: 12px; white-space: nowrap; color: var(--ink); }
+
+  /* ---------- pills ---------- */
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 2.5px 7px;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .pill.live { color: var(--live); }
+  .pill.partial { color: var(--gap); }
+  .pill.stub { color: var(--risk); }
+  .pill.role { color: var(--ink-soft); border-color: var(--rule); background: var(--gold-soft); }
+
+  /* ---------- plates (diagrams) ---------- */
+  .plate {
+    background: var(--plate);
+    color: var(--plate-ink);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 26px 24px 22px;
+    margin: 0 0 10px;
+    overflow-x: auto;
+  }
+  .plate-cap {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.09em;
+    color: var(--thread);
+    margin: 0 0 26px;
+    text-transform: uppercase;
+  }
+
+  /* stack diagram */
+  .stack { display: flex; flex-direction: column; gap: 7px; min-width: 460px; }
+  .tier {
+    border: 1px solid #cfc9ba;
+    background: #fbf9f4;
+    border-radius: 3px;
+    padding: 11px 14px;
+    display: grid;
+    grid-template-columns: 116px minmax(0, 1fr);
+    gap: 14px;
+    align-items: baseline;
+  }
+  .tier .tname {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #7d6a45;
+    font-weight: 700;
+  }
+  .tier .tbody { font-size: 13px; color: var(--plate-ink); line-height: 1.5; }
+  .tier .tbody em { color: #6b7a72; font-style: normal; font-size: 12px; }
+  .arrow {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: #a89a7c;
+    line-height: 1;
+  }
+
+  /* flow diagram */
+  .flow { display: flex; flex-direction: column; gap: 0; min-width: 460px; }
+  .fstep {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 14px;
+    padding: 0 0 16px;
+    position: relative;
+  }
+  .fstep:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 12.5px; top: 20px; bottom: 0;
+    width: 1px; background: #cfc9ba;
+  }
+  .fdot {
+    width: 25px; height: 25px; border-radius: 50%;
+    border: 1px solid #b9ad92; background: #fbf9f4;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 10.5px; color: #7d6a45;
+    position: relative; z-index: 1; font-weight: 700;
+  }
+  .ftext { font-size: 13px; line-height: 1.5; padding-top: 3px; }
+  .ftext b { display: block; font-size: 13.5px; margin-bottom: 1px; }
+  .ftext span { color: #6b7a72; }
+  .ftext code { background: #ece6d7; color: #4a3d24; }
+
+  /* ---------- callout ---------- */
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--gap);
+    background: var(--panel);
+    padding: 15px 18px;
+    border-radius: 2px;
+    margin: 0 0 20px;
+    font-size: 14px;
+  }
+  .note.risk { border-left-color: var(--risk); }
+  .note .nh {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--gap);
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .note.risk .nh { color: var(--risk); }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---------- metric row ---------- */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    margin: 0 0 20px;
+    overflow: hidden;
+  }
+  .metric { background: var(--panel); padding: 14px 16px; }
+  .metric .mv {
+    font-family: var(--serif);
+    font-size: 1.55rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 5px;
+  }
+  .metric .ml {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--thread);
+  }
+  .metric .md { font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+
+  hr.rule { border: none; border-top: 1px solid var(--rule); margin: 0; }
+
+  footer {
+    grid-column: 1 / -1;
+    border-top: 2px solid var(--ink);
+    margin-top: 64px;
+    padding-top: 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--thread);
+    letter-spacing: 0.03em;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* ---------- entity map ---------- */
+  .emap { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 26px; min-width: 460px; }
+  .ecluster { display: flex; flex-direction: column; gap: 3px; }
+  .ehead { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #7d6a45; font-weight: 700; margin-bottom: 7px; }
+  .ebox { border: 1px solid #cfc9ba; background: #fbf9f4; border-radius: 3px; padding: 7px 10px; font-family: var(--mono); font-size: 11.5px; color: var(--plate-ink); }
+  .ebox.root { background: #ece5d3; border-color: #bcae8e; font-weight: 700; }
+  .ebox span { display: block; font-family: var(--sans); font-size: 10.5px; color: #6b7a72; margin-top: 1px; }
+  .erel { font-size: 10px; color: #8a8069; padding: 2px 0 2px 11px; font-family: var(--sans); }
+  .emap-note { font-size: 12.5px; color: var(--ink-soft); margin-top: 16px; }
+  .emap-note b { font-family: var(--mono); font-size: 11.5px; font-weight: 600; }
+
+  @media print {
+    :root { --ground:#fff; --panel:#fff; --ink:#000; --ink-soft:#333; --rule:#ccc; --thread:#666; --gold:#7a5423; }
+    body { font-size: 10.5pt; }
+    .wrap { display: block; max-width: none; padding: 0; }
+    nav.toc { display: none; }
+    section { break-inside: auto; padding-top: 26px; }
+    h2 { break-after: avoid; }
+    table, .plate, .note, .metrics { break-inside: avoid; }
+    .scroller, .plate { overflow: visible; }
+    table, .stack, .flow, .emap { min-width: 0; }
+    a { color: #000; text-decoration: none; }
+    footer { border-top: 1px solid #000; }
+  }
+
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 22px 80px; }
+    nav.toc { position: static; margin-bottom: 12px; }
+    nav.toc ol { flex-direction: row; flex-wrap: wrap; gap: 6px 18px; }
+    nav.toc a { margin-left: 0; padding-left: 0; border-left: none; }
+    nav.toc a:hover { border-left: none; }
+    .masthead { padding-top: 38px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Product &amp; Architecture Reference</p>
+    <h1>Scaleezy Boutique CRM</h1>
+    <p class="standfirst">
+      A multi-tenant platform for bespoke fashion studios — tracking a custom garment from
+      the client's first measurement through cutting, stitching, quality control and delivery.
+    </p>
+    <div class="meta-row">
+      <span><b>Audience</b> Stakeholders &amp; engineering</span>
+      <span><b>Status</b> MVP, in production</span>
+      <span><b>Source of truth</b> <code>sanjaydoms/CRM-B</code> @ main</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#s1"><span class="n">1</span><span>What the product does</span></a></li>
+      <li><a href="#s2"><span class="n">2</span><span>Who uses it</span></a></li>
+      <li><a href="#s3"><span class="n">3</span><span>Core concepts</span></a></li>
+      <li><a href="#s4"><span class="n">4</span><span>Feature catalogue</span></a></li>
+      <li><a href="#s5"><span class="n">5</span><span>The order lifecycle</span></a></li>
+      <li><a href="#s6"><span class="n">6</span><span>Architecture</span></a></li>
+      <li><a href="#s7"><span class="n">7</span><span>Data model</span></a></li>
+      <li><a href="#s8"><span class="n">8</span><span>API surface</span></a></li>
+      <li><a href="#s9"><span class="n">9</span><span>Performance</span></a></li>
+      <li><a href="#s10"><span class="n">10</span><span>Implementation status</span></a></li>
+      <li><a href="#s11"><span class="n">11</span><span>Known gaps</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ 1 ============ -->
+    <section id="s1">
+      <h2><span class="n">01</span>What the product does</h2>
+      <p class="lede">
+        Bespoke tailoring runs on paper diaries, WhatsApp threads and the owner's memory.
+        Scaleezy replaces that with a single record per client and a tracked production
+        pipeline per garment.
+      </p>
+      <p>
+        Each boutique signs up and receives an isolated workspace. Inside it they build a client
+        directory with body measurements and style preferences, take a custom order through a
+        guided six-step intake, then follow that garment through a twelve-stage production
+        workflow — each stage timestamped, attributed to a named tailor, and able to carry
+        photographs and comments.
+      </p>
+      <p>
+        The owner sees revenue, order status distribution and staff workload on a dashboard.
+        Masters and tailors see only the orders assigned to them. Every state change is written
+        to an audit trail.
+      </p>
+
+      <h4>At a glance</h4>
+      <div class="metrics full">
+        <div class="metric">
+          <div class="mv">12</div>
+          <div class="ml">Production stages</div>
+          <div class="md">Configurable per boutique</div>
+        </div>
+        <div class="metric">
+          <div class="mv">8</div>
+          <div class="ml">Auto-created tasks</div>
+          <div class="md">Per order, on creation</div>
+        </div>
+        <div class="metric">
+          <div class="mv">3</div>
+          <div class="ml">Staff roles</div>
+          <div class="md">Owner, Master, Tailor</div>
+        </div>
+        <div class="metric">
+          <div class="mv">1</div>
+          <div class="ml">Schema per boutique</div>
+          <div class="md">Hard data isolation</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section id="s2">
+      <h2><span class="n">02</span>Who uses it</h2>
+      <p>
+        Roles are carried on the staff record and drive both what the interface shows and which
+        production stages a person is permitted to advance.
+      </p>
+      <div class="scroller full">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:118px">Role</th>
+              <th>What they do</th>
+              <th style="width:210px">What they see on sign-in</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="pill role">Owner</span></td>
+              <td>Runs the boutique. Creates orders, manages the client directory, fabric and design catalogues, hires staff, sets pricing, configures the workflow.</td>
+              <td>Full dashboard — revenue, all orders, all clients, analytics, settings.</td>
+            </tr>
+            <tr>
+              <td><span class="pill role">Master</span></td>
+              <td>Senior tailor. Supervises orders, drafts patterns, runs the quality-control inspection, conducts fitting trials, signs off dispatch.</td>
+              <td>Assignments view — orders they supervise, with client measurements.</td>
+            </tr>
+            <tr>
+              <td><span class="pill role">Tailor</span></td>
+              <td>Constructs the garment. Starts and completes stitching, uploads finished-garment photographs and comments.</td>
+              <td>Assignments view — orders assigned to them for stitching.</td>
+            </tr>
+            <tr>
+              <td><span class="pill role">Client</span></td>
+              <td>Does not log in. Exists as a directory record and as the recipient of order-progress notifications.</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-soft)">
+        Staff accounts are created automatically when a tailor record is given an email address.
+        The owner account is created at boutique sign-up.
+      </p>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section id="s3">
+      <h2><span class="n">03</span>Core concepts</h2>
+      <p>Shared vocabulary. These terms mean the same thing in the product, the API and the code.</p>
+      <div class="scroller full">
+        <table>
+          <thead>
+            <tr><th style="width:150px">Term</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="k">Boutique / Tenant</td><td>One studio. Owns a dedicated database schema; no query can cross the boundary.</td></tr>
+            <tr><td class="k">Customer</td><td>A client of the boutique. Holds contact details, one live measurement set, a versioned measurement history, style preferences and design references.</td></tr>
+            <tr><td class="k">Order</td><td>One bespoke garment. Carries the full price breakdown, delivery arrangements, assigned master and tailor, and current position in the workflow.</td></tr>
+            <tr><td class="k">Stage</td><td>One of the twelve steps of production for a given order. Records status, who performed it, start and completion time, elapsed duration, comments and photographs.</td></tr>
+            <tr><td class="k">Production task</td><td>A concrete unit of work attached to a stage — cutting, assembly, finishing — with a priority and an assignee.</td></tr>
+            <tr><td class="k">QC record</td><td>The outcome of a master's inspection: passed, failed, or rework required, with a checklist and proof photographs.</td></tr>
+            <tr><td class="k">Appointment</td><td>A scheduled consultation, measurement fitting, garment trial or delivery.</td></tr>
+            <tr><td class="k">Style DNA</td><td>A derived profile of a client — typical spend, size, visit rhythm, lapse risk and a recommended next action.</td></tr>
+            <tr><td class="k">Segment</td><td>Automatic client tier. <strong>VIP</strong> at ≥ ₹75,000 lifetime or ≥ 3 orders; <strong>HVC</strong> at ≥ ₹20,000 or ≥ 1 order; <strong>General</strong> otherwise.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section id="s4">
+      <h2><span class="n">04</span>Feature catalogue</h2>
+      <p>
+        Grouped by the module that owns it. The status column separates what is fully built from
+        what is present but incomplete — see <a href="#s10">§10</a> for detail.
+      </p>
+
+      <h3>Client management</h3>
+      <div class="scroller full">
+        <table>
+          <thead><tr><th style="width:200px">Feature</th><th>Behaviour</th><th style="width:86px">Status</th></tr></thead>
+          <tbody>
+            <tr><td>Client directory</td><td>Searchable, filterable by Women / Men / Kids. Cards show contact details, measurements, bespoke profile and segment tier.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Measurements</td><td>Seven standard measurements plus arbitrary custom fields. Supports garment-specific part lists.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Measurement history</td><td>Every change writes a new version automatically, so sizing drift over time is visible.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Design preferences</td><td>Free-text notes plus uploaded reference images and selected catalogue designs.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Style DNA</td><td>Derived client profile — budget band, size, visit pattern, lapse risk, next action.</td><td><span class="pill partial">Partial</span></td></tr>
+            <tr><td>Segmentation</td><td>VIP / HVC / General assigned automatically from lifetime spend and order count.</td><td><span class="pill live">Live</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Order intake</h3>
+      <div class="scroller full">
+        <table>
+          <thead><tr><th style="width:200px">Feature</th><th>Behaviour</th><th style="width:86px">Status</th></tr></thead>
+          <tbody>
+            <tr><td>Six-step wizard</td><td>Personal details → measurements → design discovery → fabric selection → tailor assignment → review &amp; confirm.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Fabric selection</td><td>Choose from the boutique catalogue or upload the client's own fabric with photographs and a price.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Design discovery</td><td>Catalogue designs and suggestion templates, filtered to the client's garment type.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Draping preview</td><td>Shows a preview image for the chosen fabric colour.</td><td><span class="pill stub">Mocked</span></td></tr>
+            <tr><td>Price breakdown</td><td>Base, fabric, embroidery, customisation, tailoring and packaging, plus 5% tax. Full or partial payment.</td><td><span class="pill live">Live</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Production</h3>
+      <div class="scroller full">
+        <table>
+          <thead><tr><th style="width:200px">Feature</th><th>Behaviour</th><th style="width:86px">Status</th></tr></thead>
+          <tbody>
+            <tr><td>Twelve-stage workflow</td><td>Every order is created with its full stage list. Advancing a stage is role-gated and precondition-checked.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Configurable stages</td><td>Stage names, SLA hours and permitted roles are stored per boutique and can be changed without a deploy.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Guard rails</td><td>Cannot deliver before quality check; cannot start stitching without an assigned tailor; cannot assign a tailor without measurements; cannot schedule a trial before stitching completes.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Stage evidence</td><td>Each stage accepts comments and photographs, and records who performed it and how long it took.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Production tasks</td><td>Eight tasks created per order and routed to master or tailor by type, with priority.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Quality control</td><td>Inspection records with pass / fail / rework outcome, checklist and proof photographs.</td><td><span class="pill partial">Partial</span></td></tr>
+            <tr><td>Staff availability</td><td>Tailors flip between Available and Busy automatically as stitching starts and finishes.</td><td><span class="pill live">Live</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Operations &amp; oversight</h3>
+      <div class="scroller full">
+        <table>
+          <thead><tr><th style="width:200px">Feature</th><th>Behaviour</th><th style="width:86px">Status</th></tr></thead>
+          <tbody>
+            <tr><td>Owner dashboard</td><td>Revenue, client and order counts, status distribution, recent orders with a live stage tracker.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Analytics</td><td>Collected versus pending revenue, average ticket size, popular garment types, staff workload.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Invoices</td><td>Per-order billing view with payment status.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Notifications</td><td>Records generated for owner, master, tailor and client at order creation and each status change.</td><td><span class="pill partial">In-app only</span></td></tr>
+            <tr><td>Audit trail</td><td>Two logs — a per-order event history and a cross-module activity feed capturing before and after values.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Appointments</td><td>Consultations, fittings, trials and deliveries with assigned staff and status.</td><td><span class="pill partial">API only</span></td></tr>
+            <tr><td>Catalogues</td><td>Full management of fabrics, designs and staff. Seeded with defaults at sign-up.</td><td><span class="pill live">Live</span></td></tr>
+            <tr><td>Boutique settings</td><td>Studio name, address, contact details, logo and the workflow definition.</td><td><span class="pill live">Live</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section id="s5">
+      <h2><span class="n">05</span>The order lifecycle</h2>
+      <p>
+        The twelve stages below are the default. They live in each boutique's settings as data, so
+        a studio can rename, re-sequence, re-time or re-permission them. <em>SLA</em> is the target
+        hours for that stage; <em>Advanced by</em> lists the roles permitted to move it.
+      </p>
+      <div class="scroller full">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:34px" class="num">#</th>
+              <th style="width:186px">Stage</th>
+              <th style="width:150px">Advanced by</th>
+              <th class="num" style="width:64px">SLA</th>
+              <th>Order status shown to client</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="num">1</td><td>Created</td><td>Owner, Master</td><td class="num">12h</td><td>Received</td></tr>
+            <tr><td class="num">2</td><td>Measurements Completed</td><td>Owner, Master</td><td class="num">24h</td><td>Confirmed</td></tr>
+            <tr><td class="num">3</td><td>Fabric Confirmed</td><td>Owner, Master</td><td class="num">24h</td><td>Confirmed</td></tr>
+            <tr><td class="num">4</td><td>Pattern Cutting</td><td>Owner, Master</td><td class="num">24h</td><td>Design &amp; Creation</td></tr>
+            <tr><td class="num">5</td><td>Assigned to Tailor</td><td>Owner, Master</td><td class="num">12h</td><td>Design &amp; Creation</td></tr>
+            <tr><td class="num">6</td><td>Stitching In Progress</td><td>Owner, Tailor</td><td class="num">72h</td><td>Design &amp; Creation</td></tr>
+            <tr><td class="num">7</td><td>Stitching Completed</td><td>Owner, Tailor</td><td class="num">12h</td><td>Quality Check</td></tr>
+            <tr><td class="num">8</td><td>Master Quality Check</td><td>Owner, Master</td><td class="num">12h</td><td>Ready for Dispatch</td></tr>
+            <tr><td class="num">9</td><td>Trial Scheduled</td><td>Owner, Master</td><td class="num">48h</td><td>Ready for Dispatch</td></tr>
+            <tr><td class="num">10</td><td>Trial Completed</td><td>Owner, Master</td><td class="num">24h</td><td>Ready for Dispatch</td></tr>
+            <tr><td class="num">11</td><td>Ready for Delivery</td><td>Owner, Master</td><td class="num">24h</td><td>Ready for Dispatch</td></tr>
+            <tr><td class="num">12</td><td>Delivered</td><td>Owner, Master</td><td class="num">12h</td><td>Delivered</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>What happens when an order is created</h3>
+      <div class="plate full">
+        <p class="plate-cap">Order creation — single transaction</p>
+        <div class="flow">
+          <div class="fstep"><div class="fdot">1</div><div class="ftext"><b>Price is computed</b><span>Six line items are summed, 5% tax applied. Delivery estimated at 15 days.</span></div></div>
+          <div class="fstep"><div class="fdot">2</div><div class="ftext"><b>Order record written</b><span>With a collision-checked reference of the form <code>T2B-YYMMDD-NNNN</code>.</span></div></div>
+          <div class="fstep"><div class="fdot">3</div><div class="ftext"><b>Twelve stages materialised</b><span>Read from the boutique's workflow settings. <em>Created</em> is marked complete; <em>Measurements Completed</em> too, if the client already has measurements.</span></div></div>
+          <div class="fstep"><div class="fdot">4</div><div class="ftext"><b>Eight production tasks created</b><span>Routed to master or tailor by task type, each with a priority.</span></div></div>
+          <div class="fstep"><div class="fdot">5</div><div class="ftext"><b>Audit entries written</b><span>One order event and one cross-module activity record.</span></div></div>
+          <div class="fstep"><div class="fdot">6</div><div class="ftext"><b>Notifications generated</b><span>For owner, client, and any assigned master and tailor.</span></div></div>
+          <div class="fstep"><div class="fdot">7</div><div class="ftext"><b>Staff marked busy</b><span>Assigned master and tailor flip to Busy.</span></div></div>
+        </div>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-soft)">
+        The whole sequence is atomic — a failure at any point leaves no partial order behind.
+        Stage transitions are wrapped the same way.
+      </p>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section id="s6">
+      <h2><span class="n">06</span>Architecture</h2>
+      <p class="lede">
+        A Django REST API and a React single-page client, over one PostgreSQL database that is
+        partitioned by schema — one schema per boutique.
+      </p>
+
+      <h3>System shape</h3>
+      <div class="plate full">
+        <p class="plate-cap">Deployment topology</p>
+        <div class="stack">
+          <div class="tier">
+            <div class="tname">Client</div>
+            <div class="tbody">React 19 + Vite single-page app, served as static assets from Vercel.<br><em>boutique.scaleezy.com</em></div>
+          </div>
+          <div class="arrow">↓ &nbsp;HTTPS · token in header · <code>X-Tenant-ID</code></div>
+          <div class="tier">
+            <div class="tname">API</div>
+            <div class="tbody">Django 6 + Django REST Framework under Gunicorn, on Render.<br><em>crm-b-sitt.onrender.com</em></div>
+          </div>
+          <div class="arrow">↓ &nbsp;PostgreSQL wire protocol · transaction pooler</div>
+          <div class="tier">
+            <div class="tname">Data</div>
+            <div class="tbody">Supabase PostgreSQL, <em>ap-southeast-1</em>. One schema per boutique plus a shared <em>public</em> schema holding the tenant registry.</div>
+          </div>
+          <div class="arrow">↓ &nbsp;uploads</div>
+          <div class="tier">
+            <div class="tname">Files</div>
+            <div class="tbody">Local filesystem on the API host. A Supabase Storage driver exists but is bypassed.</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>Multi-tenancy</h3>
+      <p>
+        Isolation is structural rather than a filter applied in application code. Each boutique gets
+        a PostgreSQL schema created at sign-up and migrated automatically; a query issued in one
+        tenant's context physically cannot see another's rows. The shared <code>public</code> schema
+        holds only the tenant registry and domain mappings.
+      </p>
+      <div class="plate full">
+        <p class="plate-cap">Tenant resolution — every request, in order</p>
+        <div class="flow">
+          <div class="fstep"><div class="fdot">1</div><div class="ftext"><b>Header</b><span><code>X-Tenant-ID</code> is matched against the registry. An unrecognised value is rejected with <code>400</code> rather than falling through.</span></div></div>
+          <div class="fstep"><div class="fdot">2</div><div class="ftext"><b>Token</b><span>Failing a header, each schema is searched for the bearer token. Correct, but costs one query per tenant — see <a href="#s11">§11</a>.</span></div></div>
+          <div class="fstep"><div class="fdot">3</div><div class="ftext"><b>Hostname</b><span>Failing both, the request host is matched against the domain table.</span></div></div>
+          <div class="fstep"><div class="fdot">4</div><div class="ftext"><b>Public</b><span>Otherwise the connection stays on the public schema, which serves sign-up and login only.</span></div></div>
+        </div>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-soft)">
+        Isolation across consecutive requests on a reused connection is covered by automated tests
+        that interleave two live tenants and assert neither sees the other's clients.
+      </p>
+
+      <h3>Backend layering</h3>
+      <p>
+        The codebase is mid-migration from a single Django app to a layered domain structure. Both
+        shapes are present; new work goes in the domain layer.
+      </p>
+      <div class="plate full">
+        <p class="plate-cap">Request path through the backend</p>
+        <div class="stack">
+          <div class="tier"><div class="tname">Middleware</div><div class="tbody"><code>tenants/</code> — resolves the boutique and binds the schema to the connection.</div></div>
+          <div class="arrow">↓</div>
+          <div class="tier"><div class="tname">Views</div><div class="tbody"><code>crm_api/views.py</code>, <code>apps/*/views.py</code> — HTTP concerns only: parse, delegate, serialise, choose a status code.</div></div>
+          <div class="arrow">↓</div>
+          <div class="tier"><div class="tname">Services</div><div class="tbody"><code>domains/orders/services.py</code> — the workflow engine. Order creation and stage transitions, including every guard rail and the transaction boundary.</div></div>
+          <div class="arrow">↓</div>
+          <div class="tier"><div class="tname">Repositories</div><div class="tbody"><code>domains/*/repositories.py</code> — the single definition of how each aggregate is loaded, so query shape is fixed in one place rather than at each call site.</div></div>
+          <div class="arrow">↓</div>
+          <div class="tier"><div class="tname">Models</div><div class="tbody"><code>crm_api/models.py</code>, <code>apps/*/models.py</code> — schema and persistence.</div></div>
+        </div>
+      </div>
+
+      <h4>Applications</h4>
+      <div class="scroller full">
+        <table>
+          <thead><tr><th style="width:150px">Module</th><th>Owns</th></tr></thead>
+          <tbody>
+            <tr><td class="k">tenants</td><td>Boutique registry, domain mapping, schema switching. Lives in the public schema.</td></tr>
+            <tr><td class="k">crm_api</td><td>Clients, measurements, orders, stages, staff, catalogues, notifications, settings.</td></tr>
+            <tr><td class="k">apps.production</td><td>Production tasks and quality-control records.</td></tr>
+            <tr><td class="k">apps.activities</td><td>Cross-module activity feed.</td></tr>
+            <tr><td class="k">apps.scheduling</td><td>Appointments.</td></tr>
+            <tr><td class="k">domains.orders</td><td>Workflow engine, order queries, notification fan-out.</td></tr>
+            <tr><td class="k">domains.customers</td><td>Client queries.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section id="s7">
+      <h2><span class="n">07</span>Data model</h2>
+      <p>
+        Every entity below lives inside a boutique's own schema. The tenant registry is the only
+        thing held in common.
+      </p>
+      <div class="plate full">
+        <p class="plate-cap">Entity relationships</p>
+        <div class="emap">
+          <div class="ecluster">
+            <div class="ehead">Client</div>
+            <div class="ebox root">Customer</div>
+            <div class="erel">has one</div><div class="ebox">Measurement</div>
+            <div class="erel">has many</div><div class="ebox">MeasurementHistory</div>
+            <div class="erel">has many</div><div class="ebox">DesignPreference</div>
+            <div class="erel">has many</div><div class="ebox">FabricSelection</div>
+            <div class="erel">has many</div><div class="ebox">Appointment</div>
+          </div>
+          <div class="ecluster">
+            <div class="ehead">Garment</div>
+            <div class="ebox root">Order</div>
+            <div class="erel">has 12</div><div class="ebox">OrderStage</div>
+            <div class="erel">has 8</div><div class="ebox">ProductionTask</div>
+            <div class="erel">has many</div><div class="ebox">QCRecord</div>
+            <div class="erel">has many</div><div class="ebox">OrderActivity</div>
+            <div class="erel">has many</div><div class="ebox">OrderStageHistory</div>
+          </div>
+          <div class="ecluster">
+            <div class="ehead">Staff &amp; setup</div>
+            <div class="ebox root">Tailor</div>
+            <div class="erel">links to</div><div class="ebox">User <span>login</span></div>
+            <div class="erel">assigned on</div><div class="ebox">Order <span>stitch + supervise</span></div>
+            <div class="erel">assigned on</div><div class="ebox">ProductionTask</div>
+            <div class="erel">performs</div><div class="ebox">OrderStage</div>
+            <div class="ehead" style="margin-top:18px">Configuration</div>
+            <div class="ebox root">BoutiqueSettings</div>
+            <div class="erel">defines</div><div class="ebox">Workflow <span>12 stages, as data</span></div>
+          </div>
+        </div>
+        <p class="emap-note">
+          Customer and Order both key on <b>Customer</b>; an Order belongs to exactly one client.
+          <b>Tailor</b> attaches to an Order twice — once as stitching tailor, once as supervising master.
+        </p>
+      </div>
+
+      <h4>Standalone records</h4>
+      <p style="font-size:13.5px">
+        <code>BoutiqueFabric</code> and <code>BoutiqueDesign</code> are catalogue tables with no
+        foreign keys — a fabric or design is copied onto an order by name and price at selection
+        time, so later catalogue edits never rewrite historical orders.
+        <code>Notification</code> and <code>UniversalActivity</code> are likewise append-only
+        records addressed by role or module rather than by relation.
+      </p>
+
+      <h4>Notable design decisions</h4>
+      <ul>
+        <li><strong>Workflow as data.</strong> The stage definition lives in a JSON column on boutique settings, not in code, so studios can differ without a deploy.</li>
+        <li><strong>Stages materialised up front.</strong> All twelve rows are written at order creation rather than lazily, so progress is a simple count and the tracker needs no synthesis.</li>
+        <li><strong>Measurement history is automatic.</strong> Saving a measurement compares against the last version and writes a new one only on change.</li>
+        <li><strong>Two audit logs.</strong> A per-order event stream for the order timeline, and a cross-module feed for the boutique-wide view.</li>
+      </ul>
+      <div class="note">
+        <div class="nh">Modelling debt</div>
+        <p>
+          Order progress is tracked in four places that must be kept in step by hand:
+          <code>order_status</code>, the stage rows, <code>current_stage_key</code>, and each task's
+          <code>stage_key</code>. Hand-maintained mapping tables in three files keep them aligned.
+          Deriving status from the stage rows alone would remove a whole class of drift bug.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section id="s8">
+      <h2><span class="n">08</span>API surface</h2>
+      <p>
+        REST over JSON. All routes are prefixed <code>/api/</code>. Multipart is used where uploads
+        are involved. Tenant context travels in the <code>X-Tenant-ID</code> header; authentication,
+        where enforced, is a token in <code>Authorization</code>.
+      </p>
+      <div class="scroller full">
+        <table>
+          <thead><tr><th style="width:76px">Method</th><th style="width:280px">Path</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td class="k">POST</td><td class="k">/auth/signup/</td><td>Register a boutique — creates the schema, seeds catalogues and staff, returns a token.</td></tr>
+            <tr><td class="k">POST</td><td class="k">/auth/login/</td><td>Authenticate and resolve the caller's boutique and role.</td></tr>
+            <tr><td class="k">POST</td><td class="k">/auth/logout/</td><td>Invalidate the token.</td></tr>
+            <tr><td class="k">GET</td><td class="k">/auth/me/</td><td>Current user, role and tenant.</td></tr>
+            <tr><td class="k">GET</td><td class="k">/dashboard/</td><td>Aggregated statistics, recent orders with stages, recent clients.</td></tr>
+            <tr><td class="k">GET · POST</td><td class="k">/customers/</td><td>Directory listing (flat rows) and client creation.</td></tr>
+            <tr><td class="k">GET · PATCH</td><td class="k">/customers/{id}/</td><td>Full client record including orders and history.</td></tr>
+            <tr><td class="k">GET</td><td class="k">/customers/{id}/measurement-history/</td><td>Sizing versions over time.</td></tr>
+            <tr><td class="k">POST</td><td class="k">/customers/{id}/design-preferences/</td><td>Save style notes and reference images.</td></tr>
+            <tr><td class="k">POST</td><td class="k">/customers/{id}/fabric-selections/</td><td>Save a fabric choice with photographs.</td></tr>
+            <tr><td class="k">GET</td><td class="k">/customers/{id}/ai-suggestions/</td><td>Suggestion templates for the client's garment type.</td></tr>
+            <tr><td class="k">GET</td><td class="k">/customers/{id}/boutique-designs/</td><td>Catalogue designs for the client's garment type.</td></tr>
+            <tr><td class="k">POST</td><td class="k">/customers/{id}/create-order/</td><td>Create an order with its stages, tasks and notifications.</td></tr>
+            <tr><td class="k">GET</td><td class="k">/orders/</td><td>All orders with stages and activity.</td></tr>
+            <tr><td class="k">POST</td><td class="k">/orders/{id}/transition/</td><td>Advance a stage. Role-gated, precondition-checked, accepts comments and photographs.</td></tr>
+            <tr><td class="k">PATCH</td><td class="k">/orders/{id}/update-status/</td><td>Set the client-facing status directly.</td></tr>
+            <tr><td class="k">PATCH</td><td class="k">/orders/{id}/submit-completion/</td><td>Tailor submits the finished garment with photograph and comments.</td></tr>
+            <tr><td class="k">POST</td><td class="k">/orders/{id}/submit-stage-review/</td><td>Attach a review record to a stage.</td></tr>
+            <tr><td class="k">GET · POST · PATCH · DELETE</td><td class="k">/tailors/ · /fabrics/ · /boutique-designs/</td><td>Catalogue and staff management.</td></tr>
+            <tr><td class="k">GET</td><td class="k">/notifications/</td><td>Notifications filtered by role and email.</td></tr>
+            <tr><td class="k">POST</td><td class="k">/notifications/mark-all-read/</td><td>Clear the unread state.</td></tr>
+            <tr><td class="k">GET · POST</td><td class="k">/boutique-settings/</td><td>Studio profile, logo and workflow definition.</td></tr>
+            <tr><td class="k">CRUD</td><td class="k">/production/tasks/ · /production/qc/</td><td>Production tasks and quality-control records.</td></tr>
+            <tr><td class="k">CRUD</td><td class="k">/scheduling/appointments/</td><td>Appointments.</td></tr>
+            <tr><td class="k">GET</td><td class="k">/activities/activities/</td><td>Cross-module activity feed.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 9 ============ -->
+    <section id="s9">
+      <h2><span class="n">09</span>Performance</h2>
+      <p>
+        The two read-heavy endpoints were rebuilt in July 2026. Both had been loading deeply nested
+        object graphs, which at production latency exceeded the server's request timeout — the
+        client directory appeared empty because the request was being killed before it answered.
+      </p>
+      <div class="scroller full">
+        <table>
+          <thead>
+            <tr><th>Endpoint</th><th class="num">Before</th><th class="num">After</th><th class="num">Queries</th><th class="num">Payload</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Client directory</td><td class="num">timeout</td><td class="num">2.0s</td><td class="num">261 → 1</td><td class="num">119 → 28 KB</td></tr>
+            <tr><td>Dashboard</td><td class="num">5.4s</td><td class="num">1.3s</td><td class="num">90 → 24</td><td class="num">38 → 24 KB</td></tr>
+            <tr><td>Orders</td><td class="num">2.5s</td><td class="num">0.8s</td><td class="num">46 → 14</td><td class="num">76 KB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>What changed.</strong> Query shape was fixed in the repository layer so every relation a serialiser reads is fetched in one pass. List endpoints now return flat rows and derive totals in SQL; the full object graph is fetched only when a record is opened. Regression tests assert that tripling the number of records adds no queries.</p>
+      <div class="note">
+        <div class="nh">Remaining ceiling</div>
+        <p>
+          Roughly 2 seconds of every response is now fixed overhead, not query cost: the API is
+          hosted in a different region from the database, so each round trip costs about 190 ms
+          against 53 ms from a co-located client. Moving the API to <code>ap-southeast-1</code>
+          would cut this several-fold and needs no code change.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 10 ============ -->
+    <section id="s10">
+      <h2><span class="n">10</span>Implementation status</h2>
+      <p class="lede">
+        Included so nobody demonstrates a feature that is not there. Everything marked
+        <span class="pill live">Live</span> in <a href="#s4">§4</a> works end to end against real data.
+        The items below do not.
+      </p>
+
+      <h3><span class="pill partial">Partial</span> &nbsp;Notifications are recorded, never sent</h3>
+      <p>
+        Notification records are generated correctly for owner, master, tailor and client — with
+        appropriate copy per lifecycle stage, including tracking numbers and outstanding balances —
+        and staff see them in the app. But there is no email or SMS integration: a record addressed
+        to a client's email address is never delivered anywhere. The client-facing half of this
+        feature is data only.
+      </p>
+
+      <h3><span class="pill partial">Partial</span> &nbsp;Style DNA is half derived, half placeholder</h3>
+      <p>Of the seven fields shown on a client's style profile:</p>
+      <ul>
+        <li><strong>Real</strong> — budget band, size category, visit pattern, lapse risk and next action are all computed from the client's actual orders and measurements.</li>
+        <li><strong>Placeholder</strong> — the colour distribution and style split are picked from six and four fixed strings by hashing the client's ID. They are not derived from any data about the client.</li>
+      </ul>
+      <div class="note risk">
+        <div class="nh">Defect</div>
+        <p>
+          Because Python randomises string hashing per process, those two fields <strong>change every
+          time the server restarts</strong>. The same client shows "Charcoal Black 90%" before a
+          deploy and "Dusty Rose 60%" after. Anyone treating the style profile as a stable client
+          attribute will be misled. Fix is a stable hash or, better, real derivation from order history.
+        </p>
+      </div>
+
+      <h3><span class="pill stub">Mocked</span> &nbsp;Draping preview</h3>
+      <p>
+        The fabric preview maps the chosen fabric's colour to one of six fixed stock photographs.
+        No image generation or garment simulation takes place. It reads as a product visual, so it
+        should be labelled clearly in any demo.
+      </p>
+
+      <h3><span class="pill partial">Partial</span> &nbsp;Appointments and quality control</h3>
+      <p>
+        Both have complete data models and working REST endpoints, but no interface. Appointments
+        cannot be booked and QC results cannot be entered from the app — the scheduling and
+        inspection features are backend-ready and front-end pending.
+      </p>
+    </section>
+
+    <!-- ============ 11 ============ -->
+    <section id="s11">
+      <h2><span class="n">11</span>Known gaps</h2>
+
+      <h3>Security</h3>
+      <div class="note risk">
+        <div class="nh">Open API — highest priority</div>
+        <p>
+          Every business endpoint is readable and writable <strong>without authentication</strong>.
+          Anyone who knows a boutique's schema name can read its entire client list — names, phone
+          numbers, addresses, measurements and revenue — and can also write to it. The permission
+          default was relaxed during deployment and never restored. This is the single item to fix
+          before the platform holds real client data at any scale.
+        </p>
+      </div>
+      <ul>
+        <li><strong>Credentials in version history.</strong> The database password and application secret key were committed to the repository. They have been removed from the current code and the database password has been rotated, but the history remains readable — the secret key still needs rotating.</li>
+        <li><strong>Shared staff password.</strong> Every tailor account is created with the same bootstrap password. It is now configurable, but there is no invite or reset flow.</li>
+        <li><strong>Cross-origin policy is open.</strong> Any origin may call the API. Restricting it is a single environment variable, already supported.</li>
+      </ul>
+
+      <h3>Scale</h3>
+      <ul>
+        <li><strong>No pagination.</strong> Directory and order listings return every record. Fine at a few hundred; not at a few thousand.</li>
+        <li><strong>Token-based tenant lookup is linear.</strong> A request without the tenant header searches every schema in turn. Cost grows with the number of boutiques on the platform. An index in the public schema mapping token to tenant would make it constant.</li>
+        <li><strong>Region mismatch.</strong> API and database are in different regions — see <a href="#s9">§9</a>.</li>
+        <li><strong>Orders listing still carries unread data.</strong> Activity logs and stage histories are serialised into every order although no screen displays them.</li>
+      </ul>
+
+      <h3>Product</h3>
+      <ul>
+        <li><strong>Client communication is the biggest missing piece.</strong> The notification content is already written; connecting a delivery provider would turn an internal log into the client-facing feature the product is positioned around.</li>
+        <li><strong>Four sources of truth for order progress</strong> — see <a href="#s7">§7</a>.</li>
+        <li><strong>No test coverage of the frontend.</strong> The backend has 25 tests including workflow, tenant isolation and query-count regressions; the single-file React client has none.</li>
+        <li><strong>The client is one 8,700-line file.</strong> Every screen, form and view lives in a single component, which makes parallel work difficult.</li>
+      </ul>
+
+      <h3>Suggested sequence</h3>
+      <ol>
+        <li>Close the open API and rotate the remaining secret.</li>
+        <li>Connect email or WhatsApp delivery for client notifications.</li>
+        <li>Move the API to the database's region.</li>
+        <li>Add pagination and fix the tenant-token lookup.</li>
+        <li>Build the appointment and QC interfaces on the existing endpoints.</li>
+        <li>Make Style DNA stable and real, or present it as illustrative.</li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>Scaleezy Boutique CRM — Product &amp; Architecture Reference</span>
+    <span>Compiled from source at <code>main</code> · July 2026</span>
+  </footer>
+
+</div>
+
+</body>
+</html>

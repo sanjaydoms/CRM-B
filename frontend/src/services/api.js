@@ -707,6 +707,41 @@ export const api = {
     return data;
   },
 
+  // --- Garment templates ---------------------------------------------------
+  // The order form is rendered from these, so a new garment or a changed option
+  // list reaches the wizard without a frontend release.
+
+  async getGarmentTemplates() {
+    const res = await fetch(`${BASE_URL}/catalog/templates/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load garment templates');
+    return res.json();
+  },
+
+  async getGarmentTemplate(key) {
+    const res = await fetch(`${BASE_URL}/catalog/templates/${key}/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error(`Failed to load the ${key} template`);
+    return res.json();
+  },
+
+  async createGarmentJob(payload) {
+    const res = await fetch(`${BASE_URL}/catalog/jobs/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    return data;
+  },
+
+  async getGarmentJobs(orderId) {
+    const res = await fetch(`${BASE_URL}/catalog/jobs/?order=${encodeURIComponent(orderId)}`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to load the garments on this order');
+    return res.json();
+  },
+
   async saveDesignBoardToOrder(boardId, orderId) {
     const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/save-to-order/`, {
       method: 'POST',

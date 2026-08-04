@@ -1,0 +1,285 @@
+<title>Scaleezy — New Features Added</title>
+
+<style>
+  :root {
+    --ground: #faf8f4; --panel: #ffffff; --ink: #12211b; --ink-soft: #46564e;
+    --thread: #8a9a92; --rule: #e2ded4; --gold: #96682f; --gold-soft: #f0e6d6;
+    --live: #2f7d5d; --new: #a8511f;
+    --serif: ui-serif, Georgia, "Iowan Old Style", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground:#0d1512; --panel:#131d19; --ink:#e7ebe7; --ink-soft:#a3b0a8;
+      --thread:#74857c; --rule:#263029; --gold:#d4af37; --gold-soft:#2a2418;
+      --live:#5cc396; --new:#e08a4e; }
+  }
+  :root[data-theme="dark"] { --ground:#0d1512; --panel:#131d19; --ink:#e7ebe7; --ink-soft:#a3b0a8;
+    --thread:#74857c; --rule:#263029; --gold:#d4af37; --gold-soft:#2a2418; --live:#5cc396; --new:#e08a4e; }
+  :root[data-theme="light"] { --ground:#faf8f4; --panel:#ffffff; --ink:#12211b; --ink-soft:#46564e;
+    --thread:#8a9a92; --rule:#e2ded4; --gold:#96682f; --gold-soft:#f0e6d6; --live:#2f7d5d; --new:#a8511f; }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+    font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 28px 100px; }
+
+  .masthead { border-bottom: 2px solid var(--ink); padding: 48px 0 20px; margin-bottom: 8px; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--gold); margin: 0 0 14px; }
+  .masthead h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(2rem, 5vw, 2.7rem);
+    line-height: 1.1; margin: 0 0 12px; text-wrap: balance; }
+  .masthead p { font-size: 1.02rem; color: var(--ink-soft); max-width: 62ch; margin: 0 0 18px; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 8px 24px; font-family: var(--mono); font-size: 11.5px;
+    color: var(--thread); }
+  .meta-row b { color: var(--ink-soft); font-weight: 600; }
+
+  nav.toc { margin: 28px 0 0; padding: 16px 20px; background: var(--panel); border: 1px solid var(--rule);
+    border-radius: 8px; }
+  nav.toc .toc-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--thread); margin-bottom: 10px; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  nav.toc a { color: var(--ink-soft); text-decoration: none; font-size: 13.5px; }
+  nav.toc a:hover { color: var(--gold); }
+
+  section { padding-top: 42px; scroll-margin-top: 20px; }
+  h2 { font-family: var(--serif); font-weight: 400; font-size: 1.5rem; margin: 0 0 4px; display: flex;
+    gap: 12px; align-items: baseline; text-wrap: balance; }
+  h2 .n { font-family: var(--mono); font-size: 0.68rem; color: var(--gold); letter-spacing: 0.08em; }
+  .status-line { font-size: 12.5px; color: var(--thread); margin: 0 0 18px; font-family: var(--mono); }
+  h3 { font-size: 0.92rem; font-weight: 700; margin: 26px 0 8px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  code { font-family: var(--mono); font-size: 0.84em; background: var(--gold-soft); padding: 0.1em 0.36em;
+    border-radius: 3px; }
+  ul, ol { margin: 0 0 14px; padding-left: 1.3em; max-width: 66ch; }
+  li { margin-bottom: 6px; }
+
+  .pill { display: inline-block; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.09em;
+    text-transform: uppercase; padding: 2.5px 7px; border-radius: 2px; border: 1px solid currentColor;
+    font-weight: 600; }
+  .pill.new { color: var(--new); }
+  .pill.live { color: var(--live); }
+
+  .scroller { overflow-x: auto; margin: 0 0 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 480px; }
+  th { text-align: left; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--thread); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--ink); }
+  td { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.k { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+
+  .note { border: 1px solid var(--rule); border-left: 3px solid var(--gold); background: var(--panel);
+    padding: 14px 16px; border-radius: 2px; margin: 0 0 18px; font-size: 13.5px; max-width: 66ch; }
+  .note .nh { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--gold); font-weight: 700; margin-bottom: 5px; }
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px;
+    background: var(--rule); border: 1px solid var(--rule); border-radius: 6px; margin: 0 0 20px; overflow: hidden; }
+  .metric { background: var(--panel); padding: 12px 14px; }
+  .metric .mv { font-family: var(--serif); font-size: 1.3rem; line-height: 1; }
+  .metric .ml { font-family: var(--mono); font-size: 9px; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--thread); margin-top: 4px; }
+
+  footer { border-top: 2px solid var(--ink); margin-top: 56px; padding-top: 16px; font-family: var(--mono);
+    font-size: 11px; color: var(--thread); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Scaleezy Boutique CRM — Change Note</p>
+    <h1>New Features &amp; Inputs Added</h1>
+    <p>Three additions since the last full architecture review: specialist staff roles with
+    per-stage permissions, design provenance &amp; approval, and a working inventory module
+    (stock ledger, purchasing, and the screens for both).</p>
+    <div class="meta-row">
+      <span><b>Branch</b> Test</span>
+      <span><b>Commits</b> 3f507bf · 95d7ef3 · 1f81543</span>
+      <span><b>Tests</b> 175 passing</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#s1">1 — Specialist staff roles &amp; per-stage permission</a></li>
+      <li><a href="#s2">2 — Design source, approval &amp; stage assignment</a></li>
+      <li><a href="#s3">3 — Inventory module</a></li>
+      <li><a href="#s4">4 — What still doesn't exist</a></li>
+    </ol>
+  </nav>
+
+  <section id="s1">
+    <h2><span class="n">01</span>Specialist staff roles</h2>
+    <p class="status-line"><span class="pill live">Live</span> Backend + UI · migrations merge into existing boutiques' data</p>
+
+    <p>Staff used to be either a <code>Master</code> or a <code>Tailor</code>. A boutique that
+    splits work across specialists — a separate measurer, pattern cutter, embroiderer — had
+    nowhere to record that. Nine roles now exist, and every stage in the workflow only accepts
+    the roles it actually calls for.</p>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:180px">Role</th><th>Works on</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Master</td><td>Every stage — the generalist role, unchanged from before</td></tr>
+          <tr><td class="k">Tailor</td><td>Stitching in progress, stitching completed</td></tr>
+          <tr><td class="k">Measurement Master</td><td>Measurements completed</td></tr>
+          <tr><td class="k">Pattern Master</td><td>Pattern cutting</td></tr>
+          <tr><td class="k">Cutting Master</td><td>Pattern cutting</td></tr>
+          <tr><td class="k">Maggam Master</td><td>Maggam work <em>(new stage, see below)</em></td></tr>
+          <tr><td class="k">Finishing Master</td><td>Hemming &amp; finishing <em>(new stage)</em></td></tr>
+          <tr><td class="k">Pressing Staff</td><td>Pressing <em>(new stage)</em></td></tr>
+          <tr><td class="k">QC Master</td><td>Master quality check</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <div class="nh">Why three stages were added</div>
+      <p style="margin:0">Maggam Master, Finishing Master and Pressing Staff had no stage to work
+      on until three were added to the workflow: <b>Maggam Work</b> (before stitching, skippable
+      for garments needing no embroidery), <b>Hemming &amp; Finishing</b>, and <b>Pressing</b>
+      (both after stitching completes). The workflow went from 12 stages to 15. A boutique run by
+      one generalist Master is completely unaffected — every stage still accepts Master.</p>
+    </div>
+
+    <h3>Stage assignment</h3>
+    <p>A stage now distinguishes <b>who should do the work</b> from <b>who actually did it</b>.
+    The owner can assign a stage to a named staff member ahead of time; the dropdown only offers
+    staff whose role that stage permits, and the server refuses an assignment it shouldn't accept
+    — the same rule enforced twice, once for a better experience and once because the UI can't be
+    trusted alone.</p>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:70px">Method</th><th>Endpoint</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td class="k">POST</td><td class="k">/orders/{id}/assign-stage/</td><td>Nominate a staff member for a stage, or clear the assignment</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="n">02</span>Design source &amp; approval</h2>
+    <p class="status-line"><span class="pill live">Live</span> Backend + UI</p>
+
+    <p>A saved design now records where it came from and whether it's been signed off for
+    production — two things the order-creation wizard previously had no field for.</p>
+
+    <h3>New inputs captured</h3>
+    <ul>
+      <li><b>Source</b> — one of Boutique catalogue, Custom design, Previous design, Pinterest,
+      Google images, Customer sketch, Designer sketch</li>
+      <li><b>Reference links</b> — external inspiration URLs (Pinterest boards, image links),
+      entered as a comma or newline separated list</li>
+      <li><b>Approval</b> — a design can be marked approved for production, with the specific
+      reference image that was signed off</li>
+    </ul>
+
+    <p>Approving a design supersedes any design previously approved for that client, so the
+    production checklist always has one unambiguous answer to "which design are we making."</p>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:70px">Method</th><th>Endpoint</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td class="k">POST</td><td class="k">/customers/{id}/design-preferences/{pref_id}/approve/</td><td>Sign off a design; supersedes the previous approval</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-size:13px;color:var(--ink-soft)">In the client directory, each saved design
+    now shows its source, an <em>Approve for production</em> button, and — once approved — a
+    green "Approved for production" badge with the chosen image outlined.</p>
+  </section>
+
+  <section id="s3">
+    <h2><span class="n">03</span>Inventory module</h2>
+    <p class="status-line"><span class="pill new">New</span> Full stock foundation + screens · <span class="pill new">Not yet built</span> per-dress material tracking, BOM, consumption</p>
+
+    <p>Nothing inventory-like existed before this — the closest thing, <code>BoutiqueFabric</code>,
+    is a six-field price list with no quantities at all. This is a new module: an item master, an
+    append-only stock ledger, purchasing, and the screens for all three.</p>
+
+    <div class="metrics">
+      <div class="metric"><div class="mv">8</div><div class="ml">Item categories</div></div>
+      <div class="metric"><div class="mv">11</div><div class="ml">Movement types</div></div>
+      <div class="metric"><div class="mv">26</div><div class="ml">Tests</div></div>
+    </div>
+
+    <h3>The rule that makes it trustworthy</h3>
+    <p>Stock quantities are <b>never edited directly</b>. Every change — stock in, reserve,
+    release, issue, return, damage, scrap, or a manual count correction — goes through one
+    service, and each writes a ledger entry recording the balance before and after, who did it,
+    and which order and stage it relates to. A stray attempt to edit stock any other way is
+    refused by the model itself, not just by convention.</p>
+
+    <h3>What an item tracks</h3>
+    <ul>
+      <li>Item code, name, category (fabric, border, lining, embellishment, stitching material,
+      packaging, maggam material, other), colour, unit of measure</li>
+      <li>Current stock, reserved stock, and available stock (derived) — kept separate because an
+      order can claim material before it's physically issued</li>
+      <li>Reorder level, minimum stock, rack location, supplier, purchase and selling price</li>
+    </ul>
+
+    <h3>Issuing without a reservation</h3>
+    <p>Boutiques often hand material to the workroom without reserving it first. Issuing now
+    consumes whatever reservation exists and takes the remainder from free stock — only the
+    physical balance can block an issue. (This replaced an earlier version that failed with a
+    confusing "nothing is reserved" error on the common case.)</p>
+
+    <h3>Purchasing</h3>
+    <p>Suppliers, purchase orders with multiple lines, and partial receipt — goods can arrive in
+    more than one delivery, and receiving books the stock-in movement and advances the order's
+    status automatically.</p>
+
+    <h3>Alerts</h3>
+    <p>Crossing the reorder level or running out notifies the owner once per unread alert, not on
+    every movement.</p>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th style="width:70px">Method</th><th>Endpoint</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td class="k">GET</td><td class="k">/inventory/items/</td><td>Stock table</td></tr>
+          <tr><td class="k">GET</td><td class="k">/inventory/items/summary/</td><td>Stock value, out-of-stock, reorder-due, dead stock</td></tr>
+          <tr><td class="k">GET</td><td class="k">/inventory/items/{id}/movements/</td><td>Full ledger for one item</td></tr>
+          <tr><td class="k">POST</td><td class="k">/inventory/items/{id}/stock-in|reserve|release|issue|return|damage|scrap|adjust/</td><td>Record a stock movement</td></tr>
+          <tr><td class="k">CRUD</td><td class="k">/inventory/suppliers/</td><td>Suppliers</td></tr>
+          <tr><td class="k">CRUD</td><td class="k">/inventory/purchase-orders/</td><td>Purchase orders</td></tr>
+          <tr><td class="k">POST</td><td class="k">/inventory/purchase-orders/{id}/receive/</td><td>Book in goods received, line by line</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-size:13px;color:var(--ink-soft)">An <b>Inventory</b> section is now in the
+    sidebar: a summary strip, a searchable/filterable stock table, a single movement dialog
+    covering all eight operations, per-item history, and tabs for purchase orders and suppliers.</p>
+  </section>
+
+  <section id="s4">
+    <h2><span class="n">04</span>What still doesn't exist</h2>
+    <p>Deliberately stopped short of the harder half, because it needs a change nothing here
+    makes yet: <b>an order can only hold one garment</b>. Everything below assumes a dress is its
+    own entity with its own materials, and building it against today's one-garment-per-order would
+    mean migrating every record once that changes.</p>
+    <ul>
+      <li><b>Bill of materials per dress</b> — each garment's own material list</li>
+      <li><b>Material issue tied to a specific dress</b>, not just an order</li>
+      <li><b>Consumption reconciliation</b> — issued vs. actually used vs. wasted</li>
+      <li><b>Customer-supplied materials</b> as a separate ledger from boutique stock</li>
+      <li><b>Leftover material handling</b> — return, retain, or scrap</li>
+    </ul>
+    <p style="font-size:13px;color:var(--ink-soft)">Also unchanged from before: no email/SMS
+    delivery for notifications (they're recorded, not sent), and the permission model on
+    business endpoints requires authentication but has not been reviewed role-by-role for
+    the new inventory actions.</p>
+  </section>
+
+  <footer>
+    <span>Scaleezy Boutique CRM — New Features Note</span>
+    <span>Test branch · 175 tests passing</span>
+  </footer>
+</div>
