@@ -325,7 +325,10 @@ Each step ships working and is independently reversible.
    in the same commit so there was never a period with two live copies.
    `/api/boutique-designs/` keeps its URL and its exact wire format, so Manage
    Designs and the wizard gallery did not have to change.
-3. **Library UI.** Category sections with counts, filters, design detail.
+3. **Library UI.** ✅ Done. Garment sections with live counts, per-category grid,
+   filters on the template vocabulary, and a design detail. An *Uncategorised*
+   section carries designs with no template link, so the section counts always
+   add up to the library and nothing becomes unreachable.
 4. **Collections + upload flow.**
 5. **Approval queue + settings toggle.**
 6. **Portfolios and dashboard analytics.**

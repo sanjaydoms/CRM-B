@@ -17,6 +17,7 @@ import { resolveMediaUrl } from './services/media';
 // loading flicker mid-form would be worse than its few KB.
 const DesignStudio = lazy(() => import('./features/designStudio/DesignStudio'));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
+const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 
@@ -261,6 +262,8 @@ function App() {
   const [garmentJobs, setGarmentJobs] = useState([]);
   const [garmentErrors, setGarmentErrors] = useState({});
   const [garmentTemplatesError, setGarmentTemplatesError] = useState(null);
+  // Bumped after any design write so the library refetches its counts and grid.
+  const [designLibraryToken, setDesignLibraryToken] = useState(0);
 
   // Wizard Details State
   const [designNotes, setDesignNotes] = useState('');
@@ -706,6 +709,7 @@ function App() {
       setShowDesignModal(false);
       setEditingDesign(null);
       setDesignForm({ name: '', garment_type: 'Lehenga', neckline_style: '', sleeve_style: '', image_url: '', is_boutique: true, price: 0, description: '' });
+      setDesignLibraryToken(t => t + 1);
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save design: " + err.message);
@@ -716,6 +720,7 @@ function App() {
     if (window.confirm("Are you sure you want to delete this design?")) {
       try {
         await api.deleteBoutiqueDesign(id);
+        setDesignLibraryToken(t => t + 1);
         fetchDashboardAndConfig();
       } catch (err) {
         alert("Failed to delete design: " + err.message);
@@ -3872,102 +3877,29 @@ function App() {
                 </header>
 
                 <div className="design-manager-content" style={{ marginTop: '24px' }}>
-                  <div className="designs-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-                    {allDesigns.map(design => (
-                      <div key={design.id} className="design-manage-card" style={{
-                        background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                        border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                        borderRadius: '12px',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between'
-                      }}>
-                        <div>
-                          <div className="design-card-thumbnail" style={{
-                            width: '100%',
-                            height: '180px',
-                            background: '#222',
-                            position: 'relative',
-                            overflow: 'hidden'
-                          }}>
-                            <img 
-                              src={resolveMediaUrl(design.image_url, 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400')} 
-                              alt={design.name} 
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            />
-                            <span style={{
-                              position: 'absolute',
-                              top: '12px',
-                              right: '12px',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontSize: '10px',
-                              fontWeight: 600,
-                              textTransform: 'uppercase',
-                              background: design.is_boutique ? 'rgba(212, 175, 55, 0.9)' : 'rgba(74, 144, 226, 0.9)',
-                              color: '#fff'
-                            }}>
-                              {design.is_boutique ? 'Boutique Catalog' : 'AI Template'}
-                            </span>
-                          </div>
-                          
-                          <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                              <h4 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>{design.name}</h4>
-                            </div>
-                            
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '4px 0' }}>
-                              <span style={{ background: 'rgba(255,255,255,0.05)', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                                Garment: {design.garment_type}
-                              </span>
-                              {design.neckline_style && (
-                                <span style={{ background: 'rgba(255,255,255,0.05)', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                                  Neck: {design.neckline_style}
-                                </span>
-                              )}
-                              {design.sleeve_style && (
-                                <span style={{ background: 'rgba(255,255,255,0.05)', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>
-                                  Sleeve: {design.sleeve_style}
-                                </span>
-                              )}
-                            </div>
-                            
-                            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0', lineHeight: 1.4 }}>
-                              {design.description || 'No style description provided.'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>
-                            {design.is_boutique ? `₹${parseFloat(design.price).toLocaleString('en-IN')}` : 'AI Suggestion'}
-                          </span>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
-                              setEditingDesign(design);
-                              setDesignForm({
-                                name: design.name,
-                                garment_type: design.garment_type,
-                                neckline_style: design.neckline_style || '',
-                                sleeve_style: design.sleeve_style || '',
-                                image_url: design.image_url || '',
-                                is_boutique: design.is_boutique,
-                                price: design.price.toString(),
-                                description: design.description || ''
-                              });
-                              setShowDesignModal(true);
-                            }}>
-                              <Edit2 size={12} /> Edit
-                            </button>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }} onClick={() => handleDeleteDesign(design.id)}>
-                              <Trash2 size={12} /> Delete
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  {/* The library, not a flat grid of everything. A boutique
+                      accumulates thousands of designs, and one page of all of
+                      them is unusable long before it is slow. */}
+                  <Suspense fallback={<div className="content-card">Loading the design library…</div>}>
+                    <DesignLibrary
+                      refreshToken={designLibraryToken}
+                      onEditDesign={(design) => {
+                        setEditingDesign({ id: design.id });
+                        setDesignForm({
+                          name: design.title || '',
+                          garment_type: design.garment_type || 'Lehenga',
+                          neckline_style: (design.attributes || {}).neckline_style || '',
+                          sleeve_style: (design.attributes || {}).sleeve_style || '',
+                          image_url: design.image_url || '',
+                          is_boutique: design.source === 'catalogue',
+                          price: String(design.estimated_price ?? 0),
+                          description: design.description || ''
+                        });
+                        setShowDesignModal(true);
+                      }}
+                      onDeleteDesign={(design) => handleDeleteDesign(design.id)}
+                    />
+                  </Suspense>
                 </div>
               </>
             )}

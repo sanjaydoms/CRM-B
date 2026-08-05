@@ -707,6 +707,38 @@ export const api = {
     return data;
   },
 
+  // --- Design library ---------------------------------------------------
+
+  async getDesignCategories() {
+    const res = await fetch(`${BASE_URL}/design-studio/categories/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load design categories');
+    return res.json();
+  },
+
+  async getDesignLibrary(params = {}) {
+    const url = new URL(`${BASE_URL}/design-studio/assets/`);
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined) url.searchParams.append(k, v);
+    });
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load the design library');
+    return res.json();
+  },
+
+  async getDesignAsset(id) {
+    const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load the design');
+    return res.json();
+  },
+
+  async getDesigners(params = {}) {
+    const url = new URL(`${BASE_URL}/design-studio/designers/`);
+    Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load designers');
+    return res.json();
+  },
+
   // --- Garment templates ---------------------------------------------------
   // The order form is rendered from these, so a new garment or a changed option
   // list reaches the wizard without a frontend release.

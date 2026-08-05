@@ -11,6 +11,8 @@ from crm_api.models import Customer, Order
 from . import services
 from .context import build_context
 from .intelligence.registry import get_intelligence
+from apps.catalog.models import GarmentTemplate
+
 from .models import Designer, DesignAsset, DesignBoard, DesignBoardItem
 from .permissions import MASTER, DesignStudioPermission, OwnerOnly, visible_boards
 from .providers.registry import source_status
@@ -173,6 +175,43 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         asset.is_favourite = not asset.is_favourite
         asset.save(update_fields=['is_favourite', 'updated_at'])
         return Response(self.get_serializer(asset).data)
+
+
+class DesignCategoryView(views.APIView):
+    """Garment types with live design counts, for the library's section list.
+
+    One query, not one per garment. The library opens on these counts, so a
+    COUNT(*) per template would make the landing page cost grow with the
+    catalogue -- the thing this module is supposed to survive.
+    """
+
+    permission_classes = [DesignStudioPermission]
+
+    def get(self, request):
+        counts = dict(
+            DesignAsset.objects
+            .filter(status=DesignAsset.Status.ACTIVE, template__isnull=False)
+            .values_list('template_id')
+            .annotate(n=Count('id'))
+        )
+        templates = GarmentTemplate.objects.filter(is_active=True).order_by('sequence', 'name')
+
+        categories = [
+            {'key': t.key, 'name': t.name, 'count': counts.get(t.id, 0)}
+            for t in templates
+        ]
+        # Designs that predate the template link, or came from a source that
+        # never named a garment. Hiding them would mean the section counts do
+        # not add up to the library, and nobody would find them again.
+        untagged = DesignAsset.objects.filter(
+            status=DesignAsset.Status.ACTIVE, template__isnull=True).count()
+        if untagged:
+            categories.append({'key': '', 'name': 'Uncategorised', 'count': untagged})
+
+        return Response({
+            'categories': categories,
+            'total': sum(c['count'] for c in categories),
+        })
 
 
 class DesignerViewSet(viewsets.ModelViewSet):

@@ -704,3 +704,51 @@ class TemplateBackfillTests(StudioTestCase):
         self._run()
         asset.refresh_from_db()
         self.assertEqual(asset.spec_tags, {'sleeve_length': 'full'})
+
+
+class DesignCategoryTests(StudioTestCase):
+    """The library's section list."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.catalog.services import sync_global_templates
+        sync_global_templates()
+        from apps.catalog.models import GarmentTemplate
+        self.lehenga = GarmentTemplate.resolve('lehenga')
+
+    def test_counts_are_per_garment(self):
+        for i in range(3):
+            DesignAsset.objects.create(
+                title=f"l{i}", image_url="https://example.test/l.jpg", template=self.lehenga)
+        response = self.client.get('/api/design-studio/categories/')
+        counts = {c['key']: c['count'] for c in response.data['categories']}
+        self.assertEqual(counts['lehenga'], 3)
+        self.assertEqual(counts['blouse'], 0)
+
+    def test_every_garment_appears_even_with_nothing_in_it(self):
+        # An empty category is information: it tells the owner what to fill.
+        response = self.client.get('/api/design-studio/categories/')
+        keys = {c['key'] for c in response.data['categories']}
+        self.assertTrue({'saree', 'lehenga', 'churidar'} <= keys)
+
+    def test_untagged_designs_are_still_reachable(self):
+        # self.design from the fixture has no template; it must not vanish.
+        response = self.client.get('/api/design-studio/categories/')
+        categories = {c['key']: c['count'] for c in response.data['categories']}
+        self.assertGreaterEqual(categories.get('', 0), 1)
+
+    def test_total_matches_the_sum_of_the_sections(self):
+        DesignAsset.objects.create(
+            title="x", image_url="https://example.test/x.jpg", template=self.lehenga)
+        response = self.client.get('/api/design-studio/categories/')
+        self.assertEqual(
+            response.data['total'],
+            sum(c['count'] for c in response.data['categories']))
+
+    def test_archived_designs_are_not_counted(self):
+        DesignAsset.objects.create(
+            title="gone", image_url="https://example.test/g.jpg", template=self.lehenga,
+            status=DesignAsset.Status.ARCHIVED)
+        response = self.client.get('/api/design-studio/categories/')
+        counts = {c['key']: c['count'] for c in response.data['categories']}
+        self.assertEqual(counts['lehenga'], 0)
