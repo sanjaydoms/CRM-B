@@ -129,24 +129,49 @@ DATABASES = {
         'USER': os.environ.get('DB_USER', 'postgres.gbdabwahffdgdykbujpx'),
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
         'HOST': os.environ.get('DB_HOST', 'aws-1-ap-southeast-1.pooler.supabase.com'),
-        'PORT': os.environ.get('DB_PORT', '6543'),
-        # Port 6543 is Supabase's *transaction* pooler: pgbouncer already pools, and
-        # it makes clients wait for a free server slot rather than erroring.
+        # Port 5432 on the pooler host is Supabase's *session* pooler, and this
+        # application cannot use the transaction pooler on 6543.
         #
-        # This was 0, which meant every single request paid a fresh TCP connect,
-        # TLS handshake and pooler auth before it could run its first query --
-        # against a database in another region that is more expensive than most
-        # of the queries the request then makes. The original worry about holding
-        # connections was that they burn pooler client slots; the fix for that is
-        # to *bound* them rather than to reopen constantly. Under gunicorn.conf.py
-        # this process holds at most workers * threads (2 * 4 = 8) connections, so
-        # the slot usage is small, fixed and known. Set DB_CONN_MAX_AGE=0 to go
-        # back to connect-per-request if the pooler ever reports slot exhaustion.
+        # django-tenants selects a tenant by issuing `SET search_path`, which is
+        # session state. Under transaction pooling pgbouncer hands each
+        # transaction to whichever server backend is free, so the search_path set
+        # when the tenant was resolved need not still apply to the next query in
+        # the same request. The query then runs against `public`.
+        #
+        # That is not theoretical: on 6543 this produced intermittent
+        # `401 {"detail":"Invalid token."}` in production. `authtoken` is in both
+        # SHARED_APPS and TENANT_APPS, so the token table exists in public *and*
+        # in every tenant schema; a token written to the tenant schema simply is
+        # not found when the lookup drifts to public. Measured against the live
+        # service: 14 sequential requests all succeeded, while 12 concurrent
+        # requests returned 9x200, 2x401 and 1x500 with the same token.
+        #
+        # Session pooling gives each client connection its own server backend for
+        # the life of that connection, which is what makes search_path -- and
+        # therefore tenant isolation -- hold.
+        'PORT': os.environ.get('DB_PORT', '5432'),
+
+        # Persistent connections, for two reasons.
+        #
+        # They are safe *because* of the session pooler above: the backend behind
+        # a reused connection stays the same one, so the schema it is pointed at
+        # stays true between requests. On the transaction pooler this same
+        # setting was actively harmful -- Django believed the connection was
+        # already on the tenant schema and skipped re-issuing the SET, while
+        # pgbouncer had moved it to another backend underneath.
+        #
+        # They are also worth having: at 0 every request paid a fresh TCP
+        # connect, TLS handshake and pooler auth against a database in another
+        # region, which costs more than most of the queries the request then
+        # makes. Holding connections burns pooler slots, so they are bounded
+        # rather than unlimited -- under gunicorn.conf.py this process holds at
+        # most workers * threads (2 * 4 = 8). Set DB_CONN_MAX_AGE=0 to return to
+        # connect-per-request if the pooler ever reports slot exhaustion.
         'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '60')),
-        # Reused connections are only safe on a *transaction* pooler if Django
-        # never opens a server-side cursor, because those outlive the transaction
-        # that pgbouncer hands back to the pool and then fail on a different
-        # backend. Django uses them for .iterator(); this turns that off.
+        # Kept from the transaction-pooler configuration. Server-side cursors are
+        # no longer hazardous on a session pooler, but nothing in this codebase
+        # relies on .iterator() streaming, so leaving it off costs nothing and
+        # keeps the setting correct if HOST is ever pointed back at 6543.
         'DISABLE_SERVER_SIDE_CURSORS': True,
         'OPTIONS': {
             # Never let a request hang on the network; fail fast and visibly.
