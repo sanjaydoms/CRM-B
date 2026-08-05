@@ -1,4 +1,4 @@
-"""The twelve garments, as data.
+"""The garments the boutique stitches, as data.
 
 This is the source the seed migration loads. Editing a template here and bumping
 its version updates every boutique still on the global default; a boutique that
@@ -64,10 +64,14 @@ def all_of(*rules):
     return {'all': list(rules)}
 
 
+def not_one_of(f, values):
+    return {'field': f, 'op': 'not_in', 'value': values}
+
+
 # --- fields shared by every garment ---------------------------------------
 #
-# Defined once and merged into all twelve, so a change reaches every form at
-# once. These keys are reserved: a garment cannot redefine them.
+# Defined once and merged into every garment, so a change reaches every form
+# at once. These keys are reserved: a garment cannot redefine them.
 
 COMMON_BASIC = [
     field('occasion', 'Occasion', 'select', options=[
@@ -154,7 +158,7 @@ def bottom_materials(extra=()):
     ]
 
 
-# --- the twelve ------------------------------------------------------------
+# --- the garments ----------------------------------------------------------
 
 TEMPLATES = [
     {
@@ -495,6 +499,120 @@ TEMPLATES = [
                 material('can_can', 'Can Can', Inv.LINING),
                 material('elastic', 'Elastic', Inv.STITCHING),
                 material('zip', 'Zip', Inv.STITCHING),
+            ],
+        },
+    },
+    {
+        'key': 'gown', 'name': 'Gown', 'sequence': 130,
+        'sections': {
+            'basic': [
+                field('gown_type', 'Gown Type', 'select', required=True, options=[
+                    'A-Line', 'Mermaid', 'Ball Gown', 'Sheath', 'Empire',
+                    ('cape_gown', 'Cape Gown'), 'Indo-Western']),
+            ],
+            'measurements': [
+                measurement('floor_length', 'Floor Length', required=True),
+                measurement('shoulder', 'Shoulder'),
+                measurement('upper_chest', 'Upper Chest'),
+                measurement('chest', 'Chest'),
+                measurement('waist', 'Waist'),
+                measurement('hip', 'Hip'),
+                measurement('armhole', 'Armhole'),
+            ],
+            'style': [
+                *sleeve_and_neck(),
+                field('back_style', 'Back Style', 'select', options=[
+                    ('deep_u', 'Deep U'), 'Keyhole', 'Backless', 'Standard']),
+                field('padding', 'Padding', 'boolean'),
+                field('slit', 'Slit', 'select', options=['Left', 'Right', 'Both', 'None']),
+                field('train', 'Train', 'select', options=['None', 'Sweep', 'Chapel', 'Cathedral']),
+                field('zip_position', 'Zip', 'select', options=['Side', 'Back', 'None']),
+            ],
+            'materials': [
+                material('main_fabric', 'Main Fabric', Inv.FABRIC),
+                material('lining', 'Lining', Inv.LINING),
+                material('can_can', 'Can Can', Inv.LINING),
+                material('cups', 'Cups', Inv.EMBELLISHMENT, when=eq('padding', True)),
+                material('boning', 'Boning', Inv.EMBELLISHMENT),
+                material('zip', 'Zip', Inv.STITCHING, when=neq('zip_position', 'none')),
+                material('hooks', 'Hooks', Inv.STITCHING),
+            ],
+        },
+    },
+    {
+        # The kameez only. Its salwar or churidar and its dupatta are their own
+        # dresses on the order, which is what lets each carry its own
+        # measurements and go to a different tailor.
+        'key': 'suit', 'name': 'Suit (Kameez)', 'sequence': 140,
+        'sections': {
+            'basic': [
+                field('suit_type', 'Suit Type', 'select', required=True, options=[
+                    'Straight Cut', 'A-Line', 'Anarkali Cut', 'Angrakha', 'Kalidar']),
+            ],
+            'measurements': [
+                measurement('full_length', 'Full Length', required=True),
+                measurement('shoulder', 'Shoulder'),
+                measurement('upper_chest', 'Upper Chest'),
+                measurement('chest', 'Chest'),
+                measurement('waist', 'Waist'),
+                measurement('hip', 'Hip'),
+                measurement('armhole', 'Armhole'),
+                measurement('arm_length', 'Arm Length'),
+            ],
+            'style': [
+                *sleeve_and_neck(),
+                field('slit', 'Side Slit', 'select', options=['Left', 'Right', 'Both', 'None']),
+                field('zip_position', 'Zip', 'select', options=['Side', 'Front', 'Back', 'None']),
+                field('pocket', 'Pocket', 'boolean'),
+                field('padding', 'Padding', 'boolean'),
+                field('border', 'Border', 'boolean'),
+            ],
+            'materials': [
+                material('main_fabric', 'Main Fabric', Inv.FABRIC),
+                material('lining', 'Lining', Inv.LINING),
+                material('border_material', 'Border', Inv.BORDER, when=eq('border', True)),
+                material('cups', 'Cups', Inv.EMBELLISHMENT, when=eq('padding', True)),
+                material('zip', 'Zip', Inv.STITCHING, when=neq('zip_position', 'none')),
+                material('buttons', 'Buttons', Inv.STITCHING),
+                material('thread', 'Thread', Inv.STITCHING),
+            ],
+        },
+    },
+    {
+        # Menswear. The pants or churidar worn with it are a separate dress.
+        'key': 'sherwani', 'name': 'Sherwani', 'sequence': 150,
+        'sections': {
+            'basic': [
+                field('sherwani_type', 'Sherwani Type', 'select', required=True, options=[
+                    'Classic', 'Angrakha', 'Indo-Western', 'Jodhpuri', 'Achkan']),
+            ],
+            'measurements': [
+                measurement('full_length', 'Full Length', required=True),
+                measurement('shoulder', 'Shoulder'),
+                measurement('chest', 'Chest'),
+                measurement('waist', 'Waist'),
+                measurement('hip', 'Hip'),
+                measurement('arm_length', 'Arm Length'),
+                measurement('neck', 'Neck'),
+            ],
+            'style': [
+                field('collar_style', 'Collar Style', 'select', options=[
+                    'Bandhgala', 'Mandarin', 'Nehru', 'Shawl', 'Notch']),
+                field('front_closure', 'Front Closure', 'select', options=[
+                    'Buttons', 'Hooks', 'Concealed Zip', 'Open Front']),
+                field('vent', 'Vent', 'select', options=['Centre', 'Side', 'None']),
+                field('pocket', 'Pocket', 'boolean'),
+                field('embroidery_finish', 'Embroidery Finish', 'select',
+                      options=['None', 'Machine', 'Hand', 'Maggam', 'Zardozi']),
+            ],
+            'materials': [
+                material('main_fabric', 'Main Fabric', Inv.FABRIC),
+                material('lining', 'Lining', Inv.LINING),
+                material('canvas', 'Canvas', Inv.LINING),
+                material('buttons', 'Buttons', Inv.STITCHING),
+                material('thread', 'Thread', Inv.STITCHING),
+                material('embroidery_material', 'Embroidery Material', Inv.MAGGAM,
+                         when=not_one_of('embroidery_finish', ['none'])),
             ],
         },
     },

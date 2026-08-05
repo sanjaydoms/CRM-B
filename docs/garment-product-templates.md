@@ -1,6 +1,6 @@
 # Scaleezy — Garment Product Template Specification
 
-Complete product configuration for the 12 garments the boutique stitches. Written so
+Complete product configuration for the 15 garments the boutique stitches. Written so
 frontend and backend implement against **one shared definition**: the backend stores the
 template, the frontend renders it, and both validate with the same metadata.
 

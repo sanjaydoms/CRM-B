@@ -28,8 +28,18 @@ class CatalogTestCase(TenantTestCase):
 
 
 class TemplateSeedTests(CatalogTestCase):
-    def test_all_twelve_garments_are_seeded(self):
-        self.assertEqual(GarmentTemplate.objects.filter(tenant__isnull=True).count(), 12)
+    def test_every_shipped_garment_is_seeded(self):
+        from .definitions import TEMPLATES
+        seeded = set(GarmentTemplate.objects.filter(tenant__isnull=True)
+                     .values_list('key', flat=True))
+        self.assertEqual(seeded, {d['key'] for d in TEMPLATES})
+
+    def test_the_garments_the_boutique_actually_sells_are_present(self):
+        # Gown, Suit and Sherwani were in the wizard's old hardcoded list and
+        # the seeded catalogue still has gowns; leaving them out stranded those
+        # designs and made the orders untakeable.
+        seeded = set(GarmentTemplate.objects.values_list('key', flat=True))
+        self.assertTrue({'gown', 'suit', 'sherwani'} <= seeded)
 
     def test_every_template_has_all_five_sections(self):
         for template in GarmentTemplate.objects.all():
@@ -62,8 +72,10 @@ class TemplateSeedTests(CatalogTestCase):
         self.assertEqual(measurements('blouse'), measurements('lehenga_blouse'))
 
     def test_syncing_twice_does_not_duplicate(self):
+        from .definitions import TEMPLATES
         sync_global_templates()
-        self.assertEqual(GarmentTemplate.objects.filter(tenant__isnull=True).count(), 12)
+        self.assertEqual(
+            GarmentTemplate.objects.filter(tenant__isnull=True).count(), len(TEMPLATES))
 
     def test_resync_bumps_the_version(self):
         before = GarmentTemplate.resolve('saree').version

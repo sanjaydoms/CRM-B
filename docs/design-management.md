@@ -51,7 +51,7 @@ The proposed filters already exist too, as `TemplateFieldOption` values:
 
 | Proposed filter | Existing source of truth |
 |---|---|
-| Category | `GarmentTemplate.key` — the 12 garments |
+| Category | `GarmentTemplate.key` — the 15 garments |
 | Occasion | `occasion` options: Wedding, Reception, Festive, Party, Daily, Other |
 | Sleeve | `sleeve_length`: Sleeveless, Cap, Short, Elbow, 3/4, Full |
 | Neck | `front_neck` / `back_neck` / `collar` |
