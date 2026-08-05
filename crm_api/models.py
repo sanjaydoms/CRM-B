@@ -147,6 +147,14 @@ class BoutiqueFabric(models.Model):
         return f"{self.name} ({self.material}) - ₹{self.price_per_meter}/mtr"
 
 class BoutiqueDesign(models.Model):
+    """Deprecated. The catalogue lives in design_studio.DesignAsset.
+
+    Migration design_studio.0007 moved every row into the library and the
+    endpoints switched over with it, so nothing writes here any more. The table
+    is kept for one release as a fallback if that move needs inspecting, and is
+    then dropped.
+    """
+
     name = models.CharField(max_length=150)
     garment_type = models.CharField(max_length=100) # e.g. Lehenga, Gown, Saree, Kurti, Sherwani
     neckline_style = models.CharField(max_length=100, blank=True, null=True) # V-Neck, Sweetheart, etc.

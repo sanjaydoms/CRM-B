@@ -318,9 +318,13 @@ Each step ships working and is independently reversible.
    `user` stays null, so no login and no new security surface. The
    `core/roles.py` fallback fix moves to step 7, where it is actually load-
    bearing -- changing it now would alter owner access for no benefit.
-2. **Consolidation.** Merge `BoutiqueDesign` into `DesignAsset`; add `template`,
-   `spec_tags`, `status`, `visibility`, counters; GIN index; backfill
-   `garment_type` → `template`.
+2. **Consolidation.** ✅ Done, in two commits. First the fields -- `template`,
+   `spec_tags`, `status`, `visibility`, counters, GIN index, and the backfill
+   from `garment_type`. Then the move: `BoutiqueDesign` rows became `DesignAsset`
+   rows with `source='catalogue'`/`'suggestion'`, and every reader switched over
+   in the same commit so there was never a period with two live copies.
+   `/api/boutique-designs/` keeps its URL and its exact wire format, so Manage
+   Designs and the wizard gallery did not have to change.
 3. **Library UI.** Category sections with counts, filters, design detail.
 4. **Collections + upload flow.**
 5. **Approval queue + settings toggle.**

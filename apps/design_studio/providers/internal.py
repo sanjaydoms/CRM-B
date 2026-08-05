@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from django.db.models import Q
 
-from crm_api.models import BoutiqueDesign, Order
+from crm_api.models import Order
 
 from ..models import DesignAsset
 from .base import DesignCandidate, DesignSourceProvider
@@ -26,7 +26,10 @@ class CatalogueProvider(DesignSourceProvider):
     label = 'Boutique Catalogue'
 
     def search(self, queries, context, limit=20):
-        designs = BoutiqueDesign.objects.all()
+        # The catalogue moved into the library; these are the same rows.
+        from ..models import DesignAsset
+        designs = DesignAsset.objects.filter(
+            source__in=[DesignAsset.SOURCE_CATALOGUE, DesignAsset.SOURCE_SUGGESTION])
         if context.garment_type:
             # Narrow to the garment being ordered, but fall back to the full
             # catalogue rather than showing an empty gallery when nothing in
@@ -38,7 +41,7 @@ class CatalogueProvider(DesignSourceProvider):
         if tokens:
             matches = Q()
             for token in tokens:
-                matches |= Q(name__icontains=token) | Q(description__icontains=token)
+                matches |= Q(title__icontains=token) | Q(description__icontains=token)
             keyword_hits = designs.filter(matches)
             if keyword_hits.exists():
                 designs = keyword_hits
@@ -48,16 +51,18 @@ class CatalogueProvider(DesignSourceProvider):
             candidates.append(DesignCandidate(
                 source=self.key,
                 source_ref=str(design.id),
-                title=design.name,
+                title=design.title,
                 image_url=design.image_url or '',
                 garment_type=design.garment_type or '',
                 attributes={
-                    'neck_type': design.neckline_style or '',
-                    'sleeve': design.sleeve_style or '',
+                    'neck_type': (design.attributes or {}).get('neckline_style', ''),
+                    'sleeve': (design.attributes or {}).get('sleeve_style', ''),
                 },
-                tags=[t for t in [design.garment_type, design.neckline_style, design.sleeve_style] if t],
-                estimated_price=Decimal(design.price or 0),
-                popularity=80 if design.is_boutique else 50,
+                tags=[t for t in [design.garment_type,
+                                  (design.attributes or {}).get('neckline_style'),
+                                  (design.attributes or {}).get('sleeve_style')] if t],
+                estimated_price=Decimal(design.estimated_price or 0),
+                popularity=80 if design.source == design.SOURCE_CATALOGUE else 50,
             ))
         return candidates
 

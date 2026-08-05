@@ -22,6 +22,7 @@ from .serializers import (
     MeasurementHistorySerializer, CustomerSummarySerializer, OrderSummarySerializer,
     OrderStageSerializer
 )
+from apps.design_studio.models import DesignAsset
 from domains.customers.repositories import CustomerRepository
 from domains.orders.notifications import create_order_notifications
 from domains.orders.repositories import OrderRepository
@@ -134,10 +135,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
         customer = self.get_object()
         # Filter templates that are AI suggestion templates (is_boutique=False)
         # matching the customer's garment_type
-        templates = BoutiqueDesign.objects.filter(is_boutique=False, garment_type__iexact=customer.garment_type)
+        templates = DesignAsset.objects.filter(
+            source=DesignAsset.SOURCE_SUGGESTION, garment_type__iexact=customer.garment_type)
         if not templates.exists():
             # If no matches, fallback to any AI suggestions
-            templates = BoutiqueDesign.objects.filter(is_boutique=False)
+            templates = DesignAsset.objects.filter(source=DesignAsset.SOURCE_SUGGESTION)
         
         serializer = BoutiqueDesignSerializer(templates, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -147,7 +149,8 @@ class CustomerViewSet(viewsets.ModelViewSet):
         customer = self.get_object()
         # Filter designs that are boutique catalog designs (is_boutique=True)
         # matching the customer's garment_type
-        designs = BoutiqueDesign.objects.filter(is_boutique=True, garment_type__iexact=customer.garment_type)
+        designs = DesignAsset.objects.filter(
+            source=DesignAsset.SOURCE_CATALOGUE, garment_type__iexact=customer.garment_type)
         
         serializer = BoutiqueDesignSerializer(designs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -233,7 +236,10 @@ class BoutiqueFabricViewSet(viewsets.ModelViewSet):
     serializer_class = BoutiqueFabricSerializer
 
 class BoutiqueDesignViewSet(viewsets.ModelViewSet):
-    queryset = BoutiqueDesign.objects.all()
+    # The catalogue lives in the design library now; the URL and the wire format
+    # are unchanged, so the Manage Designs screen did not have to move with it.
+    queryset = DesignAsset.objects.filter(
+        source__in=[DesignAsset.SOURCE_CATALOGUE, DesignAsset.SOURCE_SUGGESTION])
     serializer_class = BoutiqueDesignSerializer
 
 class OrderViewSet(viewsets.ModelViewSet):

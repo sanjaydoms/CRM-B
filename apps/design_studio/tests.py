@@ -14,7 +14,7 @@ from django.urls import reverse
 from django_tenants.test.cases import TenantTestCase
 from rest_framework.test import APIClient
 
-from crm_api.models import BoutiqueDesign, Customer, FabricSelection, Measurement, Order, Tailor
+from crm_api.models import Customer, FabricSelection, Measurement, Order, Tailor
 
 from .context import build_context
 from .intelligence.rules import RuleBasedIntelligence
@@ -51,10 +51,12 @@ class StudioTestCase(TenantTestCase):
         FabricSelection.objects.create(
             customer=self.customer, fabric_name="Maroon Silk", fabric_price=Decimal('4000'))
 
-        self.design = BoutiqueDesign.objects.create(
-            name="Maroon Bridal Lehenga", garment_type="Lehenga",
-            neckline_style="Sweetheart", sleeve_style="Half Sleeve",
-            image_url="https://example.test/lehenga.jpg", price=Decimal('35000'),
+        # The catalogue is part of the design library now (migration 0007).
+        self.design = DesignAsset.objects.create(
+            title="Maroon Bridal Lehenga", garment_type="Lehenga",
+            source=DesignAsset.SOURCE_CATALOGUE,
+            attributes={'neckline_style': "Sweetheart", 'sleeve_style': "Half Sleeve"},
+            image_url="https://example.test/lehenga.jpg", estimated_price=Decimal('35000'),
         )
 
         self.client = APIClient()
@@ -563,10 +565,11 @@ class DesignerBackfillTests(StudioTestCase):
         self.assertEqual(priya.designs.count(), 3)
 
     def test_designs_with_no_credit_are_left_alone(self):
-        DesignAsset.objects.create(title="anon", image_url="https://example.test/anon.jpg")
+        anon = DesignAsset.objects.create(title="anon", image_url="https://example.test/anon.jpg")
         self._run_backfill()
         self.assertEqual(Designer.objects.count(), 0)
-        self.assertIsNone(DesignAsset.objects.get().designer_ref_id)
+        anon.refresh_from_db()
+        self.assertIsNone(anon.designer_ref_id)
 
     def test_running_it_twice_creates_nothing_extra(self):
         DesignAsset.objects.create(
@@ -613,8 +616,12 @@ class DesignLibraryTests(StudioTestCase):
     def test_price_range_and_search(self):
         self._asset("cheap", estimated_price=Decimal('2000'))
         self._asset("dear", estimated_price=Decimal('9000'))
+        # The fixture's catalogue design is also in the library, so assert on
+        # membership rather than on the library being otherwise empty.
         response = self.client.get('/api/design-studio/assets/?price_min=5000')
-        self.assertEqual([d['title'] for d in response.data], ["dear"])
+        titles = [d['title'] for d in response.data]
+        self.assertIn("dear", titles)
+        self.assertNotIn("cheap", titles)
         response = self.client.get('/api/design-studio/assets/?search=chea')
         self.assertEqual([d['title'] for d in response.data], ["cheap"])
 

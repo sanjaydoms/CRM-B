@@ -1,6 +1,8 @@
 import hashlib
 
 from rest_framework import serializers
+
+from apps.design_studio.models import DesignAsset
 from .models import (
     Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order,
     BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory,
@@ -24,9 +26,67 @@ class BoutiqueFabricSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class BoutiqueDesignSerializer(serializers.ModelSerializer):
+    """The catalogue's shape, over the design library that now stores it.
+
+    The rows moved to DesignAsset so the whole library shares one set of filters,
+    one attribution and one approval path. This keeps the wire format the
+    catalogue endpoints have always returned, so the boutique's Manage Designs
+    screen and the wizard gallery carry on unchanged.
+    """
+
+    name = serializers.CharField(source='title')
+    price = serializers.DecimalField(
+        source='estimated_price', max_digits=10, decimal_places=2, required=False)
+    is_boutique = serializers.SerializerMethodField()
+    neckline_style = serializers.SerializerMethodField()
+    sleeve_style = serializers.SerializerMethodField()
+
     class Meta:
-        model = BoutiqueDesign
-        fields = '__all__'
+        model = DesignAsset
+        fields = [
+            'id', 'name', 'garment_type', 'neckline_style', 'sleeve_style',
+            'image_url', 'is_boutique', 'description', 'price',
+        ]
+
+    def get_is_boutique(self, asset):
+        return asset.source == DesignAsset.SOURCE_CATALOGUE
+
+    def get_neckline_style(self, asset):
+        return (asset.attributes or {}).get('neckline_style', '')
+
+    def get_sleeve_style(self, asset):
+        return (asset.attributes or {}).get('sleeve_style', '')
+
+    def _apply_style(self, asset, data):
+        """Fold the two loose style fields back into `attributes`."""
+        attributes = dict(asset.attributes or {})
+        for key in ('neckline_style', 'sleeve_style'):
+            if key in data:
+                attributes[key] = data[key]
+        asset.attributes = attributes
+
+    def create(self, validated_data):
+        raw = self.initial_data
+        asset = DesignAsset(
+            source=(DesignAsset.SOURCE_CATALOGUE
+                    if raw.get('is_boutique', True) in (True, 'true', 'True')
+                    else DesignAsset.SOURCE_SUGGESTION),
+            **validated_data,
+        )
+        self._apply_style(asset, raw)
+        asset.save()
+        return asset
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        self._apply_style(instance, self.initial_data)
+        if 'is_boutique' in self.initial_data:
+            instance.source = (DesignAsset.SOURCE_CATALOGUE
+                               if self.initial_data['is_boutique'] in (True, 'true', 'True')
+                               else DesignAsset.SOURCE_SUGGESTION)
+        instance.save()
+        return instance
 
 class MeasurementSerializer(serializers.ModelSerializer):
     class Meta:

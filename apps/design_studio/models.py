@@ -1,14 +1,20 @@
-"""Persistence for the AI Design Studio.
+"""Persistence for the design library.
 
-Only designs the boutique actually owns get a row here. Catalogue entries and
-past orders already live in crm_api and are projected into search results by
-their providers instead of being copied -- duplicating them would leave two
-records to keep in sync and a stale gallery the first time an owner edits a
-catalogue design.
+DesignAsset is the boutique's whole library: uploads, saved favourites, imported
+references, and -- since the catalogue moved out of crm_api.BoutiqueDesign -- the
+boutique's own catalogue too. One table, so one set of filters, one attribution
+and one approval path covers every design rather than half of them.
+
+The earlier note here argued against *copying* catalogue rows in, on the grounds
+that two records would drift apart. That still holds, and it is why the rows were
+moved rather than duplicated: BoutiqueDesign stopped being written to in the same
+commit that moved them.
+
+Past orders are still projected by their provider rather than stored, because an
+order is not a library entry.
 
 A board is the unit of decision: references are collected on it, one item is
-selected, and once approved the board is what the order carries into
-production.
+selected, and once approved the board is what the order carries into production.
 """
 
 import uuid
@@ -80,11 +86,17 @@ class DesignAsset(models.Model):
     SOURCE_FAVOURITE = 'favourite'
     SOURCE_PINTEREST = 'pinterest'
     SOURCE_GOOGLE = 'google'
+    # The two the boutique's own catalogue arrives as. They were BoutiqueDesign
+    # rows distinguished by an is_boutique flag; the flag is the source now.
+    SOURCE_CATALOGUE = 'catalogue'
+    SOURCE_SUGGESTION = 'suggestion'
     SOURCE_CHOICES = [
         (SOURCE_UPLOAD, 'Team Upload'),
         (SOURCE_FAVOURITE, 'Saved Favourite'),
         (SOURCE_PINTEREST, 'Pinterest'),
         (SOURCE_GOOGLE, 'Google Images'),
+        (SOURCE_CATALOGUE, 'Boutique Catalogue'),
+        (SOURCE_SUGGESTION, 'Suggestion Template'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -147,6 +159,7 @@ class DesignAsset(models.Model):
         related_name='approved_designs')
     approved_at = models.DateTimeField(null=True, blank=True)
 
+    description = models.TextField(blank=True, default='')
     video_url = models.CharField(max_length=500, blank=True, default='')
 
     class Difficulty(models.TextChoices):

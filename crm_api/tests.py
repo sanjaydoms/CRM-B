@@ -8,6 +8,7 @@ from django.conf import settings
 from django.test import override_settings
 import datetime
 
+from apps.design_studio.models import DesignAsset
 from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, OrderStage
 
 class BoutiqueCRMTests(TenantTestCase):
@@ -610,11 +611,13 @@ class BoutiqueCRMTests(TenantTestCase):
         customer = Customer.objects.create(
             first_name="Alice", last_name="Smith", mobile_number="9998887776", garment_type="Lehenga"
         )
-        BoutiqueDesign.objects.create(
-            name="AI Lehenga suggestion", garment_type="Lehenga", is_boutique=False, image_url="http://example.com/ai_lehenga.jpg"
+        DesignAsset.objects.create(
+            title="AI Lehenga suggestion", garment_type="Lehenga",
+            source=DesignAsset.SOURCE_SUGGESTION, image_url="http://example.com/ai_lehenga.jpg"
         )
-        BoutiqueDesign.objects.create(
-            name="AI Gown suggestion", garment_type="Gown", is_boutique=False, image_url="http://example.com/ai_gown.jpg"
+        DesignAsset.objects.create(
+            title="AI Gown suggestion", garment_type="Gown",
+            source=DesignAsset.SOURCE_SUGGESTION, image_url="http://example.com/ai_gown.jpg"
         )
         
         url = reverse('customer-ai-suggestions', kwargs={'pk': customer.id})
@@ -629,11 +632,15 @@ class BoutiqueCRMTests(TenantTestCase):
         customer = Customer.objects.create(
             first_name="Alice", last_name="Smith", mobile_number="9998887776", garment_type="Lehenga"
         )
-        BoutiqueDesign.objects.create(
-            name="Boutique Lehenga 1", garment_type="Lehenga", is_boutique=True, image_url="http://example.com/bot_lehenga.jpg", price=12000.00
+        DesignAsset.objects.create(
+            title="Boutique Lehenga 1", garment_type="Lehenga",
+            source=DesignAsset.SOURCE_CATALOGUE,
+            image_url="http://example.com/bot_lehenga.jpg", estimated_price=12000.00
         )
-        BoutiqueDesign.objects.create(
-            name="Boutique Sherwani 1", garment_type="Sherwani", is_boutique=True, image_url="http://example.com/bot_sherwani.jpg", price=15000.00
+        DesignAsset.objects.create(
+            title="Boutique Sherwani 1", garment_type="Sherwani",
+            source=DesignAsset.SOURCE_CATALOGUE,
+            image_url="http://example.com/bot_sherwani.jpg", estimated_price=15000.00
         )
         
         url = reverse('customer-boutique-designs', kwargs={'pk': customer.id})
@@ -726,7 +733,7 @@ class BoutiqueCRMTests(TenantTestCase):
         # Test Delete (DELETE)
         response = self.client.delete(detail_url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(BoutiqueDesign.objects.filter(id=design_id).exists())
+        self.assertFalse(DesignAsset.objects.filter(id=design_id).exists())
 
 
 class MediaServingTests(TenantTestCase):

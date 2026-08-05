@@ -1,4 +1,4 @@
-from crm_api.models import Tailor, BoutiqueFabric, BoutiqueDesign
+from crm_api.models import Tailor, BoutiqueFabric
 
 def seed_tenant_defaults():
     # Seed Tailors
@@ -150,17 +150,23 @@ def seed_tenant_defaults():
         }
     ]
 
+    # Seeds into the design library, which is where the catalogue lives now.
+    from apps.design_studio.models import DesignAsset
+
     for d in designs:
-        des_obj, created = BoutiqueDesign.objects.get_or_create(
-            name=d["name"],
+        des_obj, created = DesignAsset.objects.get_or_create(
+            title=d["name"],
+            source=(DesignAsset.SOURCE_CATALOGUE if d["is_boutique"]
+                    else DesignAsset.SOURCE_SUGGESTION),
             defaults={
                 "garment_type": d["garment_type"],
-                "neckline_style": d["neckline_style"],
-                "sleeve_style": d["sleeve_style"],
+                "attributes": {
+                    "neckline_style": d["neckline_style"],
+                    "sleeve_style": d["sleeve_style"],
+                },
                 "image_url": d["image_url"],
-                "is_boutique": d["is_boutique"],
                 "description": d["description"],
-                "price": d["price"]
+                "estimated_price": d["price"],
             }
         )
         if not created and ('design_' in str(des_obj.image_url) or not str(des_obj.image_url).startswith('http')):
