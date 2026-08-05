@@ -1,3 +1,4 @@
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets, views
 from rest_framework.decorators import action
@@ -10,11 +11,12 @@ from crm_api.models import Customer, Order
 from . import services
 from .context import build_context
 from .intelligence.registry import get_intelligence
-from .models import DesignAsset, DesignBoard, DesignBoardItem
+from .models import Designer, DesignAsset, DesignBoard, DesignBoardItem
 from .permissions import MASTER, DesignStudioPermission, OwnerOnly, visible_boards
 from .providers.registry import source_status
 from .serializers import (
     DesignAssetSerializer, DesignBoardItemSerializer, DesignBoardSerializer,
+    DesignerSerializer,
     DiscoverRequestSerializer, TailorBriefSerializer,
 )
 
@@ -107,6 +109,41 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         asset.is_favourite = not asset.is_favourite
         asset.save(update_fields=['is_favourite', 'updated_at'])
         return Response(self.get_serializer(asset).data)
+
+
+class DesignerViewSet(viewsets.ModelViewSet):
+    """The people credited on designs.
+
+    Attribution only for now: these rows carry no login, so managing them is an
+    owner task and reads no differently to any other studio lookup.
+    """
+
+    serializer_class = DesignerSerializer
+    permission_classes = [DesignStudioPermission]
+
+    def get_queryset(self):
+        # design_count is read per row by the serializer; annotate it once here
+        # so a list of designers is one query rather than one per designer.
+        queryset = Designer.objects.annotate(design_count=Count('designs'))
+
+        params = self.request.query_params
+        if params.get('active') == 'true':
+            queryset = queryset.filter(is_active=True)
+        if search := params.get('search'):
+            queryset = queryset.filter(name__icontains=search)
+        return queryset
+
+    @action(detail=True, methods=['GET'])
+    def portfolio(self, request, pk=None):
+        """Everything this designer has contributed, newest first."""
+        designer = self.get_object()
+        designs = designer.designs.all().order_by('-created_at')
+        return Response({
+            'designer': DesignerSerializer(
+                Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk)
+            ).data,
+            'designs': DesignAssetSerializer(designs, many=True).data,
+        })
 
 
 class DesignBoardViewSet(viewsets.ModelViewSet):

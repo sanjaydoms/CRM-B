@@ -205,8 +205,14 @@ a user is the Owner because the tenant says so, not because a lookup missed.
 | View customer information | ✅ | ❌ |
 | Everything outside this module | ✅ | ❌ |
 
-A `Designer` role joins `Tailor.ROLE_CHOICES`, and the module's permission class
-denies by default rather than allowing by default.
+**A `Designer` is not a `Tailor` role.** `crm_api` asserts that every role in
+`Tailor.ROLE_CHOICES` has a production stage it can be assigned to -- "a role
+nobody can be assigned to is a role that does not exist". Design work has no
+stage, so adding Designer there would either break that invariant or require a
+fake stage. `Designer` is its own model, with an optional `staff` FK for the
+designer who also works the floor.
+
+The module's permission class denies by default rather than allowing by default.
 
 **Owner-only fields on the design detail** — revenue generated, profit margin,
 customer feedback, materials required — are excluded at the *serializer* level,
@@ -307,8 +313,11 @@ Sorting: newest, most viewed, most ordered, name.
 
 Each step ships working and is independently reversible.
 
-1. **Designer + roles.** `Designer` model, `Designer` role, the `core/roles.py`
-   fallback fix, module permission class. Backfill `designer` → `designer_ref`.
+1. **Designer.** ✅ Done. `Designer` model, `DesignAsset.designer_ref`, the
+   backfill, and `/designers/` + `/designers/{id}/portfolio/`. Attribution only:
+   `user` stays null, so no login and no new security surface. The
+   `core/roles.py` fallback fix moves to step 7, where it is actually load-
+   bearing -- changing it now would alter owner access for no benefit.
 2. **Consolidation.** Merge `BoutiqueDesign` into `DesignAsset`; add `template`,
    `spec_tags`, `status`, `visibility`, counters; GIN index; backfill
    `garment_type` → `template`.

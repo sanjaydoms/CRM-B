@@ -19,6 +19,58 @@ from django.db import models
 from crm_api.models import Customer, Order, Tailor
 
 
+class Designer(models.Model):
+    """Someone who contributes designs to the boutique.
+
+    Attribution first: a designer is a credit on a design, not an account. Both
+    links out of here are optional, and that is the point --
+
+      `user`  is null until designers are given their own login. Nothing in this
+              module needs it, so the security surface can wait.
+      `staff` is set only when the designer is also on the production floor. Most
+              are not, and a designer is deliberately *not* a Tailor role: the
+              workflow asserts every staff role has a production stage it can
+              work on, and design work has no stage.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=150, db_index=True)
+    employee_id = models.CharField(max_length=50, blank=True, default='')
+
+    user = models.OneToOneField(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='designer_profile',
+        help_text='Set once designers have their own login. Null means credit only.',
+    )
+    staff = models.ForeignKey(
+        Tailor, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='designer_profiles',
+        help_text='Set when this designer also works on the production floor.',
+    )
+
+    profile_image = models.CharField(max_length=500, blank=True, default='')
+    specialisation = models.CharField(max_length=150, blank=True, default='')
+    experience_years = models.DecimalField(max_digits=4, decimal_places=1, default=0)
+    bio = models.TextField(blank=True, default='')
+
+    is_active = models.BooleanField(default=True, db_index=True)
+    joined_at = models.DateField(null=True, blank=True)
+    last_active_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        constraints = [
+            # Two designers with the same name are almost certainly the same
+            # person entered twice, which splits a portfolio in half.
+            models.UniqueConstraint(fields=['name'], name='designer_unique_name'),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class DesignAsset(models.Model):
     """A design reference the boutique stores in its own library."""
 
@@ -41,7 +93,14 @@ class DesignAsset(models.Model):
     title = models.CharField(max_length=200)
     image_url = models.CharField(max_length=500)
     source_url = models.CharField(max_length=500, blank=True, default='')
+    # The credit as the source gave it -- a Pinterest pin names its designer as
+    # free text and there is nobody to link to. Kept as the fallback and as the
+    # provenance of an import; `designer_ref` is what the portfolio counts.
     designer = models.CharField(max_length=150, blank=True, default='')
+    designer_ref = models.ForeignKey(
+        Designer, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='designs', db_index=True,
+    )
 
     garment_type = models.CharField(max_length=100, blank=True, default='', db_index=True)
     occasion = models.CharField(max_length=100, blank=True, default='', db_index=True)

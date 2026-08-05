@@ -9,6 +9,7 @@ enforced rather than assumed by the UI.
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.db.utils import IntegrityError
 from django.urls import reverse
 from django_tenants.test.cases import TenantTestCase
 from rest_framework.test import APIClient
@@ -17,8 +18,9 @@ from crm_api.models import BoutiqueDesign, Customer, FabricSelection, Measuremen
 
 from .context import build_context
 from .intelligence.rules import RuleBasedIntelligence
-from .models import DesignBoard, DesignBoardItem
+from .models import Designer, DesignAsset, DesignBoard, DesignBoardItem
 from .providers.base import DesignCandidate
+from .serializers import DesignAssetSerializer
 from .providers.registry import source_status
 from . import services
 
@@ -455,3 +457,120 @@ class PermissionTests(StudioTestCase):
             {'production_notes': "Starting now."}, format='json')
 
         self.assertEqual(response.status_code, 400)
+
+
+class DesignerAttributionTests(StudioTestCase):
+    """Designers as credits, not accounts.
+
+    The point of this step is that a portfolio is countable: every design a
+    person contributed hangs off one row, however the credit was originally
+    spelled or imported.
+    """
+
+    def _asset(self, title, designer='', **kw):
+        return DesignAsset.objects.create(
+            title=title, image_url=f"https://example.test/{title}.jpg",
+            designer=designer, **kw)
+
+    def test_a_designer_needs_no_login(self):
+        designer = Designer.objects.create(name="Priya")
+        self.assertIsNone(designer.user_id)
+        self.assertIsNone(designer.staff_id)
+        self.assertTrue(designer.is_active)
+
+    def test_designs_count_towards_the_portfolio(self):
+        priya = Designer.objects.create(name="Priya")
+        self._asset("one", designer_ref=priya)
+        self._asset("two", designer_ref=priya)
+        self._asset("unattributed")
+        self.assertEqual(priya.designs.count(), 2)
+
+    def test_two_designers_cannot_share_a_name(self):
+        Designer.objects.create(name="Priya")
+        with self.assertRaises(IntegrityError):
+            Designer.objects.create(name="Priya")
+
+    def test_deleting_a_designer_keeps_the_designs(self):
+        # A portfolio being removed must not take the boutique's library with it.
+        priya = Designer.objects.create(name="Priya")
+        asset = self._asset("kept", designer="Priya", designer_ref=priya)
+        priya.delete()
+        asset.refresh_from_db()
+        self.assertIsNone(asset.designer_ref_id)
+        self.assertEqual(asset.designer, "Priya")  # the credit survives
+
+    def test_credited_name_falls_back_to_the_imported_text(self):
+        imported = self._asset("pinterest-find", designer="Anita Rao")
+        linked = self._asset("in-house", designer_ref=Designer.objects.create(name="Priya"))
+        self.assertEqual(DesignAssetSerializer(imported).data['designer_name'], "Anita Rao")
+        self.assertEqual(DesignAssetSerializer(linked).data['designer_name'], "Priya")
+
+    def test_designer_list_reports_counts(self):
+        priya = Designer.objects.create(name="Priya")
+        self._asset("a", designer_ref=priya)
+        self._asset("b", designer_ref=priya)
+        Designer.objects.create(name="Ravi")
+
+        response = self.client.get('/api/design-studio/designers/')
+        self.assertEqual(response.status_code, 200)
+        counts = {d['name']: d['design_count'] for d in response.data}
+        self.assertEqual(counts, {"Priya": 2, "Ravi": 0})
+        self.assertFalse(response.data[0]['has_login'])
+
+    def test_portfolio_returns_only_that_designers_work(self):
+        priya = Designer.objects.create(name="Priya")
+        ravi = Designer.objects.create(name="Ravi")
+        self._asset("hers", designer_ref=priya)
+        self._asset("his", designer_ref=ravi)
+
+        response = self.client.get(f'/api/design-studio/designers/{priya.id}/portfolio/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([d['title'] for d in response.data['designs']], ["hers"])
+        self.assertEqual(response.data['designer']['design_count'], 1)
+
+    def test_a_tailor_cannot_edit_the_designer_roster(self):
+        tailor = self._staff_client('Tailor', 'tailor@studio.test')
+        self.assertEqual(tailor.get('/api/design-studio/designers/').status_code, 200)
+        created = tailor.post('/api/design-studio/designers/', {'name': 'Sneaky'}, format='json')
+        self.assertEqual(created.status_code, 403)
+
+
+class DesignerBackfillTests(StudioTestCase):
+    """The migration that turns existing free-text credits into rows."""
+
+    def _run_backfill(self):
+        from .migrations import __name__ as _  # noqa: F401
+        from importlib import import_module
+        module = import_module('apps.design_studio.migrations.0003_backfill_designers')
+        # The migration works against historical models; the live ones are
+        # compatible here because no field it touches has changed since.
+        class Apps:
+            @staticmethod
+            def get_model(app_label, name):
+                return {'Designer': Designer, 'DesignAsset': DesignAsset}[name]
+        module.backfill(Apps, None)
+
+    def test_variant_spellings_collapse_into_one_designer(self):
+        for title, credit in [("a", "Priya"), ("b", "priya "), ("c", "PRIYA")]:
+            DesignAsset.objects.create(
+                title=title, image_url=f"https://example.test/{title}.jpg", designer=credit)
+
+        self._run_backfill()
+
+        self.assertEqual(Designer.objects.count(), 1)
+        priya = Designer.objects.get()
+        self.assertEqual(priya.name, "Priya")   # the earliest spelling wins
+        self.assertEqual(priya.designs.count(), 3)
+
+    def test_designs_with_no_credit_are_left_alone(self):
+        DesignAsset.objects.create(title="anon", image_url="https://example.test/anon.jpg")
+        self._run_backfill()
+        self.assertEqual(Designer.objects.count(), 0)
+        self.assertIsNone(DesignAsset.objects.get().designer_ref_id)
+
+    def test_running_it_twice_creates_nothing_extra(self):
+        DesignAsset.objects.create(
+            title="a", image_url="https://example.test/a.jpg", designer="Priya")
+        self._run_backfill()
+        self._run_backfill()
+        self.assertEqual(Designer.objects.count(), 1)

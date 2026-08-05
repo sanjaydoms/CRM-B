@@ -1,15 +1,42 @@
 from rest_framework import serializers
 
-from .models import DesignAsset, DesignBoard, DesignBoardItem
+from .models import Designer, DesignAsset, DesignBoard, DesignBoardItem
+
+
+class DesignerSerializer(serializers.ModelSerializer):
+    design_count = serializers.IntegerField(read_only=True)
+    # Present so the UI can tell a credit-only designer from one with a login,
+    # without exposing which account it is.
+    has_login = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Designer
+        fields = [
+            'id', 'name', 'employee_id', 'profile_image', 'specialisation',
+            'experience_years', 'bio', 'is_active', 'joined_at', 'last_active_at',
+            'staff', 'design_count', 'has_login', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_has_login(self, designer):
+        return designer.user_id is not None
 
 
 class DesignAssetSerializer(serializers.ModelSerializer):
     source_display = serializers.CharField(source='get_source_display', read_only=True)
+    # The credited name, whichever way the design carries it: a linked designer
+    # where there is one, the imported free text otherwise.
+    designer_name = serializers.SerializerMethodField()
 
     class Meta:
         model = DesignAsset
         fields = '__all__'
         read_only_fields = ['created_by', 'created_at', 'updated_at']
+
+    def get_designer_name(self, asset):
+        if asset.designer_ref_id:
+            return asset.designer_ref.name
+        return asset.designer or ''
 
 
 class DesignBoardItemSerializer(serializers.ModelSerializer):
