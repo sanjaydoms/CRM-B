@@ -14,8 +14,10 @@ production.
 import uuid
 
 from django.contrib.auth.models import User
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
+from apps.catalog.models import GarmentTemplate
 from crm_api.models import Customer, Order, Tailor
 
 
@@ -111,9 +113,62 @@ class DesignAsset(models.Model):
     tags = models.JSONField(default=list, blank=True)
     colour_palette = models.JSONField(default=list, blank=True)
 
+    # The garment this design is for, as the catalogue defines it. A string
+    # here would be a second taxonomy: `garment_type` above says "Lehenga" and
+    # nothing guarantees it matches the template a customer's order was built
+    # from. See docs/design-management.md section 2.
+    template = models.ForeignKey(
+        GarmentTemplate, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='designs', db_index=True,
+    )
+    # Template-vocabulary tags: {"sleeve_length": "elbow", "occasion": "wedding"}.
+    # Same shape and same values as GarmentJob.spec, which is what lets "designs
+    # matching this order" be a query rather than a fuzzy string comparison.
+    spec_tags = models.JSONField(default=dict, blank=True)
+
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        PENDING = 'PENDING', 'Pending approval'
+        ACTIVE = 'ACTIVE', 'Active'
+        ARCHIVED = 'ARCHIVED', 'Archived'
+
+    class Visibility(models.TextChoices):
+        BOUTIQUE = 'BOUTIQUE', 'Whole boutique'
+        DESIGNER_ONLY = 'DESIGNER_ONLY', 'Designer only'
+
+    # Existing rows are live work, so ACTIVE is the default; the approval queue
+    # in a later step is what starts putting uploads into PENDING.
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    visibility = models.CharField(
+        max_length=20, choices=Visibility.choices, default=Visibility.BOUTIQUE)
+    approved_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='approved_designs')
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    video_url = models.CharField(max_length=500, blank=True, default='')
+
+    class Difficulty(models.TextChoices):
+        SIMPLE = 'SIMPLE', 'Simple'
+        MODERATE = 'MODERATE', 'Moderate'
+        COMPLEX = 'COMPLEX', 'Complex'
+
+    difficulty = models.CharField(
+        max_length=20, choices=Difficulty.choices, blank=True, default='')
+    stitch_hours = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Estimated stitch time.')
+
     estimated_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     popularity = models.IntegerField(default=0)
     is_favourite = models.BooleanField(default=False, db_index=True)
+
+    # Denormalised because the dashboard sorts on them. A COUNT(*) across the
+    # library on every page load is exactly what makes a gallery of thousands
+    # slow, so these are incremented at the point of the event instead.
+    view_count = models.IntegerField(default=0)
+    order_count = models.IntegerField(default=0)
 
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='design_assets')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -127,6 +182,14 @@ class DesignAsset(models.Model):
                 condition=~models.Q(external_id=''),
                 name='design_asset_unique_external_ref',
             ),
+        ]
+        indexes = [
+            # Filtering the library by sleeve, neck or occasion is a containment
+            # query into spec_tags. Without this index that is a sequential scan
+            # of every design in the boutique, which is the slow gallery this
+            # module exists to avoid.
+            GinIndex(fields=['spec_tags'], name='design_asset_spec_tags_gin'),
+            models.Index(fields=['status', 'template'], name='design_asset_status_template'),
         ]
 
     def __str__(self):

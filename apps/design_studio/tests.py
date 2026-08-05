@@ -574,3 +574,126 @@ class DesignerBackfillTests(StudioTestCase):
         self._run_backfill()
         self._run_backfill()
         self.assertEqual(Designer.objects.count(), 1)
+
+
+class DesignLibraryTests(StudioTestCase):
+    """Template linkage, tag filtering and the counters."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.catalog.services import sync_global_templates
+        sync_global_templates()
+        from apps.catalog.models import GarmentTemplate
+        self.lehenga = GarmentTemplate.resolve('lehenga')
+        self.blouse = GarmentTemplate.resolve('blouse')
+
+    def _asset(self, title, **kw):
+        return DesignAsset.objects.create(
+            title=title, image_url=f"https://example.test/{title}.jpg", **kw)
+
+    def test_filtering_by_garment_uses_the_template_not_a_string(self):
+        self._asset("skirt", template=self.lehenga)
+        self._asset("top", template=self.blouse)
+        response = self.client.get('/api/design-studio/assets/?template=lehenga')
+        self.assertEqual([d['title'] for d in response.data], ["skirt"])
+
+    def test_tag_filters_use_the_order_forms_vocabulary(self):
+        self._asset("elbow one", spec_tags={'sleeve_length': 'elbow'})
+        self._asset("full one", spec_tags={'sleeve_length': 'full'})
+        response = self.client.get('/api/design-studio/assets/?sleeve_length=elbow')
+        self.assertEqual([d['title'] for d in response.data], ["elbow one"])
+
+    def test_tag_filters_combine(self):
+        self._asset("match", spec_tags={'sleeve_length': 'elbow', 'occasion': 'wedding'})
+        self._asset("half match", spec_tags={'sleeve_length': 'elbow', 'occasion': 'party'})
+        response = self.client.get(
+            '/api/design-studio/assets/?sleeve_length=elbow&occasion=wedding')
+        self.assertEqual([d['title'] for d in response.data], ["match"])
+
+    def test_price_range_and_search(self):
+        self._asset("cheap", estimated_price=Decimal('2000'))
+        self._asset("dear", estimated_price=Decimal('9000'))
+        response = self.client.get('/api/design-studio/assets/?price_min=5000')
+        self.assertEqual([d['title'] for d in response.data], ["dear"])
+        response = self.client.get('/api/design-studio/assets/?search=chea')
+        self.assertEqual([d['title'] for d in response.data], ["cheap"])
+
+    def test_opening_a_design_counts_a_view(self):
+        asset = self._asset("watched")
+        self.assertEqual(asset.view_count, 0)
+        self.client.get(f'/api/design-studio/assets/{asset.id}/')
+        self.client.get(f'/api/design-studio/assets/{asset.id}/')
+        asset.refresh_from_db()
+        self.assertEqual(asset.view_count, 2)
+
+    def test_listing_does_not_count_views(self):
+        # Otherwise every gallery scroll inflates the "most viewed" leaderboard.
+        asset = self._asset("listed")
+        self.client.get('/api/design-studio/assets/')
+        asset.refresh_from_db()
+        self.assertEqual(asset.view_count, 0)
+
+    def test_ordering_by_popularity(self):
+        self._asset("quiet", view_count=1)
+        self._asset("loud", view_count=99)
+        response = self.client.get('/api/design-studio/assets/?ordering=most_viewed')
+        self.assertEqual([d['title'] for d in response.data][0], "loud")
+
+    def test_new_designs_are_active_and_boutique_visible(self):
+        asset = self._asset("fresh")
+        self.assertEqual(asset.status, DesignAsset.Status.ACTIVE)
+        self.assertEqual(asset.visibility, DesignAsset.Visibility.BOUTIQUE)
+
+
+class TemplateBackfillTests(StudioTestCase):
+    """The migration that links designs to templates and tags them."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.catalog.services import sync_global_templates
+        sync_global_templates()
+
+    def _run(self):
+        from importlib import import_module
+        from apps.catalog.models import GarmentTemplate
+        module = import_module('apps.design_studio.migrations.0005_backfill_template_tags')
+
+        class Apps:
+            @staticmethod
+            def get_model(app_label, name):
+                return {'GarmentTemplate': GarmentTemplate, 'DesignAsset': DesignAsset}[name]
+        module.backfill(Apps, None)
+
+    def test_garment_type_string_becomes_a_template_link(self):
+        asset = DesignAsset.objects.create(
+            title="a", image_url="https://example.test/a.jpg", garment_type="Lehenga")
+        self._run()
+        asset.refresh_from_db()
+        self.assertIsNotNone(asset.template_id)
+        self.assertEqual(asset.template.key, 'lehenga')
+
+    def test_an_unrecognised_garment_is_left_unlinked(self):
+        asset = DesignAsset.objects.create(
+            title="b", image_url="https://example.test/b.jpg", garment_type="Poncho")
+        self._run()
+        asset.refresh_from_db()
+        self.assertIsNone(asset.template_id)
+
+    def test_only_values_the_order_form_offers_become_tags(self):
+        asset = DesignAsset.objects.create(
+            title="c", image_url="https://example.test/c.jpg", garment_type="Blouse",
+            occasion="Wedding",
+            attributes={'sleeve': 'Elbow', 'neck': 'Something Bespoke'})
+        self._run()
+        asset.refresh_from_db()
+        # 'Elbow' and 'Wedding' are real options; the freehand neck is not, and
+        # inventing a value for it would make the design unmatchable.
+        self.assertEqual(asset.spec_tags, {'sleeve_length': 'elbow', 'occasion': 'wedding'})
+
+    def test_existing_tags_are_not_overwritten(self):
+        asset = DesignAsset.objects.create(
+            title="d", image_url="https://example.test/d.jpg", garment_type="Blouse",
+            occasion="Party", spec_tags={'sleeve_length': 'full'})
+        self._run()
+        asset.refresh_from_db()
+        self.assertEqual(asset.spec_tags, {'sleeve_length': 'full'})

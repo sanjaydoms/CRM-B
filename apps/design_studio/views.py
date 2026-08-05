@@ -1,4 +1,4 @@
-from django.db.models import Count
+from django.db.models import Count, F, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets, views
 from rest_framework.decorators import action
@@ -96,12 +96,76 @@ class DesignDiscoveryView(views.APIView):
 class DesignAssetViewSet(viewsets.ModelViewSet):
     """The boutique's own design library: uploads, favourites, imports."""
 
-    queryset = DesignAsset.objects.all()
     serializer_class = DesignAssetSerializer
     permission_classes = [DesignStudioPermission]
 
+    # Columns a caller may filter on directly. Anything else in the query string
+    # is looked up inside spec_tags, so the library filters on the same
+    # vocabulary the order form uses without this list growing per garment.
+    DIRECT_FILTERS = {
+        'template': 'template__key',
+        'designer': 'designer_ref_id',
+        'status': 'status',
+        'source': 'source',
+    }
+    # `occasion` is deliberately not above. It exists twice -- as a legacy column
+    # and as a template field key -- so filtering it as a column silently missed
+    # every design tagged the new way. It matches either, until the column goes.
+    
+    RESERVED = {'search', 'ordering', 'price_min', 'price_max', 'favourite', 'occasion',
+                'page', 'page_size', 'format'}
+
+    ORDERINGS = {
+        'newest': '-created_at',
+        'oldest': 'created_at',
+        'most_viewed': '-view_count',
+        'most_ordered': '-order_count',
+        'name': 'title',
+    }
+
+    def get_queryset(self):
+        queryset = DesignAsset.objects.select_related('designer_ref', 'template')
+        params = self.request.query_params
+
+        for name, field in self.DIRECT_FILTERS.items():
+            if value := params.get(name):
+                queryset = queryset.filter(**{field: value})
+
+        if occasion := params.get('occasion'):
+            queryset = queryset.filter(
+                Q(occasion__iexact=occasion) | Q(spec_tags__contains={'occasion': occasion})
+            )
+
+        if search := params.get('search'):
+            queryset = queryset.filter(title__icontains=search)
+        if params.get('favourite') == 'true':
+            queryset = queryset.filter(is_favourite=True)
+        if price_min := params.get('price_min'):
+            queryset = queryset.filter(estimated_price__gte=price_min)
+        if price_max := params.get('price_max'):
+            queryset = queryset.filter(estimated_price__lte=price_max)
+
+        # Everything left is template vocabulary: ?sleeve_length=elbow becomes a
+        # containment query, which the GIN index on spec_tags serves.
+        for key, value in params.items():
+            if key in self.DIRECT_FILTERS or key in self.RESERVED:
+                continue
+            queryset = queryset.filter(spec_tags__contains={key: value})
+
+        return queryset.order_by(self.ORDERINGS.get(params.get('ordering'), '-created_at'))
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Opening a design counts as a view.
+
+        An UPDATE rather than a save() so two people opening the same design at
+        once cannot overwrite each other's increment with a stale value.
+        """
+        response = super().retrieve(request, *args, **kwargs)
+        DesignAsset.objects.filter(pk=kwargs.get('pk')).update(view_count=F('view_count') + 1)
+        return response
 
     @action(detail=True, methods=['POST'], url_path='favourite')
     def favourite(self, request, pk=None):

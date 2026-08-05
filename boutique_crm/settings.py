@@ -67,6 +67,9 @@ SHARED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # No models of its own; required for the postgres-specific index types the
+    # design library uses (GinIndex on spec_tags).
+    'django.contrib.postgres',
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
