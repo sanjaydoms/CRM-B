@@ -1,8 +1,9 @@
 import uuid
+from datetime import timedelta
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db.models import Count, F, Q
+from django.db.models import Count, F, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets, views
@@ -294,6 +295,44 @@ class CollectionViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+class DesignDashboardView(views.APIView):
+    """Counters and leaderboards for the module's landing page.
+
+    Deliberately one endpoint. The main CRM dashboard already fires eight
+    parallel requests on load; this module should not add nine more just to
+    show a handful of numbers.
+    """
+
+    permission_classes = [DesignStudioPermission]
+
+    def get(self, request):
+        assets = DesignAsset.objects.all()
+        active = assets.filter(status=DesignAsset.Status.ACTIVE)
+        week_ago = timezone.now() - timedelta(days=7)
+
+        top = lambda qs, field: DesignAssetSerializer(qs.order_by(f'-{field}')[:5], many=True).data
+
+        return Response({
+            'total_designs': assets.count(),
+            'active_designs': active.count(),
+            'designers': Designer.objects.filter(is_active=True).count(),
+            'collections': Collection.objects.filter(is_active=True).count(),
+            'pending_approval': assets.filter(status=DesignAsset.Status.PENDING).count(),
+            'recent_uploads': DesignAssetSerializer(
+                assets.order_by('-created_at')[:8], many=True).data,
+            'most_viewed': top(active, 'view_count'),
+            'most_ordered': top(active, 'order_count'),
+            # "Trending" is recency-weighted, not a lifetime total: a design
+            # from a year ago with many views should not permanently outrank
+            # one the boutique is showing customers this week. Scoping the
+            # window to designs updated (viewed) in the last 7 days is a cheap
+            # proxy for that without needing a time-series table.
+            'trending': DesignAssetSerializer(
+                active.filter(updated_at__gte=week_ago).order_by('-view_count')[:5],
+                many=True).data,
+        })
+
+
 class DesignCategoryView(views.APIView):
     """Garment types with live design counts, for the library's section list.
 
@@ -355,14 +394,26 @@ class DesignerViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['GET'])
     def portfolio(self, request, pk=None):
-        """Everything this designer has contributed, newest first."""
+        """Everything this designer has contributed, newest first, plus how it
+        is doing -- what the designer's own dashboard reads (step 6)."""
         designer = self.get_object()
         designs = designer.designs.all().order_by('-created_at')
+        totals = designs.aggregate(
+            views=Sum('view_count'), orders=Sum('order_count'))
         return Response({
             'designer': DesignerSerializer(
                 Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk)
             ).data,
             'designs': DesignAssetSerializer(designs, many=True).data,
+            'stats': {
+                'total_views': totals['views'] or 0,
+                'total_orders': totals['orders'] or 0,
+                'active': designs.filter(status=DesignAsset.Status.ACTIVE).count(),
+                'pending': designs.filter(status=DesignAsset.Status.PENDING).count(),
+                'collections': designer.collections.filter(is_active=True).count(),
+                'most_viewed': DesignAssetSerializer(
+                    designs.order_by('-view_count').first()).data if designs.exists() else None,
+            },
         })
 
 

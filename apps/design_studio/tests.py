@@ -316,6 +316,35 @@ class BoardTests(StudioTestCase):
         self.assertEqual(attached.selected_item.tailor_instructions,
                          "Reduce the border to two inches.")
 
+    def test_saving_to_an_order_credits_the_library_design(self):
+        # The library's "most ordered" sort and a designer's own performance
+        # count on this: a dress does not silently stop being creditable to the
+        # design it came from once the customer says yes.
+        self.assertEqual(self.design.order_count, 0)
+        board, _ = self._board_with_selection()
+        services.approve_board(board, self.owner)
+        order = Order.objects.create(order_id="T2B-DS-CREDIT", customer=self.customer)
+
+        services.save_to_order(board, order)
+
+        self.design.refresh_from_db()
+        self.assertEqual(self.design.order_count, 1)
+
+    def test_a_reference_with_no_matching_library_design_is_not_credited(self):
+        # source_ref="7" here is not a DesignAsset id -- it is what a raw,
+        # not-yet-imported external search result looks like. It must not be
+        # mistaken for a UUID that happens to resolve to someone else's design.
+        board = DesignBoard.objects.create(customer=self.customer)
+        item = DesignBoardItem.objects.create(board=board, source="pinterest", source_ref="7")
+        services.select_item(board, item)
+        services.approve_board(board, self.owner)
+        order = Order.objects.create(order_id="T2B-DS-NOCREDIT", customer=self.customer)
+
+        services.save_to_order(board, order)  # must not raise
+
+        self.design.refresh_from_db()
+        self.assertEqual(self.design.order_count, 0)
+
     def test_a_second_board_cannot_hijack_an_order(self):
         first, _ = self._board_with_selection()
         services.approve_board(first, self.owner)
@@ -1016,3 +1045,75 @@ class ApprovalQueueTests(StudioTestCase):
                                     status=DesignAsset.Status.PENDING)
         response = self.client.get('/api/design-studio/assets/?status=PENDING')
         self.assertEqual({d['title'] for d in response.data}, {"p1", "p2"})
+
+
+class DesignDashboardTests(StudioTestCase):
+    """The module's landing counters, and the enriched portfolio."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.catalog.services import sync_global_templates
+        sync_global_templates()
+        self.priya = Designer.objects.create(name="Priya")
+
+    def _asset(self, title, **kw):
+        return DesignAsset.objects.create(
+            title=title, image_url=f"https://example.test/{title}.jpg", **kw)
+
+    def test_dashboard_is_a_single_call(self):
+        self._asset("a", designer_ref=self.priya, view_count=10)
+        self._asset("b", status=DesignAsset.Status.PENDING)
+        response = self.client.get('/api/design-studio/dashboard/')
+        self.assertEqual(response.status_code, 200)
+        for key in ('total_designs', 'active_designs', 'designers', 'collections',
+                    'pending_approval', 'recent_uploads', 'most_viewed',
+                    'most_ordered', 'trending'):
+            self.assertIn(key, response.data)
+
+    def test_pending_approval_count_matches_the_queue(self):
+        self._asset("p1", status=DesignAsset.Status.PENDING)
+        self._asset("p2", status=DesignAsset.Status.PENDING)
+        self._asset("active_one")
+        response = self.client.get('/api/design-studio/dashboard/')
+        self.assertEqual(response.data['pending_approval'], 2)
+
+    def test_most_viewed_is_ranked_and_excludes_archived(self):
+        self._asset("quiet", view_count=1)
+        self._asset("loud", view_count=99)
+        self._asset("loud_but_gone", view_count=500, status=DesignAsset.Status.ARCHIVED)
+        response = self.client.get('/api/design-studio/dashboard/')
+        titles = [d['title'] for d in response.data['most_viewed']]
+        self.assertEqual(titles[0], "loud")
+        self.assertNotIn("loud_but_gone", titles)
+
+    def test_trending_excludes_designs_not_touched_recently(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        stale = self._asset("old_favourite", view_count=200)
+        DesignAsset.objects.filter(pk=stale.pk).update(
+            updated_at=timezone.now() - timedelta(days=30))
+        fresh = self._asset("this_weeks_pick", view_count=5)
+        response = self.client.get('/api/design-studio/dashboard/')
+        titles = [d['title'] for d in response.data['trending']]
+        self.assertIn("this_weeks_pick", titles)
+        self.assertNotIn("old_favourite", titles)
+
+    def test_portfolio_reports_a_designers_own_performance(self):
+        self._asset("hers1", designer_ref=self.priya, view_count=10, order_count=2)
+        self._asset("hers2", designer_ref=self.priya, view_count=30, order_count=1)
+        self._asset("not_hers", designer_ref=Designer.objects.create(name="Ravi"))
+        Collection.objects.create(designer=self.priya, name="Bridal")
+
+        response = self.client.get(f'/api/design-studio/designers/{self.priya.id}/portfolio/')
+        stats = response.data['stats']
+        self.assertEqual(stats['total_views'], 40)
+        self.assertEqual(stats['total_orders'], 3)
+        self.assertEqual(stats['active'], 2)
+        self.assertEqual(stats['collections'], 1)
+        self.assertEqual(stats['most_viewed']['title'], "hers2")
+
+    def test_portfolio_stats_are_empty_not_broken_for_a_new_designer(self):
+        ravi = Designer.objects.create(name="Ravi")
+        response = self.client.get(f'/api/design-studio/designers/{ravi.id}/portfolio/')
+        self.assertEqual(response.data['stats']['total_views'], 0)
+        self.assertIsNone(response.data['stats']['most_viewed'])
