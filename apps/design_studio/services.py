@@ -1,13 +1,15 @@
 """Studio orchestration: context -> queries -> multi-source search -> ranking."""
 
 import logging
+import uuid
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from .context import build_context
 from .intelligence.registry import get_intelligence
-from .models import DesignBoard, DesignBoardItem
+from .models import DesignAsset, DesignBoard, DesignBoardItem
 from .providers.registry import active_providers, source_status
 
 logger = logging.getLogger(__name__)
@@ -96,14 +98,33 @@ def save_to_order(board, order):
     """
     if board.status != DesignBoard.STATUS_APPROVED:
         raise ValueError("Approve the board before saving it to an order")
-    if board.selected_item is None:
+    selected = board.selected_item
+    if selected is None:
         raise ValueError("Board has no selected design")
     existing = getattr(order, 'design_board', None)
     if existing is not None and existing.pk != board.pk:
         raise ValueError(f"Order {order.order_id} already has a design board attached")
     board.order = order
     board.save(update_fields=['order', 'updated_at'])
+    _credit_order_to_design(selected)
     return board
+
+
+def _credit_order_to_design(item):
+    """Count this order against the library design it came from, if any.
+
+    A board item is a provider-agnostic snapshot: its `source` is not reliable
+    proof of where `source_ref` points, because a re-imported Pinterest pin and
+    a live, not-yet-imported Pinterest search result both carry `source ==
+    'pinterest'` -- one's ref is a DesignAsset id, the other is Pinterest's own
+    id for a pin that was never brought into the library. Rather than trust the
+    label, resolve `source_ref` as a UUID and only credit a real match.
+    """
+    try:
+        asset_id = uuid.UUID(item.source_ref)
+    except (ValueError, TypeError, AttributeError):
+        return
+    DesignAsset.objects.filter(pk=asset_id).update(order_count=F('order_count') + 1)
 
 
 def item_from_candidate(board, payload, position=0):
