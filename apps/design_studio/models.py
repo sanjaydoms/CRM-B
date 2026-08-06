@@ -253,6 +253,35 @@ class DesignAsset(models.Model):
         return f"{self.title} ({self.get_source_display()})"
 
 
+class DesignApproval(models.Model):
+    """One review decision on a design. A log, not a status column.
+
+    Overwriting a `status` field loses the history: the second time a design is
+    submitted, there is no way to see why it was rejected in March. Each review
+    writes a new row here and DesignAsset.status is only ever the current state.
+    """
+
+    class Decision(models.TextChoices):
+        APPROVED = 'APPROVED', 'Approved'
+        CHANGES_REQUESTED = 'CHANGES_REQUESTED', 'Changes requested'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    design = models.ForeignKey(
+        DesignAsset, on_delete=models.CASCADE, related_name='approvals')
+    reviewer = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True)
+    decision = models.CharField(max_length=20, choices=Decision.choices)
+    note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.design.title}: {self.decision}"
+
+
 class DesignBoard(models.Model):
     """The shortlist an owner builds for one customer during order creation."""
 

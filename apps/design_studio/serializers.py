@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Collection, Designer, DesignAsset, DesignBoard, DesignBoardItem
+from .models import Collection, Designer, DesignApproval, DesignAsset, DesignBoard, DesignBoardItem
 
 
 class DesignerSerializer(serializers.ModelSerializer):
@@ -35,6 +35,14 @@ class CollectionSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
 
+class DesignApprovalSerializer(serializers.ModelSerializer):
+    reviewer_name = serializers.CharField(source='reviewer.first_name', read_only=True, default='')
+
+    class Meta:
+        model = DesignApproval
+        fields = ['id', 'decision', 'note', 'reviewer_name', 'created_at']
+
+
 class DesignAssetSerializer(serializers.ModelSerializer):
     source_display = serializers.CharField(source='get_source_display', read_only=True)
     # The credited name, whichever way the design carries it: a linked designer
@@ -45,7 +53,13 @@ class DesignAssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = DesignAsset
         fields = '__all__'
-        read_only_fields = ['created_by', 'created_at', 'updated_at']
+        # status/approved_by/approved_at are decided by the upload gate and the
+        # review action, never by whatever a client happened to post. gallery
+        # is filled from the files that were actually stored, not a claim.
+        read_only_fields = [
+            'created_by', 'created_at', 'updated_at',
+            'status', 'approved_by', 'approved_at', 'gallery',
+        ]
 
     def get_designer_name(self, asset):
         if asset.designer_ref_id:

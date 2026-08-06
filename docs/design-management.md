@@ -334,7 +334,15 @@ Each step ships working and is independently reversible.
    than a pasted URL. The style tags render from the chosen garment's own
    template, so a design can only be tagged with values an order for that garment
    can hold. Uploads land ACTIVE, not PENDING -- see step 5.
-5. **Approval queue + settings toggle.**
+5. **Approval queue + settings toggle.** ✅ Done. `DesignApproval` is a log, not a
+   status column, so a rejection's reason survives the next resubmission.
+   `design_approval_required` is off by default -- a small team is usually the
+   owner and one or two designers, and a queue with nobody to clear it is
+   friction with no one on the other end of it. The owner's own uploads always
+   skip the queue even when it is on, since nobody reviews the reviewer.
+   Any signed-in staff member may upload (not just the Owner): gating the
+   upload itself on Owner would leave the queue permanently empty until
+   designer accounts exist in step 7.
 6. **Portfolios and dashboard analytics.**
 7. **Designer login** — last deliberately, because it is only safe once 1, 2 and
    the serializer-level field restrictions are all in place.

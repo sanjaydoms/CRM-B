@@ -320,6 +320,11 @@ class BoutiqueSettings(models.Model):
     email = models.EmailField(default="contact@scaleezy.com")
     logo = models.ImageField(upload_to='fabrics/', blank=True, null=True)
     workflow_config = models.JSONField(default=get_default_workflow, blank=True)
+    # Off by default: a small team is usually the owner and one or two
+    # designers, and forcing every upload through a queue just to reach the
+    # library they already trust is friction with no one on the other end of
+    # it. A team that wants a review step turns this on per boutique.
+    design_approval_required = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name

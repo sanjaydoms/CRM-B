@@ -3883,6 +3883,7 @@ function App() {
                   <Suspense fallback={<div className="content-card">Loading the design library…</div>}>
                     <DesignLibrary
                       refreshToken={designLibraryToken}
+                      canReview={!currentUser?.role || currentUser.role === 'Owner'}
                       onEditDesign={(design) => {
                         setEditingDesign({ id: design.id });
                         setDesignForm({
@@ -5580,6 +5581,7 @@ function App() {
                         if (form.boutiqueLogo.files[0]) {
                           formData.append('logo', form.boutiqueLogo.files[0]);
                         }
+                        formData.append('design_approval_required', form.designApprovalRequired.checked);
                         try {
                           const updated = await api.updateBoutiqueSettings(formData);
                           setBoutiqueSettings(updated);
@@ -5652,6 +5654,25 @@ function App() {
                             className="form-control" 
                           />
                         </div>
+                      </div>
+
+                      <div className="form-group">
+                        {/* Off by default: a small team is usually the owner and
+                            one or two designers, and a queue with nobody to clear
+                            it is friction with no benefit. */}
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            name="designApprovalRequired"
+                            defaultChecked={!!boutiqueSettings?.design_approval_required}
+                          />
+                          <span>
+                            <span style={{ fontWeight: 600 }}>Require approval for new designs</span>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                              When on, uploads from staff other than you wait for your review before appearing in the library.
+                            </div>
+                          </span>
+                        </label>
                       </div>
 
                       <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-start', marginTop: '8px' }}>

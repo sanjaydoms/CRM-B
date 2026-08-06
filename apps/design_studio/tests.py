@@ -900,3 +900,119 @@ class DesignUploadTests(StudioTestCase):
             'images': self._image(),
         }, format='multipart')
         self.assertEqual(response.data['image_url'], 'https://example.test/original.jpg')
+
+
+class ApprovalQueueTests(StudioTestCase):
+    """The upload gate and the review action."""
+
+    def setUp(self):
+        super().setUp()
+        from crm_api.models import BoutiqueSettings
+        self.config, _ = BoutiqueSettings.objects.get_or_create(id=1)
+
+    def test_approval_is_off_by_default(self):
+        # A small team should not hit a queue with nobody on the other end.
+        self.assertFalse(self.config.design_approval_required)
+        response = self.client.post('/api/design-studio/assets/', {
+            'title': 'Straight in', 'image_url': 'https://example.test/x.jpg',
+        }, format='json')
+        self.assertEqual(response.data['status'], DesignAsset.Status.ACTIVE)
+
+    def test_the_owners_own_upload_skips_the_queue_even_when_it_is_on(self):
+        self.config.design_approval_required = True
+        self.config.save()
+        response = self.client.post('/api/design-studio/assets/', {
+            'title': 'Owner upload', 'image_url': 'https://example.test/o.jpg',
+        }, format='json')
+        self.assertEqual(response.data['status'], DesignAsset.Status.ACTIVE)
+
+    def test_a_non_owners_upload_is_held_for_review_when_the_queue_is_on(self):
+        self.config.design_approval_required = True
+        self.config.save()
+        tailor_client = self._staff_client('Tailor', 'queued@studio.test')
+        response = tailor_client.post('/api/design-studio/assets/', {
+            'title': 'Needs a look', 'image_url': 'https://example.test/n.jpg',
+        }, format='json')
+        self.assertEqual(response.data['status'], DesignAsset.Status.PENDING)
+
+    def test_status_cannot_be_set_by_posting_it(self):
+        self.config.design_approval_required = True
+        self.config.save()
+        tailor_client = self._staff_client('Tailor', 'sneaky@studio.test')
+        response = tailor_client.post('/api/design-studio/assets/', {
+            'title': 'Trying to skip the queue',
+            'image_url': 'https://example.test/s.jpg',
+            'status': DesignAsset.Status.ACTIVE,
+        }, format='json')
+        self.assertEqual(response.data['status'], DesignAsset.Status.PENDING)
+
+    def test_approving_activates_the_design_and_records_who(self):
+        asset = DesignAsset.objects.create(
+            title="pending", image_url="https://example.test/p.jpg",
+            status=DesignAsset.Status.PENDING)
+        response = self.client.post(
+            f'/api/design-studio/assets/{asset.id}/review/',
+            {'decision': 'APPROVED', 'note': 'Lovely work'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        asset.refresh_from_db()
+        self.assertEqual(asset.status, DesignAsset.Status.ACTIVE)
+        self.assertEqual(asset.approved_by, self.owner)
+        self.assertIsNotNone(asset.approved_at)
+
+    def test_rejecting_archives_rather_than_deletes(self):
+        # A rejected design is a decision worth keeping a record of, not a
+        # design that silently disappears.
+        asset = DesignAsset.objects.create(
+            title="rejected", image_url="https://example.test/r.jpg",
+            status=DesignAsset.Status.PENDING)
+        self.client.post(f'/api/design-studio/assets/{asset.id}/review/',
+                          {'decision': 'REJECTED'}, format='json')
+        asset.refresh_from_db()
+        self.assertEqual(asset.status, DesignAsset.Status.ARCHIVED)
+        self.assertTrue(DesignAsset.objects.filter(id=asset.id).exists())
+
+    def test_changes_requested_leaves_it_in_the_queue(self):
+        asset = DesignAsset.objects.create(
+            title="needs work", image_url="https://example.test/w.jpg",
+            status=DesignAsset.Status.PENDING)
+        self.client.post(f'/api/design-studio/assets/{asset.id}/review/',
+                          {'decision': 'CHANGES_REQUESTED', 'note': 'Wrong colour tag'},
+                          format='json')
+        asset.refresh_from_db()
+        self.assertEqual(asset.status, DesignAsset.Status.PENDING)
+
+    def test_every_decision_is_logged_even_across_resubmission(self):
+        asset = DesignAsset.objects.create(
+            title="history", image_url="https://example.test/h.jpg",
+            status=DesignAsset.Status.PENDING)
+        self.client.post(f'/api/design-studio/assets/{asset.id}/review/',
+                          {'decision': 'CHANGES_REQUESTED', 'note': 'first pass'}, format='json')
+        self.client.post(f'/api/design-studio/assets/{asset.id}/review/',
+                          {'decision': 'APPROVED', 'note': 'now good'}, format='json')
+        response = self.client.get(f'/api/design-studio/assets/{asset.id}/approval-history/')
+        self.assertEqual([r['decision'] for r in response.data], ['APPROVED', 'CHANGES_REQUESTED'])
+
+    def test_a_tailor_cannot_review_a_design(self):
+        asset = DesignAsset.objects.create(
+            title="protected", image_url="https://example.test/g.jpg",
+            status=DesignAsset.Status.PENDING)
+        tailor_client = self._staff_client('Tailor', 'reviewer@studio.test')
+        response = tailor_client.post(f'/api/design-studio/assets/{asset.id}/review/',
+                                       {'decision': 'APPROVED'}, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_an_invalid_decision_is_rejected(self):
+        asset = DesignAsset.objects.create(
+            title="x", image_url="https://example.test/x.jpg",
+            status=DesignAsset.Status.PENDING)
+        response = self.client.post(f'/api/design-studio/assets/{asset.id}/review/',
+                                     {'decision': 'MAYBE'}, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_pending_queue_is_a_status_filter(self):
+        DesignAsset.objects.create(title="p1", image_url="https://example.test/1.jpg",
+                                    status=DesignAsset.Status.PENDING)
+        DesignAsset.objects.create(title="p2", image_url="https://example.test/2.jpg",
+                                    status=DesignAsset.Status.PENDING)
+        response = self.client.get('/api/design-studio/assets/?status=PENDING')
+        self.assertEqual({d['title'] for d in response.data}, {"p1", "p2"})

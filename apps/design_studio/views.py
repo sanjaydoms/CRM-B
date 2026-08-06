@@ -4,12 +4,13 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db.models import Count, F, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status, viewsets, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.activities.models import UniversalActivity
-from core.roles import resolve_user_role
+from core.roles import OWNER, resolve_user_role
 from crm_api.models import Customer, Order
 
 from . import services
@@ -17,12 +18,14 @@ from .context import build_context
 from .intelligence.registry import get_intelligence
 from apps.catalog.models import GarmentTemplate
 
-from .models import Collection, Designer, DesignAsset, DesignBoard, DesignBoardItem
-from .permissions import MASTER, DesignStudioPermission, OwnerOnly, visible_boards
+from .models import Collection, Designer, DesignApproval, DesignAsset, DesignBoard, DesignBoardItem
+from .permissions import (
+    MASTER, DesignLibraryPermission, DesignStudioPermission, OwnerOnly, visible_boards,
+)
 from .providers.registry import source_status
 from .serializers import (
     DesignAssetSerializer, DesignBoardItemSerializer, DesignBoardSerializer,
-    DesignerSerializer, CollectionSerializer,
+    DesignerSerializer, CollectionSerializer, DesignApprovalSerializer,
     DiscoverRequestSerializer, TailorBriefSerializer,
 )
 
@@ -103,7 +106,7 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
     """The boutique's own design library: uploads, favourites, imports."""
 
     serializer_class = DesignAssetSerializer
-    permission_classes = [DesignStudioPermission]
+    permission_classes = [DesignLibraryPermission]
 
     # Columns a caller may filter on directly. Anything else in the query string
     # is looked up inside spec_tags, so the library filters on the same
@@ -180,9 +183,22 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
+
+        # The gate is per-boutique. A caller cannot post their way past it: the
+        # serializer never exposes `status` as writable on create (see below),
+        # so this is the only place a new design's status is decided.
+        from crm_api.models import BoutiqueSettings
+        config, _ = BoutiqueSettings.objects.get_or_create(id=1)
+        role = resolve_user_role(request.user)
+        initial_status = (
+            DesignAsset.Status.ACTIVE if role == OWNER or not config.design_approval_required
+            else DesignAsset.Status.PENDING
+        )
+
         asset = serializer.save(
             created_by=request.user if request.user.is_authenticated else None,
             gallery=uploaded[1:] if len(uploaded) > 1 else [],
+            status=initial_status,
         )
         return Response(self.get_serializer(asset).data, status=status.HTTP_201_CREATED)
 
@@ -214,6 +230,50 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         asset.is_favourite = not asset.is_favourite
         asset.save(update_fields=['is_favourite', 'updated_at'])
         return Response(self.get_serializer(asset).data)
+
+    @action(detail=True, methods=['POST'], url_path='review')
+    def review(self, request, pk=None):
+        """Approve, request changes on, or reject a pending design.
+
+        Owner-only by construction: DesignStudioPermission denies every non-safe
+        method to anyone but the Owner, and there is deliberately no separate
+        role check here to duplicate or drift from that.
+        """
+        asset = self.get_object()
+        decision = request.data.get('decision')
+        valid = {c[0] for c in DesignApproval.Decision.choices}
+        if decision not in valid:
+            return Response(
+                {'decision': f"Must be one of {sorted(valid)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        DesignApproval.objects.create(
+            design=asset,
+            reviewer=request.user if request.user.is_authenticated else None,
+            decision=decision,
+            note=request.data.get('note', ''),
+        )
+
+        if decision == DesignApproval.Decision.APPROVED:
+            asset.status = DesignAsset.Status.ACTIVE
+            asset.approved_by = request.user if request.user.is_authenticated else None
+            asset.approved_at = timezone.now()
+            asset.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
+        elif decision == DesignApproval.Decision.REJECTED:
+            asset.status = DesignAsset.Status.ARCHIVED
+            asset.save(update_fields=['status', 'updated_at'])
+        # CHANGES_REQUESTED leaves status at PENDING: the designer edits the
+        # existing row and resubmits, rather than the design vanishing from
+        # the queue while still needing work.
+
+        return Response(self.get_serializer(asset).data)
+
+    @action(detail=True, methods=['GET'], url_path='approval-history')
+    def approval_history(self, request, pk=None):
+        asset = self.get_object()
+        history = asset.approvals.select_related('reviewer').all()
+        return Response(DesignApprovalSerializer(history, many=True).data)
 
 
 class CollectionViewSet(viewsets.ModelViewSet):

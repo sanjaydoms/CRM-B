@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Edit2, Eye, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Check, Clock, Edit2, Eye, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
@@ -96,8 +96,37 @@ function Filters({ value, onChange, designers, collections }) {
   );
 }
 
-function DesignDetail({ design, onClose, onEdit, onDelete }) {
+function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview }) {
   const editable = EDITABLE_SOURCES.includes(design.source);
+  const [history, setHistory] = useState([]);
+  const [note, setNote] = useState('');
+  const [reviewing, setReviewing] = useState(false);
+  const isPending = design.status === 'PENDING';
+  // A ref, not just the state above: two clicks in the same tick both read
+  // `reviewing` as false, because React has not re-rendered between them yet.
+  // That let a fast double-click on Approve write two DesignApproval rows for
+  // one decision. The ref is checked synchronously, before either render.
+  const inFlight = useRef(false);
+
+  useEffect(() => {
+    api.getDesignApprovalHistory(design.id).then(setHistory).catch(() => setHistory([]));
+  }, [design.id]);
+
+  const decide = async (decision) => {
+    if (inFlight.current) return;   // one click, one call
+    inFlight.current = true;
+    setReviewing(true);
+    try {
+      const updated = await api.reviewDesign(design.id, decision, note);
+      onReviewed?.(updated);
+    } catch (err) {
+      window.alert(`Could not record that decision — ${err.message}`);
+    } finally {
+      inFlight.current = false;
+      setReviewing(false);
+    }
+  };
+
   const row = (label, content) => content ? (
     <div>
       <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'block' }}>{label}</span>
@@ -151,7 +180,47 @@ function DesignDetail({ design, onClose, onEdit, onDelete }) {
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '16px' }}>{design.description}</p>
         )}
 
-        {editable && (
+        {canReview && isPending && (
+          <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              Awaiting your review
+            </div>
+            <textarea className="form-control" rows={2} placeholder="Note for the designer (optional)"
+                      value={note} onChange={(e) => setNote(e.target.value)}
+                      style={{ fontSize: '12.5px', marginBottom: '10px' }} />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn-primary" style={{ padding: '6px 14px', fontSize: '12px', opacity: reviewing ? 0.6 : 1 }}
+                      disabled={reviewing} onClick={() => decide('APPROVED')}>
+                <Check size={12} /> Approve
+              </button>
+              <button className="btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }}
+                      disabled={reviewing} onClick={() => decide('CHANGES_REQUESTED')}>
+                Request changes
+              </button>
+              <button className="btn-secondary" style={{ padding: '6px 14px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }}
+                      disabled={reviewing} onClick={() => decide('REJECTED')}>
+                Reject
+              </button>
+            </div>
+          </div>
+        )}
+
+        {history.length > 0 && (
+          <div style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+              Review history
+            </div>
+            {history.map((h) => (
+              <div key={h.id} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>{h.decision.replace('_', ' ')}</strong>
+                {h.reviewer_name ? ` by ${h.reviewer_name}` : ''} · {formatDate(h.created_at)}
+                {h.note && <div style={{ marginTop: '2px' }}>&ldquo;{h.note}&rdquo;</div>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {editable && !isPending && (
           <div style={{ display: 'flex', gap: '8px', marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
             <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}
                     onClick={() => onEdit(design)}><Edit2 size={12} /> Edit</button>
@@ -164,7 +233,7 @@ function DesignDetail({ design, onClose, onEdit, onDelete }) {
   );
 }
 
-export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded, refreshToken }) {
+export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded, refreshToken, canReview = false }) {
   const [categories, setCategories] = useState([]);
   const [total, setTotal] = useState(0);
   const [openCategory, setOpenCategory] = useState(null);   // null = section list
@@ -176,6 +245,17 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [pendingCount, setPendingCount] = useState(0);
+
+  const PENDING_QUEUE = { key: '__pending__', name: 'Pending Approval' };
+  const isPendingQueue = openCategory?.key === PENDING_QUEUE.key;
+
+  const loadPendingCount = useCallback(() => {
+    if (!canReview) return;
+    api.getDesignLibrary({ status: 'PENDING' })
+      .then((rows) => setPendingCount(rows.length))
+      .catch(() => setPendingCount(0));
+  }, [canReview]);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -189,6 +269,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   }, []);
 
   useEffect(() => { loadCategories(); }, [loadCategories, refreshToken]);
+  useEffect(() => { loadPendingCount(); }, [loadPendingCount, refreshToken]);
 
   useEffect(() => {
     api.getDesigners({ active: 'true' }).then(setDesigners).catch(() => setDesigners([]));
@@ -201,12 +282,27 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
     if (openCategory === null) return;
     let cancelled = false;
     setLoading(true);
-    api.getDesignLibrary({ ...filters, template: openCategory.key || undefined })
+    const query = isPendingQueue
+      ? { ...filters, status: 'PENDING', template: undefined }
+      : { ...filters, template: openCategory.key || undefined };
+    api.getDesignLibrary(query)
       .then((rows) => { if (!cancelled) { setDesigns(rows); setError(null); } })
       .catch((err) => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [openCategory, filters, refreshToken]);
+  }, [openCategory, filters, refreshToken, isPendingQueue]);
+
+  // A design leaving PENDING (approved/rejected) must disappear from the queue
+  // immediately, not on the next reload -- otherwise the owner reviews the same
+  // design twice.
+  const handleReviewed = (updated) => {
+    setSelected(updated);
+    setDesigns((prev) => (isPendingQueue
+      ? prev.filter((d) => d.id !== updated.id)
+      : prev.map((d) => (d.id === updated.id ? updated : d))));
+    loadPendingCount();
+    loadCategories();
+  };
 
   if (error && !openCategory) {
     return (
@@ -227,6 +323,12 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 400 }}>
               {total} design{total === 1 ? '' : 's'} in the library
             </span>
+            {canReview && pendingCount > 0 && (
+              <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#fbbf24', borderColor: 'rgba(251,191,36,0.3)' }}
+                      onClick={() => { setFilters({}); setOpenCategory(PENDING_QUEUE); }}>
+                <Clock size={13} /> {pendingCount} awaiting review
+              </button>
+            )}
             <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }}
                     onClick={() => setUploading(true)}>
               <Plus size={13} /> Upload design
@@ -349,6 +451,8 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
           onClose={() => setSelected(null)}
           onEdit={(design) => { setSelected(null); onEditDesign?.(design); }}
           onDelete={(design) => { setSelected(null); onDeleteDesign?.(design); }}
+          onReviewed={handleReviewed}
+          canReview={canReview}
         />
       )}
     </div>

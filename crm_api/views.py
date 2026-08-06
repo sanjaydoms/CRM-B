@@ -533,6 +533,9 @@ class BoutiqueSettingsViewSet(viewsets.ViewSet):
             config.email = email
         if logo is not None:
             config.logo = logo
+        if 'design_approval_required' in request.data:
+            config.design_approval_required = str(
+                request.data.get('design_approval_required')).lower() in ('true', '1')
 
         config.save()
         serializer = BoutiqueSettingsSerializer(config, context={'request': request})

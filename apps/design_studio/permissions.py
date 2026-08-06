@@ -31,6 +31,24 @@ class DesignStudioPermission(permissions.BasePermission):
         return role == MASTER and getattr(view, 'action', None) == 'production_notes'
 
 
+class DesignLibraryPermission(DesignStudioPermission):
+    """DesignAssetViewSet's rule: everything DesignStudioPermission allows, plus
+    upload.
+
+    Any signed-in staff member may add a design -- someone at the counter
+    photographing a customer's reference is exactly the case the approval queue
+    exists for, and gating the upload itself on Owner would make that queue
+    permanently empty until designers have their own accounts (step 7).
+    Approving, editing and deleting someone else's upload stay Owner-only; there
+    is no "edit own" yet because there is no account to check ownership against.
+    """
+
+    def has_permission(self, request, view):
+        if getattr(view, 'action', None) == 'create':
+            return resolve_user_role(request.user) is not None
+        return super().has_permission(request, view)
+
+
 class OwnerOnly(permissions.BasePermission):
     message = "Only the boutique owner can use design discovery."
 

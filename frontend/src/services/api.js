@@ -725,6 +725,23 @@ export const api = {
     return res.json();
   },
 
+  async reviewDesign(id, decision, note = '') {
+    const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/review/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ decision, note })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    return data;
+  },
+
+  async getDesignApprovalHistory(id) {
+    const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/approval-history/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load approval history');
+    return res.json();
+  },
+
   async getDesignAsset(id) {
     const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/`, { headers: getHeaders() });
     if (!res.ok) throw new Error('Failed to load the design');
