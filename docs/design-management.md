@@ -329,7 +329,11 @@ Each step ships working and is independently reversible.
    filters on the template vocabulary, and a design detail. An *Uncategorised*
    section carries designs with no template link, so the section counts always
    add up to the library and nothing becomes unreachable.
-4. **Collections + upload flow.**
+4. **Collections + upload flow.** ✅ Done. `Collection` per designer, filter by
+   it in the library, and an upload that takes the photographs themselves rather
+   than a pasted URL. The style tags render from the chosen garment's own
+   template, so a design can only be tagged with values an order for that garment
+   can hold. Uploads land ACTIVE, not PENDING -- see step 5.
 5. **Approval queue + settings toggle.**
 6. **Portfolios and dashboard analytics.**
 7. **Designer login** — last deliberately, because it is only safe once 1, 2 and

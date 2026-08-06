@@ -1,3 +1,7 @@
+import uuid
+
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db.models import Count, F, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets, views
@@ -13,12 +17,12 @@ from .context import build_context
 from .intelligence.registry import get_intelligence
 from apps.catalog.models import GarmentTemplate
 
-from .models import Designer, DesignAsset, DesignBoard, DesignBoardItem
+from .models import Collection, Designer, DesignAsset, DesignBoard, DesignBoardItem
 from .permissions import MASTER, DesignStudioPermission, OwnerOnly, visible_boards
 from .providers.registry import source_status
 from .serializers import (
     DesignAssetSerializer, DesignBoardItemSerializer, DesignBoardSerializer,
-    DesignerSerializer,
+    DesignerSerializer, CollectionSerializer,
     DiscoverRequestSerializer, TailorBriefSerializer,
 )
 
@@ -107,6 +111,7 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
     DIRECT_FILTERS = {
         'template': 'template__key',
         'designer': 'designer_ref_id',
+        'collection': 'collection_id',
         'status': 'status',
         'source': 'source',
     }
@@ -156,6 +161,40 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
 
         return queryset.order_by(self.ORDERINGS.get(params.get('ordering'), '-created_at'))
 
+    def create(self, request, *args, **kwargs):
+        """Upload a design, with its photographs.
+
+        Accepts multipart so the browser can post the files themselves rather
+        than the boutique having to host an image somewhere first and paste a
+        URL, which is what the catalogue form made them do.
+        """
+        data = request.data.copy()
+        uploaded = self._store_images(request)
+        if uploaded:
+            # The first photograph is the one the cards show; the rest are the
+            # gallery. Any image_url that was posted alongside wins, so an
+            # imported reference is not overwritten by an accidental upload.
+            data.setdefault('image_url', uploaded[0])
+            if not data.get('image_url'):
+                data['image_url'] = uploaded[0]
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        asset = serializer.save(
+            created_by=request.user if request.user.is_authenticated else None,
+            gallery=uploaded[1:] if len(uploaded) > 1 else [],
+        )
+        return Response(self.get_serializer(asset).data, status=status.HTTP_201_CREATED)
+
+    def _store_images(self, request):
+        files = request.FILES.getlist('images')
+        stored = []
+        for f in files:
+            path = f"design_library/{uuid.uuid4()}_{f.name}"
+            saved = default_storage.save(path, ContentFile(f.read()))
+            stored.append(request.build_absolute_uri(default_storage.url(saved)))
+        return stored
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
 
@@ -175,6 +214,24 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         asset.is_favourite = not asset.is_favourite
         asset.save(update_fields=['is_favourite', 'updated_at'])
         return Response(self.get_serializer(asset).data)
+
+
+class CollectionViewSet(viewsets.ModelViewSet):
+    """Curated sets, owned by a designer."""
+
+    serializer_class = CollectionSerializer
+    permission_classes = [DesignStudioPermission]
+
+    def get_queryset(self):
+        queryset = (Collection.objects
+                    .select_related('designer')
+                    .annotate(design_count=Count('designs')))
+        params = self.request.query_params
+        if designer := params.get('designer'):
+            queryset = queryset.filter(designer_id=designer)
+        if params.get('active') == 'true':
+            queryset = queryset.filter(is_active=True)
+        return queryset
 
 
 class DesignCategoryView(views.APIView):

@@ -731,6 +731,45 @@ export const api = {
     return res.json();
   },
 
+  async getCollections(params = {}) {
+    const url = new URL(`${BASE_URL}/design-studio/collections/`);
+    Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load collections');
+    return res.json();
+  },
+
+  async createCollection(payload) {
+    const res = await fetch(`${BASE_URL}/design-studio/collections/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    return data;
+  },
+
+  // Multipart: the browser posts the photographs themselves rather than the
+  // boutique having to host an image somewhere and paste a URL.
+  async uploadDesign(fields, imageFiles = []) {
+    const form = new FormData();
+    Object.entries(fields).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      form.append(key, typeof value === 'object' ? JSON.stringify(value) : value);
+    });
+    imageFiles.forEach(file => form.append('images', file));
+
+    const res = await fetch(`${BASE_URL}/design-studio/assets/`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: form
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    return data;
+  },
+
   async getDesigners(params = {}) {
     const url = new URL(`${BASE_URL}/design-studio/designers/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });

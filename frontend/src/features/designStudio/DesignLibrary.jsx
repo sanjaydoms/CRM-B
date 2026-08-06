@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Edit2, Eye, Search, ShoppingBag, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Edit2, Eye, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
+import DesignUpload from './DesignUpload';
 
 /**
  * The boutique's design library.
@@ -34,7 +35,7 @@ const EDITABLE_SOURCES = ['catalogue', 'suggestion'];
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 
-function Filters({ value, onChange, designers }) {
+function Filters({ value, onChange, designers, collections }) {
   const set = (key) => (e) => onChange({ ...value, [key]: e.target.value });
 
   const select = (key, label, options) => (
@@ -64,6 +65,7 @@ function Filters({ value, onChange, designers }) {
       </label>
 
       {select('designer', 'Designer', designers.map(d => [d.id, `${d.name} (${d.design_count})`]))}
+      {select('collection', 'Collection', collections.map(c => [c.id, `${c.name} (${c.design_count})`]))}
       {select('occasion', 'Occasion', [
         ['wedding', 'Wedding'], ['reception', 'Reception'], ['festive', 'Festive'],
         ['party', 'Party'], ['daily', 'Daily'],
@@ -162,12 +164,14 @@ function DesignDetail({ design, onClose, onEdit, onDelete }) {
   );
 }
 
-export default function DesignLibrary({ onEditDesign, onDeleteDesign, refreshToken }) {
+export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded, refreshToken }) {
   const [categories, setCategories] = useState([]);
   const [total, setTotal] = useState(0);
   const [openCategory, setOpenCategory] = useState(null);   // null = section list
   const [designs, setDesigns] = useState([]);
   const [designers, setDesigners] = useState([]);
+  const [collections, setCollections] = useState([]);
+  const [uploading, setUploading] = useState(false);
   const [filters, setFilters] = useState({});
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -188,7 +192,8 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, refreshTok
 
   useEffect(() => {
     api.getDesigners({ active: 'true' }).then(setDesigners).catch(() => setDesigners([]));
-  }, []);
+    api.getCollections({ active: 'true' }).then(setCollections).catch(() => setCollections([]));
+  }, [refreshToken]);
 
   // Only the open category is fetched, so the landing page never pays for the
   // whole library.
@@ -218,8 +223,14 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, refreshTok
       <div className="content-card">
         <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Boutique Designs</span>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 400 }}>
-            {total} design{total === 1 ? '' : 's'} in the library
+          <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 400 }}>
+              {total} design{total === 1 ? '' : 's'} in the library
+            </span>
+            <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }}
+                    onClick={() => setUploading(true)}>
+              <Plus size={13} /> Upload design
+            </button>
           </span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
@@ -241,6 +252,13 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, refreshTok
             </button>
           ))}
         </div>
+
+        {uploading && (
+          <DesignUpload
+            onClose={() => setUploading(false)}
+            onUploaded={() => { setUploading(false); loadCategories(); onUploaded?.(); }}
+          />
+        )}
       </div>
     );
   }
@@ -256,9 +274,13 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, refreshTok
         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
           {loading ? 'loading…' : `${designs.length} shown`}
         </span>
+        <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '12px', marginLeft: 'auto' }}
+                onClick={() => setUploading(true)}>
+          <Plus size={13} /> Upload design
+        </button>
       </div>
 
-      <Filters value={filters} onChange={setFilters} designers={designers} />
+      <Filters value={filters} onChange={setFilters} designers={designers} collections={collections} />
 
       {!loading && designs.length === 0 && (
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)', padding: '24px 0', textAlign: 'center' }}>
@@ -308,6 +330,18 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, refreshTok
           );
         })}
       </div>
+
+      {uploading && (
+        <DesignUpload
+          onClose={() => setUploading(false)}
+          onUploaded={() => {
+            setUploading(false);
+            loadCategories();
+            setFilters({ ...filters });   // refetch the open category
+            onUploaded?.();
+          }}
+        />
+      )}
 
       {selected && (
         <DesignDetail

@@ -6,9 +6,12 @@ one the owner approved, and that the role split in the spec is actually
 enforced rather than assumed by the UI.
 """
 
+import shutil
+import tempfile
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.test import override_settings
 from django.db.utils import IntegrityError
 from django.urls import reverse
 from django_tenants.test.cases import TenantTestCase
@@ -18,7 +21,7 @@ from crm_api.models import Customer, FabricSelection, Measurement, Order, Tailor
 
 from .context import build_context
 from .intelligence.rules import RuleBasedIntelligence
-from .models import Designer, DesignAsset, DesignBoard, DesignBoardItem
+from .models import Collection, Designer, DesignAsset, DesignBoard, DesignBoardItem
 from .providers.base import DesignCandidate
 from .serializers import DesignAssetSerializer
 from .providers.registry import source_status
@@ -752,3 +755,148 @@ class DesignCategoryTests(StudioTestCase):
         response = self.client.get('/api/design-studio/categories/')
         counts = {c['key']: c['count'] for c in response.data['categories']}
         self.assertEqual(counts['lehenga'], 0)
+
+
+class CollectionTests(StudioTestCase):
+    """Collections, and the upload that files a design into one."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.catalog.services import sync_global_templates
+        sync_global_templates()
+        from apps.catalog.models import GarmentTemplate
+        self.lehenga = GarmentTemplate.resolve('lehenga')
+        self.priya = Designer.objects.create(name="Priya")
+
+    def test_a_collection_belongs_to_a_designer(self):
+        collection = Collection.objects.create(designer=self.priya, name="Bridal 2026")
+        self.assertEqual(collection.designer, self.priya)
+        self.assertEqual(list(self.priya.collections.all()), [collection])
+
+    def test_two_designers_may_each_have_a_bridal_2026(self):
+        ravi = Designer.objects.create(name="Ravi")
+        Collection.objects.create(designer=self.priya, name="Bridal 2026")
+        Collection.objects.create(designer=ravi, name="Bridal 2026")
+        self.assertEqual(Collection.objects.filter(name="Bridal 2026").count(), 2)
+
+    def test_one_designer_may_not_have_it_twice(self):
+        Collection.objects.create(designer=self.priya, name="Bridal 2026")
+        with self.assertRaises(IntegrityError):
+            Collection.objects.create(designer=self.priya, name="Bridal 2026")
+
+    def test_removing_a_collection_keeps_its_designs(self):
+        # Unfiling a design must not delete the boutique's work.
+        collection = Collection.objects.create(designer=self.priya, name="Summer")
+        design = DesignAsset.objects.create(
+            title="kept", image_url="https://example.test/k.jpg", collection=collection)
+        collection.delete()
+        design.refresh_from_db()
+        self.assertIsNone(design.collection_id)
+
+    def test_collection_list_reports_counts(self):
+        collection = Collection.objects.create(designer=self.priya, name="Bridal 2026")
+        for i in range(2):
+            DesignAsset.objects.create(
+                title=f"d{i}", image_url="https://example.test/d.jpg", collection=collection)
+        response = self.client.get('/api/design-studio/collections/')
+        self.assertEqual(response.status_code, 200)
+        row = next(c for c in response.data if c['name'] == "Bridal 2026")
+        self.assertEqual(row['design_count'], 2)
+        self.assertEqual(row['designer_name'], "Priya")
+
+    def test_library_filters_by_collection(self):
+        collection = Collection.objects.create(designer=self.priya, name="Summer")
+        DesignAsset.objects.create(
+            title="in", image_url="https://example.test/i.jpg", collection=collection)
+        DesignAsset.objects.create(title="out", image_url="https://example.test/o.jpg")
+        response = self.client.get(f'/api/design-studio/assets/?collection={collection.id}')
+        self.assertEqual([d['title'] for d in response.data], ["in"])
+
+
+class DesignUploadTests(StudioTestCase):
+    """The upload flow."""
+
+    def setUp(self):
+        super().setUp()
+
+        # Storage goes to a temp directory, because media/ is tracked in git and
+        # otherwise every run of the suite leaves uploaded fixtures in the repo.
+        #
+        # Enabled here rather than as a class decorator: TenantTestCase does not
+        # run the class-level override machinery, so the decorator silently did
+        # nothing and the files kept landing in the working tree. And STORAGES
+        # has to be overridden alongside MEDIA_ROOT, because default_storage
+        # caches its location the first time it is built.
+        media_root = tempfile.mkdtemp(prefix='design-upload-test-')
+        override = override_settings(
+            MEDIA_ROOT=media_root,
+            STORAGES={
+                'default': {
+                    'BACKEND': 'django.core.files.storage.FileSystemStorage',
+                    'OPTIONS': {'location': media_root},
+                },
+                'staticfiles': {
+                    'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+            },
+        )
+        override.enable()
+        self.addCleanup(override.disable)
+        self.addCleanup(shutil.rmtree, media_root, True)
+
+        from apps.catalog.services import sync_global_templates
+        sync_global_templates()
+        from apps.catalog.models import GarmentTemplate
+        self.lehenga = GarmentTemplate.resolve('lehenga')
+
+    def _image(self, name='shot.jpg'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return SimpleUploadedFile(name, b'\xff\xd8\xff\xdb-not-really-a-jpeg', content_type='image/jpeg')
+
+    def test_uploading_stores_the_photograph_and_uses_it_as_the_cover(self):
+        response = self.client.post('/api/design-studio/assets/', {
+            'title': 'Hand embroidered lehenga',
+            'template': str(self.lehenga.id),
+            'images': self._image(),
+        }, format='multipart')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIn('design_library/', response.data['image_url'])
+        self.assertEqual(response.data['gallery'], [])
+
+    def test_extra_photographs_become_the_gallery(self):
+        response = self.client.post('/api/design-studio/assets/', {
+            'title': 'Three views',
+            'images': [self._image('a.jpg'), self._image('b.jpg'), self._image('c.jpg')],
+        }, format='multipart')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(len(response.data['gallery']), 2)
+
+    def test_an_upload_is_live_not_pending(self):
+        # The approval queue does not exist yet. Creating PENDING rows before
+        # there is a queue to clear them would hide every upload with no way to
+        # get it back.
+        response = self.client.post('/api/design-studio/assets/', {
+            'title': 'Straight to the library',
+            'image_url': 'https://example.test/x.jpg',
+        }, format='json')
+        self.assertEqual(response.data['status'], DesignAsset.Status.ACTIVE)
+
+    def test_upload_carries_template_vocabulary_tags(self):
+        response = self.client.post('/api/design-studio/assets/', {
+            'title': 'Tagged on the way in',
+            'image_url': 'https://example.test/t.jpg',
+            'template': str(self.lehenga.id),
+            'spec_tags': {'occasion': 'wedding', 'waist_finish': 'dori'},
+            'difficulty': DesignAsset.Difficulty.COMPLEX,
+            'stitch_hours': '18.5',
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        found = self.client.get('/api/design-studio/assets/?occasion=wedding')
+        self.assertIn('Tagged on the way in', [d['title'] for d in found.data])
+
+    def test_a_posted_url_is_not_overwritten_by_an_upload(self):
+        response = self.client.post('/api/design-studio/assets/', {
+            'title': 'Imported, with a snapshot attached',
+            'image_url': 'https://example.test/original.jpg',
+            'images': self._image(),
+        }, format='multipart')
+        self.assertEqual(response.data['image_url'], 'https://example.test/original.jpg')

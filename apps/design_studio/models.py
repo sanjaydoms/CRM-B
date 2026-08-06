@@ -79,6 +79,42 @@ class Designer(models.Model):
         return self.name
 
 
+class Collection(models.Model):
+    """A curated set of designs, owned by the designer who assembles it.
+
+    A collection is not a category. "Bridal 2026" and "Lehenga" answer different
+    questions -- one is what the boutique is presenting this season, the other is
+    what the garment is -- and a design belongs to one of each. Folding them into
+    a single list is what makes counts stop adding up.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    designer = models.ForeignKey(
+        Designer, on_delete=models.CASCADE, related_name='collections')
+    name = models.CharField(max_length=150)
+    description = models.TextField(blank=True, default='')
+    cover_image = models.CharField(max_length=500, blank=True, default='')
+    season = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="Free text: 'Bridal 2026', 'Summer'.")
+    is_active = models.BooleanField(default=True, db_index=True)
+    sequence = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sequence', 'name']
+        constraints = [
+            # Two designers may both have a "Bridal 2026"; one designer with two
+            # is the same collection entered twice.
+            models.UniqueConstraint(
+                fields=['designer', 'name'], name='collection_unique_per_designer'),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.designer.name})"
+
+
 class DesignAsset(models.Model):
     """A design reference the boutique stores in its own library."""
 
@@ -159,8 +195,16 @@ class DesignAsset(models.Model):
         related_name='approved_designs')
     approved_at = models.DateTimeField(null=True, blank=True)
 
+    collection = models.ForeignKey(
+        Collection, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='designs', db_index=True)
+
     description = models.TextField(blank=True, default='')
     video_url = models.CharField(max_length=500, blank=True, default='')
+    # Extra images beyond image_url, which stays the one the cards show. A list
+    # rather than a table: a design has a handful of photographs, and they are
+    # only ever read together with the design.
+    gallery = models.JSONField(default=list, blank=True)
 
     class Difficulty(models.TextChoices):
         SIMPLE = 'SIMPLE', 'Simple'

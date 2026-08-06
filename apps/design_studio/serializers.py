@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Designer, DesignAsset, DesignBoard, DesignBoardItem
+from .models import Collection, Designer, DesignAsset, DesignBoard, DesignBoardItem
 
 
 class DesignerSerializer(serializers.ModelSerializer):
@@ -22,11 +22,25 @@ class DesignerSerializer(serializers.ModelSerializer):
         return designer.user_id is not None
 
 
+class CollectionSerializer(serializers.ModelSerializer):
+    design_count = serializers.IntegerField(read_only=True)
+    designer_name = serializers.CharField(source='designer.name', read_only=True)
+
+    class Meta:
+        model = Collection
+        fields = [
+            'id', 'designer', 'designer_name', 'name', 'description', 'cover_image',
+            'season', 'is_active', 'sequence', 'design_count', 'created_at',
+        ]
+        read_only_fields = ['created_at']
+
+
 class DesignAssetSerializer(serializers.ModelSerializer):
     source_display = serializers.CharField(source='get_source_display', read_only=True)
     # The credited name, whichever way the design carries it: a linked designer
     # where there is one, the imported free text otherwise.
     designer_name = serializers.SerializerMethodField()
+    collection_name = serializers.CharField(source='collection.name', read_only=True, default='')
 
     class Meta:
         model = DesignAsset

@@ -19,3 +19,7 @@ frontend/dist/
 
 # Local secrets
 .env
+
+# Runtime design uploads. The seeded catalogue images are committed; anything
+# a user uploads is not, and it must not arrive in the repo via a test run.
+media/design_library/
