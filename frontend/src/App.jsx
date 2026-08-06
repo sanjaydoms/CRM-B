@@ -21,6 +21,11 @@ const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary')
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
+import { MobileHeader } from './components/ui/MobileHeader';
+import { BottomNavigation } from './components/ui/BottomNavigation';
+import { BottomSheet } from './components/ui/BottomSheet';
+import { ResponsiveCard } from './components/ui/ResponsiveCard';
+import { ProgressiveAccordion } from './components/ui/ProgressiveAccordion';
 
 /** Placeholder shown while a lazily loaded screen arrives. */
 const ScreenLoading = () => (
@@ -2717,6 +2722,17 @@ function App() {
       {/* 4. BOUTIQUE PORTAL MAIN WORKSPACE (Image 4) */}
       {view === 'dashboard' && currentUser && (
         <div className="portal-layout">
+          <MobileHeader
+            title={dashboardTab === 'overview' ? 'Dashboard' : dashboardTab.charAt(0).toUpperCase() + dashboardTab.slice(1)}
+            currentUser={currentUser}
+            notificationsCount={notifications.filter(n => !n.is_read).length}
+            onOpenNotifications={() => {
+              setShowNotificationsDrawer(true);
+              api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
+                .then(() => fetchNotifications());
+            }}
+          />
+
           {/* Mobile Top Header with Hamburger Toggle */}
           <div className="mobile-portal-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -6365,6 +6381,30 @@ function App() {
               </div>
             </div>
           )}
+          {/* Bottom Navigation for Mobile */}
+          <BottomNavigation
+            tabs={
+              (!currentUser.role || currentUser.role === 'Owner') ? [
+                { key: 'overview', label: 'Dashboard', icon: Users },
+                { key: 'orders', label: 'Orders', icon: ShoppingBag },
+                { key: 'customers', label: 'Customers', icon: Users },
+                { key: 'inventory', label: 'Inventory', icon: Package },
+                { key: 'more', label: 'Menu', icon: Menu }
+              ] : currentUser.role === 'Master' ? [
+                { key: 'assignments', label: 'Assignments', icon: Scissors },
+                { key: 'orders', label: 'Orders', icon: ShoppingBag },
+                { key: 'customers', label: 'Customers', icon: Users },
+                { key: 'more', label: 'Menu', icon: Menu }
+              ] : [
+                { key: 'assignments', label: 'Assignments', icon: Scissors },
+                { key: 'account', label: 'Account', icon: User },
+                { key: 'more', label: 'Menu', icon: Menu }
+              ]
+            }
+            activeTab={dashboardTab}
+            onChangeTab={(t) => { setDashboardTab(t); setSelectedDirectoryCustomer(null); }}
+            onOpenMore={() => setMobileNavOpen(true)}
+          />
         </div>
       )}
 
@@ -6639,99 +6679,6 @@ function App() {
                         No garment chosen yet.
                       </div>
                     )}
-                  </div>
-
-                  <div className="form-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">Neckline</label>
-                      <select 
-                        value={customerForm.neckline_style || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, neckline_style: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">Select Neckline Type</option>
-                        <option value="V-Neck">V-Neck</option>
-                        <option value="Round Neck">Round Neck</option>
-                        <option value="Boat Neck">Boat Neck</option>
-                        <option value="Collar">Collar</option>
-                        <option value="Sweetheart">Sweetheart</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Sleeve Style</label>
-                      <select 
-                        value={customerForm.sleeve_style || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, sleeve_style: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">Select Sleeve Type</option>
-                        <option value="Full Sleeve">Full Sleeve</option>
-                        <option value="Half Sleeve">Half Sleeve</option>
-                        <option value="Sleeveless">Sleeveless</option>
-                        <option value="Cap Sleeve">Cap Sleeve</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">Back Style</label>
-                      <select 
-                        value={customerForm.back_style || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, back_style: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">Select Back Style</option>
-                        <option value="Deep U">Deep U</option>
-                        <option value="Keyhole">Keyhole</option>
-                        <option value="Backless">Backless</option>
-                        <option value="Standard">Standard</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Length</label>
-                      <select 
-                        value={customerForm.length_preference || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, length_preference: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">Select Length</option>
-                        <option value="Floor Length">Floor Length</option>
-                        <option value="Ankle Length">Ankle Length</option>
-                        <option value="Knee Length">Knee Length</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">Silhouette</label>
-                      <select 
-                        value={customerForm.silhouette || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, silhouette: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">Select Silhouette Type</option>
-                        <option value="A-Line">A-Line</option>
-                        <option value="Straight Fit">Straight Fit</option>
-                        <option value="Flared">Flared</option>
-                        <option value="Mermaid">Mermaid</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Embellishments</label>
-                      <select 
-                        value={customerForm.embellishments || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, embellishments: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">Select Embellishments</option>
-                        <option value="Zari Work">Zari Work</option>
-                        <option value="Sequin Embroidery">Sequin Embroidery</option>
-                        <option value="Beadwork">Beadwork</option>
-                        <option value="Minimal Lace">Minimal Lace</option>
-                      </select>
-                    </div>
                   </div>
 
                   <div className="form-grid-2">
