@@ -1,6 +1,8 @@
+import os
 import uuid
 from datetime import timedelta
 
+from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db.models import Count, F, Q, Sum
@@ -373,8 +375,9 @@ class DesignCategoryView(views.APIView):
 class DesignerViewSet(viewsets.ModelViewSet):
     """The people credited on designs.
 
-    Attribution only for now: these rows carry no login, so managing them is an
-    owner task and reads no differently to any other studio lookup.
+    Most rows carry no login and never need to -- attribution alone covers
+    steps 1-6. create_login is what turns a credited designer into someone who
+    can sign in and use the module for themselves.
     """
 
     serializer_class = DesignerSerializer
@@ -391,6 +394,55 @@ class DesignerViewSet(viewsets.ModelViewSet):
         if search := params.get('search'):
             queryset = queryset.filter(name__icontains=search)
         return queryset
+
+    @action(detail=True, methods=['POST'], url_path='create-login')
+    def create_login(self, request, pk=None):
+        """Give a credited designer a login of their own.
+
+        Owner-only by construction: DesignStudioPermission denies every
+        non-safe method to anyone but the Owner, so no separate role check is
+        duplicated here. Idempotent by email in the same way
+        TailorViewSet._ensure_user_account is -- a second call with the same
+        address links the existing account rather than erroring or duplicating
+        it, so retrying a failed request is always safe.
+        """
+        designer = self.get_object()
+        if designer.user_id:
+            return Response(
+                {'detail': f'{designer.name} already has a login.'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        email = request.data.get('email') or designer.email
+        if not email:
+            return Response({'email': 'An email address is required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email=email).first()
+        if user is None:
+            username = email.split('@')[0]
+            original, counter = username, 1
+            while User.objects.filter(username=username).exists():
+                username = f"{original}{counter}"
+                counter += 1
+            # Shared bootstrap password, the same pattern as staff accounts
+            # (see TailorViewSet._ensure_user_account): override with
+            # DESIGNER_DEFAULT_PASSWORD, or every designer shares one
+            # credential that is visible in this repository.
+            user = User.objects.create_user(
+                username=username, email=email,
+                password=os.environ.get('DESIGNER_DEFAULT_PASSWORD', 'DesignerSecure2026!'),
+                first_name=designer.name,
+            )
+
+        designer.user = user
+        designer.email = email
+        designer.save(update_fields=['user', 'email', 'updated_at'])
+
+        return Response(
+            DesignerSerializer(
+                Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk)
+            ).data,
+            status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['GET'])
     def portfolio(self, request, pk=None):

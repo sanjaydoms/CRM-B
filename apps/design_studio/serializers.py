@@ -12,7 +12,7 @@ class DesignerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Designer
         fields = [
-            'id', 'name', 'employee_id', 'profile_image', 'specialisation',
+            'id', 'name', 'employee_id', 'email', 'profile_image', 'specialisation',
             'experience_years', 'bio', 'is_active', 'joined_at', 'last_active_at',
             'staff', 'design_count', 'has_login', 'created_at', 'updated_at',
         ]

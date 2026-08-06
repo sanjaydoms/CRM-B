@@ -30,11 +30,15 @@ from crm_api.models import Customer, Order, Tailor
 class Designer(models.Model):
     """Someone who contributes designs to the boutique.
 
-    Attribution first: a designer is a credit on a design, not an account. Both
-    links out of here are optional, and that is the point --
+    Attribution came first: a designer started as a credit on a design, not an
+    account, and `user` stayed null through steps 1-6 -- nothing in the module
+    needed a login, so the security surface could wait. It cannot wait forever,
+    because the whole point of a designer role is a person who signs in and
+    uploads their own work. DesignerViewSet.create_login is what an Owner uses
+    to switch a credited designer on; core.roles.resolve_user_role is what makes
+    the resulting account a Designer rather than an accidental Owner.
 
-      `user`  is null until designers are given their own login. Nothing in this
-              module needs it, so the security surface can wait.
+      `user`  null means credit only; set means the designer can sign in.
       `staff` is set only when the designer is also on the production floor. Most
               are not, and a designer is deliberately *not* a Tailor role: the
               workflow asserts every staff role has a production stage it can
@@ -44,11 +48,14 @@ class Designer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=150, db_index=True)
     employee_id = models.CharField(max_length=50, blank=True, default='')
+    # Used to create the login, and to find a User that already exists under
+    # this address -- the same idempotency Tailor's own account bootstrap uses.
+    email = models.EmailField(blank=True, default='')
 
     user = models.OneToOneField(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='designer_profile',
-        help_text='Set once designers have their own login. Null means credit only.',
+        help_text='Set once the designer has a login. Null means credit only.',
     )
     staff = models.ForeignKey(
         Tailor, on_delete=models.SET_NULL, null=True, blank=True,

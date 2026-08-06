@@ -142,6 +142,7 @@ class LoginView(views.APIView):
 
             role = resolve_user_role(user)
             tailor_id = user.tailor_profile.id if getattr(user, 'tailor_profile', None) else None
+            designer_id = user.designer_profile.id if getattr(user, 'designer_profile', None) else None
 
             token, created = Token.objects.get_or_create(user=user)
             return Response({
@@ -154,7 +155,8 @@ class LoginView(views.APIView):
                     "email": user.email,
                     "username": user.username,
                     "role": role,
-                    "tailor_id": tailor_id
+                    "tailor_id": tailor_id,
+                    "designer_id": designer_id
                 }
             }, status=status.HTTP_200_OK)
         except Exception as e:
@@ -182,10 +184,16 @@ class MeView(views.APIView):
         user = request.user
         role = resolve_user_role(user)
         tailor_id = None
+        designer_id = None
         if connection.schema_name != 'public':
             try:
                 if getattr(user, 'tailor_profile', None):
                     tailor_id = user.tailor_profile.id
+            except Exception:
+                pass
+            try:
+                if getattr(user, 'designer_profile', None):
+                    designer_id = user.designer_profile.id
             except Exception:
                 pass
 
@@ -197,6 +205,7 @@ class MeView(views.APIView):
             "username": user.username,
             "role": role,
             "tailor_id": tailor_id,
+            "designer_id": designer_id,
             "tenant_id": connection.schema_name
         }, status=status.HTTP_200_OK)
 

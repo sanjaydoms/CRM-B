@@ -1117,3 +1117,153 @@ class DesignDashboardTests(StudioTestCase):
         response = self.client.get(f'/api/design-studio/designers/{ravi.id}/portfolio/')
         self.assertEqual(response.data['stats']['total_views'], 0)
         self.assertIsNone(response.data['stats']['most_viewed'])
+
+
+class DesignerLoginTests(StudioTestCase):
+    """Turning a credited designer into an account, and what that account can
+    then do. This is step 7: everything before it worked with Designer.user
+    staying null forever."""
+
+    def _designer(self, name="Priya", **kw):
+        return Designer.objects.create(name=name, **kw)
+
+    def test_owner_grants_a_login_by_email(self):
+        priya = self._designer()
+        response = self.client.post(
+            f'/api/design-studio/designers/{priya.id}/create-login/',
+            {'email': 'priya@studio.test'}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data['has_login'])
+        priya.refresh_from_db()
+        self.assertIsNotNone(priya.user_id)
+        self.assertEqual(priya.email, 'priya@studio.test')
+
+    def test_the_new_account_can_actually_log_in(self):
+        priya = self._designer()
+        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                          {'email': 'priya@studio.test'}, format='json')
+        priya.refresh_from_db()
+        self.assertTrue(priya.user.check_password('DesignerSecure2026!'))
+
+    def test_a_second_call_is_refused_not_silently_reissued(self):
+        priya = self._designer()
+        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                          {'email': 'priya@studio.test'}, format='json')
+        response = self.client.post(
+            f'/api/design-studio/designers/{priya.id}/create-login/',
+            {'email': 'priya-new@studio.test'}, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_existing_account_with_that_email_is_linked_not_duplicated(self):
+        existing = User.objects.create_user(username='priya@studio.test',
+                                             email='priya@studio.test', password='whatever')
+        priya = self._designer()
+        response = self.client.post(
+            f'/api/design-studio/designers/{priya.id}/create-login/',
+            {'email': 'priya@studio.test'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        priya.refresh_from_db()
+        self.assertEqual(priya.user_id, existing.id)
+
+    def test_login_requires_an_email(self):
+        priya = self._designer()
+        response = self.client.post(
+            f'/api/design-studio/designers/{priya.id}/create-login/', {}, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_tailor_cannot_grant_a_login(self):
+        priya = self._designer()
+        tailor = self._staff_client('Tailor', 'notowner@studio.test')
+        response = tailor.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                                {'email': 'priya@studio.test'}, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def _designer_client(self, designer):
+        client = APIClient()
+        client.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
+        client.force_authenticate(user=designer.user)
+        return client
+
+    def test_the_designer_role_resolves_correctly_end_to_end(self):
+        priya = self._designer()
+        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                          {'email': 'priya@studio.test'}, format='json')
+        priya.refresh_from_db()
+        from core.roles import resolve_user_role, DESIGNER
+        self.assertEqual(resolve_user_role(priya.user), DESIGNER)
+
+    def test_a_designer_can_upload_and_edit_their_own_design(self):
+        priya = self._designer()
+        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                          {'email': 'priya@studio.test'}, format='json')
+        priya.refresh_from_db()
+        client = self._designer_client(priya)
+
+        created = client.post('/api/design-studio/assets/', {
+            'title': 'Hers', 'image_url': 'https://example.test/h.jpg',
+            'designer_ref': str(priya.id),
+        }, format='json')
+        self.assertEqual(created.status_code, 201, created.data)
+
+        edited = client.patch(f'/api/design-studio/assets/{created.data["id"]}/',
+                               {'title': 'Hers, retitled'}, format='json')
+        self.assertEqual(edited.status_code, 200, edited.data)
+        self.assertEqual(edited.data['title'], 'Hers, retitled')
+
+    def test_a_designer_cannot_edit_someone_elses_upload(self):
+        priya = self._designer("Priya")
+        ravi = self._designer("Ravi")
+        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                          {'email': 'priya@studio.test'}, format='json')
+        self.client.post(f'/api/design-studio/designers/{ravi.id}/create-login/',
+                          {'email': 'ravi@studio.test'}, format='json')
+        priya.refresh_from_db()
+        ravi.refresh_from_db()
+
+        ravis_design = DesignAsset.objects.create(
+            title="Ravi's", image_url="https://example.test/r.jpg", designer_ref=ravi)
+
+        priyas_client = self._designer_client(priya)
+        response = priyas_client.patch(f'/api/design-studio/assets/{ravis_design.id}/',
+                                        {'title': 'Hijacked'}, format='json')
+        self.assertEqual(response.status_code, 403)
+        ravis_design.refresh_from_db()
+        self.assertEqual(ravis_design.title, "Ravi's")
+
+    def test_a_designer_cannot_delete_someone_elses_upload(self):
+        priya = self._designer("Priya")
+        ravi = self._designer("Ravi")
+        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                          {'email': 'priya@studio.test'}, format='json')
+        priya.refresh_from_db()
+
+        ravis_design = DesignAsset.objects.create(
+            title="Ravi's", image_url="https://example.test/r.jpg", designer_ref=ravi)
+
+        priyas_client = self._designer_client(priya)
+        response = priyas_client.delete(f'/api/design-studio/assets/{ravis_design.id}/')
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(DesignAsset.objects.filter(pk=ravis_design.pk).exists())
+
+    def test_a_designer_cannot_grant_their_own_extra_logins(self):
+        # DesignerViewSet write access stays Owner-only; only upload/edit/
+        # delete-own on DesignAssetViewSet are opened to a Designer.
+        priya = self._designer("Priya")
+        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                          {'email': 'priya@studio.test'}, format='json')
+        priya.refresh_from_db()
+        other = self._designer("Ravi")
+        response = self._designer_client(priya).post(
+            f'/api/design-studio/designers/{other.id}/create-login/',
+            {'email': 'ravi@studio.test'}, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_a_designer_can_still_read_the_whole_library(self):
+        # Read access is unchanged: SAFE_METHODS stay open to any authenticated
+        # role, same as before a Designer could exist.
+        priya = self._designer()
+        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
+                          {'email': 'priya@studio.test'}, format='json')
+        priya.refresh_from_db()
+        response = self._designer_client(priya).get('/api/design-studio/assets/')
+        self.assertEqual(response.status_code, 200)
