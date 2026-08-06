@@ -3171,12 +3171,13 @@ table.data-table tbody tr:hover {
   .portal-menu {
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 6px !important;
+    gap: 4px !important;
   }
   .portal-menu-item {
-    justify-content: center !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
     width: 100% !important;
-    text-align: center !important;
+    padding: 10px 16px !important;
   }
   .quick-action-button-grid {
     grid-template-columns: 1fr !important;
