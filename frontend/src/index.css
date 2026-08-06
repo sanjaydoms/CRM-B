@@ -2984,14 +2984,72 @@ table.data-table tbody tr:hover {
   }
 }
 
+/* Comprehensive Mobile & Tablet Responsiveness across all roles & features */
+@media (max-width: 768px) {
+  /* Portal Header & User Profile Bar */
+  .portal-header-left h1 {
+    font-size: 22px !important;
+  }
+  .portal-header-left p {
+    font-size: 12px !important;
+  }
+  
+  /* Quick action buttons & tab bars */
+  .quick-action-button-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Form Grids & Double Field Inputs */
+  .form-grid, 
+  .form-row,
+  .modal-body-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Tailors / Staff & Design Cards */
+  .tailor-card,
+  .design-card,
+  .inventory-card {
+    width: 100% !important;
+  }
+
+  /* Modal Dialogs */
+  .modal-overlay,
+  .modal-container {
+    padding: 12px !important;
+  }
+  .modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 12px !important;
+    padding: 16px !important;
+    margin: 10px !important;
+  }
+
+  /* Tables horizontal scroll container */
+  .responsive-table-wrapper,
+  table {
+    display: block !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+  }
+
+  /* Dashboard Stats Grid */
+  .stats-summary-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+}
+
 @media (max-width: 480px) {
-  /* Smaller screens */
+  /* Smaller mobile screens (320px - 480px) */
   .landing-hero h1 {
-    font-size: 28px !important;
+    font-size: 26px !important;
   }
   .landing-nav-links {
     font-size: 12px !important;
-    gap: 10px 12px !important;
+    gap: 8px 10px !important;
   }
   .portal-menu {
     flex-direction: column !important;
@@ -3000,12 +3058,22 @@ table.data-table tbody tr:hover {
   }
   .portal-menu-item {
     justify-content: center !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+  .quick-action-button-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .stats-summary-grid {
+    grid-template-columns: 1fr !important;
   }
   .modal-content {
-    width: 95% !important;
-    padding: 16px !important;
+    width: 98% !important;
+    padding: 14px !important;
+    margin: 4px !important;
   }
 }
+
 
 
 
