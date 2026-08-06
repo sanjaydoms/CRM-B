@@ -18,6 +18,7 @@ import { resolveMediaUrl } from './services/media';
 const DesignStudio = lazy(() => import('./features/designStudio/DesignStudio'));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
 const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
+const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 
@@ -264,6 +265,7 @@ function App() {
   const [garmentTemplatesError, setGarmentTemplatesError] = useState(null);
   // Bumped after any design write so the library refetches its counts and grid.
   const [designLibraryToken, setDesignLibraryToken] = useState(0);
+  const [designsView, setDesignsView] = useState('dashboard'); // 'dashboard' | 'library'
 
   // Wizard Details State
   const [designNotes, setDesignNotes] = useState('');
@@ -3877,29 +3879,45 @@ function App() {
                 </header>
 
                 <div className="design-manager-content" style={{ marginTop: '24px' }}>
-                  {/* The library, not a flat grid of everything. A boutique
-                      accumulates thousands of designs, and one page of all of
-                      them is unusable long before it is slow. */}
-                  <Suspense fallback={<div className="content-card">Loading the design library…</div>}>
-                    <DesignLibrary
-                      refreshToken={designLibraryToken}
-                      canReview={!currentUser?.role || currentUser.role === 'Owner'}
-                      onEditDesign={(design) => {
-                        setEditingDesign({ id: design.id });
-                        setDesignForm({
-                          name: design.title || '',
-                          garment_type: design.garment_type || 'Lehenga',
-                          neckline_style: (design.attributes || {}).neckline_style || '',
-                          sleeve_style: (design.attributes || {}).sleeve_style || '',
-                          image_url: design.image_url || '',
-                          is_boutique: design.source === 'catalogue',
-                          price: String(design.estimated_price ?? 0),
-                          description: design.description || ''
-                        });
-                        setShowDesignModal(true);
-                      }}
-                      onDeleteDesign={(design) => handleDeleteDesign(design.id)}
-                    />
+                  {/* Dashboard first: stats before images, so opening the module
+                      answers "how is the library doing" rather than dropping
+                      straight into a grid. */}
+                  <div className="tabs-header" style={{ marginBottom: '16px' }}>
+                    <button className={`tab-btn ${designsView === 'dashboard' ? 'active' : ''}`}
+                            onClick={() => setDesignsView('dashboard')}>
+                      Dashboard
+                    </button>
+                    <button className={`tab-btn ${designsView === 'library' ? 'active' : ''}`}
+                            onClick={() => setDesignsView('library')}>
+                      Boutique Designs
+                    </button>
+                  </div>
+
+                  <Suspense fallback={<div className="content-card">Loading…</div>}>
+                    {designsView === 'dashboard' ? (
+                      <DesignDashboard onOpenLibrary={() => setDesignsView('library')} />
+                    ) : (
+                      <DesignLibrary
+                        refreshToken={designLibraryToken}
+                        canReview={!currentUser?.role || currentUser.role === 'Owner'}
+                        onUploaded={() => setDesignsView('library')}
+                        onEditDesign={(design) => {
+                          setEditingDesign({ id: design.id });
+                          setDesignForm({
+                            name: design.title || '',
+                            garment_type: design.garment_type || 'Lehenga',
+                            neckline_style: (design.attributes || {}).neckline_style || '',
+                            sleeve_style: (design.attributes || {}).sleeve_style || '',
+                            image_url: design.image_url || '',
+                            is_boutique: design.source === 'catalogue',
+                            price: String(design.estimated_price ?? 0),
+                            description: design.description || ''
+                          });
+                          setShowDesignModal(true);
+                        }}
+                        onDeleteDesign={(design) => handleDeleteDesign(design.id)}
+                      />
+                    )}
                   </Suspense>
                 </div>
               </>

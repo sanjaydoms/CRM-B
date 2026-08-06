@@ -742,6 +742,18 @@ export const api = {
     return res.json();
   },
 
+  async getDesignDashboard() {
+    const res = await fetch(`${BASE_URL}/design-studio/dashboard/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load the design dashboard');
+    return res.json();
+  },
+
+  async getDesignerPortfolio(id) {
+    const res = await fetch(`${BASE_URL}/design-studio/designers/${id}/portfolio/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load the portfolio');
+    return res.json();
+  },
+
   async getDesignAsset(id) {
     const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/`, { headers: getHeaders() });
     if (!res.ok) throw new Error('Failed to load the design');
