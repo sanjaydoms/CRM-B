@@ -754,6 +754,20 @@ export const api = {
     return res.json();
   },
 
+  // Owner-only: switches a credited designer on so they can sign in for
+  // themselves. Idempotent server-side -- a second call against an
+  // already-linked designer is refused rather than silently reissuing.
+  async createDesignerLogin(id, email) {
+    const res = await fetch(`${BASE_URL}/design-studio/designers/${id}/create-login/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.email || JSON.stringify(data));
+    return data;
+  },
+
   async getDesignAsset(id) {
     const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/`, { headers: getHeaders() });
     if (!res.ok) throw new Error('Failed to load the design');

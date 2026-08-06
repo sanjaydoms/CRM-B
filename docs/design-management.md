@@ -172,20 +172,22 @@ a copy, so it does not reintroduce the sync problem the comment warns about.
 
 ### 4.1 Fix the fallback first
 
-[core/roles.py:29](../core/roles.py:29) currently reads:
+✅ Done. `core/roles.py` used to read:
 
 ```python
 return profile.role if profile else OWNER
 ```
 
-**Any signed-in user with no Tailor profile is treated as the Owner.** That is
-safe today because staff always get a profile and the only profile-less account
-is the boutique owner. It stops being safe the moment designers can log in: a
-designer account created without a profile would see customers, orders and
-financials — exactly what §4.2 forbids.
+**Any signed-in user with no Tailor profile was treated as the Owner.** That
+was safe only as long as a Tailor profile was the only kind of non-owner
+profile that could exist. A Designer account breaks that: with no Tailor row,
+it fell through to the same branch as the boutique owner's own account and was
+handed full Owner access.
 
-This must change before designer login ships. The fallback becomes explicit:
-a user is the Owner because the tenant says so, not because a lookup missed.
+The fallback now checks a Designer profile before giving up and reporting
+OWNER, so OWNER is a real "nothing else matched" rather than a guess.
+`core/tests.py` pins this directly, including the specific regression it
+replaces. See step 7 below for where this gets exercised by a real account.
 
 ### 4.2 Matrix
 
@@ -214,9 +216,28 @@ designer who also works the floor.
 
 The module's permission class denies by default rather than allowing by default.
 
-**Owner-only fields on the design detail** — revenue generated, profit margin,
-customer feedback, materials required — are excluded at the *serializer* level,
-not hidden in the UI. A designer calling the API directly must not receive them.
+**What is actually enforced, and what is not.** ✅ Enforced server-side, in
+`DesignLibraryPermission`: a Designer may upload, and may edit or delete only a
+design their own profile is credited on -- checked once at the view level
+(can this request be attempted) and again at the object level (is this
+specifically their design), because the object is not loaded at the point the
+first check runs.
+
+❌ **Not enforced anywhere in the codebase today: "Designer cannot view customer
+information / financial data."** `crm_api` has no role-based permission class at
+all -- every viewset (customers, orders, everything) is `IsAuthenticated` only,
+and that was already true for Tailor and Master accounts before this module
+existed. A Designer account can currently call those endpoints exactly as
+successfully as any other signed-in user. The frontend hides the customer/order
+navigation for a Designer session and stops calling those endpoints on login
+(see `App.jsx`'s `checkAuthSession`/`handleLoginSubmit`), which keeps a
+well-behaved client from ever requesting the data -- but that is a UI courtesy,
+not an API boundary, and does not stop a direct API call. Locking that down
+properly means adding permission classes across `crm_api`'s viewsets, which is
+a systemic change well beyond this module and was out of scope for step 7. The
+design-detail fields the original matrix called out as owner-only (revenue,
+margin, customer feedback, materials required) do not exist as fields on
+`DesignAsset` at all yet, so there is nothing to redact there today either.
 
 ---
 
@@ -343,12 +364,35 @@ Each step ships working and is independently reversible.
    Any signed-in staff member may upload (not just the Owner): gating the
    upload itself on Owner would leave the queue permanently empty until
    designer accounts exist in step 7.
-6. **Portfolios and dashboard analytics.**
-7. **Designer login** — last deliberately, because it is only safe once 1, 2 and
-   the serializer-level field restrictions are all in place.
+6. **Portfolios and dashboard analytics.** ✅ Done. `DesignAsset.order_count`
+   existed since step 2 but nothing had ever written to it; it is now credited
+   at the one place a board becomes a real order, resolved by parsing the
+   board item's `source_ref` as a UUID rather than trusting its `source` label
+   (a re-imported Pinterest pin and a live external result both carry
+   `source == 'pinterest'`, and only one of them is a real library design).
+   `/api/design-studio/dashboard/` is one call for the module's landing
+   counters and leaderboards; a designer's own portfolio reports the same
+   shape of numbers scoped to their own designs.
+7. **Designer login.** ✅ Done, last as planned -- it needed 1, 2 and the
+   `core/roles.py` fallback fix (§4.1) all in place first.
+   `DesignerViewSet.create_login` is how an Owner switches a credited designer
+   on, idempotent by email the same way `TailorViewSet._ensure_user_account`
+   already is. `DesignLibraryPermission` enforces "edit only own uploads" at
+   both the view and object level. See §4.2's enforcement note: the module's
+   own permission boundary is real and tested; a Designer's isolation from the
+   rest of the CRM (customers, orders, financials) is a frontend containment
+   only, because `crm_api` has no role-based permission class for any staff
+   role to date.
+
+   **Not built:** a UI for a designer to edit their own upload after the fact.
+   `DesignAssetViewSet` supports the PATCH, and the permission check is tested
+   directly against the API, but the existing "Edit" button in the library only
+   ever targets the older catalogue-CRUD endpoint (`/api/boutique-designs/`),
+   which rejects anything that is not a catalogue/suggestion row. Wiring a
+   second edit path for a plain upload is a small, separate follow-up.
 
 Steps 1–2 are backend-only and change no screens. Step 7 is the one with a
-security surface.
+security surface, and the one honest gap above is what is left of it.
 
 ---
 

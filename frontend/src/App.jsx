@@ -537,12 +537,24 @@ function App() {
       const user = await api.getMe();
       if (user) {
         setCurrentUser(user);
+        setView('dashboard');
+        if (user.role === 'Designer') {
+          // Deliberately does not call fetchDashboardAndConfig: that pulls
+          // customers, orders and financials into the browser session, and a
+          // designer account has no legitimate use for any of it. The API
+          // itself does not enforce this yet -- see
+          // docs/design-management.md section 4 -- so this is the one real
+          // containment step 7 actually has, and it is enforced by simply
+          // never requesting the data rather than by trusting a permission
+          // check that does not exist server-side.
+          setDashboardTab('designs');
+          return;
+        }
         if (user.role === 'Master' || user.role === 'Tailor') {
           setDashboardTab('assignments');
         } else {
           setDashboardTab('overview');
         }
-        setView('dashboard');
         await fetchDashboardAndConfig(user);
       }
     } catch (e) {
@@ -741,12 +753,18 @@ function App() {
     try {
       const res = await api.login(loginEmail, loginPassword);
       setCurrentUser(res.user);
+      setView('dashboard');
+      if (res.user.role === 'Designer') {
+        // See the matching branch in checkAuthSession for why this skips
+        // fetchDashboardAndConfig entirely rather than fetching and hiding.
+        setDashboardTab('designs');
+        return;
+      }
       if (res.user.role === 'Master' || res.user.role === 'Tailor') {
         setDashboardTab('assignments');
       } else {
         setDashboardTab('overview');
       }
-      setView('dashboard');
       fetchDashboardAndConfig(res.user);
     } catch (err) {
       alert(err.message || "Invalid credentials.");
@@ -2807,6 +2825,13 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
                   <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
                 </>
+              ) : currentUser.role === 'Designer' ? (
+                // A designer's account exists for exactly one thing: their own
+                // uploads and portfolio. No customer, order or financial nav
+                // item is offered, matching the module's permission matrix --
+                // see docs/design-management.md section 4 for the caveat that
+                // this is a UI restriction, not an API-level one.
+                <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Design Studio</a>
               ) : (
                 <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
               )}
@@ -3896,23 +3921,30 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right">
-                    <button className="btn-primary" onClick={() => {
-                      setEditingDesign(null);
-                      setDesignForm({
-                        name: '',
-                        garment_type: 'Lehenga',
-                        neckline_style: '',
-                        sleeve_style: '',
-                        image_url: '',
-                        is_boutique: true,
-                        price: 0,
-                        description: ''
-                      });
-                      setShowDesignModal(true);
-                    }}>
-                      <Plus size={16} />
-                      Add New Design
-                    </button>
+                    {/* This posts through the catalogue's own endpoint, which
+                        (unlike DesignAssetViewSet) has no per-design ownership
+                        check -- so it stays Owner-only rather than opened to a
+                        Designer the way the library's own upload flow below
+                        already is. */}
+                    {(!currentUser?.role || currentUser.role === 'Owner') && (
+                      <button className="btn-primary" onClick={() => {
+                        setEditingDesign(null);
+                        setDesignForm({
+                          name: '',
+                          garment_type: 'Lehenga',
+                          neckline_style: '',
+                          sleeve_style: '',
+                          image_url: '',
+                          is_boutique: true,
+                          price: 0,
+                          description: ''
+                        });
+                        setShowDesignModal(true);
+                      }}>
+                        <Plus size={16} />
+                        Add New Design
+                      </button>
+                    )}
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
@@ -3939,7 +3971,10 @@ function App() {
 
                   <Suspense fallback={<div className="content-card">Loading…</div>}>
                     {designsView === 'dashboard' ? (
-                      <DesignDashboard onOpenLibrary={() => setDesignsView('library')} />
+                      <DesignDashboard
+                        onOpenLibrary={() => setDesignsView('library')}
+                        canManageDesigners={!currentUser?.role || currentUser.role === 'Owner'}
+                      />
                     ) : (
                       <DesignLibrary
                         refreshToken={designLibraryToken}

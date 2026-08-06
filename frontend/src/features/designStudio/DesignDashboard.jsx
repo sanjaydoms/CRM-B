@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react';
-import { Award, Clock, Image as ImageIcon, Users } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Award, Clock, Image as ImageIcon, Key, Users } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
+
+// The server never returns this -- create-login just confirms the account
+// exists. The frontend knows the shared bootstrap password because the Owner
+// needs to be able to hand it over, the same convention the Tailor "share
+// credentials" panel already uses (see App.jsx's TailorSecure2026! constant).
+const DESIGNER_BOOTSTRAP_PASSWORD = 'DesignerSecure2026!';
 
 /**
  * The module's landing counters and leaderboards.
@@ -65,7 +71,108 @@ function DesignStrip({ title, designs, emptyText, metric }) {
   );
 }
 
-export default function DesignDashboard({ onOpenLibrary }) {
+/**
+ * Owner-only: the roster of credited designers, with a way to switch a login
+ * on. There is no separate "Manage Designers" screen yet, so this is where
+ * step 7's account-creation actually gets used from.
+ */
+function DesignerRoster() {
+  const [designers, setDesigners] = useState([]);
+  const [error, setError] = useState(null);
+  const [emailDrafts, setEmailDrafts] = useState({});
+  const [granting, setGranting] = useState(null);
+  const [issued, setIssued] = useState(null);   // { name, email } just granted
+  const inFlight = useRef(false);
+
+  const load = () => {
+    api.getDesigners().then(setDesigners).catch((err) => setError(err.message));
+  };
+
+  useEffect(load, []);
+
+  const grant = async (designer) => {
+    const email = (emailDrafts[designer.id] || '').trim();
+    if (!email || inFlight.current) return;   // one click, one call
+    inFlight.current = true;
+    setGranting(designer.id);
+    try {
+      await api.createDesignerLogin(designer.id, email);
+      setIssued({ name: designer.name, email });
+      load();
+    } catch (err) {
+      setError(`Could not grant a login to ${designer.name} — ${err.message}`);
+    } finally {
+      inFlight.current = false;
+      setGranting(null);
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="content-card" style={{ color: '#c0392b', fontSize: '12.5px' }}>
+        {error}
+        <button className="btn-secondary" style={{ marginLeft: '10px', padding: '3px 8px', fontSize: '11px' }}
+                onClick={() => { setError(null); load(); }}>Retry</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="content-card">
+      <div className="card-title" style={{ fontSize: '14px' }}>Designers</div>
+      {designers.length === 0 ? (
+        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+          No designer has been credited on a design yet.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {designers.map((d) => (
+            <div key={d.id} style={{
+              display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px',
+              border: '1px solid var(--border-color)', borderRadius: '6px',
+            }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, flex: '0 0 130px' }}>{d.name}</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', flex: '0 0 90px' }}>
+                {d.design_count} design{d.design_count === 1 ? '' : 's'}
+              </span>
+              {d.has_login ? (
+                <span style={{ fontSize: '11px', color: '#34d399', marginLeft: 'auto' }}>Has a login</span>
+              ) : (
+                <span style={{ display: 'flex', gap: '6px', marginLeft: 'auto', flex: '1 1 auto', maxWidth: '360px' }}>
+                  <input
+                    className="form-control" type="email" placeholder="designer@boutique.com"
+                    style={{ padding: '5px 8px', fontSize: '12px' }}
+                    value={emailDrafts[d.id] || ''}
+                    onChange={(e) => setEmailDrafts({ ...emailDrafts, [d.id]: e.target.value })}
+                  />
+                  <button className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                          disabled={granting === d.id || !(emailDrafts[d.id] || '').trim()}
+                          onClick={() => grant(d)}>
+                    <Key size={11} /> {granting === d.id ? 'Granting…' : 'Grant login'}
+                  </button>
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {issued && (
+        <div className="accent-banner" style={{ marginTop: '12px', fontSize: '12.5px' }}>
+          <div style={{ marginBottom: '4px' }}>
+            Login created for <strong>{issued.name}</strong>. Share these credentials with them directly --
+            this is the only time the password is shown here.
+          </div>
+          <div>Email: <strong>{issued.email}</strong> &nbsp;·&nbsp; Password: <strong>{DESIGNER_BOOTSTRAP_PASSWORD}</strong></div>
+          <button className="btn-secondary" style={{ marginTop: '8px', padding: '4px 10px', fontSize: '11px' }}
+                  onClick={() => setIssued(null)}>Close</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function DesignDashboard({ onOpenLibrary, canManageDesigners = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -117,6 +224,8 @@ export default function DesignDashboard({ onOpenLibrary }) {
         <DesignStrip title="Most Ordered" designs={data.most_ordered} metric="orders" emptyText="No orders placed from the library yet." />
       </div>
       <DesignStrip title="Trending This Week" designs={data.trending} metric="views" emptyText="Nothing trending in the last 7 days." />
+
+      {canManageDesigners && <DesignerRoster />}
     </div>
   );
 }
