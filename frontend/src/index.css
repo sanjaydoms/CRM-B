@@ -3340,6 +3340,17 @@ table.data-table tbody tr:hover {
 }
 
 @media (max-width: 768px) {
+  /* Below 768px the phone layout takes over: MobileHeader supplies the title
+     bar and BottomNavigation supplies the navigation. The hamburger header
+     stays for the 769-1024px tablet range, where there is no bottom nav and
+     the drawer is the only way to reach the menu -- so it is hidden here
+     rather than deleted. The drawer itself is still reachable on a phone
+     through the bottom nav's "Menu" tab, and still dismissable by tapping
+     .mobile-portal-overlay, which renders across the whole <=1024px range. */
+  .mobile-portal-header {
+    display: none;
+  }
+
   /* Mobile Header Component */
   .mobile-app-header {
     display: block;
