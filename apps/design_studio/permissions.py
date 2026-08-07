@@ -8,6 +8,7 @@ cannot drift from the rest of the app the way the workflow engine once did.
 
 from rest_framework import permissions
 
+from core.permissions import OwnerOnly as CoreOwnerOnly
 from core.roles import DESIGNER, OWNER, resolve_user_role
 
 MASTER = 'Master'
@@ -74,11 +75,10 @@ class DesignLibraryPermission(DesignStudioPermission):
         return super().has_permission(request, view)
 
 
-class OwnerOnly(permissions.BasePermission):
-    message = "Only the boutique owner can use design discovery."
+class OwnerOnly(CoreOwnerOnly):
+    """Same rule as core's, with wording for this module's endpoints."""
 
-    def has_permission(self, request, view):
-        return resolve_user_role(request.user) == OWNER
+    message = "Only the boutique owner can use design discovery."
 
 
 def visible_boards(queryset, user):

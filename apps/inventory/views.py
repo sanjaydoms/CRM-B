@@ -21,6 +21,8 @@ from .serializers import (
     InventoryItemSerializer, InventoryItemSummarySerializer, PurchaseOrderSerializer,
     StockMovementSerializer, SupplierSerializer,
 )
+from core.permissions import OwnerOnly
+
 from .services import InventoryService
 
 
@@ -893,9 +895,14 @@ def _get_or_400(model, pk, field):
 class InventoryReportViewSet(viewsets.ViewSet):
     """The sixteen figures the specification asks the inventory to state.
 
+    Owner only. Stock valuation, cost per order and supplier performance are
+    the boutique's commercial position, and a tailor needs none of it to sew.
+
     A ViewSet rather than a ModelViewSet: a report is not a resource with a
     primary key, it is a question asked of several tables at once.
     """
+
+    permission_classes = [OwnerOnly]
 
     @staticmethod
     def _window(request):

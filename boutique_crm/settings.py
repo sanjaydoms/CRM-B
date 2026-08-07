@@ -319,8 +319,12 @@ REST_FRAMEWORK = {
     ],
     # Business endpoints require a token. Sign-up and login opt out explicitly
     # via permission_classes on their own views.
+    # Not just IsAuthenticated: signed in is not the same as entitled. Every
+    # business endpoint that does not name its own permission class gets the
+    # role rules, so a new viewset is locked down by default rather than by
+    # someone remembering. Sign-up and login opt out on their own views.
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+        'core.permissions.RolePermission',
     ],
 }
 

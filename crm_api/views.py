@@ -6,6 +6,8 @@ from django.contrib.auth.models import User
 from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
+from core.permissions import visible_customers, visible_orders
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.db.models import Q, Sum, Count
@@ -40,9 +42,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
         return CustomerSerializer
 
     def get_queryset(self):
-        if self.action == 'list':
-            return CustomerRepository.summary_queryset()
-        return CustomerRepository.get_all()
+        base = (CustomerRepository.summary_queryset() if self.action == 'list'
+                else CustomerRepository.get_all())
+        return visible_customers(base, self.request.user)
 
     @action(detail=True, methods=['GET'], url_path='measurement-history')
     def measurement_history(self, request, pk=None):
@@ -246,7 +248,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
 
     def get_queryset(self):
-        return OrderRepository.get_all()
+        return visible_orders(OrderRepository.get_all(), self.request.user)
 
     def perform_update(self, serializer):
         old_status = serializer.instance.order_status
