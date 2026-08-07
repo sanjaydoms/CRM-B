@@ -128,7 +128,7 @@ function DesignerRoster() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {designers.map((d) => (
             <div key={d.id} style={{
-              display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px',
+              display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', flexWrap: 'wrap',
               border: '1px solid var(--border-color)', borderRadius: '6px',
             }}>
               <span style={{ fontSize: '13px', fontWeight: 600, flex: '0 0 130px' }}>{d.name}</span>

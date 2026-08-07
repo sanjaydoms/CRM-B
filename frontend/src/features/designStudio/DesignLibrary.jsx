@@ -51,7 +51,7 @@ function Filters({ value, onChange, designers, collections }) {
 
   return (
     <div style={{
-      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(140px, 100%), 1fr))',
       gap: '12px', padding: '16px', border: '1px solid var(--border-color)',
       borderRadius: '8px', marginBottom: '20px', alignItems: 'end',
     }}>
@@ -151,11 +151,11 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
           <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 320px) 1fr', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '20px' }}>
           <img src={resolveMediaUrl(design.image_url, CARD_IMAGE_FALLBACK)} alt={design.title}
                style={{ width: '100%', borderRadius: '8px', objectFit: 'cover' }} />
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px', alignContent: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(130px, 100%), 1fr))', gap: '12px', alignContent: 'start' }}>
             {row('Garment', design.garment_type)}
             {row('Occasion', design.occasion)}
             {row('Price', design.estimated_price > 0 ? `₹${Number(design.estimated_price).toLocaleString('en-IN')}` : null)}
@@ -317,7 +317,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   if (openCategory === null) {
     return (
       <div className="content-card">
-        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
           <span>Boutique Designs</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 400 }}>
@@ -335,7 +335,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
             </button>
           </span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))', gap: '12px' }}>
           {categories.map((category) => (
             <button
               key={category.key || 'uncategorised'}
@@ -367,7 +367,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
 
   return (
     <div className="content-card">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}
                 onClick={() => { setOpenCategory(null); setDesigns([]); }}>
           <ArrowLeft size={13} /> All categories
@@ -390,7 +390,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))', gap: '16px' }}>
         {designs.map((design) => {
           const status = STATUS_COLOURS[design.status] || STATUS_COLOURS.DRAFT;
           return (

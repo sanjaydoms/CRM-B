@@ -706,7 +706,7 @@ function CreatePurchaseOrderModal({ suppliers, items, onClose, onSaved }) {
   return (
     <Modal title="New purchase order" onClose={onClose} width="640px">
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+        <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
           <Field label="PO number" required value={poNumber} onChange={setPoNumber} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label style={{ fontSize: '12px', fontWeight: 600 }}>Supplier *</label>
@@ -720,7 +720,7 @@ function CreatePurchaseOrderModal({ suppliers, items, onClose, onSaved }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <label style={{ fontSize: '12px', fontWeight: 600 }}>Lines</label>
           {lines.map((line, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
+            <div key={i} className="po-line-row" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
               <select className="form-control" value={line.item} onChange={(e) => setLine(i, 'item', e.target.value)}>
                 <option value="">Select item…</option>
                 {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
@@ -868,7 +868,7 @@ function SupplierFormModal({ onClose, onSaved }) {
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <Field label="Name" required value={form.name} onChange={(v) => set('name', v)} />
         <Field label="Contact person" value={form.contact_person} onChange={(v) => set('contact_person', v)} />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+        <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
           <Field label="Phone" value={form.phone} onChange={(v) => set('phone', v)} />
           <Field label="Email" type="email" value={form.email} onChange={(v) => set('email', v)} />
         </div>

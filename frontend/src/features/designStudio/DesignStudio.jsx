@@ -464,7 +464,7 @@ function InspectPanel({ design, boardItem, onClose, onCustomise }) {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '16px', marginTop: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))', gap: '16px', marginTop: '12px' }}>
         {resolveImage(design.image_url) && (
           <img src={resolveImage(design.image_url)} alt={design.title}
                style={{ width: '100%', borderRadius: '6px', objectFit: 'cover' }} />

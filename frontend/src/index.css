@@ -3059,6 +3059,77 @@ table.data-table tbody tr:hover {
 
 /* Comprehensive Mobile & Tablet Responsiveness across all roles & features */
 @media (max-width: 768px) {
+  /* ---- Inline two-column grids -------------------------------------------
+     Much of this app lays out pairs of fields with an inline
+     `gridTemplateColumns: '1fr 1fr'`. An inline declaration outranks any
+     stylesheet rule, so no media query could reach them and they stayed
+     two-up at 375px, overflowing every card they sat in. The elements now
+     carry .mobile-stack-grid and an author !important beats the inline style. */
+  .mobile-stack-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .analytics-two-col,
+  .account-settings-container,
+  .customer-detail-card,
+  .responsive-customer-card {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* The last cell of a customer card carries an inline `grid-column: span 3`.
+     Collapsing the container to a single track is not enough on its own: an
+     item spanning three columns makes the grid generate two IMPLICIT columns
+     to span into, so the card kept three auto-sized tracks and overflowed no
+     matter what grid-template-columns said. Re-anchoring every cell to the
+     explicit grid is what actually removes them. */
+  .responsive-customer-card > * {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* Directory rows put the customer's contact details in a nowrap flex; the
+     email and address ran past the card edge at 375px. */
+  .customer-detail-banner-card {
+    flex-wrap: wrap !important;
+  }
+
+  /* Signup's 5-step tracker and badge row: both fixed multi-column at 375px. */
+  .auth-badge-info-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .auth-steps-tracker {
+    gap: 10px !important;
+  }
+
+  /* Modals had no height bound, so a tall one ran off the bottom of the screen
+     with its Save/Cancel footer unreachable and nothing to scroll. */
+  .search-modal-card {
+    max-height: 88vh !important;
+    overflow-y: auto !important;
+    padding: 20px !important;
+  }
+
+  /* Purchase-order line editor: item / qty / price / remove in four fixed
+     tracks. The item select takes its own row, the rest share the next. */
+  .po-line-row {
+    grid-template-columns: 1fr 1fr auto !important;
+    align-items: end !important;
+  }
+  .po-line-row > * { min-width: 0; }
+  .po-line-row > select { grid-column: 1 / -1; }
+
+  /* Touch targets. These controls are all icon-sized on a phone; 44px is the
+     smallest reliably tappable box. Padding stays visual, the box grows. */
+  .close-btn,
+  .icon-btn-touch {
+    min-width: 44px !important;
+    min-height: 44px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
   /* Portal Header & User Profile Bar */
   .portal-header-left h1 {
     font-size: 22px !important;
@@ -3289,6 +3360,33 @@ table.data-table tbody tr:hover {
 
   .wizard-outer-wrapper .main-content {
     padding: 16px 12px 100px !important;
+    /* The wizard body is `1fr 360px` on desktop -- the form and its summary
+       sidebar. At 375px that reserves 360px for the sidebar alone, pushing the
+       form itself off-screen. */
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+
+  /* The three-button row that closes step 6. Laid out as a nowrap flex row it
+     pushes the primary CTA past the right edge, where it is clipped -- the one
+     button the whole wizard exists to reach. */
+  .step6-action-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .step6-action-row > div {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+  .step6-action-row button {
+    width: 100% !important;
+  }
+
+  .delivery-details-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
   }
 
   .form-grid-2,
@@ -3368,12 +3466,31 @@ table.data-table tbody tr:hover {
     align-items: center;
   }
 
+  /* Hamburger + title travel together, so the title does not sit against the
+     screen edge once the button is there. */
+  .mobile-header-brand-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  /* The 44px touch target the other icon buttons get, without the leading
+     inset -- this one is the first thing on the row. */
+  .mobile-header-menu-btn {
+    margin-left: -10px;
+    flex: 0 0 auto;
+  }
+
   .mobile-header-title {
     font-family: var(--font-serif);
     font-size: 18px;
     font-weight: 700;
     color: var(--text-primary);
     margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .mobile-header-actions {

@@ -1638,6 +1638,37 @@ function App() {
               font-size: 14px;
               margin-bottom: 20px;
             }
+
+            /* support@scaleezy.com has no break opportunity -- "@" and "." between
+               letters are not break points -- so it sets a ~130px min-content floor
+               that an fr track cannot shrink below. Unconditional, not inside the
+               media query: the string is unbreakable at every width. */
+            .footer-col ul li {
+              overflow-wrap: anywhere;
+            }
+
+            @media (max-width: 768px) {
+              /* Four tracks plus 3x48px of gaps needed ~480px inside a 337px box.
+                 .landing-page sets overflow-x:hidden, so the excess was clipped
+                 rather than scrollable: the whole Contact column -- support email,
+                 phone, "Request Staging Access" -- was unreachable on a phone. */
+              .footer-grid {
+                grid-template-columns: 1fr;
+                gap: 32px;
+              }
+              .footer-bottom {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+              }
+              .footer-bottom-links {
+                flex-wrap: wrap;
+                gap: 16px;
+              }
+              .faq-grid {
+                grid-template-columns: 1fr;
+              }
+            }
           `}</style>
 
           {/* Premium Sticky Navbar */}
@@ -1806,7 +1837,7 @@ function App() {
 
               {/* NEW SECTION: Analytics Summary preview */}
               <section className="feature-grid-section" style={{ background: '#ffffff', padding: '80px 5%', borderTop: '1px solid #eaecef' }}>
-                <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '48px', alignItems: 'center', textAlign: 'left' }}>
+                <div className="ops-analytics-grid" style={{ maxWidth: '1000px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '48px', alignItems: 'center', textAlign: 'left' }}>
                   <div>
                     <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', display: 'block', marginBottom: '12px' }}>Enterprise Insights</span>
                     <h3 style={{ fontSize: '28px', fontFamily: 'var(--font-serif)', color: '#0f291e', marginBottom: '16px', lineHeight: 1.25 }}>Operations & Financial Analytics Dashboard</h3>
@@ -2010,7 +2041,7 @@ function App() {
               </div>
 
               {/* NEW SECTION: AI Draping & Inventory Sync details */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', maxWidth: '1200px', margin: '80px auto 0 auto', borderTop: '1px solid #eaecef', paddingTop: '80px', textAlign: 'left' }}>
+              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', maxWidth: '1200px', margin: '80px auto 0 auto', borderTop: '1px solid #eaecef', paddingTop: '80px', textAlign: 'left' }}>
                 <div>
                   <h4 style={{ color: '#0f291e', fontSize: '18px', marginBottom: '12px' }}>AI Draping Preview & Sketch Specs</h4>
                   <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -2099,7 +2130,7 @@ function App() {
               </div>
 
               {/* NEW SECTION: Express Timelines & Alteration logs */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', maxWidth: '1000px', margin: '80px auto 0 auto', borderTop: '1px solid #eaecef', paddingTop: '80px', textAlign: 'left' }}>
+              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', maxWidth: '1000px', margin: '80px auto 0 auto', borderTop: '1px solid #eaecef', paddingTop: '80px', textAlign: 'left' }}>
                 <div>
                   <h4 style={{ color: '#0f291e', fontSize: '18px', marginBottom: '12px' }}>Express Production Priority Routing</h4>
                   <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -2573,7 +2604,7 @@ function App() {
                     I agree to the Terms & Conditions and Privacy Policy
                   </label>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px' }}>
+                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px' }}>
                     <button type="button" className="btn-secondary" style={{ justifyContent: 'center' }} onClick={() => setView('login')}>
                       Login
                     </button>
@@ -2726,6 +2757,7 @@ function App() {
             title={dashboardTab === 'overview' ? 'Dashboard' : dashboardTab.charAt(0).toUpperCase() + dashboardTab.slice(1)}
             currentUser={currentUser}
             notificationsCount={notifications.filter(n => !n.is_read).length}
+            onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
             onOpenNotifications={() => {
               setShowNotificationsDrawer(true);
               api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
@@ -3101,7 +3133,7 @@ function App() {
                                   Submit Stitching Completion & Photos
                                 </h4>
                                 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                   <div>
                                     <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Tailor Completion Comments</label>
                                     <textarea 
@@ -3513,7 +3545,7 @@ function App() {
                 </div>
 
                 {/* Upcoming Appointments & Style Inspiration Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
+                <div className="dashboard-row-layout">
                   <div>
                     <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Upcoming Appointments</h3>
                     <div className="appointments-section-panel">
@@ -4274,7 +4306,7 @@ function App() {
                               Delivery Method: {order.delivery_method}
                             </div>
                             {order.delivery_method === 'Courier' && (
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                                 <div><strong>Courier Service Provider:</strong> {order.courier_service || 'TBD'}</div>
                                 <div><strong>Tracking Reference:</strong> {order.tracking_number || 'TBD'}</div>
                                 <div style={{ gridColumn: 'span 2', marginTop: '4px' }}>
@@ -4453,7 +4485,7 @@ function App() {
                         <div style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', paddingLeft: '24px' }}>
                           <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Body Measurements</h5>
                           {cust.measurements ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '13px' }}>
+                            <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '13px' }}>
                               {(() => {
                                 const parts = cust.measurements.additional_measurements?.stitch_parts || [];
                                 const visible = getVisibleMeasurementFields(parts);
@@ -4774,7 +4806,7 @@ function App() {
                       </h3>
                       {selectedDirectoryCustomer.measurements ? (
                         <>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                          <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
                             {(() => {
                               const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
                               const visible = getVisibleMeasurementFields(parts);
@@ -5132,7 +5164,7 @@ function App() {
                               )}
 
                               {pref.reference_images?.length > 0 && (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                                   {pref.reference_images.map((url, j) => (
                                     <div key={`${i}-${j}`} style={{
                                       borderRadius: '6px',
@@ -5459,7 +5491,7 @@ function App() {
                   </div>
 
                   {/* Operational and Trend Columns */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '32px' }}>
+                  <div className="analytics-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '32px' }}>
                     
                     {/* Left side: Styles & Design Trends */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -5534,7 +5566,7 @@ function App() {
                         padding: '24px'
                       }}>
                         <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Neckline & Sleeve Trends</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                           <div>
                             <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Top Necklines</h4>
                             {topNecklinesList.map(([style, count], idx) => (
@@ -5822,7 +5854,7 @@ function App() {
                     />
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <label style={{ fontSize: '12px', fontWeight: 600 }}>Material</label>
                       <input 
@@ -5939,7 +5971,7 @@ function App() {
                     />
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <label style={{ fontSize: '12px', fontWeight: 600 }}>Rating (1.0 — 5.0)</label>
                       <input 
@@ -6082,7 +6114,7 @@ function App() {
                     />
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <label style={{ fontSize: '12px', fontWeight: 600 }}>Garment Category</label>
                       <select 
@@ -6111,7 +6143,7 @@ function App() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <label style={{ fontSize: '12px', fontWeight: 600 }}>Neckline Style (Optional)</label>
                       <input 
@@ -6178,19 +6210,67 @@ function App() {
               </div>
             </div>
           )}
+
+          {/* Bottom navigation, phones only.
+              It belongs to this view, not the order selector it was originally
+              written into: its tabs drive dashboardTab, which only the dashboard
+              renders, so from anywhere else every tab was inert. */}
+          <BottomNavigation
+            tabs={
+              (!currentUser.role || currentUser.role === 'Owner') ? [
+                { key: 'overview', label: 'Dashboard', icon: Users },
+                { key: 'orders', label: 'Orders', icon: ShoppingBag },
+                { key: 'customers', label: 'Customers', icon: Users },
+                { key: 'inventory', label: 'Inventory', icon: Package },
+                { key: 'more', label: 'Menu', icon: Menu }
+              ] : currentUser.role === 'Master' ? [
+                { key: 'assignments', label: 'Assignments', icon: Scissors },
+                { key: 'orders', label: 'Orders', icon: ShoppingBag },
+                { key: 'customers', label: 'Customers', icon: Users },
+                { key: 'more', label: 'Menu', icon: Menu }
+              ] : [
+                { key: 'assignments', label: 'Assignments', icon: Scissors },
+                { key: 'account', label: 'Account', icon: User },
+                { key: 'more', label: 'Menu', icon: Menu }
+              ]
+            }
+            activeTab={dashboardTab}
+            onChangeTab={(t) => { setDashboardTab(t); setSelectedDirectoryCustomer(null); }}
+            onOpenMore={() => setMobileNavOpen(true)}
+          />
         </div>
       )}
 
       {/* 5. ORDER TYPE SELECTOR (Image 5) */}
       {view === 'order-selector' && (
         <div className="portal-layout">
+          {/* Below 1024px .portal-sidebar is an off-canvas drawer. Without a way
+              to open it -- and without the overlay to shut it again -- this
+              screen had no navigation at all on a phone: the sidebar sat parked
+              at translateX(-100%) and nothing on the page could bring it back. */}
+          <MobileHeader
+            title="New Order"
+            currentUser={currentUser}
+            notificationsCount={notifications.filter(n => !n.is_read).length}
+            onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
+            onOpenNotifications={() => {
+              setShowNotificationsDrawer(true);
+              api.markNotificationsAsRead(currentUser?.role || 'Owner', currentUser?.email)
+                .then(() => fetchNotifications());
+            }}
+          />
+
+          {mobileNavOpen && (
+            <div className="mobile-portal-overlay" onClick={() => setMobileNavOpen(false)} />
+          )}
+
           {/* Reuse Sidebar for Portal Continuity */}
-          <aside className="portal-sidebar">
+          <aside className={`portal-sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
             <div className="portal-sidebar-logo">SCALEEZY</div>
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             
             <nav className="portal-menu">
-              <a className="portal-menu-item" onClick={() => setView('dashboard')}><Users size={16} /> Dashboard</a>
+              <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); }}><Users size={16} /> Dashboard</a>
               <a className="portal-menu-item"><ShoppingBag size={16} /> My Orders</a>
               <a className="portal-menu-item"><Calendar size={16} /> Appointments</a>
               <a className="portal-menu-item"><Scissors size={16} /> Measurements</a>
@@ -6381,30 +6461,6 @@ function App() {
               </div>
             </div>
           )}
-          {/* Bottom Navigation for Mobile */}
-          <BottomNavigation
-            tabs={
-              (!currentUser.role || currentUser.role === 'Owner') ? [
-                { key: 'overview', label: 'Dashboard', icon: Users },
-                { key: 'orders', label: 'Orders', icon: ShoppingBag },
-                { key: 'customers', label: 'Customers', icon: Users },
-                { key: 'inventory', label: 'Inventory', icon: Package },
-                { key: 'more', label: 'Menu', icon: Menu }
-              ] : currentUser.role === 'Master' ? [
-                { key: 'assignments', label: 'Assignments', icon: Scissors },
-                { key: 'orders', label: 'Orders', icon: ShoppingBag },
-                { key: 'customers', label: 'Customers', icon: Users },
-                { key: 'more', label: 'Menu', icon: Menu }
-              ] : [
-                { key: 'assignments', label: 'Assignments', icon: Scissors },
-                { key: 'account', label: 'Account', icon: User },
-                { key: 'more', label: 'Menu', icon: Menu }
-              ]
-            }
-            activeTab={dashboardTab}
-            onChangeTab={(t) => { setDashboardTab(t); setSelectedDirectoryCustomer(null); }}
-            onOpenMore={() => setMobileNavOpen(true)}
-          />
         </div>
       )}
 
@@ -7257,7 +7313,7 @@ function App() {
                     </div>
 
                     {deliveryMethod === 'Courier' && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', background: 'rgba(0,0,0,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '8px' }}>
+                      <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', background: 'rgba(0,0,0,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '8px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <label style={{ fontSize: '12px', fontWeight: 600 }}>Courier Service Provider</label>
                           <input 
@@ -7530,7 +7586,7 @@ function App() {
                         </button>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+                      <div className="delivery-details-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
                         <div>
                           <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>DELIVERY ADDRESS</span>
                           <div style={{ display: 'flex', gap: '8px' }}>
@@ -7589,7 +7645,7 @@ function App() {
                     </div>
 
                     {/* Step 6 Review Buttons */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                    <div className="step6-action-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
                       <button className="btn-secondary" onClick={handleBack}>
                         <ArrowLeft size={16} /> Back: Tailor Assignment
                       </button>
@@ -7671,7 +7727,7 @@ function App() {
                       <h3 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '16px' }}>2. Payment Options</h3>
                       <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Choose how you want to pay for your order.</p>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                         {/* Option 1: Full Payment */}
                         <div 
                           onClick={() => setPaymentOption('full')}
@@ -7789,7 +7845,7 @@ function App() {
                     </label>
 
                     {/* Step 6 Payment Buttons */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                    <div className="step6-action-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
                       <button className="btn-secondary" onClick={handleBack}>
                         <ArrowLeft size={16} /> Back: Tailor Assignment
                       </button>
@@ -8317,7 +8373,7 @@ function App() {
               </div>
 
               {/* Billed To / Designer Details */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', borderTop: '1px solid #eaecef', borderBottom: '1px solid #eaecef', padding: '20px 0', marginBottom: '32px' }}>
+              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', borderTop: '1px solid #eaecef', borderBottom: '1px solid #eaecef', padding: '20px 0', marginBottom: '32px' }}>
                 <div>
                   <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Billed To:</span>
                   <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{customerForm.first_name} {customerForm.last_name}</span>
