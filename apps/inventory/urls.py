@@ -3,9 +3,9 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     BillOfMaterialsViewSet, BomLineViewSet, CatalogItemViewSet, CatalogSectionViewSet,
-    CustomerMaterialViewSet, InventoryItemViewSet, LocationStockViewSet,
-    OrderMaterialPlanViewSet, PurchaseOrderViewSet, StockLocationViewSet,
-    StockMovementViewSet, SupplierViewSet, UnitConversionViewSet,
+    CustomerMaterialViewSet, InventoryItemViewSet, InventoryReportViewSet,
+    LocationStockViewSet, OrderMaterialPlanViewSet, PurchaseOrderViewSet,
+    StockLocationViewSet, StockMovementViewSet, SupplierViewSet, UnitConversionViewSet,
 )
 
 router = DefaultRouter()
@@ -22,6 +22,7 @@ router.register(r'bom-lines', BomLineViewSet, basename='bom-line')
 router.register(r'unit-conversions', UnitConversionViewSet, basename='unit-conversion')
 router.register(r'material-plans', OrderMaterialPlanViewSet, basename='material-plan')
 router.register(r'customer-materials', CustomerMaterialViewSet, basename='customer-material')
+router.register(r'reports', InventoryReportViewSet, basename='inventory-report')
 
 urlpatterns = [
     path('', include(router.urls)),

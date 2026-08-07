@@ -2044,3 +2044,335 @@ class CustomerMaterialApiHardeningTests(OrderMaterialTestBase):
             {'line': str(line.id), 'used': '1', 'from_location': 'main-store'},
             format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class InventoryReportTests(OrderMaterialTestBase):
+    """The sixteen figures, against a known set of movements."""
+
+    def test_stock_position_covers_six_of_the_reports(self):
+        from . import reports
+        position = reports.stock_position()
+        # 100 fabric + 50 thread + 20 box
+        self.assertEqual(position['current_stock'], Decimal('170.000'))
+        self.assertEqual(position['reserved_stock'], Decimal('0.000'))
+        self.assertEqual(position['available_stock'], Decimal('170.000'))
+        self.assertEqual(position['item_count'], 3)
+
+    def test_reserved_and_available_move_apart_once_reserved(self):
+        from . import order_materials, reports
+        order_materials.reserve(self.plan(), user=self.owner)
+        position = reports.stock_position()
+        self.assertEqual(position['current_stock'], Decimal('170.000'))
+        self.assertEqual(position['reserved_stock'], Decimal('6.000'))   # 3 + 2 + 1
+        self.assertEqual(position['available_stock'], Decimal('164.000'))
+
+    def test_inventory_value_is_stock_times_purchase_price(self):
+        from . import reports
+        # every fixture item is priced at 1200
+        self.assertEqual(reports.stock_position()['inventory_value'],
+                         Decimal('204000.00'))
+
+    def test_low_stock_measures_availability_not_shelf_quantity(self):
+        """Material promised to an order will not be there for the next one."""
+        from . import order_materials, reports
+        self.fabric.refresh_from_db()
+        self.fabric.reorder_level = Decimal('98')
+        self.fabric.save(update_fields=['reorder_level'])
+        self.assertEqual(reports.low_stock(), [], 'a full shelf is not low')
+
+        order_materials.reserve(self.plan(), user=self.owner)
+        rows = reports.low_stock()
+        self.assertEqual([r['name'] for r in rows], ['Raw Silk'])
+        self.assertEqual(rows[0]['available_stock'], Decimal('97.000'))
+
+    def test_consumption_totals_by_item(self):
+        from . import order_materials, reports
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.confirm_consumption(
+            plan.lines.get(material_name='Raw Silk'), Decimal('2.5'), user=self.owner)
+
+        report = reports.consumption()
+        self.assertEqual(report['total_quantity'], Decimal('2.500'))
+        self.assertEqual(report['rows'][0]['name'], 'Raw Silk')
+        self.assertEqual(report['rows'][0]['value'], Decimal('3000.00'))
+
+    def test_consumption_scopes_are_separate_reports(self):
+        from . import order_materials, reports
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.confirm_consumption(
+            plan.lines.get(material_name='Raw Silk'), Decimal('3'), user=self.owner)
+        order_materials.deduct_packaging(plan, user=self.owner)
+
+        self.assertEqual(reports.consumption('fabric')['total_quantity'], Decimal('3.000'))
+        self.assertEqual(reports.consumption('packaging')['total_quantity'], Decimal('1.000'))
+        self.assertEqual(reports.consumption('embroidery')['total_quantity'], Decimal('0'))
+
+    def test_an_unknown_consumption_scope_is_refused(self):
+        from . import reports
+        with self.assertRaises(ValueError):
+            reports.consumption('lehengas')
+
+    def test_waste_and_damage_rates_use_different_denominators(self):
+        from . import order_materials, reports
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.confirm_consumption(
+            plan.lines.get(material_name='Raw Silk'), Decimal('2'),
+            wasted=Decimal('0.5'), user=self.owner)
+        InventoryService.damage(self.thread, Decimal('5'), user=self.owner)
+
+        rates = reports.loss_rates()
+        self.assertEqual(rates['consumed'], Decimal('2.000'))
+        self.assertEqual(rates['wasted'], Decimal('0.500'))
+        self.assertEqual(rates['damaged'], Decimal('5.000'))
+        # waste over what went to production: 0.5 / (2 + 0.5) = 20%
+        self.assertEqual(rates['waste_percent'], Decimal('20.00'))
+        # damage over what was taken in: 5 / 170 = 2.94%
+        self.assertEqual(rates['damage_percent'], Decimal('2.94'))
+
+    def test_a_rate_with_no_data_is_none_not_zero(self):
+        """0% waste and "no production yet" must not look the same."""
+        from . import reports
+        rates = reports.loss_rates()
+        self.assertIsNone(rates['waste_percent'])
+        self.assertIsNotNone(rates['damage_percent'], 'stock was received')
+
+    def test_cost_per_order_counts_waste_as_cost(self):
+        from . import order_materials, reports
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.confirm_consumption(
+            plan.lines.get(material_name='Raw Silk'), Decimal('2'),
+            wasted=Decimal('0.5'), user=self.owner)
+
+        rows = reports.cost_per_order()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['material_cost'], Decimal('2400.00'))
+        self.assertEqual(rows[0]['waste_cost'], Decimal('600.00'))
+        self.assertEqual(rows[0]['total_cost'], Decimal('3000.00'))
+
+    def test_customer_material_costs_the_boutique_nothing(self):
+        from . import order_materials, reports
+        from .models import BomLine
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.FABRIC,
+                               description="Customer's own silk", is_customer_supplied=True,
+                               quantity=Decimal('4'), unit=Unit.METER, sequence=9)
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.receive_customer_material(
+            self.order, name="Customer's own silk", quantity='4', unit=Unit.METER,
+            user=self.owner)
+
+        usage = reports.order_material_usage(self.order)
+        self.assertEqual(len(usage['customer_materials']), 1)
+        self.assertNotIn("Customer's own silk",
+                         [row['material'] for row in usage['boutique_materials']])
+        self.assertEqual(usage['material_cost'], Decimal('0.00'),
+                         'nothing consumed yet, and the customer silk is not a cost')
+
+    def test_order_usage_keeps_the_two_ledgers_apart(self):
+        from . import order_materials, reports
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.confirm_consumption(
+            plan.lines.get(material_name='Raw Silk'), Decimal('3'), user=self.owner)
+        order_materials.receive_customer_material(
+            self.order, name='Customer border', quantity='2', unit=Unit.METER,
+            user=self.owner)
+
+        usage = reports.order_material_usage(self.order)
+        self.assertEqual(usage['order'], self.order.order_id)
+        self.assertEqual(usage['material_cost'], Decimal('3600.00'))
+        self.assertEqual(usage['customer_materials'][0]['remaining'], Decimal('2.000'))
+
+    def test_supplier_performance_judges_only_what_can_be_judged(self):
+        """An order still open is not late, and one with no promised date cannot
+        be judged either way."""
+        import datetime
+        from . import reports
+        from .models import PurchaseOrder
+
+        PurchaseOrder.objects.create(
+            po_number='PO-ON-TIME', supplier=self.supplier,
+            expected_date=datetime.date(2026, 1, 10),
+            received_date=datetime.date(2026, 1, 9))
+        PurchaseOrder.objects.create(
+            po_number='PO-LATE', supplier=self.supplier,
+            expected_date=datetime.date(2026, 1, 10),
+            received_date=datetime.date(2026, 1, 15))
+        PurchaseOrder.objects.create(po_number='PO-OPEN', supplier=self.supplier,
+                                     expected_date=datetime.date(2026, 2, 1))
+        PurchaseOrder.objects.create(po_number='PO-NO-DATE', supplier=self.supplier,
+                                     received_date=datetime.date(2026, 1, 20))
+
+        rows = reports.supplier_performance()
+        row = next(r for r in rows if r['supplier'] == 'Rajesh Textiles')
+        self.assertEqual(row['order_count'], 4)
+        self.assertEqual(row['judged_count'], 2, 'only the two with both dates')
+        self.assertEqual(row['on_time_count'], 1)
+        self.assertEqual(row['on_time_percent'], Decimal('50.00'))
+
+    def test_movement_history_can_be_filtered_by_order(self):
+        from . import order_materials, reports
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.confirm_consumption(
+            plan.lines.get(material_name='Raw Silk'), Decimal('1'), user=self.owner)
+
+        rows = reports.movement_history(order=self.order)
+        self.assertTrue(rows)
+        self.assertTrue(all(r['order'] == self.order.order_id for r in rows))
+        self.assertIn(StockMovement.Type.CONSUMPTION, [r['movement_type'] for r in rows])
+
+    def test_movement_summary_totals_each_type(self):
+        from . import reports
+        summary = {row['movement_type']: row for row in reports.movement_summary()}
+        self.assertEqual(summary['STOCK_IN']['count'], 3)
+        self.assertEqual(summary['STOCK_IN']['quantity'], Decimal('170.000'))
+
+
+class InventoryReportApiTests(OrderMaterialTestBase):
+
+    def test_every_report_endpoint_answers(self):
+        endpoints = [
+            'stock-position', 'low-stock', 'consumption', 'loss-rates',
+            'cost-per-order', 'suppliers', 'movements', 'movement-summary',
+            'dashboard',
+        ]
+        for endpoint in endpoints:
+            response = self.client.get(f'/api/inventory/reports/{endpoint}/')
+            self.assertEqual(response.status_code, status.HTTP_200_OK,
+                             f'{endpoint}: {response.data}')
+
+    def test_order_usage_needs_an_order(self):
+        response = self.client.get('/api/inventory/reports/order-usage/')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        ok = self.client.get(f'/api/inventory/reports/order-usage/?order={self.order.id}')
+        self.assertEqual(ok.status_code, status.HTTP_200_OK)
+
+    def test_a_bad_date_is_refused_not_ignored(self):
+        """Silently reporting over all time would be the worst outcome."""
+        response = self.client.get('/api/inventory/reports/loss-rates/?since=last-tuesday')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_valid_date_window_is_honoured(self):
+        response = self.client.get(
+            '/api/inventory/reports/movement-summary/?since=2026-01-01&until=2030-01-01')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_a_bad_limit_is_refused(self):
+        for bad in ('abc', '0', '-5'):
+            response = self.client.get(f'/api/inventory/reports/low-stock/?limit={bad}')
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, bad)
+
+    def test_an_unknown_scope_is_a_400(self):
+        response = self.client.get('/api/inventory/reports/consumption/?scope=lehengas')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_an_unknown_movement_type_is_a_400(self):
+        response = self.client.get('/api/inventory/reports/movements/?movement_type=TELEPORT')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_malformed_item_filter_is_a_400_not_a_500(self):
+        response = self.client.get('/api/inventory/reports/movements/?item=not-a-uuid')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class StaleInstanceGuardTests(InventoryTestBase):
+    """A stale instance must not be able to rewind stock.
+
+    The DirectStockWriteError guard compares an instance against its own
+    snapshot, which cannot detect this case: an instance loaded before a
+    movement still holds the old balance, agrees with its own snapshot, and a
+    plain save() writes that figure back over the real one. Nothing looks
+    changed and the stock is silently rewound.
+    """
+
+    def test_saving_a_stale_instance_does_not_rewind_stock(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 100, user=self.owner)
+
+        # `item` is the instance from before the movement: it still believes
+        # current_stock is 0, and so does its snapshot.
+        self.assertEqual(item.current_stock, Decimal('0'))
+        item.rack_location = 'A-4'
+        item.save()
+
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('100.000'),
+                         'an unrelated edit must not roll the balance back')
+
+    def test_the_unrelated_edit_is_still_written(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 100, user=self.owner)
+        item.rack_location = 'B-7'
+        item.reorder_level = Decimal('25')
+        item.save()
+
+        item.refresh_from_db()
+        self.assertEqual(item.rack_location, 'B-7')
+        self.assertEqual(item.reorder_level, Decimal('25.000'))
+        self.assertEqual(item.current_stock, Decimal('100.000'))
+
+    def test_a_deliberate_direct_edit_is_still_refused(self):
+        """The original guard must keep working."""
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        item.refresh_from_db()
+        item.current_stock = Decimal('999')
+        with self.assertRaises(DirectStockWriteError):
+            item.save()
+
+    def test_refreshing_then_saving_is_allowed(self):
+        """refresh_from_db must re-snapshot, or the guard reads it as an edit."""
+        item = self.make_item()
+        InventoryService.stock_in(item, 40, user=self.owner)
+        item.refresh_from_db()
+        item.rack_location = 'C-1'
+        item.save()          # must not raise
+
+        item.refresh_from_db()
+        self.assertEqual(item.rack_location, 'C-1')
+        self.assertEqual(item.current_stock, Decimal('40.000'))
+
+
+class ReportDateWindowTests(OrderMaterialTestBase):
+    """A bare date has to become a moment, and the two ends differ."""
+
+    def test_until_today_includes_today(self):
+        """?until=<today> meaning midnight this morning excludes today's work."""
+        import datetime
+        from django.utils import timezone
+
+        today = timezone.localdate().isoformat()
+        response = self.client.get(
+            f'/api/inventory/reports/movement-summary/?until={today}')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        by_type = {row['movement_type']: row for row in response.data}
+        self.assertIn('STOCK_IN', by_type,
+                      "today's movements must fall inside a window ending today")
+        self.assertEqual(by_type['STOCK_IN']['quantity'], Decimal('170.000'))
+
+    def test_since_today_also_includes_today(self):
+        from django.utils import timezone
+        today = timezone.localdate().isoformat()
+        response = self.client.get(
+            f'/api/inventory/reports/movement-summary/?since={today}')
+        by_type = {row['movement_type']: row for row in response.data}
+        self.assertIn('STOCK_IN', by_type)
+
+    def test_a_window_that_ended_yesterday_excludes_today(self):
+        import datetime
+        from django.utils import timezone
+        yesterday = (timezone.localdate() - datetime.timedelta(days=1)).isoformat()
+        response = self.client.get(
+            f'/api/inventory/reports/movement-summary/?until={yesterday}')
+        self.assertEqual(response.data, [])
+
+    def test_a_full_timestamp_is_still_accepted(self):
+        response = self.client.get(
+            '/api/inventory/reports/movement-summary/?since=2026-01-01T00:00:00Z')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

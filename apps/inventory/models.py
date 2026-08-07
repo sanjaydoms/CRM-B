@@ -373,6 +373,16 @@ class InventoryItem(models.Model):
     def _snapshot_stock(self):
         self._stock_snapshot = {f: getattr(self, f) for f in self._STOCK_FIELDS}
 
+    def refresh_from_db(self, *args, **kwargs):
+        """Re-read the row, and re-take the snapshot with it.
+
+        Without this the two disagree after a refresh -- the fields hold the new
+        balance and the snapshot the old one -- so the guard reads a legitimate
+        refresh as an illegal edit and refuses the next save of any field at all.
+        """
+        super().refresh_from_db(*args, **kwargs)
+        self._snapshot_stock()
+
     @property
     def available_stock(self):
         return self.current_stock - self.reserved_stock
@@ -402,6 +412,18 @@ class InventoryItem(models.Model):
                     f"{', '.join(changed)} on '{self.name}' must be changed through "
                     f"InventoryService so a StockMovement is recorded."
                 )
+            # The check above compares the instance against its OWN snapshot, so
+            # it cannot see a stale instance: one loaded before a movement still
+            # holds the balance from then, agrees with its snapshot, and a plain
+            # save() writes that old figure back over the real one. Nothing is
+            # "changed" from the instance's point of view, and stock is silently
+            # rewound. Re-reading the columns here makes the write a no-op for
+            # them whatever the instance believes.
+            fresh = (type(self).objects.filter(pk=self.pk)
+                     .values(*self._STOCK_FIELDS).first())
+            if fresh:
+                for field, value in fresh.items():
+                    setattr(self, field, value)
         super().save(*args, **kwargs)
         self._allow_stock_write = False
         self._snapshot_stock()

@@ -888,3 +888,144 @@ def _get_or_400(model, pk, field):
     if instance is None:
         raise ValidationError({field: f'No {model.__name__} with id {pk}.'})
     return instance
+
+
+class InventoryReportViewSet(viewsets.ViewSet):
+    """The sixteen figures the specification asks the inventory to state.
+
+    A ViewSet rather than a ModelViewSet: a report is not a resource with a
+    primary key, it is a question asked of several tables at once.
+    """
+
+    @staticmethod
+    def _window(request):
+        """Parse ?since= / ?until=, reporting a bad date rather than ignoring it.
+
+        Silently dropping an unparseable date is the worst option: the caller
+        gets a report over all time and no indication it is not the period they
+        asked for.
+        """
+        import datetime
+
+        from django.utils import timezone
+        from django.utils.dateparse import parse_date, parse_datetime
+
+        window = {}
+        for key in ('since', 'until'):
+            raw = request.query_params.get(key)
+            if not raw:
+                continue
+            # The parser is chosen by what the string actually contains, not by
+            # trying one and falling back. parse_datetime() accepts a bare date
+            # and hands back midnight, so `parse_datetime(raw) or parse_date(raw)`
+            # never reaches the date branch at all -- and ?until=<today> silently
+            # meant "up to midnight this morning", excluding everything that
+            # happened today, which is the opposite of what it plainly means.
+            raw = raw.strip()
+            has_time = 'T' in raw or ':' in raw
+            parsed = parse_datetime(raw) if has_time else parse_date(raw)
+            if parsed is None:
+                raise ValidationError({key: f'{raw!r} is not a valid date.'})
+
+            if not has_time:
+                moment = datetime.time.max if key == 'until' else datetime.time.min
+                parsed = datetime.datetime.combine(parsed, moment)
+            if timezone.is_naive(parsed):
+                parsed = timezone.make_aware(parsed)
+            window[key] = parsed
+        return window
+
+    @staticmethod
+    def _limit(request, default=100, ceiling=500):
+        raw = request.query_params.get('limit')
+        if not raw:
+            return default
+        try:
+            limit = int(raw)
+        except (TypeError, ValueError):
+            raise ValidationError({'limit': f'{raw!r} is not a number.'})
+        if limit < 1:
+            raise ValidationError({'limit': 'Must be at least 1.'})
+        return min(limit, ceiling)
+
+    @action(detail=False, methods=['GET'], url_path='stock-position')
+    def stock_position(self, request):
+        """Current, reserved, available, low stock, reorder and value."""
+        from . import reports
+        return Response(reports.stock_position())
+
+    @action(detail=False, methods=['GET'], url_path='low-stock')
+    def low_stock(self, request):
+        from . import reports
+        return Response(reports.low_stock(limit=self._limit(request)))
+
+    @action(detail=False, methods=['GET'], url_path='consumption')
+    def consumption(self, request):
+        """?scope=fabric|embroidery|packaging, or omit for all material."""
+        from . import reports
+        try:
+            return Response(reports.consumption(
+                request.query_params.get('scope') or None,
+                limit=self._limit(request), **self._window(request)))
+        except ValueError as exc:
+            raise ValidationError({'scope': str(exc)})
+
+    @action(detail=False, methods=['GET'], url_path='loss-rates')
+    def loss_rates(self, request):
+        """Waste % and damage %, with the figures behind them."""
+        from . import reports
+        return Response(reports.loss_rates(**self._window(request)))
+
+    @action(detail=False, methods=['GET'], url_path='cost-per-order')
+    def cost_per_order(self, request):
+        from . import reports
+        return Response(reports.cost_per_order(limit=self._limit(request)))
+
+    @action(detail=False, methods=['GET'], url_path='order-usage')
+    def order_usage(self, request):
+        """?order=<id> -- everything one order used."""
+        from crm_api.models import Order
+        from . import reports
+        order = _get_or_400(Order, request.query_params.get('order'), 'order')
+        return Response(reports.order_material_usage(order))
+
+    @action(detail=False, methods=['GET'], url_path='suppliers')
+    def suppliers(self, request):
+        from . import reports
+        window = self._window(request)
+        return Response(reports.supplier_performance(
+            since=window.get('since'), limit=self._limit(request, default=50)))
+
+    @action(detail=False, methods=['GET'], url_path='movements')
+    def movements(self, request):
+        from crm_api.models import Order
+        from . import reports
+
+        params = self.request.query_params
+        item = order = location = None
+        if value := params.get('item'):
+            item = _get_or_400(InventoryItem, value, 'item')
+        if value := params.get('order'):
+            order = _get_or_400(Order, value, 'order')
+        if value := params.get('location'):
+            location = _get_or_400(StockLocation, value, 'location')
+
+        movement_type = params.get('movement_type')
+        if movement_type and movement_type not in StockMovement.Type.values:
+            raise ValidationError(
+                {'movement_type': f'{movement_type!r} is not a movement type.'})
+
+        return Response(reports.movement_history(
+            item=item, order=order, location=location, movement_type=movement_type,
+            limit=self._limit(request, default=200), **self._window(request)))
+
+    @action(detail=False, methods=['GET'], url_path='movement-summary')
+    def movement_summary(self, request):
+        from . import reports
+        return Response(reports.movement_summary(**self._window(request)))
+
+    @action(detail=False, methods=['GET'], url_path='dashboard')
+    def dashboard(self, request):
+        """Every report at once, for the module's landing screen."""
+        from . import reports
+        return Response(reports.dashboard(**self._window(request)))
