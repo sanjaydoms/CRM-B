@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDownCircle, ClipboardList, History, Package, Plus, Search, Truck, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownCircle, BarChart3, BookOpen, ClipboardList, History, MapPin, Package, Plus, Scissors, Search, Truck, X } from 'lucide-react';
 import { api } from '../../services/api';
+import CatalogBrowser from './CatalogBrowser';
+import LocationsTab from './LocationsTab';
+import RecipesTab from './RecipesTab';
+import ReportsTab from './ReportsTab';
 
 // Movement types the UI offers, in the order an item actually travels.
 // `field` names the number the form asks for, because "adjust" asks for a
@@ -175,8 +179,12 @@ export default function InventoryPanel({ currentUser }) {
       <div style={{ display: 'flex', gap: '12px', marginTop: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', flexWrap: 'wrap' }}>
         {[
           { key: 'items', label: 'Items', icon: Package },
+          { key: 'catalog', label: 'Catalogue', icon: BookOpen },
+          { key: 'locations', label: 'Locations', icon: MapPin },
+          { key: 'recipes', label: 'Recipes', icon: Scissors },
           { key: 'purchase', label: 'Purchase Orders', icon: Truck },
           { key: 'suppliers', label: 'Suppliers', icon: ClipboardList },
+          { key: 'reports', label: 'Reports', icon: BarChart3 },
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -236,6 +244,20 @@ export default function InventoryPanel({ currentUser }) {
       {!loadError && tab === 'suppliers' && (
         <SuppliersTab suppliers={suppliers} isOwner={isOwner} onAdd={() => setShowSupplierForm(true)} />
       )}
+
+      {!loadError && tab === 'catalog' && (
+        <CatalogBrowser isOwner={isOwner} onStocked={refresh} />
+      )}
+
+      {!loadError && tab === 'locations' && (
+        <LocationsTab items={items} isOwner={isOwner} onMoved={refresh} />
+      )}
+
+      {!loadError && tab === 'recipes' && (
+        <RecipesTab items={items} isOwner={isOwner} />
+      )}
+
+      {!loadError && tab === 'reports' && <ReportsTab />}
 
       {movementItem && (
         <MovementModal

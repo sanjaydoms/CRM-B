@@ -33,9 +33,11 @@ const describeApiError = (res, data) => {
       .filter(Boolean);
     if (fields.length) return fields.join('\n');
   }
-  if (res.status === 413) return 'That photograph is too large to upload.';
-  if (res.status >= 500) return `The server could not save the upload (error ${res.status}). Please try again.`;
-  return `The upload failed (error ${res.status}).`;
+  if (res.status === 413) return 'That file is too large to upload.';
+  if (res.status === 404) return 'That no longer exists. It may have been removed.';
+  if (res.status === 403) return 'You do not have permission to do that.';
+  if (res.status >= 500) return `The server could not complete that (error ${res.status}). Please try again.`;
+  return `That request failed (error ${res.status}).`;
 };
 
 export const api = {
@@ -915,3 +917,86 @@ export const api = {
     return data;
   }
 };
+
+
+// --- Inventory: catalogue, locations, recipes, plans and reports ----------
+// One small helper rather than a `new URL` dance repeated per call: every one
+// of these takes optional filters and drops the ones that are unset.
+
+const inventoryUrl = (path, params = {}) => {
+  const url = new URL(`${BASE_URL}/inventory/${path}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.append(key, value);
+    }
+  });
+  return url.toString();
+};
+
+const inventoryGet = async (path, params, what) => {
+  const res = await fetch(inventoryUrl(path, params), { headers: getHeaders() });
+  const raw = await res.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
+  if (!res.ok) throw new Error(describeApiError(res, data));
+  return data;
+};
+
+const inventoryPost = async (path, body, what) => {
+  const res = await fetch(inventoryUrl(path), {
+    method: 'POST', headers: getHeaders(), body: JSON.stringify(body || {}),
+  });
+  const raw = await res.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
+  if (!res.ok) throw new Error(describeApiError(res, data));
+  return data;
+};
+
+Object.assign(api, {
+  // Catalogue
+  getCatalogSections: () => inventoryGet('catalog/items/sections/'),
+  getCatalogItems: (params) => inventoryGet('catalog/items/', params),
+  stockCatalogItem: (id, payload) => inventoryPost(`catalog/items/${id}/stock/`, payload),
+
+  // Locations and transfers
+  getStockLocations: (params) => inventoryGet('locations/', params),
+  getLocationStock: (id) => inventoryGet(`locations/${id}/stock/`),
+  getItemLocations: (itemId) => inventoryGet(`items/${itemId}/locations/`),
+  transferStock: (itemId, payload) => inventoryPost(`items/${itemId}/transfer/`, payload),
+
+  // Recipes
+  getBoms: (params) => inventoryGet('boms/', params),
+  createBom: (payload) => inventoryPost('boms/', payload),
+  getBomRequirements: (id, payload) => inventoryPost(`boms/${id}/requirements/`, payload),
+  newBomVersion: (id) => inventoryPost(`boms/${id}/new-version/`),
+  createBomLine: (payload) => inventoryPost('bom-lines/', payload),
+  async deleteBomLine(id) {
+    const res = await fetch(inventoryUrl(`bom-lines/${id}/`), {
+      method: 'DELETE', headers: getHeaders(),
+    });
+    if (!res.ok && res.status !== 204) throw new Error('Could not remove the line.');
+    return true;
+  },
+
+  // Order material plans
+  getMaterialPlans: (params) => inventoryGet('material-plans/', params),
+  planMaterials: (payload) => inventoryPost('material-plans/plan/', payload),
+  getPlanAvailability: (id) => inventoryGet(`material-plans/${id}/availability/`),
+  reservePlan: (id, payload) => inventoryPost(`material-plans/${id}/reserve/`, payload),
+  consumePlanLine: (id, payload) => inventoryPost(`material-plans/${id}/consume/`, payload),
+  releasePlanUnused: (id) => inventoryPost(`material-plans/${id}/release-unused/`),
+  deductPlanPackaging: (id) => inventoryPost(`material-plans/${id}/deduct-packaging/`),
+  reconcilePlan: (id) => inventoryGet(`material-plans/${id}/reconcile/`),
+  closePlan: (id, payload) => inventoryPost(`material-plans/${id}/close/`, payload),
+  cancelPlan: (id) => inventoryPost(`material-plans/${id}/cancel/`),
+
+  // Customer-supplied materials
+  getCustomerMaterials: (params) => inventoryGet('customer-materials/', params),
+  receiveCustomerMaterial: (payload) => inventoryPost('customer-materials/', payload),
+  recordCustomerMaterial: (id, action, payload) =>
+    inventoryPost(`customer-materials/${id}/${action}/`, payload),
+
+  // Reports
+  getInventoryReport: (name, params) => inventoryGet(`reports/${name}/`, params),
+});
