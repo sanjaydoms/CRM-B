@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Count, F, Sum, DecimalField, ExpressionWrapper
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -6,17 +7,32 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .models import (
-    CatalogItem, CatalogSection, Category, InventoryItem, LocationStock, PurchaseOrder,
-    StockLocation, StockMovement, Supplier, Unit, DEFAULT_UNIT_BY_CATEGORY,
-    STOCKABLE_ITEM_TYPES,
+    BillOfMaterials, BomLine, CatalogItem, CatalogSection, Category, InventoryItem,
+    LocationStock, PurchaseOrder, StockLocation, StockMovement, Supplier, Unit,
+    UnitConversion, DEFAULT_UNIT_BY_CATEGORY, STOCKABLE_ITEM_TYPES,
 )
 from .serializers import (
-    CatalogItemSerializer, CatalogSectionSerializer, LocationStockSerializer,
-    StockLocationSerializer,
+    BillOfMaterialsSerializer, BomLineSerializer, CatalogItemSerializer,
+    CatalogSectionSerializer, LocationStockSerializer, StockLocationSerializer,
+    UnitConversionSerializer,
     InventoryItemSerializer, InventoryItemSummarySerializer, PurchaseOrderSerializer,
     StockMovementSerializer, SupplierSerializer,
 )
 from .services import InventoryService
+
+
+def _as_bool(value):
+    """Parse a flag from a request body.
+
+    bool('false') is True, so a plain truth-test on a JSON string turns "false"
+    into yes -- which for include_optional means quietly reserving optional
+    materials the caller asked to leave out.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in ('true', '1', 'yes', 'on')
 
 
 class SupplierViewSet(viewsets.ModelViewSet):
@@ -469,4 +485,124 @@ class LocationStockViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(item_id=item)
         if location := params.get('location'):
             queryset = queryset.filter(location_id=location)
+        return queryset
+
+
+class BillOfMaterialsViewSet(viewsets.ModelViewSet):
+    """A garment's recipe, and what it needs for a given set of measurements."""
+
+    serializer_class = BillOfMaterialsSerializer
+
+    def get_queryset(self):
+        queryset = (BillOfMaterials.objects
+                    .select_related('template')
+                    .prefetch_related('lines__inventory_item', 'lines__catalog_item'))
+        params = self.request.query_params
+        if template := params.get('template'):
+            queryset = queryset.filter(template_id=template)
+        if design := params.get('design'):
+            queryset = queryset.filter(design_id=design)
+        if params.get('active') == 'true':
+            queryset = queryset.filter(is_active=True)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+
+    @action(detail=True, methods=['POST'], url_path='requirements')
+    def requirements(self, request, pk=None):
+        """What this BOM needs, given a set of measurements.
+
+        POST rather than GET because the measurements are a body, not a filter,
+        and there can be a dozen of them.
+        """
+        from . import bom as bom_service
+
+        # request.data is only dict-like when the body is a JSON object; a bare
+        # list or string has no .get and would be an AttributeError 500.
+        if not isinstance(request.data, dict):
+            raise ValidationError({'detail': 'Expected a JSON object.'})
+
+        variables = request.data.get('variables')
+        if variables is None:
+            variables = {}
+        if not isinstance(variables, dict):
+            raise ValidationError({'variables': 'Expected an object of measurement values.'})
+
+        include_optional = _as_bool(request.data.get('include_optional'))
+        try:
+            summary = bom_service.summarise(
+                self.get_object(), variables, include_optional=include_optional)
+        except bom_service.BomError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(summary)
+
+    @action(detail=True, methods=['POST'], url_path='new-version')
+    def new_version(self, request, pk=None):
+        """Copy this BOM to the next version, and deactivate the old one.
+
+        A BOM an order was costed against must keep meaning what it meant, so a
+        change raises a version rather than rewriting history.
+        """
+        source = self.get_object()
+        if not source.is_active:
+            raise ValidationError(
+                {'detail': f"Version {source.version} has already been superseded. "
+                           f"Version the active BOM instead."})
+
+        # Locked and atomic: two people pressing the button at once would
+        # otherwise both read the same highest version and both write it, and
+        # the unique constraint does not catch it when template or design is
+        # NULL, so the duplicate would simply stand.
+        with transaction.atomic():
+            siblings = BillOfMaterials.objects.select_for_update().filter(
+                template=source.template, design=source.design)
+            if source.template_id is None and source.design_id is None:
+                # A standalone BOM has no template or design to be scoped by, so
+                # its own name is the only identity it has. Without this every
+                # standalone BOM in the tenant shares one version counter.
+                siblings = siblings.filter(name=source.name)
+            highest = siblings.order_by('-version').values_list(
+                'version', flat=True).first() or 0
+            return self._make_version(request, source, highest + 1)
+
+    def _make_version(self, request, source, version):
+        copy = BillOfMaterials.objects.create(
+            name=source.name, template=source.template, design=source.design,
+            version=version, notes=source.notes,
+            created_by=request.user if request.user.is_authenticated else None,
+        )
+        BomLine.objects.bulk_create([
+            BomLine(
+                bom=copy, role=line.role, inventory_item=line.inventory_item,
+                catalog_item=line.catalog_item, description=line.description,
+                quantity=line.quantity, quantity_formula=line.quantity_formula,
+                unit=line.unit, waste_percent=line.waste_percent,
+                is_optional=line.is_optional, is_customer_supplied=line.is_customer_supplied,
+                sequence=line.sequence, notes=line.notes,
+            )
+            for line in source.lines.all()
+        ])
+        source.is_active = False
+        source.save(update_fields=['is_active', 'updated_at'])
+        return Response(BillOfMaterialsSerializer(copy).data, status=status.HTTP_201_CREATED)
+
+
+class BomLineViewSet(viewsets.ModelViewSet):
+    serializer_class = BomLineSerializer
+
+    def get_queryset(self):
+        queryset = BomLine.objects.select_related('inventory_item', 'catalog_item')
+        if bom := self.request.query_params.get('bom'):
+            queryset = queryset.filter(bom_id=bom)
+        return queryset
+
+
+class UnitConversionViewSet(viewsets.ModelViewSet):
+    serializer_class = UnitConversionSerializer
+
+    def get_queryset(self):
+        queryset = UnitConversion.objects.select_related('item')
+        if item := self.request.query_params.get('item'):
+            queryset = queryset.filter(item_id=item)
         return queryset

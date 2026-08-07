@@ -791,3 +791,587 @@ class LocationApiTests(InventoryTestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['item_name'], item.name)
+
+
+class FormulaTests(TenantTestCase):
+    """The quantity-formula evaluator.
+
+    A formula comes out of the database, so it comes from whoever can write to
+    the database. These tests are as much about what it refuses as what it
+    computes.
+    """
+
+    def test_arithmetic(self):
+        from .formula import evaluate
+        self.assertEqual(evaluate('2 + 3 * 4'), Decimal('14'))
+        self.assertEqual(evaluate('(2 + 3) * 4'), Decimal('20'))
+        self.assertEqual(evaluate('10 / 4'), Decimal('2.5'))
+        self.assertEqual(evaluate('-3 + 5'), Decimal('2'))
+
+    def test_variables(self):
+        from .formula import evaluate
+        self.assertEqual(evaluate('0.15 * bust + 0.4', {'bust': 36}), Decimal('5.8'))
+        self.assertEqual(evaluate('length * 2', {'length': Decimal('1.25')}), Decimal('2.5'))
+
+    def test_whitelisted_functions(self):
+        from .formula import evaluate
+        self.assertEqual(evaluate('max(2, 5)'), Decimal('5'))
+        self.assertEqual(evaluate('min(2, 5)'), Decimal('2'))
+        self.assertEqual(evaluate('ceil(1.2)'), Decimal('2'))
+        self.assertEqual(evaluate('floor(1.8)'), Decimal('1'))
+        self.assertEqual(evaluate('round(2.345, 2)'), Decimal('2.35'))
+        self.assertEqual(evaluate('abs(0 - 7)'), Decimal('7'))
+
+    def test_conditional_quantity(self):
+        from .formula import evaluate
+        self.assertEqual(evaluate('2.2 if length > 42 else 1.9', {'length': 45}), Decimal('2.2'))
+        self.assertEqual(evaluate('2.2 if length > 42 else 1.9', {'length': 40}), Decimal('1.9'))
+
+    # --- what it must refuse -------------------------------------------
+
+    def test_attribute_access_is_refused(self):
+        """The classic sandbox escape."""
+        from .formula import FormulaError, evaluate
+        for hostile in [
+            "().__class__",
+            "(1).__class__.__bases__",
+            "x.__class__.__mro__[1].__subclasses__()",
+        ]:
+            with self.assertRaises(FormulaError, msg=hostile):
+                evaluate(hostile, {'x': 1})
+
+    def test_calls_to_anything_unlisted_are_refused(self):
+        from .formula import FormulaError, evaluate
+        for hostile in [
+            "__import__('os')",
+            "open('/etc/passwd')",
+            "eval('1+1')",
+            "exec('x=1')",
+            "globals()",
+            "getattr(x, 'y')",
+        ]:
+            with self.assertRaises(FormulaError, msg=hostile):
+                evaluate(hostile, {'x': 1})
+
+    def test_subscripts_and_comprehensions_are_refused(self):
+        from .formula import FormulaError, evaluate
+        for hostile in ["[1,2][0]", "[i for i in range(3)]", "{1:2}[1]", "(lambda: 1)()"]:
+            with self.assertRaises(FormulaError, msg=hostile):
+                evaluate(hostile, {})
+
+    def test_unknown_variable_is_reported_not_guessed(self):
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError) as ctx:
+            evaluate('hips * 2', {'bust': 36})
+        self.assertIn('hips', str(ctx.exception))
+        self.assertIn('bust', str(ctx.exception), 'the message should say what is available')
+
+    def test_huge_exponent_is_refused(self):
+        """9**9**9 is a denial of service in four characters."""
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError):
+            evaluate('9 ** 9 ** 9')
+        with self.assertRaises(FormulaError):
+            evaluate('2 ** 500')
+
+    def test_division_by_zero_is_a_formula_error(self):
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError):
+            evaluate('5 / 0')
+        with self.assertRaises(FormulaError):
+            evaluate('5 / (bust - bust)', {'bust': 10})
+
+    def test_overlong_and_malformed_formulas_are_refused(self):
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError):
+            evaluate('1 +' * 400)
+        with self.assertRaises(FormulaError):
+            evaluate('2 +')
+        with self.assertRaises(FormulaError):
+            evaluate('')
+
+    def test_strings_are_not_values(self):
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError):
+            evaluate("'abc' * 3")
+
+    def test_variables_used_reports_names(self):
+        from .formula import variables_used
+        self.assertEqual(variables_used('0.1 * bust + max(waist, 2)'), {'bust', 'waist'})
+
+
+class BomTests(InventoryTestBase):
+    """Turning a recipe plus measurements into quantities to reserve."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import BillOfMaterials
+        self.fabric = self.make_item(item_code='FAB-100', name='Raw Silk', unit=Unit.METER)
+        self.thread = self.make_item(item_code='THR-100', name='Resham Thread',
+                                     category=Category.STITCHING, unit=Unit.PIECE)
+        self.bom = BillOfMaterials.objects.create(name='Bridal Blouse')
+
+    def line(self, **kw):
+        from .models import BomLine
+        defaults = dict(bom=self.bom, role=BomLine.Role.FABRIC,
+                        inventory_item=self.fabric, quantity=Decimal('1'), unit=Unit.METER)
+        defaults.update(kw)
+        return BomLine.objects.create(**defaults)
+
+    def test_fixed_quantity(self):
+        from . import bom as bom_service
+        self.line(quantity=Decimal('2.5'))
+        rows = bom_service.requirements(self.bom)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['required_quantity'], Decimal('2.500'))
+
+    def test_formula_quantity_uses_the_measurements(self):
+        from . import bom as bom_service
+        self.line(quantity_formula='0.15 * bust + 0.4')
+        rows = bom_service.requirements(self.bom, {'bust': 36})
+        self.assertEqual(rows[0]['required_quantity'], Decimal('5.800'))
+
+    def test_waste_allowance_is_added_on_top(self):
+        from . import bom as bom_service
+        self.line(quantity=Decimal('2'), waste_percent=Decimal('10'))
+        rows = bom_service.requirements(self.bom)
+        self.assertEqual(rows[0]['base_quantity'], Decimal('2.000'))
+        self.assertEqual(rows[0]['required_quantity'], Decimal('2.200'))
+
+    def test_waste_applies_to_the_formula_result(self):
+        from . import bom as bom_service
+        self.line(quantity_formula='2 * panels', waste_percent=Decimal('25'))
+        rows = bom_service.requirements(self.bom, {'panels': 3})
+        self.assertEqual(rows[0]['required_quantity'], Decimal('7.500'))
+
+    def test_optional_lines_are_skipped_unless_asked_for(self):
+        from . import bom as bom_service
+        self.line(quantity=Decimal('1'))
+        self.line(quantity=Decimal('5'), is_optional=True, inventory_item=self.thread,
+                  unit=Unit.PIECE, sequence=2)
+
+        self.assertEqual(len(bom_service.requirements(self.bom)), 1)
+        self.assertEqual(len(bom_service.requirements(self.bom, include_optional=True)), 2)
+
+    def test_customer_supplied_lines_are_returned_but_flagged(self):
+        from . import bom as bom_service
+        from .models import BomLine
+        self.line(quantity=Decimal('1'))
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.FABRIC,
+                               description="Customer's own gold border",
+                               is_customer_supplied=True, quantity=Decimal('2'),
+                               unit=Unit.METER, sequence=2)
+
+        summary = bom_service.summarise(self.bom)
+        self.assertEqual(summary['boutique_line_count'], 1)
+        self.assertEqual(summary['customer_supplied_line_count'], 1)
+        flagged = [r for r in summary['requirements'] if r['is_customer_supplied']]
+        self.assertEqual(flagged[0]['material'], "Customer's own gold border")
+        self.assertIsNone(flagged[0]['inventory_item_id'])
+
+    def test_a_line_can_carry_every_role(self):
+        from .models import BomLine
+        for role in BomLine.Role.values:
+            BomLine.objects.create(bom=self.bom, role=role, inventory_item=self.thread,
+                                   quantity=Decimal('1'), unit=Unit.PIECE)
+        self.assertEqual(self.bom.lines.count(), len(BomLine.Role.values))
+
+    # --- unit conversion ------------------------------------------------
+
+    def test_line_unit_is_converted_into_the_stocked_unit(self):
+        from . import bom as bom_service
+        from .models import UnitConversion
+        UnitConversion.objects.create(item=self.fabric, from_unit=Unit.ROLL,
+                                      to_unit=Unit.METER, factor=Decimal('50'))
+        self.line(quantity=Decimal('2'), unit=Unit.ROLL)
+
+        rows = bom_service.requirements(self.bom)
+        self.assertEqual(rows[0]['required_quantity'], Decimal('100.000'))
+        self.assertEqual(rows[0]['unit'], Unit.METER)
+
+    def test_a_conversion_works_in_reverse_too(self):
+        from . import bom as bom_service
+        from .models import UnitConversion
+        UnitConversion.objects.create(item=self.fabric, from_unit=Unit.ROLL,
+                                      to_unit=Unit.METER, factor=Decimal('50'))
+        self.line(quantity=Decimal('100'), unit=Unit.METER)
+        self.fabric.unit = Unit.ROLL
+        self.fabric.save()
+
+        rows = bom_service.requirements(self.bom)
+        self.assertEqual(rows[0]['required_quantity'], Decimal('2.000'))
+
+    def test_global_conversions_need_no_setup(self):
+        from .bom import convert
+        self.assertEqual(convert(Decimal('2'), Unit.KILOGRAM, Unit.GRAM), Decimal('2000.000'))
+        self.assertEqual(convert(Decimal('500'), Unit.GRAM, Unit.KILOGRAM), Decimal('0.500'))
+
+    def test_an_unknown_conversion_is_refused_not_guessed(self):
+        """Treating 2 rolls as 2 metres would silently reserve the wrong amount."""
+        from . import bom as bom_service
+        self.line(quantity=Decimal('2'), unit=Unit.ROLL)
+        with self.assertRaises(bom_service.BomError) as ctx:
+            bom_service.requirements(self.bom)
+        self.assertIn('no conversion', str(ctx.exception))
+
+    def test_waste_is_applied_before_conversion(self):
+        """So a percentage means the same thing whichever unit the line uses."""
+        from . import bom as bom_service
+        from .models import UnitConversion
+        UnitConversion.objects.create(item=self.fabric, from_unit=Unit.ROLL,
+                                      to_unit=Unit.METER, factor=Decimal('50'))
+        self.line(quantity=Decimal('2'), unit=Unit.ROLL, waste_percent=Decimal('10'))
+
+        rows = bom_service.requirements(self.bom)
+        # 2 rolls + 10% = 2.2 rolls = 110 m. Converting first would give the same
+        # number here, but not once the factor is fractional -- this pins the order.
+        self.assertEqual(rows[0]['required_quantity'], Decimal('110.000'))
+
+    # --- error handling -------------------------------------------------
+
+    def test_a_broken_formula_names_the_material(self):
+        from . import bom as bom_service
+        self.line(quantity_formula='0.15 * hips')
+        with self.assertRaises(bom_service.BomError) as ctx:
+            bom_service.requirements(self.bom, {'bust': 36})
+        self.assertIn('Raw Silk', str(ctx.exception))
+        self.assertIn('hips', str(ctx.exception))
+
+    def test_a_negative_formula_result_is_refused(self):
+        from . import bom as bom_service
+        self.line(quantity_formula='bust - 100')
+        with self.assertRaises(bom_service.BomError) as ctx:
+            bom_service.requirements(self.bom, {'bust': 36})
+        self.assertIn('negative', str(ctx.exception))
+
+    def test_unresolved_lines_are_counted(self):
+        """A line naming only a catalogue row cannot be reserved yet."""
+        from . import bom as bom_service
+        from .models import BomLine, CatalogItem
+        dabka = CatalogItem.objects.filter(name='Dabka').first()
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.EMBROIDERY,
+                               catalog_item=dabka, quantity=Decimal('3'), unit=Unit.PIECE)
+        summary = bom_service.summarise(self.bom)
+        self.assertEqual(summary['unresolved_line_count'], 1)
+
+
+class BomApiTests(InventoryTestBase):
+
+    def setUp(self):
+        super().setUp()
+        from .models import BillOfMaterials, BomLine
+        self.fabric = self.make_item(item_code='FAB-200', name='Banarasi Silk', unit=Unit.METER)
+        self.bom = BillOfMaterials.objects.create(name='Lehenga')
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.FABRIC,
+                               inventory_item=self.fabric, quantity_formula='0.2 * waist + 2',
+                               unit=Unit.METER, waste_percent=Decimal('10'))
+
+    def test_requirements_endpoint_computes_from_measurements(self):
+        response = self.client.post(
+            f'/api/inventory/boms/{self.bom.id}/requirements/',
+            {'variables': {'waist': 30}}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        row = response.data['requirements'][0]
+        # (0.2*30 + 2) = 8, +10% = 8.8
+        self.assertEqual(Decimal(str(row['required_quantity'])), Decimal('8.800'))
+
+    def test_missing_measurement_is_a_400_with_a_readable_message(self):
+        response = self.client.post(
+            f'/api/inventory/boms/{self.bom.id}/requirements/', {'variables': {}}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('waist', response.data['error'])
+
+    def test_variables_must_be_an_object(self):
+        response = self.client.post(
+            f'/api/inventory/boms/{self.bom.id}/requirements/',
+            {'variables': 'waist=30'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_hostile_formula_is_rejected_when_written(self):
+        response = self.client.post('/api/inventory/bom-lines/', {
+            'bom': str(self.bom.id), 'role': 'FABRIC',
+            'inventory_item': str(self.fabric.id),
+            'quantity_formula': "__import__('os').system('id')",
+            'unit': 'METER',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn('quantity_formula', response.data)
+
+    def test_a_line_naming_nothing_is_rejected(self):
+        response = self.client.post('/api/inventory/bom-lines/', {
+            'bom': str(self.bom.id), 'role': 'FABRIC', 'quantity': '1', 'unit': 'METER',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_new_version_copies_the_lines_and_retires_the_old_one(self):
+        response = self.client.post(
+            f'/api/inventory/boms/{self.bom.id}/new-version/', {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['version'], 2)
+        self.assertEqual(len(response.data['lines']), 1)
+
+        self.bom.refresh_from_db()
+        self.assertFalse(self.bom.is_active, 'the superseded version is retired')
+
+
+class FormulaHardeningTests(TenantTestCase):
+    """Every defect an adversarial review of stage 3 confirmed, pinned.
+
+    These are regression tests for real holes, not hypotheticals: each one
+    failed before the fix that accompanies it.
+    """
+
+    def test_negative_base_to_a_fractional_power_is_refused(self):
+        """(-1) ** 0.5 is a complex number; float() of it is a TypeError 500."""
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError) as ctx:
+            evaluate('(0 - 1) ** 0.5')
+        self.assertIn('complex', str(ctx.exception))
+
+    def test_round_with_an_infinite_precision_is_refused(self):
+        """int(inf) is an OverflowError, and it used to sit outside the try."""
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError):
+            evaluate('round(1.5, 1e400)')
+
+    def test_nested_powers_cannot_slip_past_the_exponent_cap(self):
+        """Each exponent is 8, so bounding the exponent alone lets this through."""
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError):
+            evaluate('((9 ** 8) ** 8) ** 8')
+
+    def test_an_astronomical_measurement_is_refused(self):
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError):
+            evaluate('bust * 2', {'bust': 1e300})
+        with self.assertRaises(FormulaError):
+            evaluate('1e30')
+
+    def test_nan_and_infinity_cannot_arrive_as_measurements(self):
+        """Variables come from the request body, where they are strings."""
+        from .formula import FormulaError, evaluate
+        for hostile in ('nan', 'inf', '-inf', 'Infinity'):
+            with self.assertRaises(FormulaError, msg=hostile):
+                evaluate('bust * 2', {'bust': hostile})
+
+    def test_a_huge_integer_literal_is_refused(self):
+        from .formula import FormulaError, evaluate
+        with self.assertRaises(FormulaError):
+            evaluate('9' * 400)
+
+    def test_and_or_short_circuit_and_yield_the_operand(self):
+        """`waist or 30` should be the measurement, not "true"."""
+        from .formula import evaluate
+        self.assertEqual(evaluate('waist or 30', {'waist': 32}), Decimal('32'))
+        self.assertEqual(evaluate('waist or 30', {'waist': 0}), Decimal('30'))
+        self.assertEqual(evaluate('waist and 30', {'waist': 5}), Decimal('30'))
+        self.assertEqual(evaluate('waist and 30', {'waist': 0}), Decimal('0'))
+
+    def test_or_short_circuits_before_an_unknown_name(self):
+        """Proof it stops evaluating: the right operand would otherwise raise."""
+        from .formula import evaluate
+        self.assertEqual(evaluate('waist or hips', {'waist': 32}), Decimal('32'))
+
+    # --- the write-time validation hole --------------------------------
+
+    def test_validate_syntax_catches_a_hostile_call_beside_an_unknown_name(self):
+        """The bypass: _eval is depth-first, so the left operand raised first.
+
+        `hips * __import__('os')` used to pass write-time validation, because
+        the unknown-variable error from the left was the one the serializer had
+        been told to ignore -- and the call on the right was never looked at.
+        """
+        from .formula import FormulaError, validate_syntax
+        with self.assertRaises(FormulaError) as ctx:
+            validate_syntax("hips * __import__('os')")
+        self.assertIn('__import__', str(ctx.exception))
+
+    def test_validate_syntax_allows_unknown_names(self):
+        """A measurement does not exist until an order does."""
+        from .formula import validate_syntax
+        self.assertTrue(validate_syntax('0.15 * bust + hips'))
+
+    def test_validate_syntax_refuses_every_forbidden_construct(self):
+        from .formula import FormulaError, validate_syntax
+        for hostile in [
+            "x.__class__", "[i for i in range(3)]", "(lambda: 1)()",
+            "[1,2][0]", "open('/etc/passwd')", "'abc'", "{1:2}",
+        ]:
+            with self.assertRaises(FormulaError, msg=hostile):
+                validate_syntax(hostile)
+
+
+class BomHardeningTests(InventoryTestBase):
+    """Regression tests for the BOM defects the review confirmed."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import BillOfMaterials, UnitConversion
+        self.fabric = self.make_item(item_code='FAB-900', name='Tissue Silk', unit=Unit.METER)
+        self.bom = BillOfMaterials.objects.create(name='Hardening')
+        UnitConversion.objects.create(item=self.fabric, from_unit=Unit.ROLL,
+                                      to_unit=Unit.METER, factor=Decimal('50'))
+
+    def _line(self, **kw):
+        from .models import BomLine
+        defaults = dict(bom=self.bom, role=BomLine.Role.FABRIC,
+                        inventory_item=self.fabric, unit=Unit.METER)
+        defaults.update(kw)
+        return BomLine.objects.create(**defaults)
+
+    def test_conversion_happens_before_rounding(self):
+        """Rounding in the line's unit first multiplies the error by the factor.
+
+        The stored quantity itself is only 3dp, so the sub-precision digits have
+        to come from somewhere the field cannot round away: 0.001 rolls plus 5%
+        waste is 0.00105 rolls. Converting first gives 0.00105 x 50 = 0.0525 ->
+        0.053 m. Rounding first gives 0.001 -> 0.050 m, understating it by the
+        full conversion factor.
+        """
+        from . import bom as bom_service
+        self._line(quantity=Decimal('0.001'), unit=Unit.ROLL, waste_percent=Decimal('5'))
+        rows = bom_service.requirements(self.bom)
+        self.assertEqual(rows[0]['required_quantity'], Decimal('0.053'))
+
+    def test_an_enormous_quantity_is_a_bom_error_not_a_500(self):
+        """decimal.InvalidOperation is an ArithmeticError, not a ValueError."""
+        from . import bom as bom_service
+        self._line(quantity_formula='bust * 1000', unit=Unit.METER)
+        with self.assertRaises(bom_service.BomError):
+            bom_service.requirements(self.bom, {'bust': 10 ** 8})
+
+    def test_base_quantity_declares_its_own_unit(self):
+        from . import bom as bom_service
+        self._line(quantity=Decimal('2'), unit=Unit.ROLL)
+        row = bom_service.requirements(self.bom)[0]
+        self.assertEqual(row['base_unit'], Unit.ROLL)
+        self.assertEqual(row['unit'], Unit.METER)
+        self.assertEqual(row['required_quantity'], Decimal('100.000'))
+
+
+class BomVersioningTests(InventoryTestBase):
+    """Version uniqueness, which a single unique constraint could not deliver."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.catalog.services import sync_global_templates
+        sync_global_templates()
+        from apps.catalog.models import GarmentTemplate
+        self.template = GarmentTemplate.resolve('lehenga')
+
+    def test_two_version_ones_for_the_same_template_are_refused(self):
+        """The ordinary case: template set, design null. Postgres NULL semantics
+        made the original single constraint inert exactly here."""
+        from django.db.utils import IntegrityError
+        from .models import BillOfMaterials
+        BillOfMaterials.objects.create(name='Lehenga', template=self.template)
+        with self.assertRaises(IntegrityError):
+            BillOfMaterials.objects.create(name='Lehenga', template=self.template)
+
+    def test_two_standalone_boms_with_the_same_name_are_refused(self):
+        from django.db.utils import IntegrityError
+        from .models import BillOfMaterials
+        BillOfMaterials.objects.create(name='Standalone')
+        with self.assertRaises(IntegrityError):
+            BillOfMaterials.objects.create(name='Standalone')
+
+    def test_differently_named_standalone_boms_still_coexist(self):
+        from .models import BillOfMaterials
+        BillOfMaterials.objects.create(name='Blouse recipe')
+        BillOfMaterials.objects.create(name='Saree recipe')
+        self.assertEqual(BillOfMaterials.objects.filter(template=None).count(), 2)
+
+    def test_the_api_reports_a_duplicate_as_400_not_500(self):
+        from .models import BillOfMaterials
+        BillOfMaterials.objects.create(name='Lehenga', template=self.template)
+        response = self.client.post('/api/inventory/boms/', {
+            'name': 'Lehenga', 'template': str(self.template.id)}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+
+    def test_standalone_boms_do_not_share_a_version_counter(self):
+        """Versioning one standalone BOM used to be numbered off all the others."""
+        from .models import BillOfMaterials
+        other = BillOfMaterials.objects.create(name='Unrelated', version=9)
+        mine = BillOfMaterials.objects.create(name='Mine')
+
+        response = self.client.post(
+            f'/api/inventory/boms/{mine.id}/new-version/', {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['version'], 2, 'should follow its own lineage, not v9')
+
+    def test_a_superseded_version_cannot_be_versioned_again(self):
+        """Otherwise two active BOMs end up live for the same garment."""
+        from .models import BillOfMaterials
+        bom = BillOfMaterials.objects.create(name='Twice', template=self.template)
+        first = self.client.post(f'/api/inventory/boms/{bom.id}/new-version/', {}, format='json')
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+
+        again = self.client.post(f'/api/inventory/boms/{bom.id}/new-version/', {}, format='json')
+        self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            BillOfMaterials.objects.filter(template=self.template, is_active=True).count(), 1)
+
+
+class BomApiHardeningTests(InventoryTestBase):
+
+    def setUp(self):
+        super().setUp()
+        from .models import BillOfMaterials, BomLine
+        self.fabric = self.make_item(item_code='FAB-950', name='Net', unit=Unit.METER)
+        self.bom = BillOfMaterials.objects.create(name='Api hardening')
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.FABRIC,
+                               inventory_item=self.fabric, quantity=Decimal('1'),
+                               unit=Unit.METER)
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.ACCESSORY,
+                               inventory_item=self.fabric, quantity=Decimal('5'),
+                               unit=Unit.METER, is_optional=True, sequence=2)
+
+    def test_include_optional_false_is_honoured_as_a_string(self):
+        """bool('false') is True; a naive truth-test reserved the optional line."""
+        response = self.client.post(
+            f'/api/inventory/boms/{self.bom.id}/requirements/',
+            {'variables': {}, 'include_optional': 'false'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(len(response.data['requirements']), 1)
+
+    def test_include_optional_true_still_works(self):
+        response = self.client.post(
+            f'/api/inventory/boms/{self.bom.id}/requirements/',
+            {'variables': {}, 'include_optional': True}, format='json')
+        self.assertEqual(len(response.data['requirements']), 2)
+
+    def test_a_non_object_body_is_a_400_not_a_500(self):
+        response = self.client.post(
+            f'/api/inventory/boms/{self.bom.id}/requirements/', ['not', 'an', 'object'],
+            format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_an_enormous_measurement_is_a_400_not_a_500(self):
+        from .models import BomLine
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.LINING,
+                               inventory_item=self.fabric, quantity_formula='bust * 1000',
+                               unit=Unit.METER, sequence=3)
+        response = self.client.post(
+            f'/api/inventory/boms/{self.bom.id}/requirements/',
+            {'variables': {'bust': 10 ** 12}}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+
+    def test_a_hostile_formula_beside_an_unknown_name_is_rejected(self):
+        """The write-time validation bypass, at the API boundary."""
+        response = self.client.post('/api/inventory/bom-lines/', {
+            'bom': str(self.bom.id), 'role': 'FABRIC',
+            'inventory_item': str(self.fabric.id),
+            'quantity_formula': "hips * __import__('os').system('id')",
+            'unit': 'METER',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn('quantity_formula', response.data)
+
+    def test_a_non_stockable_catalog_row_cannot_be_a_material(self):
+        from .models import CatalogItem
+        gateway = CatalogItem.objects.filter(name='Payment Gateway').first()
+        response = self.client.post('/api/inventory/bom-lines/', {
+            'bom': str(self.bom.id), 'role': 'OTHER',
+            'catalog_item': str(gateway.id), 'quantity': '1', 'unit': 'PIECE',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)

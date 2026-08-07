@@ -2,8 +2,9 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 from .views import (
-    CatalogItemViewSet, CatalogSectionViewSet, InventoryItemViewSet, LocationStockViewSet,
-    PurchaseOrderViewSet, StockLocationViewSet, StockMovementViewSet, SupplierViewSet,
+    BillOfMaterialsViewSet, BomLineViewSet, CatalogItemViewSet, CatalogSectionViewSet,
+    InventoryItemViewSet, LocationStockViewSet, PurchaseOrderViewSet, StockLocationViewSet,
+    StockMovementViewSet, SupplierViewSet, UnitConversionViewSet,
 )
 
 router = DefaultRouter()
@@ -15,6 +16,9 @@ router.register(r'catalog/sections', CatalogSectionViewSet, basename='catalog-se
 router.register(r'catalog/items', CatalogItemViewSet, basename='catalog-item')
 router.register(r'locations', StockLocationViewSet, basename='stock-location')
 router.register(r'location-stock', LocationStockViewSet, basename='location-stock')
+router.register(r'boms', BillOfMaterialsViewSet, basename='bom')
+router.register(r'bom-lines', BomLineViewSet, basename='bom-line')
+router.register(r'unit-conversions', UnitConversionViewSet, basename='unit-conversion')
 
 urlpatterns = [
     path('', include(router.urls)),

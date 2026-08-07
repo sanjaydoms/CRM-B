@@ -11,6 +11,7 @@ Two rules shape this module:
 """
 
 import uuid
+from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
@@ -158,6 +159,50 @@ class CatalogItem(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.section.full_name})"
+
+
+#: Conversions that are true everywhere, as (from, to): factor.
+#: Only the unambiguous ones live here. A ROLL or a PACKET is however many
+#: metres or pieces a particular supplier winds onto it, so those are per-item
+#: and live in UnitConversion instead of being guessed globally.
+GLOBAL_UNIT_CONVERSIONS = {
+    ('KILOGRAM', 'GRAM'): Decimal('1000'),
+    ('GRAM', 'KILOGRAM'): Decimal('0.001'),
+    ('PAIR', 'PIECE'): Decimal('2'),
+    ('PIECE', 'PAIR'): Decimal('0.5'),
+}
+
+
+class UnitConversion(models.Model):
+    """How one unit of an item converts into another.
+
+    Per item, because the answer is a property of the goods rather than of the
+    words: a roll of lining is 50 metres and a roll of piping is 20, and a
+    system that assumed one number for "roll" would silently order the wrong
+    quantity of one of them.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    item = models.ForeignKey(
+        'InventoryItem', on_delete=models.CASCADE, related_name='unit_conversions')
+    from_unit = models.CharField(max_length=20, choices=Unit.choices)
+    to_unit = models.CharField(max_length=20, choices=Unit.choices)
+    factor = models.DecimalField(
+        max_digits=14, decimal_places=6,
+        validators=[MinValueValidator(Decimal('0.000001'))],
+        help_text='One from_unit equals this many to_unit.')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['item', 'from_unit', 'to_unit'], name='uniq_item_unit_conversion'),
+            models.CheckConstraint(
+                condition=~models.Q(from_unit=models.F('to_unit')),
+                name='unit_conversion_differs'),
+        ]
+
+    def __str__(self):
+        return f"{self.item.name}: 1 {self.from_unit} = {self.factor} {self.to_unit}"
 
 
 class StockLocation(models.Model):
@@ -504,3 +549,149 @@ class PurchaseOrderLine(models.Model):
 
     def __str__(self):
         return f"{self.item.name} × {self.quantity_ordered}"
+
+
+class BillOfMaterials(models.Model):
+    """What one garment is made of.
+
+    A recipe rather than a shopping list: lines carry formulas and waste
+    allowances, so the same BOM produces different quantities for different
+    measurements. Stage 4 turns a BOM plus an order into reservations; this
+    holds the recipe and can work out what it needs.
+
+    Versioned rather than edited in place. An order that was costed and reserved
+    against version 3 must keep meaning what it meant, so raising a new version
+    supersedes the old one instead of rewriting it.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=150)
+    #: Which garment this is the recipe for. String references: apps.catalog
+    #: already imports this module, so importing it back would be a cycle.
+    template = models.ForeignKey(
+        'catalog.GarmentTemplate', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='boms')
+    #: Or a specific design, when one design's recipe differs from the garment's.
+    design = models.ForeignKey(
+        'design_studio.DesignAsset', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='boms')
+    version = models.PositiveIntegerField(default=1)
+    is_active = models.BooleanField(default=True, db_index=True)
+    notes = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name', '-version']
+        # Four partial indexes rather than one over (template, design, version).
+        # Postgres treats NULLs as distinct in a unique index, so a single
+        # constraint fires only when template AND design are both set -- which
+        # is the rare case. The ordinary case is a template-scoped BOM with no
+        # design, and there the constraint was silently inert: two active
+        # "version 1" recipes for the same garment could coexist, and a version
+        # number stopped identifying anything. Each pattern is constrained by
+        # the identity it actually has, and a standalone BOM has only its name.
+        constraints = [
+            models.UniqueConstraint(
+                fields=['template', 'design', 'version'],
+                condition=models.Q(template__isnull=False, design__isnull=False),
+                name='uniq_bom_version_template_design'),
+            models.UniqueConstraint(
+                fields=['template', 'version'],
+                condition=models.Q(template__isnull=False, design__isnull=True),
+                name='uniq_bom_version_template'),
+            models.UniqueConstraint(
+                fields=['design', 'version'],
+                condition=models.Q(template__isnull=True, design__isnull=False),
+                name='uniq_bom_version_design'),
+            models.UniqueConstraint(
+                fields=['name', 'version'],
+                condition=models.Q(template__isnull=True, design__isnull=True),
+                name='uniq_bom_version_standalone'),
+        ]
+
+    def __str__(self):
+        return f"{self.name} v{self.version}"
+
+
+class BomLine(models.Model):
+    """One material a garment needs, and how much of it."""
+
+    class Role(models.TextChoices):
+        """The part a material plays. Every role the specification names."""
+
+        FABRIC = 'FABRIC', 'Fabric'
+        LINING = 'LINING', 'Lining'
+        INTERLINING = 'INTERLINING', 'Interlining'
+        EMBROIDERY = 'EMBROIDERY', 'Embroidery material'
+        THREAD = 'THREAD', 'Thread'
+        ACCESSORY = 'ACCESSORY', 'Accessory'
+        LABEL = 'LABEL', 'Label'
+        PACKAGING = 'PACKAGING', 'Packaging'
+        OTHER = 'OTHER', 'Other'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    bom = models.ForeignKey(BillOfMaterials, on_delete=models.CASCADE, related_name='lines')
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.FABRIC, db_index=True)
+
+    #: What the line asks for. An inventory item names a specific stocked thing;
+    #: a catalogue item names the material generically, for a BOM written before
+    #: the boutique has decided which supplier's version of it to hold.
+    inventory_item = models.ForeignKey(
+        'InventoryItem', on_delete=models.PROTECT, null=True, blank=True, related_name='bom_lines')
+    catalog_item = models.ForeignKey(
+        CatalogItem, on_delete=models.PROTECT, null=True, blank=True, related_name='bom_lines')
+    #: For a customer-supplied line, which needs neither: the customer is
+    #: bringing "her own gold border" and there is no boutique row for it.
+    description = models.CharField(max_length=200, blank=True, null=True)
+
+    quantity = models.DecimalField(
+        max_digits=12, decimal_places=3, default=0,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Fixed quantity, used when no formula is given.')
+    #: An arithmetic expression over the garment's measurements. Takes precedence
+    #: over `quantity` when set. Evaluated by formula.evaluate, never by eval().
+    quantity_formula = models.CharField(max_length=500, blank=True, null=True)
+    unit = models.CharField(max_length=20, choices=Unit.choices, default=Unit.PIECE)
+
+    #: Added on top of the computed quantity. Cutting loses fabric at every
+    #: layout, so a BOM that reserves the exact finished measurement always
+    #: reserves too little.
+    waste_percent = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0,
+        validators=[MinValueValidator(Decimal('0'))])
+
+    is_optional = models.BooleanField(
+        default=False, help_text='Skipped unless the order asks for it.')
+    is_customer_supplied = models.BooleanField(
+        default=False,
+        help_text='Brought by the customer. Never reserved from boutique stock.')
+    sequence = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['sequence', 'role']
+        constraints = [
+            # A line has to ask for *something*. Customer-supplied lines are the
+            # exception: they are described rather than stocked.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(inventory_item__isnull=False)
+                    | models.Q(catalog_item__isnull=False)
+                    | models.Q(is_customer_supplied=True)
+                ),
+                name='bom_line_names_a_material',
+            ),
+        ]
+
+    @property
+    def material_name(self):
+        if self.inventory_item_id:
+            return self.inventory_item.name
+        if self.catalog_item_id:
+            return self.catalog_item.name
+        return self.description or 'Unnamed material'
+
+    def __str__(self):
+        return f"{self.material_name} ({self.get_role_display()})"

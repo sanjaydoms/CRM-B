@@ -1,9 +1,9 @@
 from rest_framework import serializers
 
 from .models import (
-    CatalogItem, CatalogSection, Category, DEFAULT_UNIT_BY_CATEGORY, InventoryItem,
-    LocationStock, PurchaseOrder, PurchaseOrderLine, StockLocation, StockMovement,
-    Supplier, Unit,
+    BillOfMaterials, BomLine, CatalogItem, CatalogSection, Category,
+    DEFAULT_UNIT_BY_CATEGORY, InventoryItem, LocationStock, PurchaseOrder,
+    PurchaseOrderLine, StockLocation, StockMovement, Supplier, Unit, UnitConversion,
 )
 
 
@@ -170,3 +170,107 @@ class LocationStockSerializer(serializers.ModelSerializer):
         model = LocationStock
         fields = ['id', 'item', 'item_name', 'item_code', 'location', 'location_name',
                   'location_kind', 'quantity', 'unit_display', 'updated_at']
+
+
+class UnitConversionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UnitConversion
+        fields = ['id', 'item', 'from_unit', 'to_unit', 'factor']
+
+
+class BomLineSerializer(serializers.ModelSerializer):
+    material_name = serializers.CharField(read_only=True)
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
+    unit_display = serializers.CharField(source='get_unit_display', read_only=True)
+
+    class Meta:
+        model = BomLine
+        fields = [
+            'id', 'bom', 'role', 'role_display', 'inventory_item', 'catalog_item',
+            'description', 'material_name', 'quantity', 'quantity_formula', 'unit',
+            'unit_display', 'waste_percent', 'is_optional', 'is_customer_supplied',
+            'sequence', 'notes',
+        ]
+
+    def validate(self, attrs):
+        """A line must name a material, and its formula must be a valid one.
+
+        Checked here as well as by the database constraint so the operator gets
+        a readable message instead of an integrity error, and so a broken formula
+        is caught when it is written rather than when an order tries to use it.
+        """
+        from .formula import FormulaError, validate_syntax
+
+        merged = {**({} if self.instance is None else {
+            'inventory_item': self.instance.inventory_item,
+            'catalog_item': self.instance.catalog_item,
+            'is_customer_supplied': self.instance.is_customer_supplied,
+        }), **attrs}
+
+        if not (merged.get('inventory_item') or merged.get('catalog_item')
+                or merged.get('is_customer_supplied')):
+            raise serializers.ValidationError(
+                'A line must name an inventory item, a catalogue item, or be '
+                'marked as customer-supplied.')
+
+        # A garment category or a payment gateway is catalogued but cannot be
+        # consumed by a garment, so it has no business on a recipe.
+        catalog_item = merged.get('catalog_item')
+        if catalog_item is not None and not catalog_item.is_stockable:
+            raise serializers.ValidationError({'catalog_item': (
+                f"'{catalog_item.name}' is a "
+                f"{catalog_item.get_item_type_display().lower()} and cannot be "
+                f"used as a material.")})
+
+        formula = attrs.get('quantity_formula')
+        if formula:
+            try:
+                # Structural check, not an evaluation. The measurements a
+                # formula reads do not exist until an order does, so it cannot
+                # be run here; validate_syntax walks every node instead, which
+                # means an unbound name is fine and a forbidden construct is
+                # caught wherever it sits in the expression.
+                validate_syntax(formula)
+            except FormulaError as exc:
+                raise serializers.ValidationError({'quantity_formula': str(exc)})
+        return attrs
+
+
+class BillOfMaterialsSerializer(serializers.ModelSerializer):
+    lines = BomLineSerializer(many=True, read_only=True)
+    template_name = serializers.CharField(source='template.name', read_only=True, default=None)
+    line_count = serializers.IntegerField(source='lines.count', read_only=True)
+
+    class Meta:
+        model = BillOfMaterials
+        fields = ['id', 'name', 'template', 'template_name', 'design', 'version',
+                  'is_active', 'notes', 'lines', 'line_count', 'created_at', 'updated_at']
+        read_only_fields = ['version']
+
+    def validate(self, attrs):
+        """Refuse a duplicate version before the database has to.
+
+        DRF's UniqueTogetherValidator short-circuits as soon as any component of
+        the key is None (rest_framework/validators.py), and template or design
+        being null is the ordinary case here -- so without this the partial
+        constraints in Meta would surface as an IntegrityError 500 rather than a
+        400 naming the clash.
+        """
+        merged = {**({} if self.instance is None else {
+            'name': self.instance.name,
+            'template': self.instance.template,
+            'design': self.instance.design,
+        }), **attrs}
+
+        version = getattr(self.instance, 'version', 1)
+        clash = BillOfMaterials.objects.filter(
+            template=merged.get('template'), design=merged.get('design'),
+            version=version)
+        if merged.get('template') is None and merged.get('design') is None:
+            clash = clash.filter(name=merged.get('name'))
+        if self.instance is not None:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise serializers.ValidationError(
+                {'version': f'A version {version} of this recipe already exists.'})
+        return attrs
