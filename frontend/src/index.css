@@ -3057,22 +3057,127 @@ table.data-table tbody tr:hover {
   }
 }
 
+/* Comprehensive Mobile & Tablet Responsiveness across all roles & features */
+@media (max-width: 768px) {
+  /* Portal Header & User Profile Bar */
+  .portal-header-left h1 {
+    font-size: 22px !important;
+  }
+  .portal-header-left p {
+    font-size: 12px !important;
+  }
+  
+  /* Quick action buttons & tab bars */
+  .quick-action-button-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Form Grids & Double Field Inputs */
+  .form-grid, 
+  .form-row,
+  .modal-body-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Tailors / Staff & Design Cards */
+  .tailor-card,
+  .design-card,
+  .inventory-card {
+    width: 100% !important;
+  }
+
+  /* Modal Dialogs */
+  .modal-overlay,
+  .modal-container {
+    padding: 12px !important;
+  }
+  .modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 12px !important;
+    padding: 16px !important;
+    margin: 10px !important;
+  }
+
+  /* Screen Headers & CTAs */
+  .portal-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 14px !important;
+  }
+
+  .portal-header-left {
+    width: 100% !important;
+  }
+
+  .portal-header-right {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  .portal-header-right button,
+  .portal-header-right a,
+  .btn-primary,
+  .btn-secondary {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* Action bars & Filter buttons */
+  .filter-bar,
+  .action-buttons-group,
+  .hero-cta-group {
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 8px !important;
+  }
+
+  .filter-bar select,
+  .filter-bar input,
+  .filter-bar button {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Tables horizontal scroll container */
+  .responsive-table-wrapper,
+  table {
+    display: block !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+  }
+
+  /* Dashboard Stats Grid */
+  .stats-summary-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+}
+
 @media (max-width: 480px) {
-  /* Smaller screens */
+  /* Smaller mobile screens (320px - 480px) */
   .landing-hero h1 {
-    font-size: 28px !important;
+    font-size: 26px !important;
   }
   .landing-nav-links {
     font-size: 12px !important;
-    gap: 10px 12px !important;
+    gap: 8px 10px !important;
   }
   .portal-menu {
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 6px !important;
+    gap: 4px !important;
   }
   .portal-menu-item {
-    justify-content: center !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    width: 100% !important;
+    padding: 10px 16px !important;
   }
   /* Modal Dialogs */
   .modal-overlay,
@@ -3137,6 +3242,88 @@ table.data-table tbody tr:hover {
     display: block !important;
     overflow-x: auto !important;
     white-space: nowrap !important;
+  }
+}
+
+/* Wizard & Order Creation Mobile Responsiveness & Overflow Fixes */
+.wizard-outer-wrapper {
+  overflow-x: hidden !important;
+  width: 100% !important;
+  max-width: 100vw !important;
+  box-sizing: border-border-box !important;
+}
+
+.stepper-progress-bar {
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 0;
+  max-width: 100%;
+}
+
+.stepper-progress-bar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .wizard-header-container {
+    padding: 12px 16px !important;
+  }
+
+  .stepper-progress-bar {
+    display: flex !important;
+    justify-content: flex-start !important;
+    gap: 16px !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+  }
+
+  .stepper-progress-bar > div {
+    min-width: 85px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .stepper-progress-bar > div:nth-child(even) {
+    display: none !important; /* Hide connecting line divs on mobile to prevent overflow */
+  }
+
+  .wizard-outer-wrapper .main-content {
+    padding: 16px 12px 100px !important;
+  }
+
+  .form-grid-2,
+  .form-grid-3,
+  .form-grid-4 {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .footer-actions-bar {
+    padding: 14px 16px !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+  }
+
+  .footer-right-actions {
+    flex-wrap: wrap !important;
+    justify-content: flex-end !important;
+    gap: 8px !important;
+  }
+
+  .footer-right-actions button,
+  .footer-left-actions button {
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .wizard-outer-wrapper .main-content {
+    padding: 12px 8px 110px !important;
+  }
+  .footer-actions-bar {
+    padding: 12px !important;
   }
 }
 
@@ -3484,4 +3671,6 @@ table.data-table tbody tr:hover {
     padding-bottom: 84px !important;
   }
 }
+
+
 
