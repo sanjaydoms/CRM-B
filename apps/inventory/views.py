@@ -1,14 +1,15 @@
-from django.db.models import F, Sum, DecimalField, ExpressionWrapper
+from django.db.models import Count, F, Sum, DecimalField, ExpressionWrapper
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .models import (
-    Category, InventoryItem, PurchaseOrder, StockMovement, Supplier, Unit,
-    DEFAULT_UNIT_BY_CATEGORY,
+    CatalogItem, CatalogSection, Category, InventoryItem, PurchaseOrder,
+    StockMovement, Supplier, Unit, DEFAULT_UNIT_BY_CATEGORY, STOCKABLE_ITEM_TYPES,
 )
 from .serializers import (
+    CatalogItemSerializer, CatalogSectionSerializer,
     InventoryItemSerializer, InventoryItemSummarySerializer, PurchaseOrderSerializer,
     StockMovementSerializer, SupplierSerializer,
 )
@@ -238,3 +239,102 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         purchase_order.save(update_fields=['status', 'received_date'])
 
         return Response(PurchaseOrderSerializer(purchase_order).data, status=status.HTTP_200_OK)
+
+
+class CatalogSectionViewSet(viewsets.ReadOnlyModelViewSet):
+    """The published catalogue's sections, with how many items each holds."""
+
+    serializer_class = CatalogSectionSerializer
+
+    def get_queryset(self):
+        queryset = CatalogSection.objects.annotate(item_count=Count('items'))
+        if doc := self.request.query_params.get('doc'):
+            queryset = queryset.filter(doc=doc)
+        return queryset
+
+
+class CatalogItemViewSet(viewsets.ReadOnlyModelViewSet):
+    """Browse the catalogue, and stock a row from it.
+
+    Read-only by design: the catalogue is loaded from the source documents by a
+    migration, so it is not something a boutique edits. What a boutique does is
+    decide which of these it actually holds, which is what `stock` does.
+    """
+
+    serializer_class = CatalogItemSerializer
+
+    def get_queryset(self):
+        queryset = (CatalogItem.objects
+                    .select_related('section')
+                    .prefetch_related('stocked_as')
+                    .filter(is_active=True))
+        params = self.request.query_params
+        if section := params.get('section'):
+            queryset = queryset.filter(section_id=section)
+        if doc := params.get('doc'):
+            queryset = queryset.filter(section__doc=doc)
+        if name := params.get('section_name'):
+            queryset = queryset.filter(section__name=name)
+        if item_type := params.get('item_type'):
+            queryset = queryset.filter(item_type=item_type)
+        if params.get('stockable') == 'true':
+            queryset = queryset.filter(item_type__in=STOCKABLE_ITEM_TYPES)
+        if search := params.get('search'):
+            queryset = queryset.filter(name__icontains=search)
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def sections(self, request):
+        """The whole taxonomy in one call, for the catalogue browser's tree."""
+        rows = (CatalogSection.objects.annotate(item_count=Count('items'))
+                .order_by('doc', 'sequence', 'subsection'))
+        return Response(CatalogSectionSerializer(rows, many=True).data)
+
+    @action(detail=True, methods=['post'])
+    def stock(self, request, pk=None):
+        """Start stocking this catalogue row: create the InventoryItem for it.
+
+        Idempotent -- a second call returns the existing row rather than making a
+        duplicate, because the obvious way to double-click a button should not
+        leave the boutique with the same material twice.
+        """
+        catalog_item = self.get_object()
+        if not catalog_item.is_stockable:
+            return Response(
+                {'detail': f"'{catalog_item.name}' is a "
+                           f"{catalog_item.get_item_type_display().lower()} and cannot hold stock."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing = InventoryItem.objects.filter(catalog_item=catalog_item).first()
+        if existing:
+            return Response(InventoryItemSerializer(existing).data, status=status.HTTP_200_OK)
+
+        payload = request.data or {}
+        item = InventoryItem.objects.create(
+            item_code=payload.get('item_code') or _next_item_code(catalog_item),
+            name=payload.get('name') or catalog_item.name,
+            category=catalog_item.legacy_category,
+            sub_category=catalog_item.section.full_name,
+            catalog_item=catalog_item,
+            unit=payload.get('unit') or catalog_item.default_unit,
+            purchase_price=payload.get('purchase_price') or 0,
+            selling_price=payload.get('selling_price') or 0,
+            reorder_level=payload.get('reorder_level') or 0,
+            minimum_stock=payload.get('minimum_stock') or 0,
+        )
+        return Response(InventoryItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+
+def _next_item_code(catalog_item):
+    """A readable, unique code: first letters of the section plus a counter."""
+    import re
+
+    initials = ''.join(word[0] for word in re.findall(r'[A-Za-z]+', catalog_item.section.name))[:3].upper()
+    prefix = f"CAT-{initials or 'GEN'}"
+    taken = set(InventoryItem.objects.filter(item_code__startswith=prefix)
+                .values_list('item_code', flat=True))
+    n = 1
+    while f"{prefix}-{n:04d}" in taken:
+        n += 1
+    return f"{prefix}-{n:04d}"

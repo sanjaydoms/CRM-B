@@ -1,8 +1,8 @@
 from rest_framework import serializers
 
 from .models import (
-    Category, DEFAULT_UNIT_BY_CATEGORY, InventoryItem, PurchaseOrder,
-    PurchaseOrderLine, StockMovement, Supplier, Unit,
+    CatalogItem, CatalogSection, Category, DEFAULT_UNIT_BY_CATEGORY, InventoryItem,
+    PurchaseOrder, PurchaseOrderLine, StockMovement, Supplier, Unit,
 )
 
 
@@ -106,3 +106,43 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+
+class CatalogItemSerializer(serializers.ModelSerializer):
+    """A row of the published catalogue, with enough context to stock it."""
+
+    section_name = serializers.CharField(source='section.name', read_only=True)
+    section_full_name = serializers.CharField(source='section.full_name', read_only=True)
+    subsection = serializers.CharField(source='section.subsection', read_only=True)
+    doc = serializers.CharField(source='section.doc', read_only=True)
+    item_type_display = serializers.CharField(source='get_item_type_display', read_only=True)
+    is_stockable = serializers.BooleanField(read_only=True)
+    #: Whether this boutique already stocks it, so the UI can offer "Add to
+    #: inventory" once rather than creating a second row for the same material.
+    stocked_item_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CatalogItem
+        fields = [
+            'id', 'name', 'item_type', 'item_type_display', 'default_unit',
+            'legacy_category', 'is_active', 'is_stockable',
+            'doc', 'section_name', 'subsection', 'section_full_name', 'stocked_item_id',
+        ]
+
+    def get_stocked_item_id(self, obj):
+        existing = getattr(obj, 'stocked_as', None)
+        if existing is None:
+            return None
+        row = existing.all()[:1]
+        return str(row[0].id) if row else None
+
+
+class CatalogSectionSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(read_only=True)
+    doc_display = serializers.CharField(source='get_doc_display', read_only=True)
+    item_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = CatalogSection
+        fields = ['id', 'doc', 'doc_display', 'sequence', 'name', 'subsection',
+                  'full_name', 'item_count']

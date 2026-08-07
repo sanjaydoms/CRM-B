@@ -58,6 +58,108 @@ DEFAULT_UNIT_BY_CATEGORY = {
 }
 
 
+class ItemType(models.TextChoices):
+    """What a catalogue row actually is.
+
+    The source documents are an inventory of a whole apparel business, not only
+    of stockable materials: they list machines, fixtures, software and the
+    garment categories the boutique sells. Everything is catalogued because the
+    specification forbids omitting anything, and typed here so that only the
+    rows that can sensibly hold stock reach stock and BOM logic.
+    """
+
+    MATERIAL = 'MATERIAL', 'Material'
+    CONSUMABLE = 'CONSUMABLE', 'Consumable'
+    TOOL = 'TOOL', 'Tool'
+    MACHINE = 'MACHINE', 'Machine'
+    ASSET = 'ASSET', 'Asset'
+    DOCUMENT = 'DOCUMENT', 'Document'
+    SYSTEM = 'SYSTEM', 'System / Software'
+    PRODUCT_CATEGORY = 'PRODUCT_CATEGORY', 'Product Category'
+
+
+#: Rows that may carry stock. A garment category and a payment gateway cannot be
+#: counted, reserved or consumed; a machine or a pair of scissors can be owned in
+#: a quantity, so they stay stockable.
+STOCKABLE_ITEM_TYPES = frozenset({
+    ItemType.MATERIAL, ItemType.CONSUMABLE, ItemType.TOOL,
+    ItemType.MACHINE, ItemType.ASSET, ItemType.DOCUMENT,
+})
+
+
+class CatalogSection(models.Model):
+    """One section of the source catalogue, e.g. "Beads" or "Sewing Machines".
+
+    Sections are kept exactly as the documents order and name them -- flattening
+    them into the eight legacy `Category` values would merge materials the
+    specification requires to stay distinct. `Category` is retained alongside
+    this for the rows and screens that already use it.
+    """
+
+    class Doc(models.TextChoices):
+        MAGGAM = 'MAGGAM', 'Maggam / Aari / Zardosi materials'
+        APPAREL = 'APPAREL', 'Apparel ecosystem checklist'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    doc = models.CharField(max_length=20, choices=Doc.choices, db_index=True)
+    sequence = models.PositiveIntegerField()
+    name = models.CharField(max_length=150)
+    subsection = models.CharField(max_length=150, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['doc', 'sequence', 'subsection']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['doc', 'name', 'subsection'],
+                name='uniq_catalog_section',
+            ),
+        ]
+
+    @property
+    def full_name(self):
+        return f"{self.name} · {self.subsection}" if self.subsection else self.name
+
+    def __str__(self):
+        return f"{self.get_doc_display()} — {self.full_name}"
+
+
+class CatalogItem(models.Model):
+    """A material the boutique *could* stock, as published in the source docs.
+
+    This is a reference list, not stock. A boutique that actually holds an item
+    creates an InventoryItem from it; the ones it never touches stay here rather
+    than filling every tenant's stock screen with hundreds of zero rows.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    section = models.ForeignKey(
+        CatalogSection, on_delete=models.CASCADE, related_name='items')
+    name = models.CharField(max_length=200, db_index=True)
+    item_type = models.CharField(
+        max_length=20, choices=ItemType.choices, default=ItemType.MATERIAL, db_index=True)
+    default_unit = models.CharField(max_length=20, choices=Unit.choices, default=Unit.PIECE)
+    #: The nearest of the eight legacy categories, so a catalogue row can be
+    #: turned into an InventoryItem without the operator picking one by hand.
+    legacy_category = models.CharField(max_length=30, choices=Category.choices, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['section', 'name']
+        indexes = [models.Index(fields=['item_type', 'is_active'])]
+        constraints = [
+            models.UniqueConstraint(fields=['section', 'name'], name='uniq_catalog_item'),
+        ]
+
+    @property
+    def is_stockable(self):
+        return self.item_type in STOCKABLE_ITEM_TYPES
+
+    def __str__(self):
+        return f"{self.name} ({self.section.full_name})"
+
+
 class DirectStockWriteError(RuntimeError):
     """Raised when stock is changed outside InventoryService."""
 
@@ -92,6 +194,11 @@ class InventoryItem(models.Model):
     name = models.CharField(max_length=200, db_index=True)
     category = models.CharField(max_length=30, choices=Category.choices, db_index=True)
     sub_category = models.CharField(max_length=100, blank=True, null=True)
+    #: Where this came from in the published catalogue, when it came from there
+    #: at all. Null for an item the boutique invented itself, which stays legal.
+    catalog_item = models.ForeignKey(
+        CatalogItem, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='stocked_as')
     brand = models.CharField(max_length=100, blank=True, null=True)
     color = models.CharField(max_length=50, blank=True, null=True)
     size = models.CharField(max_length=50, blank=True, null=True)

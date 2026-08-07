@@ -349,3 +349,181 @@ class PurchaseOrderTests(InventoryTestBase):
         po.save()
         self.assertEqual(po.subtotal, Decimal('11000.00'))
         self.assertEqual(po.total, Decimal('11550.00'))
+
+
+class CatalogSeedTests(InventoryTestBase):
+    """The published catalogue is loaded whole.
+
+    The specification's central rule is that no category, sub-category or item
+    from the two source documents may be omitted, merged or renamed. Asserting a
+    count would only catch a wholesale failure, so these tests re-parse the
+    originals -- which are committed alongside the code in catalog_sources/ --
+    and compare them against the database name by name. If someone edits a
+    source document without regenerating catalog_definitions.py, or quietly drops
+    a row from it, this fails and says exactly which item went missing.
+    """
+
+    SKIP_SECTIONS = {
+        # A recap of items already listed above it, not new catalogue entries.
+        'Common Materials Used in Bridal Maggam Work',
+        # Numbered prose, not a material list.
+        'Complete Workflow (Apparel Lifecycle)',
+    }
+
+    @classmethod
+    def _parse_source(cls, filename):
+        """(section, subsection, item) for every bullet in a source document."""
+        import re
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent / 'catalog_sources' / filename
+        section = subsection = None
+        rows = []
+        for raw in path.read_text(encoding='utf-8').splitlines():
+            if raw.startswith('## '):
+                heading = raw[3:].strip()
+                match = re.match(r'^(\d+)\.\s+(.*)$', heading)
+                section = match.group(2) if match else heading
+                subsection = None
+                continue
+            if raw.startswith('### '):
+                subsection = raw[4:].strip()
+                continue
+            match = re.match(r'^- (.+)$', raw)
+            if match and section and section not in cls.SKIP_SECTIONS:
+                name = re.sub(r'\s*\*\(.*?\)\*\s*$', '', match.group(1).strip())
+                rows.append((section, subsection, name))
+        return rows
+
+    def _source_rows(self):
+        return (self._parse_source('01-maggam-embroidery-materials.md')
+                + self._parse_source('02-apparel-ecosystem-checklist.md'))
+
+    def test_catalog_matches_the_source_documents(self):
+        from .models import CatalogItem
+
+        expected = {(sec, sub, name) for sec, sub, name in self._source_rows()}
+        actual = {
+            (item.section.name, item.section.subsection, item.name)
+            for item in CatalogItem.objects.select_related('section')
+        }
+
+        missing = expected - actual
+        extra = actual - expected
+        self.assertFalse(missing, f"{len(missing)} catalogue item(s) missing: {sorted(missing)[:15]}")
+        self.assertFalse(extra, f"{len(extra)} item(s) not in any source document: {sorted(extra)[:15]}")
+
+    def test_every_source_section_exists_unmerged(self):
+        from .models import CatalogSection
+
+        expected = {(sec, sub) for sec, sub, _ in self._source_rows()}
+        actual = set(CatalogSection.objects.values_list('name', 'subsection'))
+        self.assertEqual(expected, actual)
+
+    def test_catalog_covers_both_documents(self):
+        from .models import CatalogItem, CatalogSection
+
+        self.assertEqual(
+            CatalogSection.objects.filter(doc=CatalogSection.Doc.MAGGAM)
+            .values('name').distinct().count(), 22)
+        self.assertEqual(
+            CatalogSection.objects.filter(doc=CatalogSection.Doc.APPAREL)
+            .values('name').distinct().count(), 27)
+        self.assertEqual(CatalogItem.objects.count(), 732)
+
+    def test_non_stockable_rows_are_typed_as_such(self):
+        """A payment gateway and a garment category cannot hold stock."""
+        from .models import CatalogItem, ItemType
+
+        for name, expected in [
+            ('Payment Gateway', ItemType.SYSTEM),
+            ('ERP', ItemType.SYSTEM),
+            ('Sarees', ItemType.PRODUCT_CATEGORY),
+            ('Sherwanis', ItemType.PRODUCT_CATEGORY),
+        ]:
+            for item in CatalogItem.objects.filter(name=name):
+                self.assertEqual(item.item_type, expected, name)
+                self.assertFalse(item.is_stockable, name)
+
+    def test_materials_stay_stockable(self):
+        from .models import CatalogItem
+
+        for name in ('Dabka', 'Nakshi', 'Kundan Stones', 'Raw Silk', 'Seed Beads'):
+            items = CatalogItem.objects.filter(name=name)
+            self.assertTrue(items.exists(), f"{name} is missing from the catalogue")
+            for item in items:
+                self.assertTrue(item.is_stockable, name)
+
+    def test_syncing_twice_creates_nothing_new(self):
+        """A redeploy re-runs the loader; it must not duplicate the catalogue."""
+        from .catalog_sync import sync_catalog
+        from .models import CatalogItem, CatalogSection
+
+        before = (CatalogSection.objects.count(), CatalogItem.objects.count())
+        result = sync_catalog()
+        after = (CatalogSection.objects.count(), CatalogItem.objects.count())
+        self.assertEqual(before, after)
+        self.assertEqual(result, {'sections': 0, 'items': 0})
+
+
+class CatalogApiTests(InventoryTestBase):
+    """Browsing the catalogue, and turning one of its rows into stock."""
+
+    def test_sections_list_reports_every_section_with_counts(self):
+        response = self.client.get('/api/inventory/catalog/items/sections/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 61)
+        self.assertEqual(sum(row['item_count'] for row in response.data), 732)
+
+    def test_items_can_be_filtered_by_section_name(self):
+        response = self.client.get(
+            '/api/inventory/catalog/items/?section_name=Traditional Zardosi Materials')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = {row['name'] for row in response.data}
+        for expected in ('Dabka', 'Nakshi', 'Kasab', 'Salma', 'Sitara'):
+            self.assertIn(expected, names)
+
+    def test_stockable_filter_excludes_systems_and_garment_categories(self):
+        response = self.client.get('/api/inventory/catalog/items/?stockable=true&search=Payment')
+        self.assertEqual(list(response.data), [])
+
+    def test_stocking_a_catalog_row_creates_an_inventory_item(self):
+        from .models import CatalogItem
+
+        dabka = CatalogItem.objects.filter(name='Dabka').first()
+        response = self.client.post(f'/api/inventory/catalog/items/{dabka.id}/stock/', {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['name'], 'Dabka')
+
+        item = InventoryItem.objects.get(id=response.data['id'])
+        self.assertEqual(item.catalog_item_id, dabka.id)
+        self.assertEqual(item.category, dabka.legacy_category)
+        self.assertEqual(Decimal(str(item.current_stock)), Decimal('0'))
+
+    def test_stocking_the_same_row_twice_does_not_duplicate_it(self):
+        from .models import CatalogItem
+
+        kundan = CatalogItem.objects.filter(name='Kundan Stones').first()
+        first = self.client.post(f'/api/inventory/catalog/items/{kundan.id}/stock/', {}, format='json')
+        second = self.client.post(f'/api/inventory/catalog/items/{kundan.id}/stock/', {}, format='json')
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data['id'], second.data['id'])
+        self.assertEqual(InventoryItem.objects.filter(catalog_item=kundan).count(), 1)
+
+    def test_a_non_stockable_row_is_refused(self):
+        from .models import CatalogItem
+
+        gateway = CatalogItem.objects.filter(name='Payment Gateway').first()
+        response = self.client.post(f'/api/inventory/catalog/items/{gateway.id}/stock/', {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('cannot hold stock', response.data['detail'])
+        self.assertFalse(InventoryItem.objects.filter(catalog_item=gateway).exists())
+
+    def test_stocked_rows_report_their_inventory_item(self):
+        from .models import CatalogItem
+
+        zari = CatalogItem.objects.filter(name='Zari Lace').first()
+        created = self.client.post(f'/api/inventory/catalog/items/{zari.id}/stock/', {}, format='json')
+        response = self.client.get(f'/api/inventory/catalog/items/{zari.id}/')
+        self.assertEqual(response.data['stocked_item_id'], created.data['id'])
