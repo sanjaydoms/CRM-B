@@ -2,7 +2,8 @@ from rest_framework import serializers
 
 from .models import (
     CatalogItem, CatalogSection, Category, DEFAULT_UNIT_BY_CATEGORY, InventoryItem,
-    PurchaseOrder, PurchaseOrderLine, StockMovement, Supplier, Unit,
+    LocationStock, PurchaseOrder, PurchaseOrderLine, StockLocation, StockMovement,
+    Supplier, Unit,
 )
 
 
@@ -146,3 +147,26 @@ class CatalogSectionSerializer(serializers.ModelSerializer):
         model = CatalogSection
         fields = ['id', 'doc', 'doc_display', 'sequence', 'name', 'subsection',
                   'full_name', 'item_count']
+
+
+class StockLocationSerializer(serializers.ModelSerializer):
+    kind_display = serializers.CharField(source='get_kind_display', read_only=True)
+    tailor_name = serializers.CharField(source='tailor.name', read_only=True, default=None)
+
+    class Meta:
+        model = StockLocation
+        fields = ['id', 'name', 'kind', 'kind_display', 'is_default', 'is_active',
+                  'sequence', 'tailor', 'tailor_name']
+
+
+class LocationStockSerializer(serializers.ModelSerializer):
+    location_name = serializers.CharField(source='location.name', read_only=True)
+    location_kind = serializers.CharField(source='location.kind', read_only=True)
+    item_name = serializers.CharField(source='item.name', read_only=True)
+    item_code = serializers.CharField(source='item.item_code', read_only=True)
+    unit_display = serializers.CharField(source='item.get_unit_display', read_only=True)
+
+    class Meta:
+        model = LocationStock
+        fields = ['id', 'item', 'item_name', 'item_code', 'location', 'location_name',
+                  'location_kind', 'quantity', 'unit_display', 'updated_at']

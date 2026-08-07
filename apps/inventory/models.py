@@ -160,6 +160,82 @@ class CatalogItem(models.Model):
         return f"{self.name} ({self.section.full_name})"
 
 
+class StockLocation(models.Model):
+    """Somewhere stock can physically be.
+
+    A boutique's material does not sit in one place: it arrives at the store,
+    waits in the warehouse, goes out to the cutting unit, then to embroidery,
+    then to a tailor. `InventoryItem.current_stock` stays the authoritative
+    total; LocationStock below is the breakdown of where that total is, and the
+    two are kept in step by InventoryService.
+    """
+
+    class Kind(models.TextChoices):
+        MAIN_STORE = 'MAIN_STORE', 'Main Store'
+        WAREHOUSE = 'WAREHOUSE', 'Warehouse'
+        WORKSHOP = 'WORKSHOP', 'Workshop'
+        CUTTING_UNIT = 'CUTTING_UNIT', 'Cutting Unit'
+        EMBROIDERY_UNIT = 'EMBROIDERY_UNIT', 'Embroidery Unit'
+        TAILOR = 'TAILOR', 'Tailor / Master'
+        FINISHING_UNIT = 'FINISHING_UNIT', 'Finishing Unit'
+        SHOWROOM = 'SHOWROOM', 'Showroom'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=120)
+    kind = models.CharField(max_length=30, choices=Kind.choices, db_index=True)
+    #: Where stock lands when a movement does not name a location. Exactly one
+    #: row carries this, which is what lets every existing caller keep working
+    #: without passing a location it never had to think about before.
+    is_default = models.BooleanField(default=False)
+    #: A TAILOR location can be tied to the person holding the material, so
+    #: "where is it" and "who has it" are the same answer.
+    tailor = models.ForeignKey(
+        Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_locations')
+    is_active = models.BooleanField(default=True, db_index=True)
+    sequence = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sequence', 'name']
+        constraints = [
+            models.UniqueConstraint(fields=['name'], name='uniq_stock_location_name'),
+            models.UniqueConstraint(
+                fields=['is_default'], condition=models.Q(is_default=True),
+                name='one_default_stock_location',
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class LocationStock(models.Model):
+    """How much of one item is at one location.
+
+    Written only by InventoryService, alongside the movement that caused it.
+    The sum of these across locations equals InventoryItem.current_stock; the
+    reconciliation test asserts exactly that.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # A string reference because InventoryItem is declared further down.
+    item = models.ForeignKey(
+        'InventoryItem', on_delete=models.CASCADE, related_name='location_stocks')
+    location = models.ForeignKey(StockLocation, on_delete=models.PROTECT, related_name='stocks')
+    quantity = models.DecimalField(
+        max_digits=12, decimal_places=3, default=0, validators=[MinValueValidator(0)])
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['location__sequence']
+        constraints = [
+            models.UniqueConstraint(fields=['item', 'location'], name='uniq_item_location_stock'),
+        ]
+
+    def __str__(self):
+        return f"{self.item.name} @ {self.location.name}: {self.quantity}"
+
+
 class DirectStockWriteError(RuntimeError):
     """Raised when stock is changed outside InventoryService."""
 
@@ -298,16 +374,26 @@ class StockMovement(models.Model):
 
     class Type(models.TextChoices):
         PURCHASE = 'PURCHASE', 'Purchase'
+        #: Stock arriving against a purchase order, as distinct from STOCK_IN,
+        #: which is any other way material turns up on the shelf.
+        GOODS_RECEIPT = 'GOODS_RECEIPT', 'Goods Receipt'
         STOCK_IN = 'STOCK_IN', 'Stock In'
         RESERVATION = 'RESERVATION', 'Reservation'
         RELEASE = 'RELEASE', 'Reservation Released'
         ISSUE = 'ISSUE', 'Issued to Production'
         CONSUMPTION = 'CONSUMPTION', 'Consumed'
-        RETURN = 'RETURN', 'Returned'
+        RETURN = 'RETURN', 'Return to Stock'
         TRANSFER = 'TRANSFER', 'Transfer'
         DAMAGE = 'DAMAGE', 'Damaged'
+        #: Waste is material lost in the making -- offcuts, spoilage. Damage is
+        #: material that was fine until something happened to it. They are
+        #: separate lines because waste % is a production metric and damage % is
+        #: a handling one, and averaging them together tells you nothing.
+        WASTE = 'WASTE', 'Waste'
         ADJUSTMENT = 'ADJUSTMENT', 'Adjustment'
         SCRAP = 'SCRAP', 'Scrapped'
+        CUSTOMER_RETURN = 'CUSTOMER_RETURN', 'Customer Return'
+        SUPPLIER_RETURN = 'SUPPLIER_RETURN', 'Supplier Return'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     item = models.ForeignKey(InventoryItem, on_delete=models.PROTECT, related_name='movements')
@@ -328,6 +414,16 @@ class StockMovement(models.Model):
         Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_movements'
     )
     stage_key = models.CharField(max_length=100, blank=True, null=True, db_index=True)
+    #: Where the material came from and went to. A transfer sets both; a receipt
+    #: sets only `to_location`; an issue or a waste line only `from_location`.
+    #: Together they are what makes a movement traceable rather than just a
+    #: change in a number.
+    from_location = models.ForeignKey(
+        StockLocation, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='movements_out')
+    to_location = models.ForeignKey(
+        StockLocation, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='movements_in')
     performed_by = models.ForeignKey(
         Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_movements'
     )

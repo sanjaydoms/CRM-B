@@ -13,7 +13,7 @@ from django.db import transaction
 
 from crm_api.models import Notification
 
-from .models import InventoryItem, StockMovement
+from .models import InventoryItem, LocationStock, StockLocation, StockMovement
 
 
 def _as_quantity(value, field='quantity'):
@@ -29,10 +29,37 @@ def _as_quantity(value, field='quantity'):
 class InventoryService:
 
     @staticmethod
+    def default_location():
+        """The location a movement lands at when the caller does not name one.
+
+        Every operation predates locations, so none of them passed one. Rather
+        than make the argument required and break every existing call site, an
+        unlocated movement is treated as happening at the default -- which is
+        what the boutique means by "in stock" before it starts tracking units.
+        """
+        return StockLocation.objects.filter(is_default=True, is_active=True).first()
+
+    @staticmethod
+    def _shift_location(item, location, delta, quantity):
+        """Move `quantity` into (delta=+1) or out of (delta=-1) one location."""
+        if location is None or delta == 0:
+            return
+        row, _ = LocationStock.objects.select_for_update().get_or_create(
+            item=item, location=location, defaults={'quantity': Decimal('0')})
+        new_quantity = row.quantity + (delta * quantity)
+        if new_quantity < 0:
+            raise ValueError(
+                f"Cannot take {quantity} {item.get_unit_display()} of '{item.name}' from "
+                f"{location.name} -- only {row.quantity} is there."
+            )
+        row.quantity = new_quantity
+        row.save(update_fields=['quantity', 'updated_at'])
+
+    @staticmethod
     @transaction.atomic
     def record_movement(item, movement_type, quantity, *, stock_delta, reserved_delta,
                         clamp_reserved=False, user=None, order=None, stage_key=None,
-                        performed_by=None, remarks=''):
+                        performed_by=None, remarks='', from_location=None, to_location=None):
         """Apply a stock change and write its ledger line.
 
         stock_delta and reserved_delta are signed; a reservation moves only the
@@ -72,6 +99,17 @@ class InventoryService:
                 f"only {previous_stock - previous_reserved} available."
             )
 
+        # Keep the per-location breakdown in step with the total, inside the same
+        # transaction, so the two can never drift. A movement that adds stock
+        # lands somewhere; one that removes it comes from somewhere; a transfer
+        # does both and leaves the total alone.
+        if stock_delta > 0 and to_location is None:
+            to_location = InventoryService.default_location()
+        if stock_delta < 0 and from_location is None:
+            from_location = InventoryService.default_location()
+        InventoryService._shift_location(locked, from_location, -1, quantity)
+        InventoryService._shift_location(locked, to_location, +1, quantity)
+
         locked.current_stock = new_stock
         locked.reserved_stock = new_reserved
         locked._allow_stock_write = True
@@ -81,6 +119,8 @@ class InventoryService:
             item=locked,
             movement_type=movement_type,
             quantity=quantity,
+            from_location=from_location,
+            to_location=to_location,
             previous_stock=previous_stock,
             new_stock=new_stock,
             previous_reserved=previous_reserved,
@@ -159,6 +199,85 @@ class InventoryService:
         return InventoryService.record_movement(
             item, StockMovement.Type.SCRAP, quantity, stock_delta=-1, reserved_delta=0, **kw
         )
+
+    @staticmethod
+    def goods_receipt(item, quantity, **kw):
+        """Material arriving against a purchase order."""
+        return InventoryService.record_movement(
+            item, StockMovement.Type.GOODS_RECEIPT, quantity,
+            stock_delta=1, reserved_delta=0, **kw
+        )
+
+    @staticmethod
+    def consume(item, quantity, **kw):
+        """Material actually used up in production.
+
+        Distinct from issue(): issuing moves material to the workroom, consuming
+        records that it went into the garment. A boutique that only ever issues
+        cannot tell how much of what it handed over came back.
+        """
+        return InventoryService.record_movement(
+            item, StockMovement.Type.CONSUMPTION, quantity,
+            stock_delta=-1, reserved_delta=-1, clamp_reserved=True, **kw
+        )
+
+    @staticmethod
+    def waste(item, quantity, **kw):
+        """Material lost in the making -- offcuts, spoilage, failed embroidery."""
+        return InventoryService.record_movement(
+            item, StockMovement.Type.WASTE, quantity, stock_delta=-1, reserved_delta=0, **kw
+        )
+
+    @staticmethod
+    def customer_return(item, quantity, **kw):
+        """A finished garment's material coming back from the customer."""
+        return InventoryService.record_movement(
+            item, StockMovement.Type.CUSTOMER_RETURN, quantity,
+            stock_delta=1, reserved_delta=0, **kw
+        )
+
+    @staticmethod
+    def supplier_return(item, quantity, **kw):
+        """Material sent back to the supplier -- wrong shade, short delivery, faulty."""
+        return InventoryService.record_movement(
+            item, StockMovement.Type.SUPPLIER_RETURN, quantity,
+            stock_delta=-1, reserved_delta=0, **kw
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def transfer(item, quantity, *, from_location, to_location, **kw):
+        """Move stock between two locations. The total never changes.
+
+        This is the one operation where stock_delta is zero: nothing enters or
+        leaves the boutique, it just stops being in one place and starts being in
+        another. Both sides move in a single transaction, so a transfer can never
+        leave material counted twice or not at all.
+        """
+        if from_location is None or to_location is None:
+            raise ValueError('A transfer needs both a source and a destination location.')
+        if from_location.pk == to_location.pk:
+            raise ValueError(f"'{from_location.name}' is both the source and the destination.")
+        return InventoryService.record_movement(
+            item, StockMovement.Type.TRANSFER, quantity,
+            stock_delta=0, reserved_delta=0,
+            from_location=from_location, to_location=to_location, **kw
+        )
+
+    @staticmethod
+    def location_breakdown(item):
+        """Where this item's stock currently sits, heaviest first."""
+        rows = (LocationStock.objects.filter(item=item, quantity__gt=0)
+                .select_related('location').order_by('-quantity'))
+        return [
+            {
+                'location_id': str(row.location_id),
+                'location': row.location.name,
+                'kind': row.location.kind,
+                'quantity': row.quantity,
+            }
+            for row in rows
+        ]
 
     @staticmethod
     @transaction.atomic

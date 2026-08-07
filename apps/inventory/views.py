@@ -1,15 +1,18 @@
 from django.db.models import Count, F, Sum, DecimalField, ExpressionWrapper
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .models import (
-    CatalogItem, CatalogSection, Category, InventoryItem, PurchaseOrder,
-    StockMovement, Supplier, Unit, DEFAULT_UNIT_BY_CATEGORY, STOCKABLE_ITEM_TYPES,
+    CatalogItem, CatalogSection, Category, InventoryItem, LocationStock, PurchaseOrder,
+    StockLocation, StockMovement, Supplier, Unit, DEFAULT_UNIT_BY_CATEGORY,
+    STOCKABLE_ITEM_TYPES,
 )
 from .serializers import (
-    CatalogItemSerializer, CatalogSectionSerializer,
+    CatalogItemSerializer, CatalogSectionSerializer, LocationStockSerializer,
+    StockLocationSerializer,
     InventoryItemSerializer, InventoryItemSummarySerializer, PurchaseOrderSerializer,
     StockMovementSerializer, SupplierSerializer,
 )
@@ -144,6 +147,82 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['POST'], url_path='scrap')
     def scrap(self, request, pk=None):
         return self._apply(request, InventoryService.scrap)
+
+    @action(detail=True, methods=['POST'], url_path='goods-receipt')
+    def goods_receipt(self, request, pk=None):
+        return self._apply(request, InventoryService.goods_receipt,
+                           to_location=self._location(request, 'to_location'))
+
+    @action(detail=True, methods=['POST'], url_path='consume')
+    def consume(self, request, pk=None):
+        return self._apply(
+            request, InventoryService.consume,
+            order=self._order(request),
+            stage_key=request.data.get('stage_key'),
+            from_location=self._location(request, 'from_location'),
+        )
+
+    @action(detail=True, methods=['POST'], url_path='waste')
+    def waste(self, request, pk=None):
+        return self._apply(request, InventoryService.waste,
+                           order=self._order(request),
+                           from_location=self._location(request, 'from_location'))
+
+    @action(detail=True, methods=['POST'], url_path='customer-return')
+    def customer_return(self, request, pk=None):
+        return self._apply(request, InventoryService.customer_return,
+                           order=self._order(request),
+                           to_location=self._location(request, 'to_location'))
+
+    @action(detail=True, methods=['POST'], url_path='supplier-return')
+    def supplier_return(self, request, pk=None):
+        return self._apply(request, InventoryService.supplier_return,
+                           from_location=self._location(request, 'from_location'))
+
+    @action(detail=True, methods=['POST'], url_path='transfer')
+    def transfer(self, request, pk=None):
+        """Move stock between two locations."""
+        item = self.get_object()
+        try:
+            InventoryService.transfer(
+                item, request.data.get('quantity'),
+                from_location=self._location(request, 'from_location', required=True),
+                to_location=self._location(request, 'to_location', required=True),
+                user=request.user, remarks=request.data.get('remarks', ''),
+                order=self._order(request),
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        item.refresh_from_db()
+        return Response(InventoryItemSerializer(item).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['GET'], url_path='locations')
+    def locations(self, request, pk=None):
+        """Where this item's stock actually is."""
+        item = self.get_object()
+        return Response({
+            'item': item.name,
+            'total': item.current_stock,
+            'breakdown': InventoryService.location_breakdown(item),
+        })
+
+    @staticmethod
+    def _location(request, key, required=False):
+        """Resolve a location id from the request body.
+
+        Raises DRF's ValidationError rather than ValueError: these are evaluated
+        while building the arguments to _apply, outside its try block, so a
+        ValueError here would escape as a 500 instead of the 400 it is.
+        """
+        value = request.data.get(key)
+        if not value:
+            if required:
+                raise ValidationError({key: 'This field is required.'})
+            return None
+        location = StockLocation.objects.filter(pk=value).first()
+        if location is None:
+            raise ValidationError({key: f'No stock location with id {value}.'})
+        return location
 
     @action(detail=True, methods=['POST'], url_path='adjust')
     def adjust(self, request, pk=None):
@@ -338,3 +417,56 @@ def _next_item_code(catalog_item):
     while f"{prefix}-{n:04d}" in taken:
         n += 1
     return f"{prefix}-{n:04d}"
+
+
+class StockLocationViewSet(viewsets.ModelViewSet):
+    """The places stock can be. Seeded with the eight the specification names."""
+
+    serializer_class = StockLocationSerializer
+
+    def get_queryset(self):
+        queryset = StockLocation.objects.all()
+        if self.request.query_params.get('active') == 'true':
+            queryset = queryset.filter(is_active=True)
+        if kind := self.request.query_params.get('kind'):
+            queryset = queryset.filter(kind=kind)
+        return queryset
+
+    def perform_destroy(self, instance):
+        """Refuse to delete a location that still holds something.
+
+        PROTECT on LocationStock would raise a 500 here; this turns the same
+        refusal into an answer that says what is still there.
+        """
+        held = instance.stocks.filter(quantity__gt=0).count()
+        if held:
+            raise ValidationError(
+                {'detail': f"'{instance.name}' still holds {held} item(s). "
+                           f"Move them elsewhere before removing it."}
+            )
+        if instance.is_default:
+            raise ValidationError({'detail': 'The default location cannot be removed.'})
+        instance.delete()
+
+    @action(detail=True, methods=['GET'], url_path='stock')
+    def stock(self, request, pk=None):
+        """Everything currently held at this location."""
+        rows = (LocationStock.objects.filter(location=self.get_object(), quantity__gt=0)
+                .select_related('item', 'location').order_by('item__name'))
+        return Response(LocationStockSerializer(rows, many=True).data)
+
+
+class LocationStockViewSet(viewsets.ReadOnlyModelViewSet):
+    """The per-location breakdown, filterable by item or location."""
+
+    serializer_class = LocationStockSerializer
+
+    def get_queryset(self):
+        queryset = (LocationStock.objects.select_related('item', 'location')
+                    .filter(quantity__gt=0))
+        params = self.request.query_params
+        if item := params.get('item'):
+            queryset = queryset.filter(item_id=item)
+        if location := params.get('location'):
+            queryset = queryset.filter(location_id=location)
+        return queryset

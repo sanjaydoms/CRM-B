@@ -527,3 +527,267 @@ class CatalogApiTests(InventoryTestBase):
         created = self.client.post(f'/api/inventory/catalog/items/{zari.id}/stock/', {}, format='json')
         response = self.client.get(f'/api/inventory/catalog/items/{zari.id}/')
         self.assertEqual(response.data['stocked_item_id'], created.data['id'])
+
+
+class StockLocationTests(InventoryTestBase):
+    """Locations, transfers, and the invariant that ties them to the total."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import StockLocation
+        self.main = StockLocation.objects.get(is_default=True)
+        self.cutting = StockLocation.objects.get(kind=StockLocation.Kind.CUTTING_UNIT)
+        self.embroidery = StockLocation.objects.get(kind=StockLocation.Kind.EMBROIDERY_UNIT)
+
+    def _breakdown(self, item):
+        from .models import LocationStock
+        return {
+            row.location.name: row.quantity
+            for row in LocationStock.objects.filter(item=item).select_related('location')
+        }
+
+    def assertLocationsSumToTotal(self, item):
+        from .models import LocationStock
+        item.refresh_from_db()
+        total = sum(
+            (row.quantity for row in LocationStock.objects.filter(item=item)),
+            Decimal('0'),
+        )
+        self.assertEqual(
+            total, item.current_stock,
+            f"per-location total {total} != current_stock {item.current_stock}",
+        )
+
+    def test_the_eight_locations_are_seeded(self):
+        from .models import StockLocation
+        self.assertEqual(StockLocation.objects.count(), 8)
+        self.assertEqual(
+            set(StockLocation.objects.values_list('kind', flat=True)),
+            set(StockLocation.Kind.values),
+        )
+
+    def test_exactly_one_location_is_the_default(self):
+        from .models import StockLocation
+        self.assertEqual(StockLocation.objects.filter(is_default=True).count(), 1)
+        self.assertEqual(self.main.kind, StockLocation.Kind.MAIN_STORE)
+
+    def test_unlocated_stock_in_lands_at_the_default(self):
+        """Every caller predates locations; none of them should have to change."""
+        item = self.make_item()
+        InventoryService.stock_in(item, 40, user=self.owner)
+        self.assertEqual(self._breakdown(item), {'Main Store': Decimal('40.000')})
+        self.assertLocationsSumToTotal(item)
+
+    def test_transfer_moves_stock_without_changing_the_total(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 100, user=self.owner)
+
+        InventoryService.transfer(item, 30, from_location=self.main,
+                                  to_location=self.cutting, user=self.owner)
+
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('100.000'), 'a transfer is not a loss')
+        self.assertEqual(self._breakdown(item),
+                         {'Main Store': Decimal('70.000'), 'Cutting Unit': Decimal('30.000')})
+        self.assertLocationsSumToTotal(item)
+
+    def test_transfer_records_both_ends_on_the_ledger(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 50, user=self.owner)
+        InventoryService.transfer(item, 20, from_location=self.main,
+                                  to_location=self.embroidery, user=self.owner)
+
+        movement = StockMovement.objects.filter(
+            movement_type=StockMovement.Type.TRANSFER).get()
+        self.assertEqual(movement.from_location, self.main)
+        self.assertEqual(movement.to_location, self.embroidery)
+        self.assertEqual(movement.previous_stock, movement.new_stock)
+
+    def test_cannot_transfer_more_than_the_source_holds(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        with self.assertRaises(ValueError) as ctx:
+            InventoryService.transfer(item, 25, from_location=self.main,
+                                      to_location=self.cutting, user=self.owner)
+        self.assertIn('only 10', str(ctx.exception))
+        self.assertLocationsSumToTotal(item)
+
+    def test_a_failed_transfer_moves_nothing_at_either_end(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        before = self._breakdown(item)
+        with self.assertRaises(ValueError):
+            InventoryService.transfer(item, 99, from_location=self.main,
+                                      to_location=self.cutting, user=self.owner)
+        self.assertEqual(self._breakdown(item), before)
+        self.assertFalse(
+            StockMovement.objects.filter(movement_type=StockMovement.Type.TRANSFER).exists())
+
+    def test_transfer_to_the_same_place_is_refused(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        with self.assertRaises(ValueError) as ctx:
+            InventoryService.transfer(item, 5, from_location=self.main,
+                                      to_location=self.main, user=self.owner)
+        self.assertIn('both the source and the destination', str(ctx.exception))
+
+    def test_issuing_from_a_unit_draws_down_that_unit(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 60, user=self.owner)
+        InventoryService.transfer(item, 25, from_location=self.main,
+                                  to_location=self.cutting, user=self.owner)
+
+        InventoryService.consume(item, 10, from_location=self.cutting, user=self.owner)
+
+        self.assertEqual(self._breakdown(item),
+                         {'Main Store': Decimal('35.000'), 'Cutting Unit': Decimal('15.000')})
+        self.assertLocationsSumToTotal(item)
+
+    def test_cannot_consume_from_a_unit_that_does_not_hold_it(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 60, user=self.owner)
+        with self.assertRaises(ValueError) as ctx:
+            InventoryService.consume(item, 5, from_location=self.embroidery, user=self.owner)
+        self.assertIn('Embroidery Unit', str(ctx.exception))
+
+    def test_the_full_lifecycle_keeps_the_books_straight(self):
+        """Receipt, transfer, consumption, waste and a return, end to end."""
+        item = self.make_item()
+        InventoryService.goods_receipt(item, 100, user=self.owner)
+        InventoryService.transfer(item, 40, from_location=self.main,
+                                  to_location=self.cutting, user=self.owner)
+        InventoryService.consume(item, 25, from_location=self.cutting, user=self.owner)
+        InventoryService.waste(item, 5, from_location=self.cutting, user=self.owner)
+        InventoryService.return_stock(item, 3, to_location=self.main, user=self.owner)
+
+        item.refresh_from_db()
+        # 100 received, 25 consumed, 5 wasted, 3 returned = 73
+        self.assertEqual(item.current_stock, Decimal('73.000'))
+        self.assertEqual(self._breakdown(item),
+                         {'Main Store': Decimal('63.000'), 'Cutting Unit': Decimal('10.000')})
+        self.assertLocationsSumToTotal(item)
+
+
+class TransactionTypeTests(InventoryTestBase):
+    """The twelve transaction types the specification requires."""
+
+    REQUIRED = [
+        'PURCHASE', 'GOODS_RECEIPT', 'RESERVATION', 'RELEASE', 'CONSUMPTION',
+        'RETURN', 'TRANSFER', 'ADJUSTMENT', 'DAMAGE', 'WASTE',
+        'CUSTOMER_RETURN', 'SUPPLIER_RETURN',
+    ]
+
+    def test_every_required_transaction_type_exists(self):
+        available = set(StockMovement.Type.values)
+        missing = [t for t in self.REQUIRED if t not in available]
+        self.assertFalse(missing, f'missing transaction types: {missing}')
+
+    def test_waste_and_damage_are_separate_lines(self):
+        """Waste is a production metric, damage a handling one."""
+        item = self.make_item()
+        InventoryService.stock_in(item, 50, user=self.owner)
+        InventoryService.waste(item, 4, user=self.owner)
+        InventoryService.damage(item, 3, user=self.owner)
+
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('43.000'))
+        self.assertEqual(
+            StockMovement.objects.filter(movement_type=StockMovement.Type.WASTE).count(), 1)
+        self.assertEqual(
+            StockMovement.objects.filter(movement_type=StockMovement.Type.DAMAGE).count(), 1)
+
+    def test_customer_return_puts_stock_back(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        InventoryService.customer_return(item, 2, user=self.owner)
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('12.000'))
+
+    def test_supplier_return_takes_stock_out(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        InventoryService.supplier_return(item, 4, user=self.owner)
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('6.000'))
+
+    def test_consumption_is_distinct_from_issue(self):
+        """Issuing hands material over; consuming records it went into the garment."""
+        item = self.make_item()
+        InventoryService.stock_in(item, 30, user=self.owner)
+        InventoryService.issue(item, 10, user=self.owner)
+        InventoryService.consume(item, 5, user=self.owner)
+
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('15.000'))
+        types = list(StockMovement.objects.filter(item=item)
+                     .order_by('created_at').values_list('movement_type', flat=True))
+        self.assertEqual(types, ['STOCK_IN', 'ISSUE', 'CONSUMPTION'])
+
+    def test_every_movement_stays_in_history(self):
+        """Every transaction must remain in history permanently."""
+        item = self.make_item()
+        for op, qty in [(InventoryService.stock_in, 20), (InventoryService.reserve, 5),
+                        (InventoryService.release, 5), (InventoryService.waste, 2),
+                        (InventoryService.damage, 1)]:
+            op(item, qty, user=self.owner)
+        self.assertEqual(StockMovement.objects.filter(item=item).count(), 5)
+
+
+class LocationApiTests(InventoryTestBase):
+
+    def setUp(self):
+        super().setUp()
+        from .models import StockLocation
+        self.main = StockLocation.objects.get(is_default=True)
+        self.cutting = StockLocation.objects.get(kind=StockLocation.Kind.CUTTING_UNIT)
+
+    def test_locations_are_listed(self):
+        response = self.client.get('/api/inventory/locations/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 8)
+
+    def test_transfer_endpoint_moves_stock(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 50, user=self.owner)
+
+        response = self.client.post(
+            f'/api/inventory/items/{item.id}/transfer/',
+            {'quantity': '20', 'from_location': str(self.main.id),
+             'to_location': str(self.cutting.id)}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        breakdown = self.client.get(f'/api/inventory/items/{item.id}/locations/').data
+        by_name = {row['location']: Decimal(str(row['quantity'])) for row in breakdown['breakdown']}
+        self.assertEqual(by_name,
+                         {'Main Store': Decimal('30.000'), 'Cutting Unit': Decimal('20.000')})
+
+    def test_transfer_without_a_destination_is_a_400_not_a_500(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        response = self.client.post(
+            f'/api/inventory/items/{item.id}/transfer/',
+            {'quantity': '5', 'from_location': str(self.main.id)}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unknown_location_id_is_a_400(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        response = self.client.post(
+            f'/api/inventory/items/{item.id}/transfer/',
+            {'quantity': '5', 'from_location': str(self.main.id),
+             'to_location': '00000000-0000-0000-0000-000000000000'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_location_holding_stock_cannot_be_deleted(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        response = self.client.delete(f'/api/inventory/locations/{self.main.id}/')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_location_stock_endpoint_lists_what_is_held(self):
+        item = self.make_item()
+        InventoryService.stock_in(item, 15, user=self.owner)
+        response = self.client.get(f'/api/inventory/locations/{self.main.id}/stock/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['item_name'], item.name)
