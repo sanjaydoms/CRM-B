@@ -2,19 +2,22 @@ from django.db import transaction
 from django.db.models import Count, F, Sum, DecimalField, ExpressionWrapper
 from django.utils import timezone
 from rest_framework import status, viewsets
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .models import (
-    BillOfMaterials, BomLine, CatalogItem, CatalogSection, Category, InventoryItem,
-    LocationStock, PurchaseOrder, StockLocation, StockMovement, Supplier, Unit,
+    BillOfMaterials, BomLine, CatalogItem, CatalogSection, Category, CustomerMaterial,
+    CustomerMaterialMovement, InventoryItem, LocationStock, OrderMaterialLine,
+    OrderMaterialPlan, PurchaseOrder, StockLocation, StockMovement, Supplier, Unit,
     UnitConversion, DEFAULT_UNIT_BY_CATEGORY, STOCKABLE_ITEM_TYPES,
 )
 from .serializers import (
     BillOfMaterialsSerializer, BomLineSerializer, CatalogItemSerializer,
-    CatalogSectionSerializer, LocationStockSerializer, StockLocationSerializer,
-    UnitConversionSerializer,
+    CatalogSectionSerializer, CustomerMaterialMovementSerializer,
+    CustomerMaterialSerializer, LocationStockSerializer, OrderMaterialPlanSerializer,
+    StockLocationSerializer, UnitConversionSerializer,
     InventoryItemSerializer, InventoryItemSummarySerializer, PurchaseOrderSerializer,
     StockMovementSerializer, SupplierSerializer,
 )
@@ -235,7 +238,12 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
             if required:
                 raise ValidationError({key: 'This field is required.'})
             return None
-        location = StockLocation.objects.filter(pk=value).first()
+        # A UUID primary key raises at filter() build time for a malformed
+        # value, before the None check below could report it as a 400.
+        try:
+            location = StockLocation.objects.filter(pk=value).first()
+        except (ValueError, TypeError, DjangoValidationError):
+            raise ValidationError({key: f'{value!r} is not a valid location id.'})
         if location is None:
             raise ValidationError({key: f'No stock location with id {value}.'})
         return location
@@ -606,3 +614,277 @@ class UnitConversionViewSet(viewsets.ModelViewSet):
         if item := self.request.query_params.get('item'):
             queryset = queryset.filter(item_id=item)
         return queryset
+
+
+class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
+    """An order's materials, through the whole ten-step lifecycle.
+
+    Read-only as a resource: every state change is an explicit action, because
+    "reserve" and "consume" are events with consequences in the stock ledger,
+    not fields to be PATCHed.
+    """
+
+    serializer_class = OrderMaterialPlanSerializer
+
+    def get_queryset(self):
+        queryset = (OrderMaterialPlan.objects
+                    .select_related('order', 'bom')
+                    .prefetch_related('lines__item'))
+        params = self.request.query_params
+        if order := params.get('order'):
+            try:
+                queryset = queryset.filter(order_id=order)
+            except (ValueError, TypeError, DjangoValidationError):
+                raise ValidationError({'order': f'{order!r} is not a valid order id.'})
+        if plan_status := params.get('status'):
+            queryset = queryset.filter(status=plan_status)
+        if params.get('live') == 'true':
+            queryset = queryset.filter(status__in=[
+                OrderMaterialPlan.Status.DRAFT, OrderMaterialPlan.Status.RESERVED,
+                OrderMaterialPlan.Status.IN_PRODUCTION])
+        return queryset
+
+    @action(detail=False, methods=['POST'], url_path='plan')
+    def plan(self, request):
+        """Step 1: generate the plan for an order from a BOM."""
+        from crm_api.models import Order
+        from . import order_materials
+
+        order = _get_or_400(Order, request.data.get('order'), 'order')
+        bom = _get_or_400(BillOfMaterials, request.data.get('bom'), 'bom')
+        variables = request.data.get('variables') or {}
+        if not isinstance(variables, dict):
+            raise ValidationError({'variables': 'Expected an object of measurement values.'})
+
+        try:
+            plan = order_materials.plan_materials(
+                order, bom, variables, user=request.user,
+                include_optional=_as_bool(request.data.get('include_optional')))
+        except order_materials.MaterialPlanError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(OrderMaterialPlanSerializer(plan).data,
+                        status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['GET'], url_path='availability')
+    def availability(self, request, pk=None):
+        """Step 2: what this plan cannot currently be satisfied from."""
+        from . import order_materials
+        shortfalls = order_materials.check_availability(self.get_object())
+        return Response({'is_available': not shortfalls, 'shortfalls': shortfalls})
+
+    @action(detail=True, methods=['POST'], url_path='reserve')
+    def reserve(self, request, pk=None):
+        """Steps 3 and 4: reserve, once."""
+        from . import order_materials
+        try:
+            result = order_materials.reserve(
+                self.get_object(), user=request.user,
+                allow_partial=_as_bool(request.data.get('allow_partial')))
+        except (order_materials.MaterialPlanError, ValueError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
+    @action(detail=True, methods=['POST'], url_path='consume')
+    def consume(self, request, pk=None):
+        """Steps 5, 6 and 7: what was actually used, and what was spoiled."""
+        from . import order_materials
+        plan = self.get_object()
+        try:
+            line = OrderMaterialLine.objects.filter(
+                pk=request.data.get('line'), plan=plan).first()
+        except (ValueError, TypeError, DjangoValidationError):
+            raise ValidationError({'line': 'Not a valid line id.'})
+        if line is None:
+            raise ValidationError({'line': 'No such line on this plan.'})
+        try:
+            order_materials.confirm_consumption(
+                line, request.data.get('used', 0),
+                wasted=request.data.get('wasted', 0), user=request.user,
+                from_location=self._location(request, 'from_location'))
+        except (order_materials.MaterialPlanError, ValueError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        plan.refresh_from_db()
+        return Response(OrderMaterialPlanSerializer(plan).data)
+
+    @action(detail=True, methods=['POST'], url_path='release-unused')
+    def release_unused(self, request, pk=None):
+        """Step 8: hand back what was reserved and never used."""
+        from . import order_materials
+        try:
+            released = order_materials.release_unused(self.get_object(), user=request.user)
+        except (order_materials.MaterialPlanError, ValueError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'released': released})
+
+    @action(detail=True, methods=['POST'], url_path='deduct-packaging')
+    def deduct_packaging(self, request, pk=None):
+        """Step 9: consume packaging and labels at dispatch."""
+        from . import order_materials
+        try:
+            deducted = order_materials.deduct_packaging(
+                self.get_object(), user=request.user,
+                from_location=self._location(request, 'from_location'))
+        except (order_materials.MaterialPlanError, ValueError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'deducted': deducted})
+
+    @action(detail=True, methods=['GET'], url_path='reconcile')
+    def reconcile(self, request, pk=None):
+        """Step 10: does this order's material account add up?"""
+        from . import order_materials
+        return Response(order_materials.reconcile(self.get_object()))
+
+    @action(detail=True, methods=['POST'], url_path='close')
+    def close(self, request, pk=None):
+        from . import order_materials
+        try:
+            plan = order_materials.close(
+                self.get_object(), user=request.user,
+                release_outstanding=_as_bool(request.data.get('release_outstanding', True)))
+        except (order_materials.MaterialPlanError, ValueError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(OrderMaterialPlanSerializer(plan).data)
+
+    @action(detail=True, methods=['POST'], url_path='cancel')
+    def cancel(self, request, pk=None):
+        from . import order_materials
+        try:
+            plan = order_materials.cancel(self.get_object(), user=request.user)
+        except (order_materials.MaterialPlanError, ValueError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(OrderMaterialPlanSerializer(plan).data)
+
+    @staticmethod
+    def _location(request, key):
+        value = request.data.get(key)
+        if not value:
+            return None
+        # StockLocation.id is a UUID, so a malformed value raises at filter()
+        # build time -- before the None check below could ever report it.
+        try:
+            location = StockLocation.objects.filter(pk=value).first()
+        except (ValueError, TypeError, DjangoValidationError):
+            raise ValidationError({key: f'{value!r} is not a valid location id.'})
+        if location is None:
+            raise ValidationError({key: f'No stock location with id {value}.'})
+        return location
+
+
+class CustomerMaterialViewSet(viewsets.ModelViewSet):
+    """What the customer brought in. Never boutique stock.
+
+    No DELETE: removing a row cascades away its movement ledger, and "where did
+    the other two metres of my sari go" is precisely the question that ledger
+    exists to answer. Material recorded in error is returned or corrected, not
+    erased.
+    """
+
+    serializer_class = CustomerMaterialSerializer
+    http_method_names = ['get', 'post', 'patch', 'put', 'head', 'options']
+
+    def get_queryset(self):
+        queryset = CustomerMaterial.objects.select_related('order')
+        if order := self.request.query_params.get('order'):
+            try:
+                queryset = queryset.filter(order_id=order)
+            except (ValueError, TypeError, DjangoValidationError):
+                raise ValidationError({'order': f'{order!r} is not a valid order id.'})
+        if kind := self.request.query_params.get('kind'):
+            queryset = queryset.filter(kind=kind)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        """Receiving material goes through the service, so it is logged."""
+        from crm_api.models import Order
+        from . import order_materials
+
+        order = _get_or_400(Order, request.data.get('order'), 'order')
+
+        # Validated rather than trusted: this action does not go through the
+        # serializer's create(), so nothing else checks the payload at all.
+        name = str(request.data.get('name') or '').strip()
+        if not name:
+            raise ValidationError({'name': 'This field is required.'})
+        unit = request.data.get('unit') or Unit.METER
+        if unit not in Unit.values:
+            raise ValidationError({'unit': f'{unit!r} is not a valid unit.'})
+        kind = request.data.get('kind') or CustomerMaterial.Kind.FABRIC
+        if kind not in CustomerMaterial.Kind.values:
+            raise ValidationError({'kind': f'{kind!r} is not a valid kind.'})
+
+        try:
+            material = order_materials.receive_customer_material(
+                order,
+                name=name[:200],
+                quantity=request.data.get('received_quantity', 0),
+                unit=unit,
+                kind=kind,
+                description=request.data.get('description'),
+                notes=request.data.get('notes'),
+                user=request.user,
+            )
+        except order_materials.MaterialPlanError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(CustomerMaterialSerializer(material).data,
+                        status=status.HTTP_201_CREATED)
+
+    def perform_update(self, serializer):
+        """Descriptive fields only.
+
+        `order` and `unit` are fixed once the material is in the boutique's
+        hands: re-pointing it at another order hands one customer's silk to
+        another, and changing the unit silently reinterprets every balance and
+        every movement already recorded against it.
+        """
+        for locked_field in ('order', 'unit'):
+            if locked_field in serializer.validated_data:
+                if getattr(serializer.instance, locked_field) != serializer.validated_data[locked_field]:
+                    raise ValidationError({locked_field: (
+                        f'{locked_field} cannot be changed once the material has '
+                        f'been received.')})
+        serializer.save()
+
+    def _record(self, request, movement_type):
+        from . import order_materials
+        try:
+            material = order_materials.record_customer_material(
+                self.get_object(), movement_type, request.data.get('quantity', 0),
+                user=request.user, remarks=request.data.get('remarks', ''))
+        except order_materials.MaterialPlanError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(CustomerMaterialSerializer(material).data)
+
+    @action(detail=True, methods=['POST'], url_path='use')
+    def use(self, request, pk=None):
+        return self._record(request, CustomerMaterialMovement.Type.USED)
+
+    @action(detail=True, methods=['POST'], url_path='return')
+    def return_to_customer(self, request, pk=None):
+        return self._record(request, CustomerMaterialMovement.Type.RETURNED)
+
+    @action(detail=True, methods=['POST'], url_path='damage')
+    def damage(self, request, pk=None):
+        return self._record(request, CustomerMaterialMovement.Type.DAMAGED)
+
+    @action(detail=True, methods=['GET'], url_path='movements')
+    def movements(self, request, pk=None):
+        rows = self.get_object().movements.all()[:100]
+        return Response(CustomerMaterialMovementSerializer(rows, many=True).data)
+
+
+def _get_or_400(model, pk, field):
+    """Resolve a related object, reporting a bad id as a 400.
+
+    The filter itself can raise: Order has an integer primary key, so a UUID
+    string reaches the database layer as ValueError and would escape as a 500
+    rather than as the bad request it plainly is.
+    """
+    if not pk:
+        raise ValidationError({field: 'This field is required.'})
+    try:
+        instance = model.objects.filter(pk=pk).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        raise ValidationError({field: f'{pk!r} is not a valid {model.__name__} id.'})
+    if instance is None:
+        raise ValidationError({field: f'No {model.__name__} with id {pk}.'})
+    return instance

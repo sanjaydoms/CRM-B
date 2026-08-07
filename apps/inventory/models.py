@@ -695,3 +695,184 @@ class BomLine(models.Model):
 
     def __str__(self):
         return f"{self.material_name} ({self.get_role_display()})"
+
+
+class OrderMaterialPlan(models.Model):
+    """A BOM, resolved against one order, with what happened to it.
+
+    The specification's order integration in one object: the plan is generated
+    from a BOM when the order is created, reserves against stock, records what
+    was actually consumed and wasted, returns what was not used, and has to
+    reconcile before the order can close.
+
+    The requirement is snapshotted onto the lines rather than recomputed from
+    the BOM each time. A BOM can be re-versioned and a customer's measurements
+    can be corrected; neither should silently change what an order already
+    reserved.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        RESERVED = 'RESERVED', 'Reserved'
+        IN_PRODUCTION = 'IN_PRODUCTION', 'In production'
+        COMPLETED = 'COMPLETED', 'Completed'
+        CANCELLED = 'CANCELLED', 'Cancelled'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='material_plans')
+    bom = models.ForeignKey(
+        BillOfMaterials, on_delete=models.PROTECT, related_name='plans')
+    #: The BOM version this was generated from, frozen. The BOM may move on.
+    bom_version = models.PositiveIntegerField()
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.DRAFT, db_index=True)
+    #: The measurements the formulas were evaluated against, kept so a plan can
+    #: be explained months later without re-deriving where its numbers came from.
+    variables = models.JSONField(default=dict, blank=True)
+    packaging_deducted_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            # One live plan per order. A second would reserve the same materials
+            # twice over, which is precisely what step 4 forbids.
+            models.UniqueConstraint(
+                fields=['order'],
+                condition=models.Q(status__in=['DRAFT', 'RESERVED', 'IN_PRODUCTION']),
+                name='one_live_material_plan_per_order',
+            ),
+        ]
+
+    @property
+    def is_live(self):
+        return self.status in (self.Status.DRAFT, self.Status.RESERVED,
+                               self.Status.IN_PRODUCTION)
+
+    def __str__(self):
+        return f"Materials for {self.order.order_id} ({self.get_status_display()})"
+
+
+class OrderMaterialLine(models.Model):
+    """One material an order needs, and its running account.
+
+    Quantities are cumulative and only ever move forward: reserved, consumed,
+    wasted, returned. The reconciliation check reads them back.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    plan = models.ForeignKey(OrderMaterialPlan, on_delete=models.CASCADE, related_name='lines')
+    bom_line = models.ForeignKey(
+        BomLine, on_delete=models.SET_NULL, null=True, blank=True, related_name='order_lines')
+    item = models.ForeignKey(
+        'InventoryItem', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='order_material_lines')
+    role = models.CharField(max_length=20, choices=BomLine.Role.choices,
+                            default=BomLine.Role.FABRIC, db_index=True)
+    material_name = models.CharField(max_length=200)
+    unit = models.CharField(max_length=20, choices=Unit.choices, default=Unit.PIECE)
+
+    required_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    reserved_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    consumed_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    wasted_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    returned_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+
+    #: A customer-supplied line is part of the recipe but never touches boutique
+    #: stock. It is satisfied from CustomerMaterial instead.
+    is_customer_supplied = models.BooleanField(default=False, db_index=True)
+    sequence = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sequence', 'role']
+
+    @property
+    def outstanding_reservation(self):
+        """Still reserved and not yet accounted for."""
+        return self.reserved_quantity - self.consumed_quantity - self.wasted_quantity - self.returned_quantity
+
+    def __str__(self):
+        return f"{self.material_name} x{self.required_quantity} {self.unit}"
+
+
+class CustomerMaterial(models.Model):
+    """Material the customer brought, tracked entirely apart from boutique stock.
+
+    The specification is explicit that these must never be added to inventory,
+    and the reason is not bookkeeping neatness: a customer's silk is not the
+    boutique's to reserve against another order, to value as an asset, or to
+    reorder when it runs low. So this is its own ledger, with its own balances,
+    linked only to the order it arrived for.
+    """
+
+    class Kind(models.TextChoices):
+        FABRIC = 'FABRIC', 'Fabric'
+        BORDER = 'BORDER', 'Border'
+        LACE = 'LACE', 'Lace'
+        ACCESSORY = 'ACCESSORY', 'Accessory'
+        EMBROIDERY = 'EMBROIDERY', 'Embroidery material'
+        OTHER = 'OTHER', 'Other'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='customer_materials')
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.FABRIC, db_index=True)
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    unit = models.CharField(max_length=20, choices=Unit.choices, default=Unit.METER)
+
+    received_quantity = models.DecimalField(
+        max_digits=12, decimal_places=3, default=0, validators=[MinValueValidator(Decimal('0'))])
+    used_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    returned_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    damaged_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+
+    received_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['order', 'name']
+
+    @property
+    def remaining_quantity(self):
+        """What is still the customer's, in the boutique's hands."""
+        return (self.received_quantity - self.used_quantity
+                - self.returned_quantity - self.damaged_quantity)
+
+    def __str__(self):
+        return f"{self.name} ({self.order.order_id}) — {self.remaining_quantity} {self.unit} left"
+
+
+class CustomerMaterialMovement(models.Model):
+    """The customer ledger's audit line.
+
+    Boutique stock is only ever changed through a movement; the customer's
+    material deserves the same treatment, because "where did the other two
+    metres of my sari go" is a question the boutique has to be able to answer.
+    """
+
+    class Type(models.TextChoices):
+        RECEIVED = 'RECEIVED', 'Received from customer'
+        USED = 'USED', 'Used in the garment'
+        RETURNED = 'RETURNED', 'Returned to customer'
+        DAMAGED = 'DAMAGED', 'Damaged'
+        CORRECTION = 'CORRECTION', 'Correction'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    material = models.ForeignKey(
+        CustomerMaterial, on_delete=models.CASCADE, related_name='movements')
+    movement_type = models.CharField(max_length=20, choices=Type.choices, db_index=True)
+    quantity = models.DecimalField(max_digits=12, decimal_places=3)
+    previous_remaining = models.DecimalField(max_digits=12, decimal_places=3)
+    new_remaining = models.DecimalField(max_digits=12, decimal_places=3)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    user_name_snapshot = models.CharField(max_length=150, blank=True, null=True)
+    remarks = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.get_movement_type_display()} {self.quantity} of {self.material.name}"

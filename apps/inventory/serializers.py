@@ -2,8 +2,10 @@ from rest_framework import serializers
 
 from .models import (
     BillOfMaterials, BomLine, CatalogItem, CatalogSection, Category,
-    DEFAULT_UNIT_BY_CATEGORY, InventoryItem, LocationStock, PurchaseOrder,
-    PurchaseOrderLine, StockLocation, StockMovement, Supplier, Unit, UnitConversion,
+    CustomerMaterial, CustomerMaterialMovement, DEFAULT_UNIT_BY_CATEGORY,
+    InventoryItem, LocationStock, OrderMaterialLine, OrderMaterialPlan,
+    PurchaseOrder, PurchaseOrderLine, StockLocation, StockMovement, Supplier,
+    Unit, UnitConversion,
 )
 
 
@@ -274,3 +276,71 @@ class BillOfMaterialsSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {'version': f'A version {version} of this recipe already exists.'})
         return attrs
+
+
+class OrderMaterialLineSerializer(serializers.ModelSerializer):
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
+    unit_display = serializers.CharField(source='get_unit_display', read_only=True)
+    outstanding_reservation = serializers.DecimalField(
+        max_digits=12, decimal_places=3, read_only=True)
+    item_code = serializers.CharField(source='item.item_code', read_only=True, default=None)
+    available_stock = serializers.DecimalField(
+        source='item.available_stock', max_digits=12, decimal_places=3,
+        read_only=True, default=None)
+
+    class Meta:
+        model = OrderMaterialLine
+        fields = [
+            'id', 'plan', 'bom_line', 'item', 'item_code', 'role', 'role_display',
+            'material_name', 'unit', 'unit_display', 'required_quantity',
+            'reserved_quantity', 'consumed_quantity', 'wasted_quantity',
+            'returned_quantity', 'outstanding_reservation', 'available_stock',
+            'is_customer_supplied', 'sequence',
+        ]
+        read_only_fields = fields
+
+
+class OrderMaterialPlanSerializer(serializers.ModelSerializer):
+    lines = OrderMaterialLineSerializer(many=True, read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    order_code = serializers.CharField(source='order.order_id', read_only=True)
+    bom_name = serializers.CharField(source='bom.name', read_only=True)
+
+    class Meta:
+        model = OrderMaterialPlan
+        fields = ['id', 'order', 'order_code', 'bom', 'bom_name', 'bom_version',
+                  'status', 'status_display', 'variables', 'packaging_deducted_at',
+                  'lines', 'created_at', 'updated_at']
+        read_only_fields = fields
+
+
+class CustomerMaterialMovementSerializer(serializers.ModelSerializer):
+    movement_type_display = serializers.CharField(
+        source='get_movement_type_display', read_only=True)
+
+    class Meta:
+        model = CustomerMaterialMovement
+        fields = ['id', 'material', 'movement_type', 'movement_type_display', 'quantity',
+                  'previous_remaining', 'new_remaining', 'user_name_snapshot',
+                  'remarks', 'created_at']
+        read_only_fields = fields
+
+
+class CustomerMaterialSerializer(serializers.ModelSerializer):
+    remaining_quantity = serializers.DecimalField(
+        max_digits=12, decimal_places=3, read_only=True)
+    kind_display = serializers.CharField(source='get_kind_display', read_only=True)
+    unit_display = serializers.CharField(source='get_unit_display', read_only=True)
+    order_code = serializers.CharField(source='order.order_id', read_only=True)
+
+    class Meta:
+        model = CustomerMaterial
+        fields = ['id', 'order', 'order_code', 'kind', 'kind_display', 'name',
+                  'description', 'unit', 'unit_display', 'received_quantity',
+                  'used_quantity', 'returned_quantity', 'damaged_quantity',
+                  'remaining_quantity', 'received_at', 'notes']
+        # Balances move only through recorded movements, exactly as boutique
+        # stock does. Editing them directly would leave the ledger disagreeing
+        # with the figure it is supposed to explain.
+        read_only_fields = ['received_quantity', 'used_quantity', 'returned_quantity',
+                            'damaged_quantity', 'remaining_quantity', 'received_at']

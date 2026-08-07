@@ -58,8 +58,9 @@ class InventoryService:
     @staticmethod
     @transaction.atomic
     def record_movement(item, movement_type, quantity, *, stock_delta, reserved_delta,
-                        clamp_reserved=False, user=None, order=None, stage_key=None,
-                        performed_by=None, remarks='', from_location=None, to_location=None):
+                        clamp_reserved=False, reserved_backed=None, user=None, order=None,
+                        stage_key=None, performed_by=None, remarks='',
+                        from_location=None, to_location=None):
         """Apply a stock change and write its ledger line.
 
         stock_delta and reserved_delta are signed; a reservation moves only the
@@ -71,6 +72,11 @@ class InventoryService:
         failing because there was nothing reserved to release.
         """
         quantity = _as_quantity(quantity)
+        if reserved_backed is not None:
+            reserved_backed = Decimal(str(reserved_backed))
+            if reserved_backed < 0 or reserved_backed > quantity:
+                raise ValueError(
+                    f'reserved_backed must be between 0 and {quantity}, got {reserved_backed}.')
 
         # Lock so two concurrent issues cannot both read the same balance.
         locked = InventoryItem.objects.select_for_update().get(pk=item.pk)
@@ -78,7 +84,16 @@ class InventoryService:
         previous_stock = locked.current_stock
         previous_reserved = locked.reserved_stock
         new_stock = previous_stock + (stock_delta * quantity)
-        if clamp_reserved and reserved_delta < 0:
+        if reserved_backed is not None and reserved_delta < 0:
+            # The caller knows how much of this movement was actually covered by
+            # ITS OWN reservation. Without that, the clamp below is the only
+            # option and it clamps against the item's *global* reserved figure --
+            # so consuming more than one order reserved silently ate another
+            # order's reservation, leaving that order unable to release what it
+            # still thought it held. Anything beyond `reserved_backed` comes out
+            # of free stock, which is what over-consumption actually is.
+            new_reserved = max(Decimal('0'), previous_reserved - reserved_backed)
+        elif clamp_reserved and reserved_delta < 0:
             new_reserved = max(Decimal('0'), previous_reserved - quantity)
         else:
             new_reserved = previous_reserved + (reserved_delta * quantity)
@@ -221,11 +236,20 @@ class InventoryService:
             stock_delta=-1, reserved_delta=-1, clamp_reserved=True, **kw
         )
 
+
     @staticmethod
     def waste(item, quantity, **kw):
-        """Material lost in the making -- offcuts, spoilage, failed embroidery."""
+        """Material lost in the making -- offcuts, spoilage, failed embroidery.
+
+        Releases any reservation it consumes, exactly as issuing and consuming
+        do. Wasted material has left the shelf, so it cannot still be spoken for
+        by the order that spoiled it -- leaving the reservation behind would
+        strand that quantity, invisible to every other order and never released.
+        Clamped, because waste is often recorded against stock nobody reserved.
+        """
         return InventoryService.record_movement(
-            item, StockMovement.Type.WASTE, quantity, stock_delta=-1, reserved_delta=0, **kw
+            item, StockMovement.Type.WASTE, quantity,
+            stock_delta=-1, reserved_delta=-1, clamp_reserved=True, **kw
         )
 
     @staticmethod

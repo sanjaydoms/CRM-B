@@ -1375,3 +1375,672 @@ class BomApiHardeningTests(InventoryTestBase):
             'catalog_item': str(gateway.id), 'quantity': '1', 'unit': 'PIECE',
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+
+
+class OrderMaterialTestBase(InventoryTestBase):
+    """Shared fixture: an order, a BOM, and stock to satisfy it."""
+
+    def setUp(self):
+        super().setUp()
+        from crm_api.models import Customer, Order
+        from .models import BillOfMaterials, BomLine
+
+        self.customer = Customer.objects.create(
+            first_name='Aditi', last_name='Rao', mobile_number='9990001111')
+        self.order = Order.objects.create(order_id='T2B-TEST-0001', customer=self.customer)
+
+        self.fabric = self.make_item(item_code='FAB-OM1', name='Raw Silk', unit=Unit.METER)
+        self.thread = self.make_item(item_code='THR-OM1', name='Resham Thread',
+                                     category=Category.STITCHING, unit=Unit.PIECE)
+        self.box = self.make_item(item_code='PKG-OM1', name='Gift Box',
+                                  category=Category.PACKAGING, unit=Unit.PIECE)
+        InventoryService.stock_in(self.fabric, 100, user=self.owner)
+        InventoryService.stock_in(self.thread, 50, user=self.owner)
+        InventoryService.stock_in(self.box, 20, user=self.owner)
+
+        self.bom = BillOfMaterials.objects.create(name='Blouse recipe')
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.FABRIC,
+                               inventory_item=self.fabric, quantity=Decimal('3'),
+                               unit=Unit.METER, sequence=1)
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.THREAD,
+                               inventory_item=self.thread, quantity=Decimal('2'),
+                               unit=Unit.PIECE, sequence=2)
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.PACKAGING,
+                               inventory_item=self.box, quantity=Decimal('1'),
+                               unit=Unit.PIECE, sequence=3)
+
+    def plan(self, **kw):
+        from . import order_materials
+        return order_materials.plan_materials(self.order, self.bom, user=self.owner, **kw)
+
+
+class OrderMaterialLifecycleTests(OrderMaterialTestBase):
+    """The ten steps, in order."""
+
+    def test_1_planning_snapshots_the_requirement(self):
+        from .models import OrderMaterialPlan
+        plan = self.plan()
+        self.assertEqual(plan.status, OrderMaterialPlan.Status.DRAFT)
+        self.assertEqual(plan.lines.count(), 3)
+        self.assertEqual(plan.bom_version, self.bom.version)
+        fabric_line = plan.lines.get(material_name='Raw Silk')
+        self.assertEqual(fabric_line.required_quantity, Decimal('3.000'))
+
+    def test_1_a_second_live_plan_is_refused(self):
+        from . import order_materials
+        self.plan()
+        with self.assertRaises(order_materials.MaterialPlanError) as ctx:
+            self.plan()
+        self.assertIn('already has a live material plan', str(ctx.exception))
+
+    def test_2_availability_reports_a_shortfall(self):
+        from . import order_materials
+        InventoryService.issue(self.fabric, 98, user=self.owner)   # 2 m left
+        plan = self.plan()
+        shortfalls = order_materials.check_availability(plan)
+        self.assertEqual(len(shortfalls), 1)
+        self.assertEqual(shortfalls[0]['material'], 'Raw Silk')
+        self.assertEqual(shortfalls[0]['short_by'], Decimal('1.000'))
+
+    def test_3_reserving_holds_stock_without_deducting_it(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.current_stock, Decimal('100.000'),
+                         'reserving is not a deduction')
+        self.assertEqual(self.fabric.reserved_stock, Decimal('3.000'))
+        self.assertEqual(self.fabric.available_stock, Decimal('97.000'))
+
+    def test_3_reserving_is_refused_when_stock_is_short(self):
+        from . import order_materials
+        InventoryService.issue(self.fabric, 99, user=self.owner)
+        plan = self.plan()
+        with self.assertRaises(order_materials.MaterialPlanError) as ctx:
+            order_materials.reserve(plan, user=self.owner)
+        self.assertIn('Not enough stock', str(ctx.exception))
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'),
+                         'a refused reservation reserves nothing at all')
+
+    def test_4_reserving_twice_does_not_double_allocate(self):
+        """The rule the specification calls out by name."""
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.reserve(plan, user=self.owner)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('3.000'),
+                         'the second call should reserve nothing')
+
+    def test_5_stock_is_deducted_only_on_confirmed_consumption(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        line = plan.lines.get(material_name='Raw Silk')
+
+        order_materials.confirm_consumption(line, Decimal('2.5'), user=self.owner)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.current_stock, Decimal('97.500'))
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.500'))
+
+    def test_6_and_7_actual_use_and_waste_are_recorded_separately(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        line = plan.lines.get(material_name='Raw Silk')
+
+        order_materials.confirm_consumption(
+            line, Decimal('2.4'), wasted=Decimal('0.3'), user=self.owner)
+
+        line.refresh_from_db()
+        self.assertEqual(line.consumed_quantity, Decimal('2.400'))
+        self.assertEqual(line.wasted_quantity, Decimal('0.300'))
+        self.assertEqual(
+            StockMovement.objects.filter(
+                item=self.fabric, movement_type=StockMovement.Type.WASTE).count(), 1)
+
+    def test_8_unused_reservations_go_back(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        line = plan.lines.get(material_name='Raw Silk')
+        order_materials.confirm_consumption(line, Decimal('2'), user=self.owner)
+
+        released = order_materials.release_unused(plan, user=self.owner)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
+        self.assertEqual(self.fabric.available_stock, Decimal('98.000'))
+        self.assertTrue(any(r['material'] == 'Raw Silk' for r in released))
+
+    def test_9_packaging_is_deducted_at_dispatch_not_before(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.current_stock, Decimal('20.000'),
+                         'reserved, not yet used')
+
+        order_materials.deduct_packaging(plan, user=self.owner)
+
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.current_stock, Decimal('19.000'))
+
+    def test_9_packaging_is_not_deducted_twice(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.deduct_packaging(plan, user=self.owner)
+        with self.assertRaises(order_materials.MaterialPlanError) as ctx:
+            order_materials.deduct_packaging(plan, user=self.owner)
+        self.assertIn('already deducted', str(ctx.exception))
+
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.current_stock, Decimal('19.000'))
+
+    def test_10_reconcile_reports_outstanding_reservations(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+
+        report = order_materials.reconcile(plan)
+        self.assertFalse(report['is_reconciled'])
+        self.assertTrue(report['outstanding_reservations'])
+
+        order_materials.release_unused(plan, user=self.owner)
+        self.assertTrue(order_materials.reconcile(plan)['is_reconciled'])
+
+    def test_10_closing_releases_what_is_left(self):
+        from . import order_materials
+        from .models import OrderMaterialPlan
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+
+        order_materials.close(plan, user=self.owner)
+
+        plan.refresh_from_db()
+        self.assertEqual(plan.status, OrderMaterialPlan.Status.COMPLETED)
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
+
+    def test_closing_a_plan_frees_the_order_for_a_new_one(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.close(plan, user=self.owner)
+        self.assertIsNotNone(self.plan(), 'the one-live-plan rule is about live plans')
+
+    def test_cancelling_gives_every_reservation_back(self):
+        from . import order_materials
+        from .models import OrderMaterialPlan
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.cancel(plan, user=self.owner)
+
+        plan.refresh_from_db()
+        self.assertEqual(plan.status, OrderMaterialPlan.Status.CANCELLED)
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
+
+    def test_the_whole_ledger_balances_end_to_end(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        fabric_line = plan.lines.get(material_name='Raw Silk')
+        order_materials.confirm_consumption(
+            fabric_line, Decimal('2.5'), wasted=Decimal('0.2'), user=self.owner)
+        order_materials.deduct_packaging(plan, user=self.owner)
+        order_materials.close(plan, user=self.owner)
+
+        self.fabric.refresh_from_db()
+        # 100 - 2.5 consumed - 0.2 wasted = 97.3, nothing left reserved
+        self.assertEqual(self.fabric.current_stock, Decimal('97.300'))
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.current_stock, Decimal('19.000'))
+
+
+class CustomerMaterialTests(OrderMaterialTestBase):
+    """The customer's own material, which is never boutique stock."""
+
+    def receive(self, quantity='5'):
+        from . import order_materials
+        return order_materials.receive_customer_material(
+            self.order, name="Customer's Kanchipuram silk", quantity=quantity,
+            unit=Unit.METER, user=self.owner)
+
+    def test_receiving_creates_no_inventory_item(self):
+        """The rule the specification states most emphatically."""
+        from .models import InventoryItem
+        before = InventoryItem.objects.count()
+        material = self.receive()
+        self.assertEqual(InventoryItem.objects.count(), before)
+        self.assertEqual(material.remaining_quantity, Decimal('5.000'))
+
+    def test_the_five_balances_are_tracked(self):
+        from . import order_materials
+        from .models import CustomerMaterialMovement
+        material = self.receive('10')
+        order_materials.record_customer_material(
+            material, CustomerMaterialMovement.Type.USED, '6', user=self.owner)
+        order_materials.record_customer_material(
+            material, CustomerMaterialMovement.Type.DAMAGED, '1', user=self.owner)
+        order_materials.record_customer_material(
+            material, CustomerMaterialMovement.Type.RETURNED, '2', user=self.owner)
+
+        material.refresh_from_db()
+        self.assertEqual(material.received_quantity, Decimal('10.000'))
+        self.assertEqual(material.used_quantity, Decimal('6.000'))
+        self.assertEqual(material.damaged_quantity, Decimal('1.000'))
+        self.assertEqual(material.returned_quantity, Decimal('2.000'))
+        self.assertEqual(material.remaining_quantity, Decimal('1.000'))
+
+    def test_cannot_account_for_more_than_was_received(self):
+        from . import order_materials
+        from .models import CustomerMaterialMovement
+        material = self.receive('4')
+        with self.assertRaises(order_materials.MaterialPlanError) as ctx:
+            order_materials.record_customer_material(
+                material, CustomerMaterialMovement.Type.USED, '5', user=self.owner)
+        self.assertIn('Only 4', str(ctx.exception))
+
+    def test_every_change_leaves_a_movement(self):
+        from . import order_materials
+        from .models import CustomerMaterialMovement
+        material = self.receive('10')
+        order_materials.record_customer_material(
+            material, CustomerMaterialMovement.Type.USED, '3', user=self.owner)
+
+        movements = material.movements.order_by('created_at')
+        self.assertEqual(
+            [m.movement_type for m in movements],
+            [CustomerMaterialMovement.Type.RECEIVED, CustomerMaterialMovement.Type.USED])
+        self.assertEqual(movements[1].previous_remaining, Decimal('10.000'))
+        self.assertEqual(movements[1].new_remaining, Decimal('7.000'))
+
+    def test_a_customer_supplied_bom_line_is_never_reserved(self):
+        from . import order_materials
+        from .models import BomLine
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.FABRIC,
+                               description="Customer's own border",
+                               is_customer_supplied=True, quantity=Decimal('2'),
+                               unit=Unit.METER, sequence=4)
+        plan = self.plan()
+        result = order_materials.reserve(plan, user=self.owner)
+
+        self.assertNotIn("Customer's own border",
+                         [r['material'] for r in result['reserved']])
+        line = plan.lines.get(material_name="Customer's own border")
+        self.assertEqual(line.reserved_quantity, Decimal('0.000'))
+
+    def test_a_customer_supplied_line_cannot_consume_boutique_stock(self):
+        from . import order_materials
+        from .models import BomLine
+        BomLine.objects.create(bom=self.bom, role=BomLine.Role.FABRIC,
+                               description="Customer's own border",
+                               is_customer_supplied=True, quantity=Decimal('2'),
+                               unit=Unit.METER, sequence=4)
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        line = plan.lines.get(material_name="Customer's own border")
+
+        with self.assertRaises(order_materials.MaterialPlanError) as ctx:
+            order_materials.confirm_consumption(line, Decimal('1'), user=self.owner)
+        self.assertIn('customer-supplied', str(ctx.exception))
+
+    def test_reconcile_flags_customer_material_still_held(self):
+        from . import order_materials
+        self.receive('5')
+        plan = self.plan()
+        report = order_materials.reconcile(plan)
+        self.assertEqual(len(report['customer_material_to_return']), 1)
+        self.assertEqual(report['customer_material_to_return'][0]['remaining'],
+                         Decimal('5.000'))
+
+
+class OrderMaterialApiTests(OrderMaterialTestBase):
+
+    def test_the_whole_flow_over_the_api(self):
+        from .models import OrderMaterialPlan
+
+        created = self.client.post('/api/inventory/material-plans/plan/', {
+            'order': str(self.order.id), 'bom': str(self.bom.id)}, format='json')
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+        plan_id = created.data['id']
+
+        availability = self.client.get(f'/api/inventory/material-plans/{plan_id}/availability/')
+        self.assertTrue(availability.data['is_available'])
+
+        reserved = self.client.post(f'/api/inventory/material-plans/{plan_id}/reserve/',
+                                    {}, format='json')
+        self.assertEqual(reserved.status_code, status.HTTP_200_OK, reserved.data)
+
+        plan = OrderMaterialPlan.objects.get(pk=plan_id)
+        line = plan.lines.get(material_name='Raw Silk')
+        consumed = self.client.post(f'/api/inventory/material-plans/{plan_id}/consume/',
+                                    {'line': str(line.id), 'used': '2', 'wasted': '0.5'},
+                                    format='json')
+        self.assertEqual(consumed.status_code, status.HTTP_200_OK, consumed.data)
+
+        self.client.post(f'/api/inventory/material-plans/{plan_id}/deduct-packaging/',
+                         {}, format='json')
+        closed = self.client.post(f'/api/inventory/material-plans/{plan_id}/close/',
+                                  {}, format='json')
+        self.assertEqual(closed.data['status'], OrderMaterialPlan.Status.COMPLETED)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.current_stock, Decimal('97.500'))
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
+
+    def test_planning_an_unknown_order_is_a_400(self):
+        response = self.client.post('/api/inventory/material-plans/plan/', {
+            'order': '00000000-0000-0000-0000-000000000000',
+            'bom': str(self.bom.id)}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_consuming_a_line_from_another_plan_is_refused(self):
+        from crm_api.models import Order
+        from . import order_materials
+        other_order = Order.objects.create(order_id='T2B-TEST-0002', customer=self.customer)
+        mine = self.plan()
+        theirs = order_materials.plan_materials(other_order, self.bom, user=self.owner)
+        order_materials.reserve(mine, user=self.owner)
+
+        foreign_line = theirs.lines.first()
+        response = self.client.post(f'/api/inventory/material-plans/{mine.id}/consume/',
+                                    {'line': str(foreign_line.id), 'used': '1'},
+                                    format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_customer_material_api_records_use_and_return(self):
+        created = self.client.post('/api/inventory/customer-materials/', {
+            'order': str(self.order.id), 'name': 'Customer silk',
+            'received_quantity': '8', 'unit': 'METER', 'kind': 'FABRIC'}, format='json')
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+        material_id = created.data['id']
+
+        used = self.client.post(f'/api/inventory/customer-materials/{material_id}/use/',
+                                {'quantity': '5'}, format='json')
+        self.assertEqual(Decimal(str(used.data['remaining_quantity'])), Decimal('3.000'))
+
+        over = self.client.post(f'/api/inventory/customer-materials/{material_id}/return/',
+                                {'quantity': '9'}, format='json')
+        self.assertEqual(over.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_customer_material_balances_cannot_be_patched_directly(self):
+        created = self.client.post('/api/inventory/customer-materials/', {
+            'order': str(self.order.id), 'name': 'Customer silk',
+            'received_quantity': '8', 'unit': 'METER'}, format='json')
+        material_id = created.data['id']
+
+        self.client.patch(f'/api/inventory/customer-materials/{material_id}/',
+                          {'used_quantity': '99'}, format='json')
+
+        from .models import CustomerMaterial
+        material = CustomerMaterial.objects.get(pk=material_id)
+        self.assertEqual(material.used_quantity, Decimal('0.000'),
+                         'balances move only through recorded movements')
+
+
+class MaterialPlanHardeningTests(OrderMaterialTestBase):
+    """Regression tests for the defects an adversarial review confirmed.
+
+    The important ones all share a root: a consumption used to release
+    reservation clamped against the item's GLOBAL reserved figure, so one
+    order's over-consumption silently cancelled another order's reservation and
+    left that order unable to release what it still believed it held.
+    """
+
+    def second_order(self):
+        from crm_api.models import Order
+        return Order.objects.create(order_id='T2B-TEST-0009', customer=self.customer)
+
+    def test_over_consuming_does_not_eat_another_orders_reservation(self):
+        from . import order_materials
+        other = self.second_order()
+        mine = self.plan()
+        theirs = order_materials.plan_materials(other, self.bom, user=self.owner)
+        order_materials.reserve(mine, user=self.owner)
+        order_materials.reserve(theirs, user=self.owner)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('6.000'))
+
+        # Production on my order used 5 m though only 3 were reserved.
+        line = mine.lines.get(material_name='Raw Silk')
+        order_materials.confirm_consumption(line, Decimal('5'), user=self.owner)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('3.000'),
+                         "the other order's reservation must survive")
+        self.assertEqual(self.fabric.current_stock, Decimal('95.000'))
+
+    def test_the_other_order_can_still_be_closed_afterwards(self):
+        """The wedge: releasing used to fail, so the order could never close."""
+        from . import order_materials
+        other = self.second_order()
+        mine = self.plan()
+        theirs = order_materials.plan_materials(other, self.bom, user=self.owner)
+        order_materials.reserve(mine, user=self.owner)
+        order_materials.reserve(theirs, user=self.owner)
+
+        order_materials.confirm_consumption(
+            mine.lines.get(material_name='Raw Silk'), Decimal('5'), user=self.owner)
+
+        order_materials.close(theirs, user=self.owner)          # must not raise
+        theirs.refresh_from_db()
+        from .models import OrderMaterialPlan
+        self.assertEqual(theirs.status, OrderMaterialPlan.Status.COMPLETED)
+
+    def test_the_other_order_can_still_be_cancelled_afterwards(self):
+        from . import order_materials
+        other = self.second_order()
+        mine = self.plan()
+        theirs = order_materials.plan_materials(other, self.bom, user=self.owner)
+        order_materials.reserve(mine, user=self.owner)
+        order_materials.reserve(theirs, user=self.owner)
+        order_materials.confirm_consumption(
+            mine.lines.get(material_name='Raw Silk'), Decimal('5'), user=self.owner)
+
+        order_materials.cancel(theirs, user=self.owner)         # must not raise
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
+
+    def test_release_then_dispatch_does_not_steal_a_reservation(self):
+        """Steps 8 then 9, the documented order, with a shared packaging item."""
+        from . import order_materials
+        other = self.second_order()
+        mine = self.plan()
+        theirs = order_materials.plan_materials(other, self.bom, user=self.owner)
+        order_materials.reserve(mine, user=self.owner)
+        order_materials.reserve(theirs, user=self.owner)
+
+        order_materials.release_unused(mine, user=self.owner)   # step 8
+        order_materials.deduct_packaging(mine, user=self.owner)  # step 9
+
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.reserved_stock, Decimal('1.000'),
+                         "order B's box reservation must survive")
+        order_materials.close(theirs, user=self.owner)          # must not raise
+
+    def test_waste_beyond_the_reservation_also_stays_bounded(self):
+        from . import order_materials
+        other = self.second_order()
+        mine = self.plan()
+        theirs = order_materials.plan_materials(other, self.bom, user=self.owner)
+        order_materials.reserve(mine, user=self.owner)
+        order_materials.reserve(theirs, user=self.owner)
+
+        order_materials.confirm_consumption(
+            mine.lines.get(material_name='Raw Silk'), 0, wasted=Decimal('5'),
+            user=self.owner)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('3.000'))
+
+    # --- status guards ---------------------------------------------------
+
+    def test_packaging_cannot_be_deducted_from_a_cancelled_plan(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.cancel(plan, user=self.owner)
+
+        with self.assertRaises(order_materials.MaterialPlanError):
+            order_materials.deduct_packaging(plan, user=self.owner)
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.current_stock, Decimal('20.000'))
+
+    def test_packaging_cannot_be_deducted_from_a_completed_plan(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.close(plan, user=self.owner)
+        with self.assertRaises(order_materials.MaterialPlanError):
+            order_materials.deduct_packaging(plan, user=self.owner)
+
+    def test_packaging_cannot_be_deducted_from_a_draft_plan(self):
+        from . import order_materials
+        plan = self.plan()
+        with self.assertRaises(order_materials.MaterialPlanError):
+            order_materials.deduct_packaging(plan, user=self.owner)
+
+    def test_a_cancelled_plan_cannot_release_again(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.cancel(plan, user=self.owner)
+        with self.assertRaises(order_materials.MaterialPlanError):
+            order_materials.release_unused(plan, user=self.owner)
+
+    # --- counters --------------------------------------------------------
+
+    def test_re_reserving_after_a_release_actually_reserves_again(self):
+        """reserved_quantity is a lifetime total, not a current holding."""
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        order_materials.release_unused(plan, user=self.owner)
+
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
+
+        order_materials.reserve(plan, user=self.owner)
+        self.fabric.refresh_from_db()
+        self.assertEqual(self.fabric.reserved_stock, Decimal('3.000'),
+                         'a re-reserve after releasing must not be a silent no-op')
+
+    def test_two_lines_naming_the_same_item_are_summed(self):
+        """A lehenga's skirt and blouse are both silk; 60 + 60 does not fit 100."""
+        from . import order_materials
+        from .models import BillOfMaterials, BomLine
+        bom = BillOfMaterials.objects.create(name='Two silk panels')
+        for sequence in (1, 2):
+            BomLine.objects.create(bom=bom, role=BomLine.Role.FABRIC,
+                                   inventory_item=self.fabric, quantity=Decimal('60'),
+                                   unit=Unit.METER, sequence=sequence)
+        from crm_api.models import Order
+        order = Order.objects.create(order_id='T2B-TEST-0010', customer=self.customer)
+        plan = order_materials.plan_materials(order, bom, user=self.owner)
+
+        shortfalls = order_materials.check_availability(plan)
+        self.assertTrue(shortfalls, '120 m of demand against 100 m of stock is short')
+        self.assertEqual(shortfalls[0]['short_by'], Decimal('20.000'))
+
+        with self.assertRaises(order_materials.MaterialPlanError):
+            order_materials.reserve(plan, user=self.owner)
+
+    # --- quantities ------------------------------------------------------
+
+    def test_a_nan_quantity_is_refused_not_a_500(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        line = plan.lines.get(material_name='Raw Silk')
+        for bad in ('nan', 'inf', '-inf'):
+            with self.assertRaises(order_materials.MaterialPlanError, msg=bad):
+                order_materials.confirm_consumption(line, bad, user=self.owner)
+
+    def test_customer_quantities_are_rounded_to_the_stored_precision(self):
+        from . import order_materials
+        material = order_materials.receive_customer_material(
+            self.order, name='Customer silk', quantity='5.5555', unit=Unit.METER,
+            user=self.owner)
+        self.assertEqual(material.received_quantity, Decimal('5.556'))
+        movement = material.movements.get()
+        self.assertEqual(movement.new_remaining, material.remaining_quantity,
+                         'the ledger must agree with the balance it explains')
+
+
+class CustomerMaterialApiHardeningTests(OrderMaterialTestBase):
+
+    def make(self, **overrides):
+        payload = {'order': str(self.order.id), 'name': 'Customer silk',
+                   'received_quantity': '8', 'unit': 'METER'}
+        payload.update(overrides)
+        return self.client.post('/api/inventory/customer-materials/', payload, format='json')
+
+    def test_material_cannot_be_repointed_at_another_order(self):
+        from crm_api.models import Order
+        from .models import CustomerMaterial
+        other = Order.objects.create(order_id='T2B-TEST-0011', customer=self.customer)
+        created = self.make()
+        response = self.client.patch(
+            f"/api/inventory/customer-materials/{created.data['id']}/",
+            {'order': other.id}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            CustomerMaterial.objects.get(pk=created.data['id']).order_id, self.order.id)
+
+    def test_unit_cannot_be_changed_after_receipt(self):
+        created = self.make()
+        response = self.client.patch(
+            f"/api/inventory/customer-materials/{created.data['id']}/",
+            {'unit': 'PIECE'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_descriptive_fields_can_still_be_edited(self):
+        created = self.make()
+        response = self.client.patch(
+            f"/api/inventory/customer-materials/{created.data['id']}/",
+            {'notes': 'Left with the front desk'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+    def test_deleting_a_material_is_not_allowed(self):
+        """It would cascade away the movement ledger that explains the balances."""
+        created = self.make()
+        response = self.client.delete(
+            f"/api/inventory/customer-materials/{created.data['id']}/")
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_the_payload_is_validated(self):
+        self.assertEqual(self.make(name='').status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.make(name='   ').status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.make(unit='FURLONG').status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.make(kind='NONSENSE').status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            self.make(received_quantity='abc').status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_malformed_line_id_is_a_400_not_a_500(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        response = self.client.post(f'/api/inventory/material-plans/{plan.id}/consume/',
+                                    {'line': 'not-a-uuid', 'used': '1'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_malformed_location_id_is_a_400_not_a_500(self):
+        from . import order_materials
+        plan = self.plan()
+        order_materials.reserve(plan, user=self.owner)
+        line = plan.lines.get(material_name='Raw Silk')
+        response = self.client.post(
+            f'/api/inventory/material-plans/{plan.id}/consume/',
+            {'line': str(line.id), 'used': '1', 'from_location': 'main-store'},
+            format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
