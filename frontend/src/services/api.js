@@ -16,6 +16,28 @@ const getHeaders = (isMultipart = false) => {
   return headers;
 };
 
+/**
+ * Turn a failed response into a sentence worth showing someone.
+ *
+ * DRF returns {field: ["message"]} for a validation failure, which is worth
+ * unpacking; anything else (an HTML 500 page, a proxy's 413, an empty body)
+ * has no useful text in it, so the status is all there is to report.
+ */
+const describeApiError = (res, data) => {
+  if (data && typeof data === 'object') {
+    const fields = Object.entries(data)
+      .map(([key, value]) => {
+        const text = Array.isArray(value) ? value.join(' ') : String(value);
+        return key === 'detail' || key === 'error' ? text : `${key}: ${text}`;
+      })
+      .filter(Boolean);
+    if (fields.length) return fields.join('\n');
+  }
+  if (res.status === 413) return 'That photograph is too large to upload.';
+  if (res.status >= 500) return `The server could not save the upload (error ${res.status}). Please try again.`;
+  return `The upload failed (error ${res.status}).`;
+};
+
 export const api = {
   // Auth API
   async login(username, password) {
@@ -820,8 +842,22 @@ export const api = {
       headers: getHeaders(true),
       body: form
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(JSON.stringify(data));
+
+    // Read the body as text first. res.json() on a non-JSON body rejects with
+    // whatever the engine's parser says, and that message reaches the user
+    // verbatim -- on WebKit it is "The string did not match the expected
+    // pattern", which describes neither what failed nor what to do about it.
+    // A 500 renders as an HTML page, so this is the path any server error
+    // takes, not an edge case.
+    const raw = await res.text();
+    let data = null;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      data = null;
+    }
+
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 

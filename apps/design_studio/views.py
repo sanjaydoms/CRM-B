@@ -174,7 +174,18 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         than the boutique having to host an image somewhere first and paste a
         URL, which is what the catalogue form made them do.
         """
-        data = request.data.copy()
+        # Not request.data.copy(). That deep-copies the QueryDict, and any
+        # photograph over FILE_UPLOAD_MAX_MEMORY_SIZE (2.5MB by default) is not
+        # an in-memory BytesIO but a TemporaryUploadedFile wrapping an open file
+        # handle, which cannot be deep-copied -- it raises
+        # "TypeError: cannot pickle 'BufferedRandom' instances" before any of
+        # this method's own logic runs. A photograph taken on a phone is always
+        # bigger than that, so the copy failed for precisely the uploads this
+        # endpoint exists to accept, while the small test images used on a
+        # desktop stayed under the threshold and passed. The files are read
+        # separately by _store_images(), so the serializer only needs the
+        # non-file fields.
+        data = {key: value for key, value in request.data.items() if key != 'images'}
         uploaded = self._store_images(request)
         if uploaded:
             # The first photograph is the one the cards show; the rest are the

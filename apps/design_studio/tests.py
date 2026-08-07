@@ -899,6 +899,27 @@ class DesignUploadTests(StudioTestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(len(response.data['gallery']), 2)
 
+    def test_a_photograph_too_large_to_buffer_in_memory_still_uploads(self):
+        # Django keeps a small upload in memory as a BytesIO, but spills
+        # anything over FILE_UPLOAD_MAX_MEMORY_SIZE to a TemporaryUploadedFile
+        # wrapping an open file handle. The view used to run request.data.copy()
+        # over that, and deep-copying a file handle raises
+        # "TypeError: cannot pickle 'BufferedRandom' instances", so every upload
+        # above the threshold returned a 500 before the view's own logic ran.
+        #
+        # The default threshold is 2.5MB and a photograph taken on a phone is
+        # always larger, so this broke every real camera upload while the
+        # kilobyte fixtures the tests above use stayed in memory and passed.
+        # Lowering the threshold reproduces it without a multi-megabyte fixture.
+        with override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=1):
+            response = self.client.post('/api/design-studio/assets/', {
+                'title': 'Straight off a phone camera',
+                'template': str(self.lehenga.id),
+                'images': self._image(),
+            }, format='multipart')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIn('design_library/', response.data['image_url'])
+
     def test_an_upload_is_live_not_pending(self):
         # The approval queue does not exist yet. Creating PENDING rows before
         # there is a queue to clear them would hide every upload with no way to
