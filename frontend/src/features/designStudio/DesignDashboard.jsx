@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Award, Clock, Image as ImageIcon, Key, Users } from 'lucide-react';
+import { Award, Clock, Image as ImageIcon, Key, UserPlus, Users } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
@@ -72,9 +72,16 @@ function DesignStrip({ title, designs, emptyText, metric }) {
 }
 
 /**
- * Owner-only: the roster of credited designers, with a way to switch a login
- * on. There is no separate "Manage Designers" screen yet, so this is where
- * step 7's account-creation actually gets used from.
+ * Owner-only: the roster of credited designers, where one is added and where a
+ * login is switched on. There is no separate "Manage Designers" screen yet, so
+ * this is where both step 7's account-creation and the roster itself get used
+ * from.
+ *
+ * Adding is here rather than on its own screen because until it was, a
+ * boutique had no way to add a designer at all: the POST endpoint existed and
+ * was Owner-gated, but nothing called it, so the only rows that ever existed
+ * were the ones migration 0003 backfilled out of free-text credits. A studio
+ * set up after that migration ran had an empty roster with no way to fill it.
  */
 function DesignerRoster() {
   const [designers, setDesigners] = useState([]);
@@ -82,6 +89,8 @@ function DesignerRoster() {
   const [emailDrafts, setEmailDrafts] = useState({});
   const [granting, setGranting] = useState(null);
   const [issued, setIssued] = useState(null);   // { name, email } just granted
+  const [draft, setDraft] = useState({ name: '', email: '' });
+  const [adding, setAdding] = useState(false);
   const inFlight = useRef(false);
 
   const load = () => {
@@ -90,8 +99,29 @@ function DesignerRoster() {
 
   useEffect(load, []);
 
+  // An email typed when the designer was added is what the Grant login box
+  // starts from, so the Owner is not asked for the same address twice. `??`
+  // rather than `||` so clearing the box stays cleared.
+  const draftEmail = (designer) => emailDrafts[designer.id] ?? designer.email ?? '';
+
+  const add = async (event) => {
+    event.preventDefault();
+    const name = draft.name.trim();
+    if (!name || adding) return;
+    setAdding(true);
+    try {
+      await api.createDesigner({ name, email: draft.email.trim() });
+      setDraft({ name: '', email: '' });
+      load();
+    } catch (err) {
+      setError(`Could not add ${name} — ${err.message}`);
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const grant = async (designer) => {
-    const email = (emailDrafts[designer.id] || '').trim();
+    const email = draftEmail(designer).trim();
     if (!email || inFlight.current) return;   // one click, one call
     inFlight.current = true;
     setGranting(designer.id);
@@ -120,9 +150,29 @@ function DesignerRoster() {
   return (
     <div className="content-card">
       <div className="card-title" style={{ fontSize: '14px' }}>Designers</div>
+
+      <form onSubmit={add}
+            style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '4px 0 12px' }}>
+        <input
+          className="form-control" placeholder="Designer name" required
+          style={{ padding: '5px 8px', fontSize: '12px', flex: '1 1 140px' }}
+          value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+        />
+        <input
+          className="form-control" type="email" placeholder="Email (optional)"
+          style={{ padding: '5px 8px', fontSize: '12px', flex: '1 1 170px' }}
+          value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+        />
+        <button className="btn-secondary" type="submit"
+                style={{ padding: '5px 10px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                disabled={adding || !draft.name.trim()}>
+          <UserPlus size={11} /> {adding ? 'Adding…' : 'Add designer'}
+        </button>
+      </form>
+
       {designers.length === 0 ? (
         <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-          No designer has been credited on a design yet.
+          No designers yet. Add one above to credit them on a design.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -142,11 +192,11 @@ function DesignerRoster() {
                   <input
                     className="form-control" type="email" placeholder="designer@boutique.com"
                     style={{ padding: '5px 8px', fontSize: '12px' }}
-                    value={emailDrafts[d.id] || ''}
+                    value={draftEmail(d)}
                     onChange={(e) => setEmailDrafts({ ...emailDrafts, [d.id]: e.target.value })}
                   />
                   <button className="btn-secondary" style={{ padding: '5px 10px', fontSize: '11px', whiteSpace: 'nowrap' }}
-                          disabled={granting === d.id || !(emailDrafts[d.id] || '').trim()}
+                          disabled={granting === d.id || !draftEmail(d).trim()}
                           onClick={() => grant(d)}>
                     <Key size={11} /> {granting === d.id ? 'Granting…' : 'Grant login'}
                   </button>

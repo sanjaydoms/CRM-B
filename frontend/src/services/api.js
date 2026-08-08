@@ -930,6 +930,20 @@ export const api = {
     return res.json();
   },
 
+  // Owner-only, enforced server-side by DesignStudioPermission. Creates a
+  // credit-only designer -- `email` is optional here and the row carries no
+  // login until createDesignerLogin runs against it.
+  async createDesigner(payload) {
+    const res = await fetch(`${BASE_URL}/design-studio/designers/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.name || JSON.stringify(data));
+    return data;
+  },
+
   // --- Garment templates ---------------------------------------------------
   // The order form is rendered from these, so a new garment or a changed option
   // list reaches the wizard without a frontend release.

@@ -568,6 +568,30 @@ class DesignerAttributionTests(StudioTestCase):
         created = tailor.post('/api/design-studio/designers/', {'name': 'Sneaky'}, format='json')
         self.assertEqual(created.status_code, 403)
 
+    def test_the_owner_can_add_a_designer(self):
+        """The counterpart to the 403 above, and the path the roster's own
+        "Add designer" form posts to. Until that form existed nothing called
+        this endpoint, so a boutique set up after the 0003 backfill had an
+        empty roster it could never fill."""
+        response = self.client.post(
+            '/api/design-studio/designers/',
+            {'name': 'Meera', 'email': 'meera@studio.test'}, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['name'], 'Meera')
+        # Credit only: adding a designer must not hand out a login on its own.
+        self.assertFalse(response.data['has_login'])
+        self.assertTrue(Designer.objects.filter(name='Meera', user__isnull=True).exists())
+
+    def test_a_designer_can_be_added_without_an_email(self):
+        """Attribution comes first -- a name is the only thing required, and
+        the address can arrive later when the Owner grants the login."""
+        response = self.client.post(
+            '/api/design-studio/designers/', {'name': 'Ravi'}, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['email'], '')
+
 
 class DesignerBackfillTests(StudioTestCase):
     """The migration that turns existing free-text credits into rows."""
