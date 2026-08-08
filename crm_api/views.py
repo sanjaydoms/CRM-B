@@ -7,22 +7,23 @@ from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from core.permissions import visible_customers, visible_orders
+from core.permissions import OwnerOnly, visible_customers, visible_orders
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.db.models import Q, Sum, Count
 
 from .models import (
-    Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order,
-    BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory,
-    BoutiqueSettings, MeasurementHistory, OrderStage, OrderActivity
+    Customer, CustomerMessage, Measurement, DesignPreference, FabricSelection,
+    Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification,
+    OrderStageHistory, BoutiqueSettings, MeasurementHistory, OrderStage,
+    OrderActivity
 )
 from .serializers import (
-    CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer, 
+    CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer,
     FabricSelectionSerializer, TailorSerializer, OrderSerializer, BoutiqueFabricSerializer,
     BoutiqueDesignSerializer, NotificationSerializer, OrderStageHistorySerializer, BoutiqueSettingsSerializer,
     MeasurementHistorySerializer, CustomerSummarySerializer, OrderSummarySerializer,
-    OrderStageSerializer
+    OrderStageSerializer, CustomerMessageSerializer
 )
 from apps.design_studio.models import DesignAsset
 from domains.customers.repositories import CustomerRepository
@@ -310,6 +311,70 @@ class OrderViewSet(viewsets.ModelViewSet):
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({'status': 'status updated', 'order_status': updated.order_status})
+
+    @action(detail=False, methods=['GET'], url_path='customer-messages',
+            permission_classes=[OwnerOnly])
+    def customer_messages(self, request):
+        """Every message still waiting to be sent, across the boutique's orders.
+
+        One request for the whole screen rather than one per order card: the
+        orders registry is unpaginated, so a per-order fetch meant a request per
+        order in the boutique every time it opened.
+
+        Owner-only, and not because sending is their job -- because each body
+        contains the order's tracking link, which is an unauthenticated bearer
+        credential for a page showing the order's totals and balance. A tailor
+        can see their own orders, but the role matrix deliberately keeps the
+        money from them, and handing over the link would route around that.
+
+        Queued only. This is a to-do list, not the archive; what has already
+        been sent is history and does not belong in a payload fetched on every
+        dashboard refresh.
+        """
+        messages = (
+            CustomerMessage.objects
+            .filter(status='QUEUED', order__in=self.get_queryset())
+            .select_related('sent_by')
+        )
+        return Response(CustomerMessageSerializer(messages, many=True).data)
+
+    @action(detail=True, methods=['POST'], url_path='mark-message-sent',
+            permission_classes=[OwnerOnly])
+    def mark_message_sent(self, request, pk=None):
+        """Record that the owner sent a queued message from their own WhatsApp.
+
+        Nothing here can observe a send that happened in another app, so this is
+        the owner's word for it and is stored as such -- sent_by is who said so.
+        It deliberately stops at SENT: DELIVERED and READ are provider facts,
+        and there is no provider.
+
+        Owner-only for the same reason the list is, and because it is the
+        owner's phone the message goes from. Stated explicitly rather than
+        relying on RolePermission's default for unlisted actions, so that adding
+        the name to a staff list later cannot quietly open it up.
+        """
+        order = self.get_object()
+        try:
+            message_id = int(request.data.get('message_id'))
+        except (TypeError, ValueError):
+            # id is a BigAutoField; a non-numeric value reaches the database as
+            # a bad cast and surfaces as a 500 rather than the 400 it is.
+            return Response(
+                {'error': 'message_id must be a number.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        message = order.customer_messages.filter(id=message_id).first()
+        if message is None:
+            return Response(
+                {'error': 'No such message on this order.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        message.status = 'SENT'
+        message.sent_by = request.user
+        message.save(update_fields=['status', 'sent_by'])
+        return Response(CustomerMessageSerializer(message).data)
 
     @action(detail=True, methods=['PATCH'], url_path='submit-completion')
     def submit_completion(self, request, pk=None):

@@ -336,14 +336,23 @@ REST_FRAMEWORK = {
 # points at localhost.
 TRACKING_BASE_URL = os.environ.get('TRACKING_BASE_URL', 'http://localhost:8000')
 
-# How customer messages are delivered. The default only writes them to the log
-# and to CustomerMessage, so the communication history, the boutique toggle and
-# the tracking links all work before any WhatsApp Business account exists.
-# Point this at another callable taking a CustomerMessage to actually send.
-CUSTOMER_MESSAGE_BACKEND = os.environ.get(
-    'CUSTOMER_MESSAGE_BACKEND',
-    'domains.orders.messaging.log_backend',
-)
+# How customer messages are delivered. Unset -- the shipped default -- means
+# nothing sends automatically: messages queue, and the boutique owner sends each
+# one from their own WhatsApp by following CustomerMessage.whatsapp_url.
+#
+# That is a deliberate product decision rather than an unfinished integration.
+# The WhatsApp Business API would require a Meta Business account and embedded
+# signup per boutique, every automated message to be a template Meta approved in
+# advance, and free-form replies only inside a 24-hour window the customer
+# opens. A wa.me link has none of that, costs nothing, and works today from the
+# number the boutique's customers already know.
+#
+# Point this at a callable taking a CustomerMessage if that ever changes.
+CUSTOMER_MESSAGE_BACKEND = os.environ.get('CUSTOMER_MESSAGE_BACKEND', '')
+
+# Customer numbers are stored as the boutique typed them, which so far is always
+# a bare ten-digit Indian number. wa.me needs a full international one.
+WHATSAPP_COUNTRY_CODE = os.environ.get('WHATSAPP_COUNTRY_CODE', '91')
 
 
 # --- AI Design Studio ---------------------------------------------------

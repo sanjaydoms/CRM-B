@@ -1,6 +1,59 @@
 from django.db import models
+import re
 import uuid
+from urllib.parse import quote
+from django.conf import settings
 from django.contrib.auth.models import User
+
+
+#: India. The one number this module needs to know to tell a national number
+#: from an international one.
+NATIONAL_NUMBER_LENGTH = 10
+
+
+def whatsapp_number(raw):
+    """Return ``raw`` as the digits wa.me needs, or '' if it cannot be one.
+
+    wa.me only accepts a full international number with no trunk prefix, and
+    mobile_number is free text -- no validator on the field, none in the
+    serializer, none in the form. So whatever the boutique typed arrives here,
+    and a link built from it verbatim opens a chat with nobody. Worse, it does
+    so silently: a wrong number still renders as a working "Open WhatsApp"
+    button, and the owner can mark it sent beside a link that never opened.
+
+    Handled: a bare national number, a leading '+', the 00 international access
+    code, and a national trunk zero wherever it sits -- '098765 43211',
+    '0091 9876543211' and '+91 (0) 98765 43211' all reach the same person.
+
+    Anything that cannot be made into a number of this country falls through:
+    kept if it could still be a valid international number, and otherwise
+    refused, so the interface says "no mobile number" rather than offering a
+    link that cannot work.
+
+    # ponytail: one national length and one default country code, which is
+    # right while every customer is Indian -- a UK number typed in national
+    # form would get +91 in front of it. A boutique serving more than one
+    # country needs the country stored on the customer, not guessed here.
+    """
+    digits = re.sub(r'\D', '', raw or '')
+    country_code = getattr(settings, 'WHATSAPP_COUNTRY_CODE', '91')
+
+    if digits.startswith('00'):
+        digits = digits[2:]
+
+    # Only strip a leading country code from something too long to *be* a
+    # national number: Indian mobiles legitimately start 91.
+    if len(digits) > NATIONAL_NUMBER_LENGTH and digits.startswith(country_code):
+        national = digits[len(country_code):]
+    else:
+        national = digits
+    national = national.lstrip('0')
+
+    if len(national) == NATIONAL_NUMBER_LENGTH:
+        return country_code + national
+    # E.164 allows at most 15 digits, and nothing shorter than 11 can carry a
+    # country code plus a subscriber number.
+    return digits if 11 <= len(digits) <= 15 else ''
 
 class Customer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -330,6 +383,20 @@ class CustomerMessage(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+    @property
+    def whatsapp_url(self):
+        """Click-to-chat link that opens WhatsApp with this message ready to send.
+
+        There is no Business API here on purpose: the owner sends from their own
+        phone, so the product's job is to remove the retyping, not to automate
+        the send. Following this link opens the chat with the customer and the
+        body already in the box; the owner presses send.
+        """
+        number = whatsapp_number(self.to_number)
+        if not number:
+            return ''
+        return f"https://wa.me/{number}?text={quote(self.body)}"
 
     def __str__(self):
         return f"{self.order.order_id} - {self.template_key} ({self.status})"

@@ -4,9 +4,10 @@ from rest_framework import serializers
 
 from apps.design_studio.models import DesignAsset
 from .models import (
-    Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order,
-    BoutiqueFabric, BoutiqueDesign, Notification, OrderStageHistory,
-    BoutiqueSettings, MeasurementHistory, OrderStage, OrderActivity
+    Customer, CustomerMessage, Measurement, DesignPreference, FabricSelection,
+    Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification,
+    OrderStageHistory, BoutiqueSettings, MeasurementHistory, OrderStage,
+    OrderActivity
 )
 
 class BoutiqueSettingsSerializer(serializers.ModelSerializer):
@@ -437,3 +438,27 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = '__all__'
+
+
+class CustomerMessageSerializer(serializers.ModelSerializer):
+    """What the owner needs to send a queued message and tick it off.
+
+    whatsapp_url is the whole feature: it opens the customer's chat with the
+    body already typed, so sending is a tap rather than a copy-paste.
+    """
+
+    whatsapp_url = serializers.ReadOnlyField()
+    sent_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomerMessage
+        fields = [
+            'id', 'order', 'template_key', 'to_number', 'body', 'status',
+            'whatsapp_url', 'sent_by_name', 'error', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_sent_by_name(self, obj):
+        if not obj.sent_by:
+            return None
+        return obj.sent_by.get_full_name() or obj.sent_by.username

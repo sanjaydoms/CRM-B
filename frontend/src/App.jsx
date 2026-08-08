@@ -158,6 +158,115 @@ const getTailorTags = (name) => {
 
 // Clickable twelve-stage timeline. Shown on the owner's order registry and on a
 // master's assignments board, so it lives here rather than being written twice.
+/** The customer messages an order has raised, and the owner's send button.
+ *
+ * There is no WhatsApp Business integration behind this. Each queued message
+ * carries a wa.me link that opens the customer's chat with the text already
+ * written; the owner sends it from their own number and then marks it sent.
+ * Nothing here can observe a send that happened in another app, so "Mark sent"
+ * is the owner's word for it, which is why it is a separate deliberate click
+ * rather than something inferred from opening the link.
+ *
+ * Presentational: the queue is fetched once for the whole screen by
+ * fetchDashboardAndConfig and handed down. It used to fetch its own messages
+ * from the order id, which was tidier to drop in and wrong twice over -- one
+ * request per order card on an unpaginated registry, and a list that never
+ * refreshed, so a message queued by the status dropdown directly above it
+ * stayed invisible until a hard reload.
+ */
+function CustomerMessageQueue({ orderId, messages, onMarkSent }) {
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState(null);
+
+  const markSent = async (messageId) => {
+    setBusyId(messageId);
+    setError(null);
+    try {
+      await onMarkSent(orderId, messageId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (!messages.length && !error) return null;
+
+  const queued = messages.filter((m) => m.status === 'QUEUED');
+
+  return (
+    <div style={{
+      margin: '8px 0', padding: '12px 16px', background: 'var(--surface-color)',
+      borderRadius: '8px', border: '1px solid var(--border-color)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+        <MessageSquare size={14} />
+        <span style={{ fontSize: '13px', fontWeight: 600 }}>Customer updates</span>
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+          {queued.length} waiting to send
+        </span>
+      </div>
+
+      {error && (
+        <div style={{ fontSize: '12px', color: 'var(--danger-color, #b3261e)', marginBottom: '8px' }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {messages.map((message) => (
+          <div key={message.id} style={{
+            display: 'flex', alignItems: 'flex-start', gap: '12px',
+            padding: '10px', borderRadius: '6px',
+            border: '1px solid var(--border-color)',
+            opacity: message.status === 'QUEUED' ? 1 : 0.6
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                {message.template_key.replace(/_/g, ' ')} &middot; {message.to_number}
+                {message.status !== 'QUEUED' && ` · ${message.status.toLowerCase()}`}
+                {message.sent_by_name && ` by ${message.sent_by_name}`}
+              </div>
+              <div style={{ fontSize: '13px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {message.body}
+              </div>
+            </div>
+
+            {message.status === 'QUEUED' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+                {message.whatsapp_url ? (
+                  <a
+                    href={message.whatsapp_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary"
+                    style={{ fontSize: '12px', padding: '6px 10px', whiteSpace: 'nowrap', textAlign: 'center' }}
+                  >
+                    Open WhatsApp
+                  </a>
+                ) : (
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                    No mobile number
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ fontSize: '12px', padding: '6px 10px', whiteSpace: 'nowrap' }}
+                  disabled={busyId === message.id}
+                  onClick={() => markSent(message.id)}
+                >
+                  {busyId === message.id ? 'Saving…' : 'Mark sent'}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StageTimeline({ stages, onSelectStage }) {
   if (!stages || stages.length === 0) {
     return (
@@ -472,6 +581,10 @@ function App() {
   const [allDesigns, setAllDesigns] = useState([]);
   const [customersList, setCustomersList] = useState([]);
   const [ordersList, setOrdersList] = useState([]);
+  // Customer messages still waiting for the owner to send them, for every
+  // order at once. Refreshed with the dashboard, so advancing an order's
+  // status makes its new message appear without a reload.
+  const [queuedMessages, setQueuedMessages] = useState([]);
   const [confirmedOrder, setConfirmedOrder] = useState(null);
 
   // Existing Customer Search Modal
@@ -627,8 +740,23 @@ function App() {
       load('notifications', () => fetchNotifications(user), () => {})
     ];
 
+    // Owner-only endpoint: each queued message carries the order's tracking
+    // link, which reaches the order's totals without signing in. Asking for it
+    // as anyone else is a guaranteed 403 and would show them a load error for
+    // something they are not missing.
+    if (!user?.role || user.role === 'Owner') {
+      requests.push(load('customer messages', api.getQueuedCustomerMessages, setQueuedMessages));
+    }
+
     await Promise.all(requests);
     setLoading(false);
+  };
+
+  /** Record that the owner sent a queued message from their own WhatsApp. */
+  const handleMarkMessageSent = async (orderId, messageId) => {
+    await api.markMessageSent(orderId, messageId);
+    // The queue holds only what is still waiting, so a sent one leaves it.
+    setQueuedMessages((prev) => prev.filter((m) => m.id !== messageId));
   };
 
   // Catalog Management Handlers
@@ -4210,6 +4338,12 @@ function App() {
                           <StageTimeline
                             stages={order.stages}
                             onSelectStage={(stage) => openStageReview(order, stage)}
+                          />
+
+                          <CustomerMessageQueue
+                            orderId={order.id}
+                            messages={queuedMessages.filter(m => m.order === order.id)}
+                            onMarkSent={handleMarkMessageSent}
                           />
 
                           {/* Middle Row: Assignment & Financials */}

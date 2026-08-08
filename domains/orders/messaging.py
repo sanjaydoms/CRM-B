@@ -21,7 +21,9 @@ from crm_api.models import BoutiqueSettings, CustomerMessage
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BACKEND = 'domains.orders.messaging.log_backend'
+#: Unset means nobody delivers automatically: messages are queued for the owner
+#: to send from their own WhatsApp via CustomerMessage.whatsapp_url. That is the
+#: shipped behaviour, not a placeholder -- see send_customer_message.
 _cache = {}
 
 
@@ -40,7 +42,10 @@ def log_backend(message):
 
 
 def get_backend():
-    path = getattr(settings, 'CUSTOMER_MESSAGE_BACKEND', _DEFAULT_BACKEND) or _DEFAULT_BACKEND
+    """Return the configured transport, or None when sending is manual."""
+    path = getattr(settings, 'CUSTOMER_MESSAGE_BACKEND', '') or ''
+    if not path:
+        return None
     if path not in _cache:
         try:
             _cache[path] = import_string(path)
@@ -76,6 +81,13 @@ def send_customer_message(order, template_key, body, sent_by=None):
     Returns the CustomerMessage (still QUEUED), or None if the boutique has
     customer messaging switched off.
 
+    With no CUSTOMER_MESSAGE_BACKEND configured -- the shipped default -- there
+    is no automatic delivery at all. The message stays QUEUED and the owner
+    sends it from their own WhatsApp by following whatsapp_url, then marks it
+    sent. Queueing it is still the point: it is the boutique's list of what the
+    customer is owed, written the moment the event happened rather than
+    whenever someone remembers.
+
     The row is written inside the caller's transaction so it lands with the
     order it describes; delivery is deferred to on_commit for two reasons that
     both cost real money:
@@ -104,5 +116,6 @@ def send_customer_message(order, template_key, body, sent_by=None):
         body=body,
         sent_by=sent_by,
     )
-    transaction.on_commit(lambda: _deliver(message))
+    if get_backend() is not None:
+        transaction.on_commit(lambda: _deliver(message))
     return message

@@ -7,13 +7,22 @@ and that anything else (edited token, dead schema, unknown order) is a 404 and
 not a 500 or, worse, another boutique's data.
 """
 
+from urllib.parse import quote
+
+from django.contrib.auth.models import User
 from django.core import signing
 from django.db import connection
 from django.test import Client
 from django.test.utils import override_settings
+from django.urls import reverse
 from django_tenants.test.cases import TenantTestCase
+from rest_framework import status
+from rest_framework.authtoken.models import Token
+from rest_framework.test import APIClient
 
-from crm_api.models import BoutiqueSettings, Customer, CustomerMessage, Order
+from crm_api.models import (
+    BoutiqueSettings, Customer, CustomerMessage, Order, Tailor, whatsapp_number,
+)
 from domains.orders.messaging import send_customer_message
 from domains.orders.services import OrderService
 from domains.orders.tracking import SALT, build_token, read_token, tracking_url
@@ -58,6 +67,13 @@ class TrackingTestBase(TenantTestCase):
         # actually delivered.
         with self.captureOnCommitCallbacks(execute=True):
             self.order = OrderService.create_order_for_customer(self.customer, {})
+
+    def _owner(self):
+        """A user with no staff profile, which core.roles resolves to Owner."""
+        user, _ = User.objects.get_or_create(
+            username='owner@tracking.test', defaults={'email': 'owner@tracking.test'}
+        )
+        return user
 
     def tenant_client_get(self, url):
         """GET as a customer would: no auth, no tenant header, unknown host.
@@ -170,11 +186,13 @@ class TrackingPageTests(TrackingTestBase):
 
 
 class CustomerMessageTests(TrackingTestBase):
-    def test_order_creation_logs_a_message_carrying_the_tracking_link(self):
+    def test_order_creation_queues_a_message_carrying_the_tracking_link(self):
         message = CustomerMessage.objects.get(
             order=self.order, template_key='order_confirmation'
         )
-        self.assertEqual(message.status, 'SENT')
+        # No transport is configured by default: the owner sends it themselves,
+        # so it waits for them rather than claiming to have gone out.
+        self.assertEqual(message.status, 'QUEUED')
         self.assertEqual(message.to_number, self.customer.mobile_number)
         self.assertIn('/track/', message.body)
 
@@ -248,9 +266,194 @@ class CustomerMessageTests(TrackingTestBase):
         )
         self.assertEqual(len(bodies), len(set(bodies)), f"duplicate messages sent: {bodies}")
 
-    def _owner(self):
-        from django.contrib.auth.models import User
-        user, _ = User.objects.get_or_create(
-            username='owner@tracking.test', defaults={'email': 'owner@tracking.test'}
+class WhatsAppNumberTests(TenantTestCase):
+    """wa.me only accepts a full international number.
+
+    Every customer number in the database is a bare ten-digit Indian one, so
+    getting this wrong opens a chat with nobody -- silently, since the link
+    still looks like a link.
+    """
+
+    def test_bare_national_number_gains_the_country_code(self):
+        self.assertEqual(whatsapp_number('6303301002'), '916303301002')
+
+    def test_number_written_internationally_is_left_alone(self):
+        self.assertEqual(whatsapp_number('+919000000002'), '919000000002')
+
+    def test_punctuation_and_spacing_are_stripped(self):
+        self.assertEqual(whatsapp_number('+91 90000-00002'), '919000000002')
+        self.assertEqual(whatsapp_number('63033 01002'), '916303301002')
+
+    def test_a_number_already_carrying_a_country_code_is_not_doubled(self):
+        self.assertEqual(whatsapp_number('916303301002'), '916303301002')
+
+    def test_national_trunk_zero_is_dropped(self):
+        """'098765 43211' is how the number is written for domestic dialling.
+
+        Kept, it produces wa.me/09876543211, which WhatsApp rejects -- while
+        still rendering as a perfectly ordinary "Open WhatsApp" button.
+        """
+        self.assertEqual(whatsapp_number('098765 43211'), '919876543211')
+
+    def test_international_access_code_is_dropped(self):
+        self.assertEqual(whatsapp_number('0091 9876543211'), '919876543211')
+
+    def test_trunk_zero_after_a_country_code_is_dropped(self):
+        self.assertEqual(whatsapp_number('+91 (0) 98765 43211'), '919876543211')
+
+    def test_a_ten_digit_number_starting_91_still_gets_the_country_code(self):
+        """Indian mobiles legitimately start 91, so length has to decide."""
+        self.assertEqual(whatsapp_number('9198765432'), '919198765432')
+
+    def test_a_foreign_international_number_passes_through(self):
+        self.assertEqual(whatsapp_number('+44 20 7123 4567'), '442071234567')
+
+    def test_something_that_cannot_be_a_number_yields_no_link(self):
+        """Better no button than a button that opens a chat with a stranger."""
+        self.assertEqual(whatsapp_number('12345'), '')
+        self.assertEqual(whatsapp_number('9876543211 9876543211'), '')
+        self.assertEqual(whatsapp_number('call the shop'), '')
+
+    def test_empty_input_yields_no_link(self):
+        self.assertEqual(whatsapp_number(''), '')
+        self.assertEqual(whatsapp_number(None), '')
+
+    @override_settings(WHATSAPP_COUNTRY_CODE='44')
+    def test_country_code_is_configurable(self):
+        self.assertEqual(whatsapp_number('6303301002'), '446303301002')
+
+
+class ManualSendTests(TrackingTestBase):
+    """The owner sends from their own WhatsApp; the CRM only removes the typing."""
+
+    def setUp(self):
+        super().setUp()
+        self.owner = self._owner()
+        self.tailor_user = User.objects.create_user(
+            username='tailor@tracking.test', password='tailorpass123',
         )
-        return user
+        Tailor.objects.create(
+            name='Anya', specialty='Lehenga', role='Tailor', user=self.tailor_user,
+        )
+        self.client = APIClient()
+        self.client.credentials(
+            HTTP_AUTHORIZATION='Token ' + Token.objects.create(user=self.owner).key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+
+    def queued(self):
+        return CustomerMessage.objects.get(
+            order=self.order, template_key='order_confirmation'
+        )
+
+    def test_whatsapp_url_opens_the_customer_chat_with_the_body_prefilled(self):
+        message = self.queued()
+        url = message.whatsapp_url
+
+        self.assertTrue(url.startswith('https://wa.me/919000000002?text='))
+        # The body is urlencoded, so the tracking link survives intact.
+        self.assertIn(quote('/track/'), url)
+        self.assertIn(quote(self.order.order_id), url)
+
+    def test_a_customer_with_no_number_yields_no_link_rather_than_a_broken_one(self):
+        message = self.queued()
+        message.to_number = ''
+        self.assertEqual(message.whatsapp_url, '')
+
+    def test_owner_lists_the_whole_boutique_queue_in_one_request(self):
+        response = self.client.get(reverse('order-customer-messages'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        row = response.data[0]
+        self.assertEqual(row['status'], 'QUEUED')
+        self.assertEqual(row['template_key'], 'order_confirmation')
+        self.assertEqual(row['order'], self.order.id)
+        self.assertTrue(row['whatsapp_url'].startswith('https://wa.me/'))
+
+    def test_the_queue_holds_only_what_is_still_waiting(self):
+        message = self.queued()
+        self.client.post(
+            reverse('order-mark-message-sent', args=[self.order.id]),
+            {'message_id': message.id}, format='json',
+        )
+
+        response = self.client.get(reverse('order-customer-messages'))
+        self.assertEqual(response.data, [])
+
+    def test_a_tailor_cannot_read_the_queue(self):
+        """Each body carries the tracking link, which reaches the order's money.
+
+        A tailor can see their own orders, but the role matrix keeps the
+        financials from them -- and the tracking page shows the total, the
+        amount paid and the balance to anyone holding the link.
+        """
+        response = self.tailor_client().get(reverse('order-customer-messages'))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_owner_marks_a_message_sent(self):
+        message = self.queued()
+        response = self.client.post(
+            reverse('order-mark-message-sent', args=[self.order.id]),
+            {'message_id': message.id}, format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        message.refresh_from_db()
+        self.assertEqual(message.status, 'SENT')
+        self.assertEqual(message.sent_by, self.owner)
+
+    def test_unknown_message_id_is_a_404(self):
+        response = self.client.post(
+            reverse('order-mark-message-sent', args=[self.order.id]),
+            {'message_id': 999999}, format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_a_message_id_that_is_not_a_number_is_a_400_not_a_500(self):
+        """id is a BigAutoField; an unparsable value is a bad request, not a crash."""
+        for bad in ['abc', '', None, {'nope': 1}]:
+            with self.subTest(message_id=bad):
+                response = self.client.post(
+                    reverse('order-mark-message-sent', args=[self.order.id]),
+                    {'message_id': bad}, format='json',
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_message_belonging_to_another_order_cannot_be_marked_here(self):
+        other_customer = Customer.objects.create(
+            first_name="Devi", last_name="Nair", mobile_number="9800000123",
+            garment_type="Saree",
+        )
+        other_order = OrderService.create_order_for_customer(other_customer, {})
+        other_message = CustomerMessage.objects.filter(order=other_order).first()
+
+        response = self.client.post(
+            reverse('order-mark-message-sent', args=[self.order.id]),
+            {'message_id': other_message.id}, format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        other_message.refresh_from_db()
+        self.assertEqual(other_message.status, 'QUEUED')
+
+    def tailor_client(self):
+        client = APIClient()
+        client.credentials(
+            HTTP_AUTHORIZATION='Token ' + Token.objects.create(user=self.tailor_user).key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        return client
+
+    def test_a_tailor_cannot_mark_messages_sent(self):
+        """It goes out from the owner's phone, so it is the owner's to confirm."""
+        message = self.queued()
+
+        response = self.tailor_client().post(
+            reverse('order-mark-message-sent', args=[self.order.id]),
+            {'message_id': message.id}, format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        message.refresh_from_db()
+        self.assertEqual(message.status, 'QUEUED')

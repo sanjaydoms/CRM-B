@@ -388,6 +388,30 @@ export const api = {
     return res.json();
   },
 
+  // Customer messages. There is no WhatsApp Business integration: these are
+  // queued for the owner, who sends each one from their own WhatsApp by
+  // following whatsapp_url, then marks it sent.
+  async getQueuedCustomerMessages() {
+    const res = await fetch(`${BASE_URL}/orders/customer-messages/`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch customer messages');
+    return res.json();
+  },
+
+  async markMessageSent(orderId, messageId) {
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/mark-message-sent/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ message_id: messageId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to mark the message sent');
+    }
+    return res.json();
+  },
+
   // Fabrics CRUD
   async createFabric(fabricData) {
     const res = await fetch(`${BASE_URL}/fabrics/`, {
