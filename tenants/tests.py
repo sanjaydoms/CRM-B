@@ -1,12 +1,14 @@
 from contextlib import contextmanager
+from pathlib import Path
 
 from django.db import connection
-from django.test import TransactionTestCase
+from django.test import Client, TransactionTestCase
 from django_tenants.utils import schema_context
 from rest_framework.test import APIClient
 
 from crm_api.models import Customer
-from tenants.models import BoutiqueTenant, Domain
+from tenants.models import BoutiqueTenant, DemoRequest, Domain
+from tenants.views import HONEYPOT_FIELD
 
 
 @contextmanager
@@ -87,3 +89,173 @@ class TenantIsolationTests(TransactionTestCase):
 
             # The bad request must not poison the connection for the next caller.
             self.assertEqual(self._names('iso_test_c'), ['Dee'])
+
+
+class DemoRequestIntakeTests(TransactionTestCase):
+    """The public demo form posts here with no token, no session and no tenant.
+
+    The branch worth guarding is the schema one: the marketing site is on a
+    different origin to the API, so nothing guarantees which tenant the
+    middleware resolves, and the lead must land in public either way.
+    """
+
+    URL = '/demo-request/'
+
+    VALID = {
+        'name': 'Aarti Rao',
+        'boutique': 'Rao Couture',
+        'email': 'aarti@raocouture.test',
+        'phone': '+91 90000 00001',
+        'makes': 'Bridal blouses and lehengas',
+        'orders_per_month': '60',
+        'people': '8',
+        'problem': 'Orders live in a register and a WhatsApp thread.',
+    }
+
+    def setUp(self):
+        connection.set_schema_to_public()
+        DemoRequest.objects.all().delete()
+
+    def test_lands_in_public_schema_even_with_a_tenant_header(self):
+        with temporary_tenant('demo_test_a', 'a@demo.test', 'Atelier A') as tenant:
+            response = Client().post(
+                self.URL, self.VALID, HTTP_X_TENANT_ID=tenant.schema_name
+            )
+            self.assertEqual(response.status_code, 201)
+            self.assertIs(response.json()['ok'], True)
+
+            # The row is in public, not in the tenant the header named.
+            with schema_context('public'):
+                lead = DemoRequest.objects.get(email=self.VALID['email'])
+                self.assertEqual(lead.boutique, 'Rao Couture')
+                self.assertEqual(lead.status, 'NEW')
+
+    def test_unknown_tenant_header_is_rejected_before_the_view(self):
+        # The middleware answers this one, which is why the form must never
+        # send an X-Tenant-ID header.
+        response = Client().post(self.URL, self.VALID, HTTP_X_TENANT_ID='no_such_tenant')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(DemoRequest.objects.count(), 0)
+
+    def test_honeypot_is_accepted_but_discarded(self):
+        payload = dict(self.VALID, note_ref='http://spam.example')
+        with self.assertLogs('tenants.views', level='WARNING') as logged:
+            response = Client().post(self.URL, payload)
+        # Indistinguishable from success on the wire, and nothing stored -- but
+        # it leaves a trace, because a false positive here throws away a real
+        # lead behind a "thank you".
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(DemoRequest.objects.count(), 0)
+        self.assertIn('honeypot', logged.output[0])
+        self.assertIn(self.VALID['email'], logged.output[0])
+
+    def test_form_page_uses_the_same_honeypot_field_name(self):
+        """The page and the view have to agree, and nothing else would notice.
+
+        If the two names drift apart the honeypot does not error -- it just
+        stops catching anything, quietly, forever. Cheap to assert, and the
+        failure it guards has no other symptom.
+        """
+        page = (Path(__file__).resolve().parent.parent
+                / 'frontend' / 'site' / 'pages' / 'demo.html')
+        self.assertIn(f'name="{HONEYPOT_FIELD}"', page.read_text())
+
+    def test_honeypot_field_name_avoids_browser_autofill_tokens(self):
+        # `company_url` matched Chrome's COMPANY autofill heuristic, which
+        # ignores autocomplete="off". A browser filling it would have silently
+        # binned a genuine submission.
+        for token in ('company', 'organization', 'url', 'email', 'name', 'phone'):
+            self.assertNotIn(token, HONEYPOT_FIELD)
+
+    def test_malformed_forwarded_header_does_not_500(self):
+        # The column is a Postgres inet and Django passes unparseable values
+        # straight through, so an unvalidated header crashed the rate-limit
+        # query -- a 500 on a public endpoint from one header.
+        for bad in ('notanip', '203.0.113.9:54321', 'a:b:c', '<script>', ''):
+            with self.subTest(forwarded=bad):
+                response = Client().post(
+                    self.URL, dict(self.VALID, email=f'x{abs(hash(bad))}@demo.test'),
+                    HTTP_X_FORWARDED_FOR=bad,
+                )
+                self.assertEqual(response.status_code, 201)
+
+    def test_junk_forwarded_header_is_not_a_way_around_the_rate_limit(self):
+        # Falling back to REMOTE_ADDR matters: if a junk header meant "no
+        # address", junk would be the bypass.
+        client = Client()
+        for i in range(6):
+            response = client.post(
+                self.URL, dict(self.VALID, email=f'junk{i}@demo.test'),
+                HTTP_X_FORWARDED_FOR='not-an-address',
+            )
+        self.assertEqual(response.status_code, 429)
+
+    def test_textarea_newlines_do_not_eat_the_length_budget(self):
+        # A browser counts a line break as one character; form encoding sends
+        # two. Without normalisation someone typing 2000 characters is told
+        # their text is too long by a number they cannot see.
+        text = ('x' * 99 + '\r\n') * 20  # 2020 on the wire, 2000 once normalised
+        response = Client().post(self.URL, dict(self.VALID, problem=text))
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(DemoRequest.objects.get().problem.count('\r'), 0)
+
+    def test_genuinely_overlong_text_is_still_rejected(self):
+        response = Client().post(self.URL, dict(self.VALID, problem='x' * 2001))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(DemoRequest.objects.count(), 0)
+
+    def test_rate_limited_per_ip(self):
+        client = Client()
+        for i in range(5):
+            response = client.post(
+                self.URL, dict(self.VALID, email=f'lead{i}@demo.test'),
+                HTTP_X_FORWARDED_FOR='203.0.113.9',
+            )
+            self.assertEqual(response.status_code, 201, f'submission {i} rejected')
+
+        blocked = client.post(
+            self.URL, dict(self.VALID, email='lead5@demo.test'),
+            HTTP_X_FORWARDED_FOR='203.0.113.9',
+        )
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(DemoRequest.objects.count(), 5)
+
+        # A different address is unaffected -- the limit is per client, not global.
+        other = client.post(
+            self.URL, dict(self.VALID, email='other@demo.test'),
+            HTTP_X_FORWARDED_FOR='198.51.100.4',
+        )
+        self.assertEqual(other.status_code, 201)
+
+    def test_spoofed_forwarded_chain_does_not_grant_a_fresh_quota(self):
+        # Render appends the real peer, so the last entry is the honest one.
+        # Prepending fake hops must not look like a new client.
+        client = Client()
+        for i in range(5):
+            client.post(self.URL, dict(self.VALID, email=f'chain{i}@demo.test'),
+                        HTTP_X_FORWARDED_FOR='203.0.113.77')
+        blocked = client.post(
+            self.URL, dict(self.VALID, email='chain5@demo.test'),
+            HTTP_X_FORWARDED_FOR='9.9.9.9, 8.8.8.8, 203.0.113.77',
+        )
+        self.assertEqual(blocked.status_code, 429)
+
+    def test_validation_rejects_a_bad_email_and_stores_nothing(self):
+        response = Client().post(self.URL, dict(self.VALID, email='not-an-email'))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('email', response.json()['errors'])
+        self.assertEqual(DemoRequest.objects.count(), 0)
+
+    def test_missing_required_fields_are_reported_per_field(self):
+        response = Client().post(self.URL, {'name': 'Only a name'})
+        self.assertEqual(response.status_code, 400)
+        errors = response.json()['errors']
+        self.assertEqual(set(errors), {'boutique', 'email', 'phone'})
+
+    def test_get_is_not_allowed(self):
+        self.assertEqual(Client().get(self.URL).status_code, 405)
+
+    def test_overlong_field_is_rejected_rather_than_truncated(self):
+        response = Client().post(self.URL, dict(self.VALID, problem='x' * 2001))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(DemoRequest.objects.count(), 0)

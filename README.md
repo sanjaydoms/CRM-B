@@ -132,12 +132,42 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
     to **this service**, not the Vercel frontend: `/track/<token>/` is a Django
     route and the frontend domain has no such path, so pointing it there gives
     every customer a link that 404s.
+  * `CORS_ALLOWED_ORIGINS` is unset today, which leaves `CORS_ALLOW_ALL_ORIGINS`
+    on. If you ever lock it down it **must** include `https://boutique.scaleezy.com`,
+    or the demo form on the marketing site stops working. The failure is quiet:
+    the browser blocks reading the response and reports it only in its console.
+    The form posts `application/x-www-form-urlencoded`, which is a CORS *simple*
+    request, so the lead is still recorded even then -- the visitor just sees an
+    error and submits again. One entry covers the React app too; it is served
+    from the same origin via the `/app` rewrite in `frontend/vercel.json`.
 * **Instance tier:** free instances sleep after ~15 minutes idle and take tens of
   seconds to wake, which reads to a user as the whole app hanging on first load.
   No amount of application tuning covers that -- it needs a paid instance.
 
 ### React Frontend (Vercel)
 * **Root Directory:** `frontend`
-* **Build Command:** `npm run build`
+* **Build Command:** `npm run build` (runs `vite build`, then `build-site.mjs`
+  to assemble the static marketing pages)
 * **Output Directory:** `dist`
-* **Endpoint Configuration:** Update `BASE_URL` in [frontend/src/services/api.js](file:///Users/sanjaykumar/gemini/antigravity/scratch/django_screens/frontend/src/services/api.js#L1) to match your Render backend domain.
+* **Environment Variables:**
+  * `VITE_API_URL` -- the Render origin including the `/api` suffix, e.g.
+    `https://crm-b-sitt.onrender.com/api`. Read by the React app
+    ([frontend/src/services/api.js](file:///Users/sanjaykumar/gemini/antigravity/scratch/django_screens/frontend/src/services/api.js#L1))
+    *and* by `build-site.mjs`, which strips the suffix to derive the demo form's
+    endpoint. One variable, so the two cannot drift apart. A local build falls
+    back to `http://localhost:8000/api`; a Vercel build with it unset fails
+    rather than shipping a form that posts nowhere.
+
+### Demo requests
+The marketing site's demo form posts to `/demo-request/` -- a plain Django view
+(`tenants/views.py`), public and outside `/api/` for the same reason
+`/track/<token>/` is. Leads land in `tenants.DemoRequest`, which lives in the
+public schema, and are read in Django admin at `/admin/tenants/demorequest/`
+until the superadmin portal reads the same table. Status and notes are editable
+there; everything a stranger typed is read-only.
+
+Nothing notifies anyone. That is deliberate for now -- the page also keeps a
+`mailto:` link to `support@scaleezy.com`, so a monitored inbox is still reachable.
+Intake is rate-limited to 5 submissions per IP per hour, counted in Postgres
+rather than a cache, because no `CACHES` is configured and LocMemCache would be
+per-gunicorn-worker.

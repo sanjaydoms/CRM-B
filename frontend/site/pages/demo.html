@@ -2,7 +2,7 @@
   "slug": "demo",
   "nav": "demo",
   "title": "Book a Demo — Scaleezy Boutique",
-  "description": "Bring one live order and we will walk it through the system end to end. What to bring, what happens in the half hour, and how to get in touch."
+  "description": "Bring one live order and we will walk it through the system end to end. Tell us what you make and how your floor runs, and we will come prepared."
 }-->
 <header class="page-hero">
   <div class="wrap">
@@ -17,15 +17,80 @@
   <div class="wrap">
     <div class="split">
       <div>
-        <span class="eyebrow dark">Get in touch</span>
-        <h2 style="margin:16px 0 20px">Two ways to reach us.</h2>
-        <p class="lede">Email is the fastest. Tell us what you make, roughly how many orders a month, and how many people touch a garment before it leaves.</p>
-        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:28px">
-          <a class="btn btn-lime" href="mailto:support@scaleezy.com?subject=Scaleezy%20Boutique%20demo&amp;body=What%20we%20make%3A%0AOrders%20per%20month%3A%0APeople%20on%20the%20floor%3A%0ABiggest%20problem%20right%20now%3A%0A">Email support@scaleezy.com</a>
-          <a class="btn btn-outline" href="/faq">Read the FAQ first</a>
+        <span class="eyebrow dark">Tell us about your floor</span>
+        <h2 style="margin:16px 0 18px">A few questions, so we come prepared.</h2>
+        <p class="lede" style="margin-bottom:30px">The four optional questions are the ones that decide how the half hour is spent. Skip them if you would rather just talk.</p>
+
+        <noscript>
+          <div class="answer" style="margin-bottom:24px">
+            <p>The form needs JavaScript. Email us instead — <a href="mailto:support@scaleezy.com?subject=Scaleezy%20Boutique%20demo" style="color:var(--forest);font-weight:600;text-decoration:underline">support@scaleezy.com</a> — and tell us what you make, how many orders you take a month, and how many people touch a garment before it leaves.</p>
+          </div>
+        </noscript>
+
+        <!-- Hidden until the script below reveals it. A form that cannot submit
+             is worse than no form: without JS a GET submit would put the
+             visitor's name, email and phone into the URL and the access logs. -->
+        <form id="demoform" hidden novalidate>
+          <div class="form-grid">
+            <div class="field">
+              <label for="f-name">Your name</label>
+              <input id="f-name" name="name" type="text" required maxlength="100" autocomplete="name" />
+            </div>
+            <div class="field">
+              <label for="f-boutique">Boutique name</label>
+              <input id="f-boutique" name="boutique" type="text" required maxlength="100" autocomplete="organization" />
+            </div>
+            <div class="field">
+              <label for="f-email">Email</label>
+              <input id="f-email" name="email" type="email" required maxlength="254" autocomplete="email" />
+            </div>
+            <div class="field">
+              <label for="f-phone">Phone or WhatsApp</label>
+              <input id="f-phone" name="phone" type="tel" required maxlength="40" autocomplete="tel" />
+            </div>
+            <div class="field wide">
+              <label for="f-makes">What do you make? <span class="opt">— optional</span></label>
+              <input id="f-makes" name="makes" type="text" maxlength="200" placeholder="Bridal blouses, lehengas, sarees…" />
+            </div>
+            <div class="field">
+              <label for="f-orders">Orders a month <span class="opt">— optional</span></label>
+              <input id="f-orders" name="orders_per_month" type="text" maxlength="40" placeholder="Roughly" />
+            </div>
+            <div class="field">
+              <label for="f-people">People on the floor <span class="opt">— optional</span></label>
+              <input id="f-people" name="people" type="text" maxlength="40" placeholder="Including you" />
+            </div>
+            <div class="field wide">
+              <label for="f-problem">Biggest problem right now <span class="opt">— optional</span></label>
+              <textarea id="f-problem" name="problem" maxlength="2000" placeholder="What made you look for something like this?"></textarea>
+            </div>
+          </div>
+
+          <div class="hp" aria-hidden="true">
+            <label for="note_ref">Leave this field empty</label>
+            <input id="note_ref" name="note_ref" type="text" tabindex="-1" autocomplete="off" />
+          </div>
+
+          <button type="submit" class="btn btn-lime" id="demosubmit" style="margin-top:22px">
+            Request a demo
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+
+          <p class="form-status" id="formstatus" role="status" aria-live="polite"></p>
+        </form>
+
+        <div class="form-done" id="demodone" hidden>
+          <h3>Thank you — that reached us.</h3>
+          <p>We will be in touch within one working day to find a time. If it is urgent, reply straight to <a href="mailto:support@scaleezy.com" style="color:var(--forest);font-weight:600;text-decoration:underline">support@scaleezy.com</a>.</p>
         </div>
-        <p style="margin-top:26px;font-size:14px;color:var(--muted)">Already a customer? <a href="/app" style="color:var(--forest);font-weight:600;text-decoration:underline">Sign in to your workspace</a>.</p>
+
+        <p class="form-alt">
+          Prefer email? Write to
+          <a href="mailto:support@scaleezy.com?subject=Scaleezy%20Boutique%20demo&amp;body=What%20we%20make%3A%0AOrders%20per%20month%3A%0APeople%20on%20the%20floor%3A%0ABiggest%20problem%20right%20now%3A%0A" style="color:var(--forest);font-weight:600;text-decoration:underline">support@scaleezy.com</a>.
+          Already a customer? <a href="/app" style="color:var(--forest);font-weight:600;text-decoration:underline">Sign in to your workspace</a>.
+        </p>
       </div>
+
       <div class="panel">
         <b style="font-size:15px;display:block;margin-bottom:6px">What the half hour covers</b>
         <p style="font-size:13.5px;color:var(--muted);margin-bottom:18px">Roughly in this order.</p>
@@ -53,3 +118,114 @@
     </div>
   </div>
 </section>
+
+<script>
+(function () {
+  var form = document.getElementById('demoform');
+  var done = document.getElementById('demodone');
+  var status = document.getElementById('formstatus');
+  var btn = document.getElementById('demosubmit');
+
+  // First statement: the form only exists for people who can actually submit it.
+  form.hidden = false;
+
+  function clearErrors() {
+    Array.prototype.forEach.call(form.querySelectorAll('[aria-invalid]'), function (el) {
+      el.removeAttribute('aria-invalid');
+    });
+    Array.prototype.forEach.call(form.querySelectorAll('.field-error'), function (el) {
+      el.remove();
+    });
+  }
+
+  function markField(name, message) {
+    var input = form.querySelector('[name="' + name + '"]');
+    if (!input) return null;
+    input.setAttribute('aria-invalid', 'true');
+    var note = document.createElement('p');
+    note.className = 'field-error';
+    note.textContent = message;
+    input.parentNode.appendChild(note);
+    return input;
+  }
+
+  function say(message, isError) {
+    status.textContent = message;
+    status.className = isError ? 'form-status error' : 'form-status';
+  }
+
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    clearErrors();
+
+    // Native validation, reported by us so the message lands in the live region
+    // as well as in the browser's own bubble.
+    if (!form.checkValidity()) {
+      var firstInvalid = form.querySelector(':invalid');
+      if (firstInvalid) {
+        firstInvalid.setAttribute('aria-invalid', 'true');
+        firstInvalid.focus();
+      }
+      say('Please complete the highlighted fields.', true);
+      return;
+    }
+
+    // innerHTML, not textContent: the button contains an inline <svg> arrow,
+    // and capturing only the text would restore a button with no icon after
+    // the first failed attempt. The value comes from our own markup, never
+    // from a response, so putting it back is not an injection path.
+    var label = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    say('Sending — this can take up to a minute if our server is waking up.');
+
+    // No Content-Type header and no credentials on purpose: URLSearchParams
+    // makes this a CORS simple request, so there is no preflight to fail and
+    // one round trip instead of two on a cold start. No X-Tenant-ID either --
+    // an unrecognised value is rejected by the middleware before the view.
+    // No timeout: a free Render instance can take tens of seconds to wake, and
+    // aborting would turn a slow success into a lost lead.
+    fetch('{{API}}', {
+      method: 'POST',
+      body: new URLSearchParams(new FormData(form))
+    }).then(function (res) {
+      // Errors from a proxy arrive as HTML, so only parse when told it is JSON.
+      var isJson = (res.headers.get('content-type') || '').indexOf('json') !== -1;
+      return (isJson ? res.json().catch(function () { return null; }) : Promise.resolve(null))
+        .then(function (data) { return { res: res, data: data }; });
+    }).then(function (out) {
+      if (out.res.ok) {
+        form.hidden = true;
+        done.hidden = false;
+        done.setAttribute('tabindex', '-1');
+        done.focus();
+        return;
+      }
+      if (out.res.status === 429) {
+        say('That is a few too many submissions from here. Please try again shortly, or email us below.', true);
+        return;
+      }
+      var errors = out.data && out.data.errors;
+      if (out.res.status === 400 && errors) {
+        var first = null;
+        Object.keys(errors).forEach(function (field) {
+          var raw = errors[field][0];
+          var message = typeof raw === 'string' ? raw : (raw && raw.message) || 'Please check this.';
+          var input = markField(field, message);
+          if (!first) first = input;
+        });
+        say('Please check the highlighted fields.', true);
+        if (first) first.focus();
+        return;
+      }
+      say('We could not send that. Please email support@scaleezy.com instead.', true);
+    }).catch(function () {
+      say('We could not reach the server. Please email support@scaleezy.com instead.', true);
+    }).then(function () {
+      // Always restore the button, so a failure can be retried.
+      btn.disabled = false;
+      btn.innerHTML = label;
+    });
+  });
+})();
+</script>

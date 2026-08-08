@@ -87,6 +87,30 @@ section{padding:clamp(64px,8vw,116px) 0}
 .marquee span::before{content:"◆";color:var(--lime);margin-right:52px;font-size:8px;vertical-align:middle}
 @media (prefers-reduced-motion:reduce){.marquee-track{animation:none}}
 
+/* ---------- form ----------
+   The reset above zeroes control padding and form controls do not inherit
+   font-family, so both are restated here rather than left to the UA. */
+[hidden]{display:none!important}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.field{display:flex;flex-direction:column}
+.field.wide{grid-column:1/-1}
+label{font-size:13px;font-weight:600;margin-bottom:6px;color:var(--forest)}
+label .opt{font-weight:400;color:var(--muted)}
+input,select,textarea{font:inherit;width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+textarea{resize:vertical;min-height:96px}
+input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--lime);outline-offset:1px;border-color:var(--lime-dark)}
+input[aria-invalid="true"],textarea[aria-invalid="true"]{border-color:#B4453A;background:#FFF8F7}
+.field-error{font-size:12.5px;color:#B4453A;margin-top:5px}
+.btn:disabled,.btn:disabled:hover{opacity:.55;cursor:default;transform:none}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.form-status{margin-top:14px;font-size:14px;color:var(--muted);min-height:1.4em}
+.form-status.error{color:#B4453A}
+.form-done{background:#fff;border:1px solid var(--line);border-left:3px solid var(--lime);border-radius:14px;padding:30px}
+.form-done h3{font-family:var(--serif);font-weight:500;font-size:26px;margin-bottom:10px}
+.form-done p{color:var(--muted);font-size:15px}
+.form-alt{margin-top:22px;padding-top:20px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+@media(max-width:620px){.form-grid{grid-template-columns:1fr}}
+
 /* ---------- blocks ---------- */
 .sec-head{max-width:760px;margin-bottom:clamp(36px,4.5vw,62px)}
 .sec-head h2{margin:16px 0 18px}

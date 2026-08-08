@@ -19,6 +19,21 @@ const SITE = join(root, 'site')
 const OUT = join(root, 'dist')
 const ORIGIN = 'https://boutique.scaleezy.com'
 
+// The demo form posts here. VITE_API_URL is the same variable the React app
+// reads (src/services/api.js), so there is one source of truth for where the
+// API lives rather than two that can drift apart.
+//
+// It carries an /api suffix; the leading slash below drops it, because the
+// intake route sits outside /api/ for the same reason /track/ does -- see
+// boutique_crm/urls.py. Falling back to localhost keeps a developer's build
+// working, but on Vercel an unset variable is a form that posts into the void,
+// so it fails the build loudly instead of shipping one.
+const API_BASE = process.env.VITE_API_URL || 'http://localhost:8000/api'
+if (!process.env.VITE_API_URL && process.env.VERCEL) {
+  throw new Error('VITE_API_URL is not set: the demo form would post nowhere. Set it on the Vercel project.')
+}
+const DEMO_ENDPOINT = new URL('/demo-request/', API_BASE).href
+
 const read = (...p) => readFileSync(join(SITE, ...p), 'utf8')
 
 /** Splits a source file's leading `<!--{ ... }-->` metadata from its body. */
@@ -117,17 +132,25 @@ function render({ meta, body }, { isPost = false } = {}) {
     .map((o) => `\n<script type="application/ld+json">\n${JSON.stringify(o, null, 1)}\n</script>\n`)
     .join('')
 
+  // Every replacement passes a FUNCTION rather than a string. String.replace
+  // expands $&, $`, $' and $$ inside a string replacement, so any page or post
+  // containing those would be silently corrupted -- and the demo page now
+  // carries a <script>. A function replacer is inserted verbatim.
+  //
+  // {{API}} is replaced after {{CONTENT}}: the placeholder lives in the page
+  // body, so it does not exist in the layout until the body is in.
   return layout
-    .replaceAll('{{TITLE}}', meta.title)
-    .replaceAll('{{DESCRIPTION}}', meta.description)
-    .replaceAll('{{CANONICAL}}', url)
-    .replaceAll('{{OG_TYPE}}', isPost ? 'article' : 'website')
-    .replace('{{NAV}}', nav)
-    .replace('{{FOOTER}}', footerHtml)
-    .replace('{{JSONLD}}', jsonld + extraLd)
-    .replace('{{CONTENT}}', body)
-    .replace('{{POST_LIST}}', postList)
-    .replace('{{POST_TEASERS}}', postTeasers)
+    .replaceAll('{{TITLE}}', () => meta.title)
+    .replaceAll('{{DESCRIPTION}}', () => meta.description)
+    .replaceAll('{{CANONICAL}}', () => url)
+    .replaceAll('{{OG_TYPE}}', () => (isPost ? 'article' : 'website'))
+    .replace('{{NAV}}', () => nav)
+    .replace('{{FOOTER}}', () => footerHtml)
+    .replace('{{JSONLD}}', () => jsonld + extraLd)
+    .replace('{{CONTENT}}', () => body)
+    .replace('{{POST_LIST}}', () => postList)
+    .replace('{{POST_TEASERS}}', () => postTeasers)
+    .replaceAll('{{API}}', () => DEMO_ENDPOINT)
 }
 
 writeFileSync(join(OUT, 'styles.css'), read('styles.css'))
@@ -142,8 +165,13 @@ writeFileSync(join(OUT, 'styles.css'), read('styles.css'))
  */
 function emit(page, path, opts) {
   const dir = path === '/' ? OUT : join(OUT, path)
+  const html = render(page, opts)
+  // A leftover {{PLACEHOLDER}} is a page that silently ships broken -- a form
+  // posting to the literal string "{{API}}", say. Cheaper to fail the build.
+  const leftover = html.match(/\{\{[A-Z_]+\}\}/)
+  if (leftover) throw new Error(`${path}: unsubstituted ${leftover[0]}`)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'index.html'), render(page, opts))
+  writeFileSync(join(dir, 'index.html'), html)
   return path
 }
 

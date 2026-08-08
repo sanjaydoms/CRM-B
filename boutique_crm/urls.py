@@ -20,12 +20,18 @@ from django.conf import settings
 from django.views.static import serve
 
 from crm_api.tracking_views import order_tracking
+from tenants.views import demo_request
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     # Public: no auth, no tenant header. The signed token carries both the
     # boutique and the order, so this route is deliberately outside /api/.
     path('track/<str:token>/', order_tracking, name='order-tracking'),
+    # Public for the same reason: the marketing site posts here with no token
+    # and no tenant. The trailing slash is load-bearing -- APPEND_SLASH is on,
+    # so a slash-less POST would 301, the browser would retry it as GET, and
+    # the form body would vanish with nothing logged.
+    path('demo-request/', demo_request, name='demo-request'),
     path('api/', include('crm_api.urls')),
     path('api/production/', include('apps.production.urls')),
     path('api/activities/', include('apps.activities.urls')),
