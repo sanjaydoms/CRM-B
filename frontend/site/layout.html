@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<title>{{TITLE}}</title>
+<meta name="description" content="{{DESCRIPTION}}" />
+<link rel="canonical" href="{{CANONICAL}}" />
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
+<meta name="theme-color" content="#0F3D2E" />
+
+<meta property="og:type" content="{{OG_TYPE}}" />
+<meta property="og:site_name" content="Scaleezy Boutique" />
+<meta property="og:url" content="{{CANONICAL}}" />
+<meta property="og:title" content="{{TITLE}}" />
+<meta property="og:description" content="{{DESCRIPTION}}" />
+<meta property="og:image" content="https://boutique.scaleezy.com/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="{{TITLE}}" />
+<meta name="twitter:description" content="{{DESCRIPTION}}" />
+<meta name="twitter:image" content="https://boutique.scaleezy.com/og.png" />
+
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+{{NAV}}
+
+<main id="main">
+{{CONTENT}}
+</main>
+
+{{FOOTER}}
+{{JSONLD}}
+<script>
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.classList.toggle('solid', window.scrollY > 24); };
+  onScroll();
+  addEventListener('scroll', onScroll, { passive: true });
+
+  var toggle = document.getElementById('navtoggle'), links = document.getElementById('navlinks');
+  toggle.addEventListener('click', function () {
+    var open = links.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open);
+  });
+  links.addEventListener('click', function (e) {
+    if (e.target.tagName === 'A') { links.classList.remove('open'); toggle.setAttribute('aria-expanded', 'false'); }
+  });
+
+  var yr = document.getElementById('yr');
+  if (yr) yr.textContent = new Date().getFullYear();
+</script>
+
+</body>
+</html>

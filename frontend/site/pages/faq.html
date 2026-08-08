@@ -1,0 +1,79 @@
+<!--{
+  "slug": "faq",
+  "nav": "faq",
+  "title": "FAQ — Scaleezy Boutique CRM for Custom Tailoring",
+  "description": "Answers on who Scaleezy Boutique is for, whether tailors need a computer, customer order tracking, WhatsApp messages, data isolation, migration and setup time.",
+  "jsonld": {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "Is Scaleezy Boutique only for custom tailoring?", "acceptedAnswer": { "@type": "Answer", "text": "It is built for made-to-order garments — bridal wear, sarees and blouses, lehengas, sherwanis and bespoke menswear. If you sell finished stock off a rack and never take a measurement, a standard retail POS will fit you better. If you do both, the boutique product handles the made-to-order side." } },
+      { "@type": "Question", "name": "Do my tailors need to use a computer?", "acceptedAnswer": { "@type": "Answer", "text": "No. Staff work from their phone. The floor screens are mobile-first, with a task queue showing only what is assigned to that person. The owner uses the full dashboard." } },
+      { "@type": "Question", "name": "Can my customer track her order without installing anything?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Each order has a signed tracking link that works in any browser with no login and no app. The link carries both the boutique and the order, so it opens exactly one order. You control when finished-garment photographs become visible." } },
+      { "@type": "Question", "name": "Does it send WhatsApp messages automatically?", "acceptedAnswer": { "@type": "Answer", "text": "Messages are prepared and queued against the order, and you send them from your own WhatsApp number. Each message tracks as queued, sent, delivered, read or failed." } },
+      { "@type": "Question", "name": "How is my boutique's data kept separate from other boutiques?", "acceptedAnswer": { "@type": "Answer", "text": "Through schema-based multi-tenancy in PostgreSQL. Each boutique's records live in their own database schema rather than sharing tables with a tenant ID column, so separation is enforced by the database itself." } },
+      { "@type": "Question", "name": "Can I move my existing customers and measurements in?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Existing client records, measurements and order history can be imported when your workspace is set up, including from a spreadsheet or a photographed register." } },
+      { "@type": "Question", "name": "How long does it take to get running?", "acceptedAnswer": { "@type": "Answer", "text": "A workspace is created for you with your staff roles, garment types and stage list configured to how your floor already works. Most of the setup effort is agreeing the stages and the costing lines, not the software." } },
+      { "@type": "Question", "name": "What happens if a stage does not apply to a garment?", "acceptedAnswer": { "@type": "Answer", "text": "A stage can be skipped on an order. A plain blouse with no embroidery does not wait at a Maggam stage — the stage list belongs to the order, not to the boutique." } },
+      { "@type": "Question", "name": "Can two people work on the same order at once?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Stages are tracked separately, each with its own assignee and clock, and the system records both who a stage was assigned to and who actually performed it." } },
+      { "@type": "Question", "name": "Does it handle alterations and repeat fittings?", "acceptedAnswer": { "@type": "Answer", "text": "Alterations are recorded against the order with the reason attached, and a failed quality check returns the garment to the floor rather than closing the order." } }
+    ]
+  }
+}-->
+<header class="page-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="/">Home</a> · FAQ</p>
+    <span class="eyebrow">FAQ</span>
+    <h1>Questions, answered plainly.</h1>
+    <p>If something here is still unclear, bring it to the demo — it is a better use of half an hour than another page of marketing.</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="faq">
+      <details open><summary>Is Scaleezy Boutique only for custom tailoring?</summary>
+        <p>It is built for made-to-order garments — bridal wear, sarees and blouses, lehengas, sherwanis and bespoke menswear. If you sell finished stock off a rack and never take a measurement, a standard retail POS will fit you better. If you do both, the boutique product handles the made-to-order side and the wider Scaleezy platform covers retail.</p>
+      </details>
+      <details><summary>Do my tailors need to use a computer?</summary>
+        <p>No. Staff work from their phone — the floor screens are built mobile-first, with a task queue showing only what is assigned to that person. The owner uses the full dashboard; the cutting master just needs to see the next job and mark it done.</p>
+      </details>
+      <details><summary>Can my customer track her order without installing anything?</summary>
+        <p>Yes. Each order has a signed tracking link that works in any browser with no login and no app. The link carries both the boutique and the order inside its signature, so it opens exactly one order and exposes nothing else. You control when finished-garment photographs become visible on it.</p>
+      </details>
+      <details><summary>Does it send WhatsApp messages automatically?</summary>
+        <p>Messages are prepared and queued against the order, and you send them from your own WhatsApp number. That is deliberate — a bride should hear from her boutique, not from an unknown gateway number. Each message tracks as queued, sent, delivered, read or failed.</p>
+      </details>
+      <details><summary>How is my boutique's data kept separate from other boutiques?</summary>
+        <p>Through schema-based multi-tenancy in PostgreSQL. Each boutique's records live in their own database schema rather than sharing tables with a tenant ID column, so separation is enforced by the database itself rather than by every query remembering to filter correctly.</p>
+      </details>
+      <details><summary>Can I move my existing customers and measurements in?</summary>
+        <p>Yes — existing client records, measurements and order history can be imported when your workspace is set up. Bring whatever you have, including a spreadsheet or a photographed register.</p>
+      </details>
+      <details><summary>How long does it take to get running?</summary>
+        <p>A workspace is created for you with your staff roles, garment types and stage list configured to how your floor already works. Most of the setup effort is agreeing the stages and the costing lines, not the software.</p>
+      </details>
+      <details><summary>What happens if a stage does not apply to a garment?</summary>
+        <p>A stage can be skipped on an order. A plain blouse with no embroidery does not sit waiting at a Maggam stage — the stage list belongs to the order, not to the boutique, so a simple garment carries a short list and a bridal piece carries a long one.</p>
+      </details>
+      <details><summary>Can two people work on the same order at once?</summary>
+        <p>Yes. Stages are tracked separately, each with its own assignee and its own clock. The system also records who a stage was assigned to and who actually performed it, because on a real floor those are often different people and the difference is worth knowing.</p>
+      </details>
+      <details><summary>Does it handle alterations and repeat fittings?</summary>
+        <p>Alterations are recorded against the order with the reason attached, and a failed quality check returns the garment to the floor rather than closing the order. Over a season the reasons accumulate into a fairly blunt answer about which stage is generating your rework.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <span class="eyebrow">Still deciding</span>
+    <h2>Bring a real order to the demo.</h2>
+    <p class="lede">Half an hour on one of your own live orders tells you more than any amount of reading.</p>
+    <div class="hero-actions">
+      <a href="/demo" class="btn btn-lime">Book a demo →</a>
+      <a href="/what-it-is" class="btn btn-ghost">What it is</a>
+    </div>
+  </div>
+</section>
