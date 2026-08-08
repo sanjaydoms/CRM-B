@@ -124,14 +124,14 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
   * `WEB_CONCURRENCY` / `GUNICORN_THREADS` tune the worker pool. Their product is
     also the cap on database connections held, which is what keeps
     `CONN_MAX_AGE` safe against Supabase's pooler.
-  * `TRACKING_BASE_URL` must be set, to **this service's own origin** --
-    `https://crm-b-sitt.onrender.com`, not the Vercel frontend. Customer
-    tracking links are composed server-side, where there is no request to
-    derive an origin from, so the value is configuration rather than something
-    the code can work out. `/track/<token>/` is served by Django here; the
-    Vercel domain has no such route, so pointing this at the frontend produces
-    links that 404 for every customer. Left unset it defaults to
-    `http://localhost:8000`, which means every link sent out is unreachable.
+  * `TRACKING_BASE_URL` needs nothing here: unset, it falls back to
+    `RENDER_EXTERNAL_URL`, which Render injects into every web service and which
+    is already this service's own origin. Set it only for a custom domain --
+    `RENDER_EXTERNAL_URL` stays the `onrender.com` address even behind one, and
+    a customer should be given the boutique's domain. If you do set it, set it
+    to **this service**, not the Vercel frontend: `/track/<token>/` is a Django
+    route and the frontend domain has no such path, so pointing it there gives
+    every customer a link that 404s.
 * **Instance tier:** free instances sleep after ~15 minutes idle and take tens of
   seconds to wake, which reads to a user as the whole app hanging on first load.
   No amount of application tuning covers that -- it needs a paid instance.

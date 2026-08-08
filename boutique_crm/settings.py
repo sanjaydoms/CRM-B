@@ -331,10 +331,20 @@ REST_FRAMEWORK = {
 
 # --- Customer tracking & messaging ---------------------------------------
 # Where a customer's tracking link points. Messages are composed server-side
-# with no request in hand, so the public origin has to be configured rather
-# than derived. Set this to the deployed host or every link a customer receives
-# points at localhost.
-TRACKING_BASE_URL = os.environ.get('TRACKING_BASE_URL', 'http://localhost:8000')
+# with no request in hand, so the public origin cannot be derived from one and
+# has to come from the environment.
+#
+# Render injects RENDER_EXTERNAL_URL into every web service -- the service's own
+# https origin -- which is exactly this value, so a deploy needs nothing
+# configured by hand and cannot be left pointing at localhost by omission.
+# TRACKING_BASE_URL still wins when it is set, which is what a custom domain
+# needs: RENDER_EXTERNAL_URL stays the onrender.com address even then, and a
+# customer should be given the boutique's domain rather than ours.
+TRACKING_BASE_URL = (
+    os.environ.get('TRACKING_BASE_URL')
+    or os.environ.get('RENDER_EXTERNAL_URL')
+    or 'http://localhost:8000'
+)
 
 # How customer messages are delivered. Unset -- the shipped default -- means
 # nothing sends automatically: messages queue, and the boutique owner sends each

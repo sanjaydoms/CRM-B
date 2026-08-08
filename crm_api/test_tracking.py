@@ -7,16 +7,19 @@ and that anything else (edited token, dead schema, unknown order) is a 404 and
 not a 500 or, worse, another boutique's data.
 """
 
+import importlib
 import io
+import os
 import shutil
 import tempfile
+from unittest import mock
 from urllib.parse import quote
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core import signing
 from django.db import connection
-from django.test import Client
+from django.test import Client, SimpleTestCase
 from django.test.utils import override_settings
 from django.urls import reverse
 from django_tenants.test.cases import TenantTestCase
@@ -651,3 +654,46 @@ class GarmentGalleryTests(TrackingTestBase):
         response = self.upload('FRONT', client=self.api_client(self.tailor_user))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(GarmentImage.objects.exists())
+
+
+class TrackingBaseUrlTests(SimpleTestCase):
+    """Where a customer's link points, and which source wins.
+
+    The failure this guards is silent and total: get the environment variable
+    name wrong and every link a customer is sent points at localhost, which
+    nothing in the application would notice.
+    """
+
+    def resolve(self, **env):
+        import boutique_crm.settings as settings_module
+
+        patched = dict(os.environ)
+        for key in ('TRACKING_BASE_URL', 'RENDER_EXTERNAL_URL'):
+            patched.pop(key, None)
+        patched.update(env)
+
+        with mock.patch.dict(os.environ, patched, clear=True):
+            importlib.reload(settings_module)
+            resolved = settings_module.TRACKING_BASE_URL
+        # Leave the module as the rest of the run found it.
+        importlib.reload(settings_module)
+        return resolved
+
+    def test_render_supplies_the_origin_with_nothing_configured(self):
+        self.assertEqual(
+            self.resolve(RENDER_EXTERNAL_URL='https://crm-b-sitt.onrender.com'),
+            'https://crm-b-sitt.onrender.com',
+        )
+
+    def test_an_explicit_setting_beats_render(self):
+        """A custom domain: RENDER_EXTERNAL_URL stays the onrender address."""
+        self.assertEqual(
+            self.resolve(
+                TRACKING_BASE_URL='https://track.meeracouture.in',
+                RENDER_EXTERNAL_URL='https://crm-b-sitt.onrender.com',
+            ),
+            'https://track.meeracouture.in',
+        )
+
+    def test_neither_falls_back_to_local_development(self):
+        self.assertEqual(self.resolve(), 'http://localhost:8000')
