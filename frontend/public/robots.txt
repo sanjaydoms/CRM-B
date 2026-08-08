@@ -1,0 +1,25 @@
+User-agent: *
+Allow: /
+Disallow: /app
+
+# Answer engines. Named explicitly because several of them do not follow the
+# wildcard rule above, and the marketing page is written to be quoted by them.
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://boutique.scaleezy.com/sitemap.xml

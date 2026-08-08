@@ -1,14 +1,579 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Scaleezy - Boutique CRM Workspace</title>
-    <meta name="description" content="Scaleezy CRM Workspace for premium boutique owners to manage customer profiles, measurements, design preferences, fabrics, and custom tailoring workflows." />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<title>Scaleezy Boutique — CRM &amp; Order Management for Custom Tailoring Ateliers</title>
+<meta name="description" content="Scaleezy Boutique is CRM and order-management software for bespoke tailoring. Track measurements, the eight-stage order lifecycle, production floor, fabric stock and customer updates in one system." />
+<link rel="canonical" href="https://boutique.scaleezy.com/" />
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
+<meta name="theme-color" content="#0F3D2E" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Scaleezy Boutique" />
+<meta property="og:url" content="https://boutique.scaleezy.com/" />
+<meta property="og:title" content="Scaleezy Boutique — CRM for Custom Tailoring Ateliers" />
+<meta property="og:description" content="One system for measurements, orders, the production floor, fabric stock and customer updates — built for bespoke tailoring boutiques." />
+<meta property="og:image" content="https://boutique.scaleezy.com/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Scaleezy Boutique — CRM for Custom Tailoring Ateliers" />
+<meta name="twitter:description" content="One system for measurements, orders, the production floor, fabric stock and customer updates." />
+<meta name="twitter:image" content="https://boutique.scaleezy.com/og.png" />
+
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" />
+
+<style>
+:root{
+  --forest:#0F3D2E; --forest-deep:#0A2A20; --forest-mid:#14503B;
+  --lime:#9FC131; --lime-dark:#8FB926;
+  --cream:#F5F2EC; --cream-warm:#EFE9DE;
+  --ink:#0F3D2E; --muted:#5C6B63; --line:#DFD8CB;
+  --serif:"Cormorant Garamond",Georgia,serif;
+  --sans:Inter,system-ui,-apple-system,sans-serif;
+  --wrap:1200px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:84px;-webkit-text-size-adjust:100%}
+body{font-family:var(--sans);background:var(--cream);color:var(--ink);line-height:1.6;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+img,svg{max-width:100%;display:block}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:var(--serif);font-weight:500;line-height:1.08;letter-spacing:-.01em}
+h2{font-size:clamp(34px,5vw,58px)}
+h3{font-family:var(--sans);font-weight:600;letter-spacing:-.01em}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--lime)}
+.eyebrow.dark{color:#6E8A3C}
+.lede{font-size:clamp(16px,1.6vw,19px);color:var(--muted);max-width:62ch}
+section{padding:clamp(72px,9vw,128px) 0}
+
+/* ---------- nav ---------- */
+.nav{position:sticky;top:0;z-index:60;transition:background .3s,border-color .3s,backdrop-filter .3s;border-bottom:1px solid transparent}
+.nav.solid{background:rgba(245,242,236,.88);backdrop-filter:blur(14px);border-bottom-color:var(--line)}
+.nav-in{display:flex;align-items:center;justify-content:space-between;gap:24px;height:72px;max-width:var(--wrap);margin:0 auto;padding:0 24px}
+.logo{font-weight:700;font-size:17px;letter-spacing:.14em;color:var(--cream);transition:color .3s}
+.logo b{color:var(--lime);font-weight:700}
+.nav.solid .logo{color:var(--forest)}
+.nav-links{display:flex;gap:30px;list-style:none;font-size:14px;font-weight:500}
+.nav-links a{color:rgba(245,242,236,.82);transition:color .2s}
+.nav-links a:hover{color:var(--lime)}
+.nav.solid .nav-links a{color:var(--muted)}
+.nav.solid .nav-links a:hover{color:var(--forest)}
+.nav-cta{display:flex;align-items:center;gap:14px}
+.btn{display:inline-flex;align-items:center;gap:9px;border-radius:999px;font-family:var(--sans);font-size:14px;font-weight:600;padding:13px 26px;border:1px solid transparent;cursor:pointer;transition:transform .18s,background .2s,color .2s,border-color .2s;white-space:nowrap}
+.btn:hover{transform:translateY(-1px)}
+.btn-lime{background:var(--lime);color:var(--forest-deep)}
+.btn-lime:hover{background:var(--lime-dark)}
+.btn-ghost{border-color:rgba(245,242,236,.35);color:var(--cream)}
+.btn-ghost:hover{border-color:var(--lime);color:var(--lime)}
+.nav.solid .btn-ghost{border-color:var(--line);color:var(--forest)}
+.btn-sm{padding:10px 20px;font-size:13px}
+.btn-dark{background:var(--forest);color:var(--cream)}
+.btn-outline{border-color:var(--line);color:var(--forest)}
+.nav-toggle{display:none;background:none;border:0;color:var(--cream);padding:8px;cursor:pointer}
+.nav.solid .nav-toggle{color:var(--forest)}
+
+/* ---------- hero ---------- */
+.hero{position:relative;min-height:clamp(620px,92vh,900px);display:flex;align-items:center;margin-top:-72px;padding-top:72px;background:
+  radial-gradient(900px 620px at 78% 18%,rgba(159,193,49,.20),transparent 62%),
+  radial-gradient(700px 500px at 12% 88%,rgba(20,80,59,.85),transparent 60%),
+  linear-gradient(158deg,var(--forest-deep) 0%,var(--forest) 48%,#0c3527 100%);
+  overflow:hidden}
+.hero::after{content:"";position:absolute;inset:0;opacity:.05;pointer-events:none;
+  background-image:repeating-linear-gradient(45deg,#F5F2EC 0 1px,transparent 1px 9px),repeating-linear-gradient(-45deg,#F5F2EC 0 1px,transparent 1px 9px)}
+.hero-in{position:relative;z-index:2;max-width:var(--wrap);margin:0 auto;padding:96px 24px}
+.hero h1{font-size:clamp(46px,8.2vw,104px);color:var(--cream);max-width:15ch;margin:22px 0 26px}
+.hero p{color:rgba(245,242,236,.76);font-size:clamp(16px,1.7vw,20px);max-width:60ch;margin-bottom:38px}
+.hero-actions{display:flex;gap:14px;flex-wrap:wrap}
+.hero-note{margin-top:30px;font-size:13px;color:rgba(245,242,236,.5)}
+
+/* ---------- marquee ---------- */
+.marquee{background:var(--forest-deep);padding:20px 0;overflow:hidden;border-top:1px solid rgba(159,193,49,.16)}
+.marquee-track{display:flex;gap:52px;width:max-content;animation:slide 34s linear infinite}
+@keyframes slide{to{transform:translateX(-50%)}}
+.marquee span{font-size:12px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:rgba(245,242,236,.42);white-space:nowrap}
+.marquee span::before{content:"◆";color:var(--lime);margin-right:52px;font-size:8px;vertical-align:middle}
+@media (prefers-reduced-motion:reduce){.marquee-track{animation:none}}
+
+/* ---------- generic blocks ---------- */
+.sec-head{max-width:760px;margin-bottom:clamp(40px,5vw,68px)}
+.sec-head h2{margin:16px 0 18px}
+.grid{display:grid;gap:20px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:30px;transition:transform .2s,box-shadow .2s,border-color .2s}
+.card:hover{transform:translateY(-3px);box-shadow:0 14px 40px rgba(15,61,46,.09);border-color:#CFC6B4}
+.card .num{font-family:var(--serif);font-size:13px;font-weight:600;color:var(--lime-dark);letter-spacing:.14em}
+.card h3{font-size:19px;margin:12px 0 10px}
+.card p{font-size:14.5px;color:var(--muted)}
+.card ul{list-style:none;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);display:grid;gap:9px}
+.card li{font-size:13.5px;color:var(--muted);padding-left:20px;position:relative}
+.card li::before{content:"";position:absolute;left:0;top:8px;width:7px;height:7px;border-radius:50%;background:var(--lime)}
+
+.dark{background:var(--forest);color:var(--cream)}
+.dark h2{color:var(--cream)}
+.dark .lede{color:rgba(245,242,236,.72)}
+.dark .card{background:rgba(255,255,255,.045);border-color:rgba(245,242,236,.14)}
+.dark .card:hover{border-color:rgba(159,193,49,.45);box-shadow:none}
+.dark .card h3{color:var(--cream)}
+.dark .card p,.dark .card li{color:rgba(245,242,236,.66)}
+.dark .card ul{border-top-color:rgba(245,242,236,.14)}
+
+/* ---------- definition / answer block ---------- */
+.answer{background:#fff;border:1px solid var(--line);border-left:3px solid var(--lime);border-radius:14px;padding:34px}
+.answer p{font-size:16.5px;color:var(--muted);max-width:none}
+.answer p+p{margin-top:14px}
+.answer strong{color:var(--forest);font-weight:600}
+
+/* ---------- problem ---------- */
+.pain{display:flex;flex-wrap:wrap;gap:12px;margin-top:34px}
+.pain li{list-style:none;border:1px dashed rgba(245,242,236,.28);border-radius:999px;padding:11px 20px;font-size:14px;color:rgba(245,242,236,.7)}
+
+/* ---------- lifecycle ---------- */
+.rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff}
+.step{padding:26px 22px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);position:relative}
+.step:last-child{border-right:0}
+.step .n{width:30px;height:30px;border-radius:50%;background:var(--cream-warm);color:var(--forest);display:grid;place-items:center;font-size:12px;font-weight:700;margin-bottom:14px}
+.step:nth-child(-n+3) .n{background:var(--lime);color:var(--forest-deep)}
+.step h3{font-size:15px;margin-bottom:7px}
+.step p{font-size:13px;color:var(--muted)}
+
+/* ---------- roles ---------- */
+.roles{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+.role{border:1px solid rgba(245,242,236,.2);background:rgba(255,255,255,.04);border-radius:10px;padding:14px 18px;flex:1 1 200px}
+.role b{display:block;font-size:14.5px;font-weight:600;color:var(--cream)}
+.role span{font-size:12.5px;color:rgba(245,242,236,.58)}
+
+/* ---------- split ---------- */
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:clamp(32px,5vw,72px);align-items:center}
+.panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:0 18px 50px rgba(15,61,46,.07)}
+.panel-row{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid var(--cream-warm);font-size:14px}
+.panel-row:last-child{border-bottom:0}
+.panel-row span{color:var(--muted)}
+.panel-row b{font-weight:600}
+.panel-row.total{border-top:2px solid var(--forest);margin-top:8px;padding-top:15px;font-size:16px}
+.pill{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:5px 12px;border-radius:999px;background:var(--lime);color:var(--forest-deep)}
+.pill.grey{background:var(--cream-warm);color:var(--muted)}
+
+/* ---------- stats ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:24px;margin-top:14px}
+.stat b{display:block;font-family:var(--serif);font-size:clamp(40px,5vw,60px);font-weight:500;color:var(--lime);line-height:1}
+.stat span{font-size:13.5px;color:rgba(245,242,236,.66);display:block;margin-top:8px}
+
+/* ---------- faq ---------- */
+.faq{max-width:860px;margin:0 auto}
+details{border-bottom:1px solid var(--line);padding:4px 0}
+summary{list-style:none;cursor:pointer;padding:22px 44px 22px 0;font-size:17px;font-weight:600;position:relative;color:var(--forest)}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:24px;font-weight:400;color:var(--lime-dark);transition:transform .2s}
+details[open] summary::after{transform:translateY(-50%) rotate(45deg)}
+details p{padding:0 44px 24px 0;color:var(--muted);font-size:15.5px}
+
+/* ---------- cta ---------- */
+.cta{text-align:center;background:
+  radial-gradient(700px 420px at 50% 0%,rgba(159,193,49,.18),transparent 65%),
+  linear-gradient(160deg,var(--forest-deep),var(--forest))}
+.cta h2{color:var(--cream);max-width:19ch;margin:18px auto 20px}
+.cta .lede{margin:0 auto 34px;color:rgba(245,242,236,.72)}
+.cta .hero-actions{justify-content:center}
+
+/* ---------- footer ---------- */
+footer{background:var(--forest-deep);color:rgba(245,242,236,.6);padding:70px 0 34px;font-size:14px}
+.fgrid{display:grid;grid-template-columns:2fr repeat(3,1fr);gap:40px;padding-bottom:44px;border-bottom:1px solid rgba(245,242,236,.12)}
+.fgrid h4{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--lime);margin-bottom:16px;font-weight:600}
+.fgrid ul{list-style:none;display:grid;gap:11px}
+.fgrid a:hover{color:var(--lime)}
+.fbrand p{margin:14px 0 0;max-width:38ch;font-size:13.5px}
+.fbot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-top:26px;font-size:13px}
+
+@media(max-width:860px){
+  .nav-links,.nav-cta .btn-ghost{display:none}
+  .nav-toggle{display:block}
+  .nav-links.open{display:grid;position:absolute;top:72px;left:0;right:0;background:var(--cream);border-bottom:1px solid var(--line);padding:20px 24px;gap:18px}
+  .nav-links.open a{color:var(--forest)}
+  .fgrid{grid-template-columns:1fr 1fr}
+  .step{border-right:0}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+  <div class="nav-in">
+    <a href="/" class="logo">SCALEEZY <b>BOUTIQUE</b></a>
+    <ul class="nav-links" id="navlinks">
+      <li><a href="#what-is">What it is</a></li>
+      <li><a href="#modules">Modules</a></li>
+      <li><a href="#lifecycle">Lifecycle</a></li>
+      <li><a href="#floor">Your floor</a></li>
+      <li><a href="#customer">For customers</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a href="/app" class="btn btn-ghost btn-sm">Sign in</a>
+      <a href="#demo" class="btn btn-lime btn-sm">Book a demo</a>
+      <button class="nav-toggle" id="navtoggle" aria-label="Open menu" aria-expanded="false" aria-controls="navlinks">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+  <header class="hero" id="top">
+    <div class="hero-in">
+      <span class="eyebrow">Scaleezy · Boutique CRM</span>
+      <h1>The Operating System for Bespoke Tailoring</h1>
+      <p>Measurements, orders, the production floor, fabric stock and customer updates — one connected system, built for boutiques that make every garment to order.</p>
+      <div class="hero-actions">
+        <a href="#demo" class="btn btn-lime">Book a demo
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a href="/app" class="btn btn-ghost">Sign in to your atelier</a>
+      </div>
+      <p class="hero-note">Each boutique runs in its own isolated database schema. Your patterns, clients and prices stay yours.</p>
+    </div>
+  </header>
+
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track">
+      <span>Bridal boutiques</span><span>Saree houses</span><span>Custom tailors</span><span>Lehenga studios</span><span>Menswear ateliers</span><span>Designer labels</span><span>Blouse specialists</span>
+      <span>Bridal boutiques</span><span>Saree houses</span><span>Custom tailors</span><span>Lehenga studios</span><span>Menswear ateliers</span><span>Designer labels</span><span>Blouse specialists</span>
+    </div>
+  </div>
+
+  <!-- AEO: direct-answer definition block -->
+  <section id="what-is">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow dark">What it is</span>
+        <h2>What is Scaleezy Boutique?</h2>
+      </div>
+      <div class="answer">
+        <p><strong>Scaleezy Boutique is CRM and order-management software for custom-tailoring businesses</strong> — bridal boutiques, saree houses, blouse specialists and designer ateliers that cut and stitch every piece to a specific client's measurements.</p>
+        <p>It replaces the measurement notebook, the order register and the WhatsApp thread with one record per client: their measurements, their design references, every order they have placed, which of your masters is working on it right now, what is still owed, and where the garment has reached on the floor.</p>
+        <p>Unlike generic retail POS or off-the-shelf CRM, it is built around the way a made-to-order garment actually moves — <strong>eight stages from Received to Delivered</strong>, nine specialist roles from Measurement Master to QC Master, and a costing sheet that separates fabric, embroidery, customisation and tailoring charges.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="dark">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow">The problem</span>
+        <h2>The order is in three places, and none of them agree.</h2>
+        <p class="lede">A register at the counter. A measurement book with the cutting master. A WhatsApp thread with the customer. When the bride calls to ask if her blouse is ready, someone has to walk to the back and find out.</p>
+      </div>
+      <ul class="pain">
+        <li>Measurements on paper</li>
+        <li>Orders in a register</li>
+        <li>Status only the tailor knows</li>
+        <li>Trial dates missed</li>
+        <li>Balance payments forgotten</li>
+        <li>Fabric counted by memory</li>
+        <li>"Is it ready?" — five times a day</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="modules">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow dark">Explore the platform</span>
+        <h2>Six modules. One connected atelier.</h2>
+        <p class="lede">Every module writes to the same record, so a measurement taken at the counter is the measurement the cutting master works from.</p>
+      </div>
+      <div class="grid g3">
+        <article class="card">
+          <span class="num">01</span><h3>Clients &amp; measurements</h3>
+          <p>A permanent profile for every client, with the measurement ledger that made their last garment fit.</p>
+          <ul><li>Full measurement history per client</li><li>Design preferences and past orders</li><li>Style DNA built from what they actually buy</li></ul>
+        </article>
+        <article class="card">
+          <span class="num">02</span><h3>Orders &amp; lifecycle</h3>
+          <p>Every order moves through named stages with an owner, a clock and an SLA on each one.</p>
+          <ul><li>Eight stages, Received to Delivered</li><li>Assigned-to vs actually-performed-by</li><li>Time spent recorded per stage</li></ul>
+        </article>
+        <article class="card">
+          <span class="num">03</span><h3>Production floor</h3>
+          <p>Task queues for the people who do the work, with priorities and a quality gate before dispatch.</p>
+          <ul><li>Task queue per master and tailor</li><li>Priority and status on every task</li><li>QC records before dispatch</li></ul>
+        </article>
+        <article class="card">
+          <span class="num">04</span><h3>Design studio</h3>
+          <p>Collections, design assets and reference boards, with an approval step before anyone cuts fabric.</p>
+          <ul><li>Collections by season or theme</li><li>Designer credit and approvals</li><li>Estimated stitch time per design</li></ul>
+        </article>
+        <article class="card">
+          <span class="num">05</span><h3>Fabric &amp; inventory</h3>
+          <p>Know what is on the shelf before you promise it, and what a garment consumed after.</p>
+          <ul><li>Fabric and catalogue stock</li><li>Locations and recipes</li><li>Consumption and reports</li></ul>
+        </article>
+        <article class="card">
+          <span class="num">06</span><h3>Customer updates</h3>
+          <p>A tracking link the client can open without an account, and messages you send from your own number.</p>
+          <ul><li>Signed tracking link per order</li><li>Finished-garment photo gallery</li><li>WhatsApp message queue</li></ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="lifecycle" style="background:var(--cream-warm)">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow dark">The flow</span>
+        <h2>Eight stages, from counter to doorstep.</h2>
+        <p class="lede">Every order carries its own stage list. Each stage has an owner, a start time, a completion time and an SLA — so a delay is visible on the day it happens, not at delivery.</p>
+      </div>
+      <div class="rail">
+        <div class="step"><div class="n">1</div><h3>Received</h3><p>Client, garment and measurements captured at the counter.</p></div>
+        <div class="step"><div class="n">2</div><h3>Confirmed</h3><p>Design agreed, costing set, advance recorded.</p></div>
+        <div class="step"><div class="n">3</div><h3>Stylist review</h3><p>Design references and fabric checked before cutting.</p></div>
+        <div class="step"><div class="n">4</div><h3>Design &amp; creation</h3><p>Pattern, cutting, embroidery and stitching on the floor.</p></div>
+        <div class="step"><div class="n">5</div><h3>Quality check</h3><p>QC master inspects against the measurement ledger.</p></div>
+        <div class="step"><div class="n">6</div><h3>Ready for dispatch</h3><p>Pressed, packed, photographed, balance settled.</p></div>
+        <div class="step"><div class="n">7</div><h3>Shipped</h3><p>Courier and tracking number, or counter pickup.</p></div>
+        <div class="step"><div class="n">8</div><h3>Delivered</h3><p>Closed, with the full history kept against the client.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="dark" id="floor">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow">Your floor, your roles</span>
+        <h2>Software that knows a Maggam Master from a Cutting Master.</h2>
+        <p class="lede">Generic CRM gives you "staff". A tailoring floor does not work that way — each stage only accepts the specialists who can actually do it. A one-person boutique keeps using Master for everything; a larger studio splits the work.</p>
+      </div>
+      <div class="roles">
+        <div class="role"><b>Measurement Master</b><span>Takes and verifies client measurements</span></div>
+        <div class="role"><b>Pattern Master</b><span>Drafts the paper pattern</span></div>
+        <div class="role"><b>Cutting Master</b><span>Cuts fabric from the pattern</span></div>
+        <div class="role"><b>Maggam Master</b><span>Runs embroidery before stitching</span></div>
+        <div class="role"><b>Stitching Tailor</b><span>Assembles the garment</span></div>
+        <div class="role"><b>Finishing Master</b><span>Hemming and final shaping</span></div>
+        <div class="role"><b>Pressing Staff</b><span>Presses before dispatch</span></div>
+        <div class="role"><b>QC Master</b><span>Runs the quality inspection</span></div>
+        <div class="role"><b>Master (generalist)</b><span>Can work on every stage</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="customer">
+    <div class="wrap">
+      <div class="split">
+        <div>
+          <span class="eyebrow dark">For your customer</span>
+          <h2 style="margin:16px 0 18px">She can check on her own lehenga.</h2>
+          <p class="lede">Every order gets a signed tracking link. No app, no account, no password — she opens it and sees exactly where her garment has reached. The calls stop because the answer is already in her hand.</p>
+          <p class="lede" style="margin-top:18px">When the garment is finished you photograph it from every angle — front, back, sleeve, dupatta, close-up detail — and <strong>publish the gallery deliberately</strong>, once. A half-uploaded gallery is not what you want her looking at.</p>
+          <p class="lede" style="margin-top:18px">Status messages queue up for you to send from your own WhatsApp number, so the boutique she hears from is still the boutique she knows.</p>
+        </div>
+        <div class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+            <div><b style="font-size:15px">Order T2B-260731-4412</b><br><span style="font-size:13px;color:var(--muted)">Bridal blouse · Aarti R.</span></div>
+            <span class="pill">On track</span>
+          </div>
+          <div class="panel-row"><span>1 · Received</span><b style="color:var(--lime-dark)">Done</b></div>
+          <div class="panel-row"><span>2 · Confirmed</span><b style="color:var(--lime-dark)">Done</b></div>
+          <div class="panel-row"><span>3 · Stylist review</span><b style="color:var(--lime-dark)">Done</b></div>
+          <div class="panel-row"><span>4 · Design &amp; creation</span><b>In progress</b></div>
+          <div class="panel-row"><span>5 · Quality check</span><span>—</span></div>
+          <div class="panel-row"><span>6 · Ready for dispatch</span><span>—</span></div>
+          <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--cream-warm);display:flex;gap:8px;flex-wrap:wrap">
+            <span class="pill grey">Front</span><span class="pill grey">Back</span><span class="pill grey">Sleeve</span><span class="pill grey">Dupatta</span><span class="pill grey">Detail</span>
+          </div>
+          <p style="font-size:12px;color:var(--muted);margin-top:12px">Gallery publishes when you say so.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="background:var(--cream-warm)">
+    <div class="wrap">
+      <div class="split">
+        <div class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <b style="font-size:15px">Costing sheet</b><span class="pill grey">Partly paid</span>
+          </div>
+          <div class="panel-row"><span>Base price</span><b>₹ 8,500</b></div>
+          <div class="panel-row"><span>Fabric</span><b>₹ 6,200</b></div>
+          <div class="panel-row"><span>Embroidery</span><b>₹ 11,000</b></div>
+          <div class="panel-row"><span>Customisation</span><b>₹ 2,400</b></div>
+          <div class="panel-row"><span>Tailoring charges</span><b>₹ 3,000</b></div>
+          <div class="panel-row"><span>Packaging &amp; handling</span><b>₹ 450</b></div>
+          <div class="panel-row"><span>Taxes</span><b>₹ 1,588</b></div>
+          <div class="panel-row total"><span>Total</span><b>₹ 33,138</b></div>
+          <div class="panel-row"><span>Advance paid</span><b>₹ 15,000</b></div>
+          <div class="panel-row"><span style="color:var(--forest);font-weight:600">Balance due</span><b style="color:var(--forest)">₹ 18,138</b></div>
+        </div>
+        <div>
+          <span class="eyebrow dark">The money</span>
+          <h2 style="margin:16px 0 18px">Know what a garment earned, not just what it sold for.</h2>
+          <p class="lede">Fabric, embroidery, customisation and tailoring are costed as separate lines, because they are separate decisions. When a client asks why a blouse costs what it costs, the breakdown is already there.</p>
+          <p class="lede" style="margin-top:18px">Advances and balances sit against the order, so the outstanding list is a query rather than a memory test.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="dark">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow">Your data</span>
+        <h2>Your patterns are not in a shared table.</h2>
+        <p class="lede">Every boutique gets its own isolated PostgreSQL schema — not a tenant column in someone else's table. Your clients, measurements, designs and prices are physically separated from every other boutique on the platform.</p>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>1</b><span>Database schema per boutique — isolation is structural, not a filter in a query</span></div>
+        <div class="stat"><b>9</b><span>Specialist roles, so each stage only accepts staff who can do it</span></div>
+        <div class="stat"><b>8</b><span>Named lifecycle stages, each with an owner, a clock and an SLA</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <div class="sec-head" style="text-align:center;margin-left:auto;margin-right:auto">
+        <span class="eyebrow dark">FAQ</span>
+        <h2>Questions, answered plainly.</h2>
+      </div>
+      <div class="faq">
+        <details open><summary>Is Scaleezy Boutique only for custom tailoring?</summary>
+          <p>It is built for made-to-order garments — bridal wear, sarees and blouses, lehengas, sherwanis and bespoke menswear. If you sell finished stock off a rack and never take a measurement, a standard retail POS will fit you better. If you do both, the boutique product handles the made-to-order side and the wider Scaleezy platform covers retail.</p>
+        </details>
+        <details><summary>Do my tailors need to use a computer?</summary>
+          <p>No. Staff work from their phone — the floor screens are built mobile-first, with a task queue showing only what is assigned to that person. The owner uses the full dashboard; the cutting master just needs to see the next job and mark it done.</p>
+        </details>
+        <details><summary>Can my customer track her order without installing anything?</summary>
+          <p>Yes. Each order has a signed tracking link that works in any browser with no login and no app. The link carries both the boutique and the order, so nothing else is exposed. You control when finished-garment photographs become visible on it.</p>
+        </details>
+        <details><summary>Does it send WhatsApp messages automatically?</summary>
+          <p>Messages are prepared and queued against the order, and you send them from your own WhatsApp number. That is deliberate — a bride should hear from her boutique, not from an unknown gateway number. Each message tracks as queued, sent, delivered, read or failed.</p>
+        </details>
+        <details><summary>How is my boutique's data kept separate from other boutiques?</summary>
+          <p>Through schema-based multi-tenancy in PostgreSQL. Each boutique's records live in their own database schema rather than sharing tables with a tenant ID column, so separation is enforced by the database itself.</p>
+        </details>
+        <details><summary>Can I move my existing customers and measurements in?</summary>
+          <p>Yes — existing client records, measurements and order history can be imported when your workspace is set up. Ask about migration during the demo and bring whatever you have, including a spreadsheet or a photographed register.</p>
+        </details>
+        <details><summary>How long does it take to get running?</summary>
+          <p>A workspace is created for you with your staff roles, garment types and stage list configured to how your floor already works. Most of the setup effort is agreeing the stages and the costing lines, not the software.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta" id="demo">
+    <div class="wrap">
+      <span class="eyebrow">A better way to run the atelier</span>
+      <h2>Ready to see it on your own orders?</h2>
+      <p class="lede">Bring one live order — a bridal blouse, a lehenga, whatever is on the table today — and we will walk it through the system end to end.</p>
+      <div class="hero-actions">
+        <a href="mailto:support@scaleezy.com?subject=Scaleezy%20Boutique%20demo" class="btn btn-lime">Book a demo
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a href="/app" class="btn btn-ghost">Sign in</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="fgrid">
+      <div class="fbrand">
+        <div class="logo" style="color:var(--cream)">SCALEEZY <b>BOUTIQUE</b></div>
+        <p>CRM and order management for boutiques that make every garment to measure. Part of the Scaleezy platform for apparel commerce.</p>
+      </div>
+      <div><h4>Product</h4><ul>
+        <li><a href="#what-is">What it is</a></li><li><a href="#modules">Modules</a></li>
+        <li><a href="#lifecycle">Lifecycle</a></li><li><a href="#faq">FAQ</a></li>
+      </ul></div>
+      <div><h4>Platform</h4><ul>
+        <li><a href="https://www.scaleezy.com/">Scaleezy for apparel</a></li>
+        <li><a href="/app">Boutique workspace</a></li>
+      </ul></div>
+      <div><h4>Contact</h4><ul>
+        <li><a href="mailto:support@scaleezy.com">support@scaleezy.com</a></li>
+        <li><a href="#demo">Book a demo</a></li>
+      </ul></div>
+    </div>
+    <div class="fbot">
+      <span>© <span id="yr">2026</span> Scaleezy. All rights reserved.</span>
+      <span>Your vision. Our craft.</span>
+    </div>
+  </div>
+</footer>
+
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@graph":[
+    {
+      "@type":"SoftwareApplication",
+      "name":"Scaleezy Boutique",
+      "applicationCategory":"BusinessApplication",
+      "applicationSubCategory":"CRM and order management for custom tailoring",
+      "operatingSystem":"Web",
+      "url":"https://boutique.scaleezy.com/",
+      "description":"CRM and order-management software for bespoke tailoring boutiques. Tracks client measurements, an eight-stage order lifecycle, the production floor, fabric inventory and customer updates.",
+      "featureList":["Client profiles and measurement ledger","Eight-stage order lifecycle with SLAs","Production task queues and quality control","Design collections and approvals","Fabric and catalogue inventory","Signed customer order-tracking links","WhatsApp status message queue","Per-boutique PostgreSQL schema isolation"],
+      "publisher":{"@id":"https://www.scaleezy.com/#org"}
+    },
+    {
+      "@type":"Organization",
+      "@id":"https://www.scaleezy.com/#org",
+      "name":"Scaleezy",
+      "url":"https://www.scaleezy.com/",
+      "description":"Operating system for apparel commerce.",
+      "email":"support@scaleezy.com"
+    },
+    {
+      "@type":"WebSite",
+      "url":"https://boutique.scaleezy.com/",
+      "name":"Scaleezy Boutique",
+      "publisher":{"@id":"https://www.scaleezy.com/#org"}
+    },
+    {
+      "@type":"FAQPage",
+      "mainEntity":[
+        {"@type":"Question","name":"Is Scaleezy Boutique only for custom tailoring?","acceptedAnswer":{"@type":"Answer","text":"It is built for made-to-order garments — bridal wear, sarees and blouses, lehengas, sherwanis and bespoke menswear. If you sell finished stock off a rack and never take a measurement, a standard retail POS will fit you better."}},
+        {"@type":"Question","name":"Do my tailors need to use a computer?","acceptedAnswer":{"@type":"Answer","text":"No. Staff work from their phone. The floor screens are mobile-first, with a task queue showing only what is assigned to that person."}},
+        {"@type":"Question","name":"Can my customer track her order without installing anything?","acceptedAnswer":{"@type":"Answer","text":"Yes. Each order has a signed tracking link that works in any browser with no login and no app. You control when finished-garment photographs become visible on it."}},
+        {"@type":"Question","name":"Does it send WhatsApp messages automatically?","acceptedAnswer":{"@type":"Answer","text":"Messages are prepared and queued against the order, and you send them from your own WhatsApp number. Each message tracks as queued, sent, delivered, read or failed."}},
+        {"@type":"Question","name":"How is my boutique's data kept separate from other boutiques?","acceptedAnswer":{"@type":"Answer","text":"Through schema-based multi-tenancy in PostgreSQL. Each boutique's records live in their own database schema rather than sharing tables with a tenant ID column."}},
+        {"@type":"Question","name":"Can I move my existing customers and measurements in?","acceptedAnswer":{"@type":"Answer","text":"Yes. Existing client records, measurements and order history can be imported when your workspace is set up."}},
+        {"@type":"Question","name":"How long does it take to get running?","acceptedAnswer":{"@type":"Answer","text":"A workspace is created for you with your staff roles, garment types and stage list configured to how your floor already works."}}
+      ]
+    }
+  ]
+}
+</script>
+
+<script>
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.classList.toggle('solid', window.scrollY > 24); };
+  onScroll();
+  addEventListener('scroll', onScroll, { passive: true });
+
+  var toggle = document.getElementById('navtoggle'), links = document.getElementById('navlinks');
+  toggle.addEventListener('click', function () {
+    var open = links.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open);
+  });
+  links.addEventListener('click', function (e) {
+    if (e.target.tagName === 'A') { links.classList.remove('open'); toggle.setAttribute('aria-expanded', 'false'); }
+  });
+
+  document.getElementById('yr').textContent = new Date().getFullYear();
+</script>
+
+</body>
 </html>
