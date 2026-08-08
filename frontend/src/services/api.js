@@ -412,6 +412,41 @@ export const api = {
     return res.json();
   },
 
+  // Finished-garment photographs. Published as a set, because publishing is
+  // what tells the customer their outfit is ready.
+  async uploadGarmentImage(orderId, view, file) {
+    const formData = new FormData();
+    formData.append('view', view);
+    formData.append('image', file);
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/garment-images/`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(describeApiError(res, data));
+    return data;
+  },
+
+  async deleteGarmentImage(orderId, imageId) {
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/garment-images/${imageId}/`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error(describeApiError(res, await res.json().catch(() => ({}))));
+  },
+
+  async publishGarmentImages(orderId, published = true) {
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/publish-garment-images/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ published }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(describeApiError(res, data));
+    return data;
+  },
+
   // Fabrics CRUD
   async createFabric(fabricData) {
     const res = await fetch(`${BASE_URL}/fabrics/`, {

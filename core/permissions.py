@@ -47,7 +47,13 @@ class RolePermission(permissions.BasePermission):
     })
 
     #: Handing work to someone else is a supervisor's call, not a tailor's.
-    SUPERVISOR_ORDER_ACTIONS = frozenset({'assign_stage'})
+    #: The finished-garment photographs belong here too: the specification has
+    #: the owner or the master taking and publishing them, and publishing is
+    #: what tells the customer their outfit is ready.
+    SUPERVISOR_ORDER_ACTIONS = frozenset({
+        'assign_stage', 'upload_garment_image', 'delete_garment_image',
+        'publish_garment_images',
+    })
 
     def has_permission(self, request, view):
         role = resolve_user_role(request.user)

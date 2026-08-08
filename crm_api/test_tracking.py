@@ -7,9 +7,13 @@ and that anything else (edited token, dead schema, unknown order) is a 404 and
 not a 500 or, worse, another boutique's data.
 """
 
+import io
+import shutil
+import tempfile
 from urllib.parse import quote
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core import signing
 from django.db import connection
 from django.test import Client
@@ -21,7 +25,8 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 from crm_api.models import (
-    BoutiqueSettings, Customer, CustomerMessage, Order, Tailor, whatsapp_number,
+    BoutiqueSettings, Customer, CustomerMessage, GarmentImage, Order, Tailor,
+    whatsapp_number,
 )
 from domains.orders.messaging import send_customer_message
 from domains.orders.services import OrderService
@@ -457,3 +462,192 @@ class ManualSendTests(TrackingTestBase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         message.refresh_from_db()
         self.assertEqual(message.status, 'QUEUED')
+
+
+def a_photograph(name='front.png', size=(400, 600)):
+    """A real PNG, so the serializer's Pillow check has something to accept."""
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new('RGB', size, (180, 60, 90)).save(buffer, format='PNG')
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type='image/png')
+
+
+class GarmentGalleryTests(TrackingTestBase):
+    """Photographs of the finished garment, and when the customer may see them.
+
+    MEDIA_ROOT is redirected per test, and the override is enabled by hand
+    rather than with a class decorator. django_tenants' TenantTestCase.setUpClass
+    does not call super(), so SimpleTestCase.setUpClass -- the code that enables
+    a class-level override_settings -- never runs, and @override_settings on the
+    class is a silent no-op. These tests write files; without this they write
+    into the repository's own media/ directory.
+
+    The cleanup deletes the directory it created, never settings.MEDIA_ROOT.
+    Deleting whatever that setting happens to point at is how the real media
+    directory got removed once already.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        media_root = tempfile.mkdtemp(prefix='tracking-test-media-')
+        self.addCleanup(shutil.rmtree, media_root, ignore_errors=True)
+        media_override = override_settings(MEDIA_ROOT=media_root)
+        media_override.enable()
+        self.addCleanup(media_override.disable)
+        self.media_root = media_root
+
+        self.owner = self._owner()
+        self.master_user = User.objects.create_user(username='master@tracking.test')
+        Tailor.objects.create(name='Rohit', specialty='Bridal', role='Master',
+                              user=self.master_user)
+        self.tailor_user = User.objects.create_user(username='tailor2@tracking.test')
+        Tailor.objects.create(name='Anya', specialty='Lehenga', role='Tailor',
+                              user=self.tailor_user)
+        self.client = self.api_client(self.owner)
+
+    def api_client(self, user):
+        client = APIClient()
+        client.credentials(
+            HTTP_AUTHORIZATION='Token ' + Token.objects.create(user=user).key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        return client
+
+    def upload(self, view='FRONT', client=None, image=None):
+        return (client or self.client).post(
+            reverse('order-upload-garment-image', args=[self.order.id]),
+            {'view': view, 'image': image or a_photograph()}, format='multipart',
+        )
+
+    def publish(self, client=None, **data):
+        return (client or self.client).post(
+            reverse('order-publish-garment-images', args=[self.order.id]),
+            data, format='json',
+        )
+
+    def test_uploads_land_in_the_test_media_root_not_the_repository(self):
+        """Pins the override actually taking effect, which it silently did not."""
+        from django.conf import settings
+
+        self.assertEqual(settings.MEDIA_ROOT, self.media_root)
+        self.upload('FRONT')
+        image = GarmentImage.objects.get(order=self.order)
+        self.assertTrue(image.image.path.startswith(self.media_root), image.image.path)
+
+    def test_owner_uploads_a_front_view(self):
+        response = self.upload('FRONT')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['view'], 'FRONT')
+        self.assertEqual(response.data['view_label'], 'Front view')
+        image = GarmentImage.objects.get(order=self.order)
+        self.assertEqual(image.uploaded_by, self.owner)
+
+    def test_uploading_the_same_view_replaces_it(self):
+        self.upload('FRONT')
+        first = GarmentImage.objects.get(order=self.order, view='FRONT')
+        self.upload('FRONT', image=a_photograph('better-front.png'))
+
+        images = GarmentImage.objects.filter(order=self.order, view='FRONT')
+        self.assertEqual(images.count(), 1)
+        self.assertNotEqual(images.first().id, first.id)
+
+    def test_an_unknown_view_is_rejected(self):
+        response = self.upload('SIDEWAYS')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(GarmentImage.objects.exists())
+
+    def test_a_file_that_is_not_an_image_is_rejected(self):
+        """A renamed file must fail here, not become a broken img on the page."""
+        response = self.upload(
+            'FRONT',
+            image=SimpleUploadedFile('front.png', b'MZ\x90\x00 not a png',
+                                     content_type='image/png'),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(GarmentImage.objects.exists())
+
+    def test_uploading_nothing_is_rejected(self):
+        response = self.client.post(
+            reverse('order-upload-garment-image', args=[self.order.id]),
+            {'view': 'FRONT'}, format='multipart',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_deleting_an_image_removes_it(self):
+        self.upload('FRONT')
+        image = GarmentImage.objects.get(order=self.order)
+
+        response = self.client.delete(
+            reverse('order-delete-garment-image', args=[self.order.id, image.id])
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(GarmentImage.objects.exists())
+
+    def test_publishing_needs_both_required_views(self):
+        self.upload('FRONT')
+        response = self.publish()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['missing'], ['BACK'])
+        self.order.refresh_from_db()
+        self.assertFalse(self.order.garment_images_published)
+
+    def test_publishing_tells_the_customer_once(self):
+        self.upload('FRONT')
+        self.upload('BACK')
+
+        response = self.publish()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.order.refresh_from_db()
+        self.assertTrue(self.order.garment_images_published)
+
+        messages = CustomerMessage.objects.filter(order=self.order, template_key='garment_ready')
+        self.assertEqual(messages.count(), 1)
+        self.assertIn('/track/', messages.first().body)
+
+        # Swapping a photograph and publishing again must not tell them twice.
+        self.upload('FRONT', image=a_photograph('front-v2.png'))
+        self.publish()
+        self.assertEqual(
+            CustomerMessage.objects.filter(order=self.order, template_key='garment_ready').count(),
+            1,
+        )
+
+    def test_unpublishing_hides_the_gallery_again(self):
+        self.upload('FRONT')
+        self.upload('BACK')
+        self.publish()
+
+        self.publish(published=False)
+
+        self.order.refresh_from_db()
+        self.assertFalse(self.order.garment_images_published)
+
+    def test_the_customer_sees_nothing_until_it_is_published(self):
+        self.upload('FRONT')
+        self.upload('BACK')
+
+        body = self.tenant_client_get(f"/track/{build_token(self.order)}/").content.decode()
+        self.assertNotIn('Your outfit is ready', body)
+
+        self.publish()
+        body = self.tenant_client_get(f"/track/{build_token(self.order)}/").content.decode()
+        self.assertIn('Your outfit is ready', body)
+        self.assertIn('Front view', body)
+        self.assertIn('Back view', body)
+
+    def test_a_master_may_photograph_and_publish(self):
+        """The specification has the owner or the master doing this."""
+        master = self.api_client(self.master_user)
+        self.assertEqual(self.upload('FRONT', client=master).status_code,
+                         status.HTTP_201_CREATED)
+        self.upload('BACK', client=master)
+        self.assertEqual(self.publish(client=master).status_code, status.HTTP_200_OK)
+
+    def test_a_tailor_may_not(self):
+        response = self.upload('FRONT', client=self.api_client(self.tailor_user))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(GarmentImage.objects.exists())

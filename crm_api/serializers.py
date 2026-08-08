@@ -4,10 +4,10 @@ from rest_framework import serializers
 
 from apps.design_studio.models import DesignAsset
 from .models import (
-    Customer, CustomerMessage, Measurement, DesignPreference, FabricSelection,
-    Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification,
-    OrderStageHistory, BoutiqueSettings, MeasurementHistory, OrderStage,
-    OrderActivity
+    Customer, CustomerMessage, GarmentImage, Measurement, DesignPreference,
+    FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign,
+    Notification, OrderStageHistory, BoutiqueSettings, MeasurementHistory,
+    OrderStage, OrderActivity
 )
 
 class BoutiqueSettingsSerializer(serializers.ModelSerializer):
@@ -136,6 +136,14 @@ class OrderActivitySerializer(serializers.ModelSerializer):
         model = OrderActivity
         fields = '__all__'
 
+class GarmentImageSerializer(serializers.ModelSerializer):
+    view_label = serializers.CharField(source='get_view_display', read_only=True)
+
+    class Meta:
+        model = GarmentImage
+        fields = ['id', 'order', 'view', 'view_label', 'image', 'uploaded_at']
+        read_only_fields = ['id', 'order', 'view_label', 'uploaded_at']
+
 class OrderSerializer(serializers.ModelSerializer):
     tailor_name = serializers.CharField(source='tailor.name', read_only=True)
     master_name = serializers.CharField(source='master.name', read_only=True)
@@ -145,6 +153,7 @@ class OrderSerializer(serializers.ModelSerializer):
     stage_histories = OrderStageHistorySerializer(many=True, read_only=True)
     stages = OrderStageSerializer(many=True, read_only=True)
     activities = OrderActivitySerializer(many=True, read_only=True)
+    garment_images = GarmentImageSerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
@@ -157,7 +166,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'delivery_method', 'courier_service', 'tracking_number', 'delivery_address',
             'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image',
             'master_verification', 'stage_histories', 'current_stage_key', 'production_status',
-            'stages', 'activities'
+            'stages', 'activities', 'garment_images', 'garment_images_published'
         ]
 
     def get_customer_name(self, obj):

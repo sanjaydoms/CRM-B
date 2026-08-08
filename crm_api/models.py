@@ -276,6 +276,12 @@ class Order(models.Model):
     completed_garment_image = models.ImageField(upload_to='completed_garments/', blank=True, null=True)
     master_verification = models.JSONField(default=dict, blank=True)
     
+    # Whether the customer may see the finished-garment photographs on their
+    # tracking page. A deliberate publish rather than "images exist, show them":
+    # the angles go up one at a time over several minutes, and a half-uploaded
+    # gallery is not what anyone wants the customer looking at.
+    garment_images_published = models.BooleanField(default=False)
+
     # Workflow integration
     current_stage_key = models.CharField(max_length=100, default="created", db_index=True)
     production_status = models.CharField(max_length=50, default="NOT_STARTED", db_index=True) # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
@@ -341,6 +347,43 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.recipient_role} - {self.title}"
+
+class GarmentImage(models.Model):
+    """A photograph of the finished garment, taken by the boutique.
+
+    Order.completed_garment_image already holds one image, but it is the
+    tailor's evidence at the stitching_completed stage -- it is written by
+    submit_completion, it is internal, and there is exactly one of it. These are
+    a different thing with a different audience: several angles, chosen and
+    published deliberately, for the customer to look at before they collect.
+    """
+
+    # Front and back are what the specification requires; the rest are the
+    # optional angles it lists, and cover the garments this CRM actually sells.
+    VIEW_CHOICES = [
+        ('FRONT', 'Front view'),
+        ('BACK', 'Back view'),
+        ('LEFT', 'Left side'),
+        ('RIGHT', 'Right side'),
+        ('DETAIL', 'Close-up detail'),
+        ('FABRIC', 'Fabric texture'),
+        ('SLEEVE', 'Sleeve detail'),
+        ('BLOUSE', 'Blouse detail'),
+        ('DUPATTA', 'Dupatta styling'),
+    ]
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='garment_images')
+    view = models.CharField(max_length=20, choices=VIEW_CHOICES, default='FRONT')
+    image = models.ImageField(upload_to='finished_garments/')
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['view', 'uploaded_at']
+
+    def __str__(self):
+        return f"{self.order.order_id} - {self.get_view_display()}"
+
 
 class CustomerMessage(models.Model):
     """One outbound message to a customer, and what became of it.

@@ -13,21 +13,23 @@ from django.core.files.base import ContentFile
 from django.db.models import Q, Sum, Count
 
 from .models import (
-    Customer, CustomerMessage, Measurement, DesignPreference, FabricSelection,
-    Tailor, Order, BoutiqueFabric, BoutiqueDesign, Notification,
-    OrderStageHistory, BoutiqueSettings, MeasurementHistory, OrderStage,
-    OrderActivity
+    Customer, CustomerMessage, GarmentImage, Measurement, DesignPreference,
+    FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign,
+    Notification, OrderStageHistory, BoutiqueSettings, MeasurementHistory,
+    OrderStage, OrderActivity
 )
 from .serializers import (
     CustomerSerializer, MeasurementSerializer, DesignPreferenceSerializer,
     FabricSelectionSerializer, TailorSerializer, OrderSerializer, BoutiqueFabricSerializer,
     BoutiqueDesignSerializer, NotificationSerializer, OrderStageHistorySerializer, BoutiqueSettingsSerializer,
     MeasurementHistorySerializer, CustomerSummarySerializer, OrderSummarySerializer,
-    OrderStageSerializer, CustomerMessageSerializer
+    OrderStageSerializer, CustomerMessageSerializer, GarmentImageSerializer
 )
 from apps.design_studio.models import DesignAsset
 from domains.customers.repositories import CustomerRepository
+from domains.orders.messaging import send_customer_message
 from domains.orders.notifications import create_order_notifications
+from domains.orders.tracking import tracking_url
 from domains.orders.repositories import OrderRepository
 from domains.orders.services import OrderService
 
@@ -311,6 +313,99 @@ class OrderViewSet(viewsets.ModelViewSet):
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({'status': 'status updated', 'order_status': updated.order_status})
+
+    @action(detail=True, methods=['POST'], url_path='garment-images')
+    def upload_garment_image(self, request, pk=None):
+        """Add or replace one angle of the finished garment.
+
+        One image per view, so uploading FRONT twice replaces it rather than
+        stacking -- which is what "replace the image if a better one is taken"
+        means in practice, and bounds an order's gallery at the nine views
+        without needing a separate cap.
+        """
+        order = self.get_object()
+        view = request.data.get('view', 'FRONT')
+        if view not in dict(GarmentImage.VIEW_CHOICES):
+            return Response(
+                {'error': f"Unknown view '{view}'.",
+                 'allowed': [v for v, _ in GarmentImage.VIEW_CHOICES]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if 'image' not in request.FILES:
+            return Response({'error': 'No image was uploaded.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Through the serializer rather than assigned directly: its ImageField
+        # runs the file through Pillow, so a renamed .exe is rejected here
+        # instead of becoming a broken <img> on a customer's tracking page.
+        serializer = GarmentImageSerializer(
+            data={'view': view, 'image': request.FILES['image']}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        for existing in order.garment_images.filter(view=view):
+            existing.image.delete(save=False)  # the file, not just the row
+            existing.delete()
+
+        image = serializer.save(
+            order=order,
+            uploaded_by=request.user if request.user.is_authenticated else None,
+        )
+        return Response(GarmentImageSerializer(image).data,
+                        status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['DELETE'], url_path='garment-images/(?P<image_id>[0-9]+)')
+    def delete_garment_image(self, request, pk=None, image_id=None):
+        order = self.get_object()
+        image = order.garment_images.filter(id=image_id).first()
+        if image is None:
+            return Response({'error': 'No such image on this order.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        image.image.delete(save=False)
+        image.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['POST'], url_path='publish-garment-images')
+    def publish_garment_images(self, request, pk=None):
+        """Show the finished-garment photographs to the customer, or stop.
+
+        Publishing is what queues the "your outfit is ready" message, so it is
+        the moment the customer learns anything -- which is why it is a separate
+        deliberate step and why front and back must both be there first. The
+        specification requires those two; the rest are optional angles.
+        """
+        order = self.get_object()
+        publish = request.data.get('published', True)
+        if isinstance(publish, str):
+            publish = publish.lower() not in ('false', '0', '')
+
+        if publish:
+            present = set(order.garment_images.values_list('view', flat=True))
+            missing = [v for v in ('FRONT', 'BACK') if v not in present]
+            if missing:
+                return Response(
+                    {'error': 'Front and back photographs are both required '
+                              'before the customer sees the gallery.',
+                     'missing': missing},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        already = order.garment_images_published
+        order.garment_images_published = publish
+        order.save(update_fields=['garment_images_published'])
+
+        # Only on the transition, so re-publishing an already-published gallery
+        # after swapping one photograph does not tell the customer twice.
+        if publish and not already:
+            send_customer_message(
+                order,
+                'garment_ready',
+                f"Dear {order.customer.first_name}, your outfit for order "
+                f"{order.order_id} is ready! You can see photographs of the "
+                f"finished garment here: {tracking_url(order)}",
+            )
+
+        return Response(OrderSerializer(order).data)
 
     @action(detail=False, methods=['GET'], url_path='customer-messages',
             permission_classes=[OwnerOnly])

@@ -81,11 +81,18 @@ def order_tracking(request, token):
         total = order.total_amount or Decimal('0')
         paid = order.amount_paid or Decimal('0')
 
+        # Only once the boutique has said so. Photographs go up one angle at a
+        # time, and an unpublished gallery is a half-finished one.
+        garment_images = (
+            list(order.garment_images.all()) if order.garment_images_published else []
+        )
+
         context = {
             'boutique': boutique,
             'order': order,
             'customer': order.customer,
             'stages': stages,
+            'garment_images': garment_images,
             'trial': trial,
             'total': total,
             'paid': paid,

@@ -267,6 +267,152 @@ function CustomerMessageQueue({ orderId, messages, onMarkSent }) {
   );
 }
 
+const GARMENT_VIEWS = [
+  ['FRONT', 'Front view'], ['BACK', 'Back view'],
+  ['LEFT', 'Left side'], ['RIGHT', 'Right side'],
+  ['DETAIL', 'Close-up detail'], ['FABRIC', 'Fabric texture'],
+  ['SLEEVE', 'Sleeve detail'], ['BLOUSE', 'Blouse detail'],
+  ['DUPATTA', 'Dupatta styling'],
+];
+
+/** Photographs of the finished garment, and the decision to show the customer.
+ *
+ * Front and back are required before publishing, because those are the two the
+ * specification promises the customer. Publishing queues the "your outfit is
+ * ready" message, so it is a deliberate button rather than something that
+ * happens the moment a photograph lands -- the angles go up one at a time, and
+ * a half-uploaded gallery is not what anyone wants sent.
+ *
+ * The images come from the order payload that is already on screen, so this
+ * costs no extra request.
+ */
+function GarmentGallery({ order, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [view, setView] = useState('FRONT');
+  const fileRef = useRef(null);
+
+  const images = order.garment_images || [];
+  const published = order.garment_images_published;
+  const have = new Set(images.map((i) => i.view));
+  const missing = ['FRONT', 'BACK'].filter((v) => !have.has(v));
+
+  const run = async (work) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await work();
+      await onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onPick = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    run(() => api.uploadGarmentImage(order.id, view, file));
+    event.target.value = '';
+  };
+
+  return (
+    <div style={{
+      margin: '8px 0', padding: '12px 16px', background: 'var(--surface-color)',
+      borderRadius: '8px', border: '1px solid var(--border-color)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
+        <Package size={14} />
+        <span style={{ fontSize: '13px', fontWeight: 600 }}>Finished garment photos</span>
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+          {published ? 'visible to the customer' : `${images.length} uploaded, not yet shared`}
+        </span>
+      </div>
+
+      {error && (
+        <div style={{ fontSize: '12px', color: 'var(--danger-color, #b3261e)', marginBottom: '8px' }}>
+          {error}
+        </div>
+      )}
+
+      {images.length > 0 && (
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          {images.map((image) => (
+            <figure key={image.id} style={{ margin: 0, width: '90px' }}>
+              <img
+                src={resolveMediaUrl(image.image)}
+                alt={image.view_label}
+                style={{
+                  width: '90px', height: '120px', objectFit: 'cover',
+                  borderRadius: '6px', border: '1px solid var(--border-color)'
+                }}
+              />
+              <figcaption style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                {image.view_label}
+              </figcaption>
+              <button
+                type="button"
+                onClick={() => run(() => api.deleteGarmentImage(order.id, image.id))}
+                disabled={busy}
+                style={{
+                  fontSize: '10px', padding: '2px 6px', marginTop: '2px',
+                  background: 'none', border: '1px solid var(--border-color)',
+                  borderRadius: '4px', cursor: 'pointer', width: '100%'
+                }}
+              >
+                Remove
+              </button>
+            </figure>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <select
+          className="form-control"
+          style={{ fontSize: '12px', padding: '6px 10px', width: 'auto', margin: 0 }}
+          value={view}
+          onChange={(e) => setView(e.target.value)}
+          disabled={busy}
+        >
+          {GARMENT_VIEWS.map(([value, label]) => (
+            <option key={value} value={value}>{label}{have.has(value) ? ' (replace)' : ''}</option>
+          ))}
+        </select>
+
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={onPick} />
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{ fontSize: '12px', padding: '6px 10px' }}
+          disabled={busy}
+          onClick={() => fileRef.current?.click()}
+        >
+          {busy ? 'Working…' : 'Add photo'}
+        </button>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{ fontSize: '12px', padding: '6px 10px' }}
+          disabled={busy || (!published && missing.length > 0)}
+          title={missing.length ? `Still needs: ${missing.join(', ')}` : ''}
+          onClick={() => run(() => api.publishGarmentImages(order.id, !published))}
+        >
+          {published ? 'Hide from customer' : 'Share with customer'}
+        </button>
+
+        {!published && missing.length > 0 && (
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            needs {missing.map((m) => m.toLowerCase()).join(' and ')}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StageTimeline({ stages, onSelectStage }) {
   if (!stages || stages.length === 0) {
     return (
@@ -4338,6 +4484,11 @@ function App() {
                           <StageTimeline
                             stages={order.stages}
                             onSelectStage={(stage) => openStageReview(order, stage)}
+                          />
+
+                          <GarmentGallery
+                            order={order}
+                            onChanged={fetchDashboardAndConfig}
                           />
 
                           <CustomerMessageQueue
