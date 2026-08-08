@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Order {{ order.order_id }} &middot; {{ boutique.name }}</title>
+<style>
+  /* Self-contained: this page is opened on a phone, often on a slow
+     connection, by someone who will look at it once. Nothing to fetch. */
+  :root {
+    --ink: #1b1b1f;
+    --muted: #6b6b76;
+    --line: #e4e4e9;
+    --bg: #f7f7f9;
+    --done: #1f7a4d;
+    --active: #b26a00;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 40px;
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 0 16px; }
+  header { background: #fff; border-bottom: 1px solid var(--line); padding: 20px 0; margin-bottom: 16px; }
+  header .wrap { display: flex; align-items: center; gap: 12px; }
+  header img { width: 48px; height: 48px; object-fit: contain; border-radius: 8px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; }
+  dt { color: var(--muted); font-size: 14px; }
+  dd { margin: 0; text-align: right; font-size: 14px; font-weight: 500; word-break: break-word; }
+  .status-pill {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: #eef4ff; color: #24427a; font-size: 13px; font-weight: 600;
+  }
+  ol.timeline { list-style: none; margin: 0; padding: 0; }
+  ol.timeline li { display: flex; gap: 12px; padding-bottom: 16px; position: relative; }
+  ol.timeline li:not(:last-child)::before {
+    content: ""; position: absolute; left: 9px; top: 22px; bottom: 0; width: 2px; background: var(--line);
+  }
+  .dot {
+    flex: none; width: 20px; height: 20px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 11px; line-height: 1;
+    border: 2px solid var(--line); background: #fff; color: var(--muted); z-index: 1;
+  }
+  .dot.done { background: var(--done); border-color: var(--done); color: #fff; }
+  .dot.active { border-color: var(--active); color: var(--active); }
+  .step-name { font-size: 15px; font-weight: 500; }
+  .step-meta { font-size: 13px; color: var(--muted); }
+  .pending .step-name { color: var(--muted); font-weight: 400; }
+  .total-row { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+  .total-row dd { font-size: 16px; font-weight: 700; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding-top: 8px; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    {% if boutique.logo %}<img src="{{ boutique.logo.url }}" alt="">{% endif %}
+    <div>
+      <h1>{{ boutique.name }}</h1>
+      <p>Order {{ order.order_id }}</p>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section class="card">
+    <h2>Your order</h2>
+    <dl>
+      <dt>Customer</dt><dd>{{ customer.first_name }} {{ customer.last_name }}</dd>
+      <dt>Garment</dt><dd>{{ customer.garment_type|default:"—" }}</dd>
+      <dt>Order date</dt><dd>{{ order.order_date|date:"d M Y" }}</dd>
+      <dt>Expected delivery</dt><dd>{{ order.estimated_delivery|date:"d M Y"|default:"To be confirmed" }}</dd>
+      <dt>Status</dt><dd><span class="status-pill">{{ order.order_status }}</span></dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Progress</h2>
+    <ol class="timeline">
+      {% for stage in stages %}
+        <li{% if stage.status == 'NOT_STARTED' %} class="pending"{% endif %}>
+          <span class="dot {% if stage.status == 'COMPLETED' %}done{% elif stage.status == 'IN_PROGRESS' %}active{% endif %}">
+            {% if stage.status == 'COMPLETED' %}&check;{% elif stage.status == 'IN_PROGRESS' %}&bull;{% endif %}
+          </span>
+          <div>
+            <div class="step-name">{{ stage.stage_name }}</div>
+            {% if stage.status == 'COMPLETED' and stage.completed_at %}
+              <div class="step-meta">{{ stage.completed_at|date:"d M Y, g:i A" }}</div>
+            {% elif stage.status == 'IN_PROGRESS' %}
+              <div class="step-meta">In progress</div>
+            {% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  {% if trial %}
+  <section class="card">
+    <h2>Trial appointment</h2>
+    <dl>
+      <dt>Date</dt><dd>{{ trial.scheduled_time|date:"d M Y" }}</dd>
+      <dt>Time</dt><dd>{{ trial.scheduled_time|date:"g:i A" }}</dd>
+      <dt>Address</dt><dd>{{ boutique.address }}</dd>
+      <dt>Contact</dt><dd>{{ boutique.phone }}</dd>
+    </dl>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h2>Payment</h2>
+    <dl>
+      <dt>Total</dt><dd>&#8377;{{ total|floatformat:2 }}</dd>
+      <dt>Paid</dt><dd>&#8377;{{ paid|floatformat:2 }}</dd>
+      <dt>Status</dt><dd>{{ payment_status }}</dd>
+    </dl>
+    <dl class="total-row">
+      <dt>Balance due</dt><dd>&#8377;{{ balance|floatformat:2 }}</dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Collection</h2>
+    <dl>
+      <dt>Method</dt><dd>{{ order.delivery_method }}</dd>
+      {% if order.delivery_method == 'Courier' %}
+        <dt>Courier</dt><dd>{{ order.courier_service|default:"To be confirmed" }}</dd>
+        {% if order.tracking_number %}<dt>Tracking no.</dt><dd>{{ order.tracking_number }}</dd>{% endif %}
+      {% else %}
+        <dt>Pick up from</dt><dd>{{ boutique.address }}</dd>
+      {% endif %}
+    </dl>
+  </section>
+
+  <footer>
+    Questions? Call <a href="tel:{{ boutique.phone }}">{{ boutique.phone }}</a>
+  </footer>
+
+</div>
+</body>
+</html>

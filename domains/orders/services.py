@@ -284,6 +284,7 @@ class OrderService:
             'ready_for_delivery': 'Ready for Dispatch',
             'delivered': 'Delivered'
         }
+        previous_order_status = order.order_status
         if stage_key in status_map:
             order.order_status = status_map[stage_key]
         order.save()
@@ -313,5 +314,9 @@ class OrderService:
             order.master.status = 'Available'
             order.master.save()
 
-        create_order_notifications(order, created=False)
+        create_order_notifications(
+            order,
+            created=False,
+            status_changed=order.order_status != previous_order_status,
+        )
         return order

@@ -289,6 +289,51 @@ class Notification(models.Model):
     def __str__(self):
         return f"{self.recipient_role} - {self.title}"
 
+class CustomerMessage(models.Model):
+    """One outbound message to a customer, and what became of it.
+
+    Notification is the CRM's own inbox -- staff read it inside the app.
+    This is the record of what was sent *out* to the customer, which is a
+    different thing with a different lifecycle: it has a destination, a
+    delivery state that a provider updates after the fact, and it has to stay
+    readable as history even after the transport is swapped.
+
+    A row is written for every automated notification regardless of whether a
+    transport is configured, so an order's communication history is complete
+    from the first order rather than from whenever WhatsApp is connected.
+    """
+
+    STATUS_CHOICES = [
+        ('QUEUED', 'Queued'),
+        ('SENT', 'Sent'),
+        ('DELIVERED', 'Delivered'),
+        ('READ', 'Read'),
+        ('FAILED', 'Failed'),
+    ]
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='customer_messages')
+    channel = models.CharField(max_length=30, default='whatsapp')
+    # Which notification this is (order_confirmation, stage_update, ...). Named
+    # rather than free text so the boutique can switch individual ones off and
+    # so an approved provider template can be mapped to it later.
+    template_key = models.CharField(max_length=100, db_index=True)
+    # Snapshot: the number as it was when we sent, not as it is now. A customer
+    # who changes their number must not rewrite where past messages went.
+    to_number = models.CharField(max_length=20)
+    body = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='QUEUED', db_index=True)
+    provider_message_id = models.CharField(max_length=255, blank=True, null=True)
+    error = models.TextField(blank=True, null=True)
+    # Null for automated messages; set for ones staff send by hand.
+    sent_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.order.order_id} - {self.template_key} ({self.status})"
+
 # Every stage keeps "Master" alongside its specialist so a boutique staffed by one
 # generalist is unaffected, while a studio that has split the roles can restrict
 # work to the right person. Owner is always permitted, in code, regardless.
@@ -325,6 +370,10 @@ class BoutiqueSettings(models.Model):
     # library they already trust is friction with no one on the other end of
     # it. A team that wants a review step turns this on per boutique.
     design_approval_required = models.BooleanField(default=False)
+    # The master switch for everything sent to customers. On by default because
+    # the shipped transport only logs; a boutique that connects a real one and
+    # wants to go quiet flips this rather than editing code.
+    customer_messaging_enabled = models.BooleanField(default=True)
 
     def __str__(self):
         return self.name

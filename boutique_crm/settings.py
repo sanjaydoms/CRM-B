@@ -329,6 +329,23 @@ REST_FRAMEWORK = {
 }
 
 
+# --- Customer tracking & messaging ---------------------------------------
+# Where a customer's tracking link points. Messages are composed server-side
+# with no request in hand, so the public origin has to be configured rather
+# than derived. Set this to the deployed host or every link a customer receives
+# points at localhost.
+TRACKING_BASE_URL = os.environ.get('TRACKING_BASE_URL', 'http://localhost:8000')
+
+# How customer messages are delivered. The default only writes them to the log
+# and to CustomerMessage, so the communication history, the boutique toggle and
+# the tracking links all work before any WhatsApp Business account exists.
+# Point this at another callable taking a CustomerMessage to actually send.
+CUSTOMER_MESSAGE_BACKEND = os.environ.get(
+    'CUSTOMER_MESSAGE_BACKEND',
+    'domains.orders.messaging.log_backend',
+)
+
+
 # --- AI Design Studio ---------------------------------------------------
 # The studio's intelligence is pluggable. Left unset it uses a deterministic
 # rule-based engine that needs no credentials and costs nothing, so design

@@ -19,8 +19,13 @@ from django.urls import path, include, re_path
 from django.conf import settings
 from django.views.static import serve
 
+from crm_api.tracking_views import order_tracking
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # Public: no auth, no tenant header. The signed token carries both the
+    # boutique and the order, so this route is deliberately outside /api/.
+    path('track/<str:token>/', order_tracking, name='order-tracking'),
     path('api/', include('crm_api.urls')),
     path('api/production/', include('apps.production.urls')),
     path('api/activities/', include('apps.activities.urls')),
