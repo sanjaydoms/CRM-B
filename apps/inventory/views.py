@@ -149,12 +149,21 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
     def release(self, request, pk=None):
         return self._apply(request, InventoryService.release, order=self._order(request))
 
+    # issue/damage/scrap/adjust used to name no location at all, while
+    # consume, waste, goods-receipt, supplier-return, customer-return and
+    # transfer all resolved one through _location. record_movement then
+    # substituted default_location() for any stock-out that named none -- so
+    # once the owner used the Locations tab to move material to the Workshop,
+    # Main Store held zero and every one of these four failed against a
+    # location they had never chosen. Four actions ignoring a helper their six
+    # siblings honour was the whole bug.
     @action(detail=True, methods=['POST'], url_path='issue')
     def issue(self, request, pk=None):
         return self._apply(
             request, InventoryService.issue,
             order=self._order(request),
             stage_key=request.data.get('stage_key'),
+            from_location=self._location(request, 'from_location'),
         )
 
     @action(detail=True, methods=['POST'], url_path='return')
@@ -163,11 +172,13 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='damage')
     def damage(self, request, pk=None):
-        return self._apply(request, InventoryService.damage)
+        return self._apply(request, InventoryService.damage,
+                           from_location=self._location(request, 'from_location'))
 
     @action(detail=True, methods=['POST'], url_path='scrap')
     def scrap(self, request, pk=None):
-        return self._apply(request, InventoryService.scrap)
+        return self._apply(request, InventoryService.scrap,
+                           from_location=self._location(request, 'from_location'))
 
     @action(detail=True, methods=['POST'], url_path='goods-receipt')
     def goods_receipt(self, request, pk=None):
@@ -257,6 +268,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
             InventoryService.adjust(
                 item, request.data.get('counted_quantity'),
                 user=request.user, remarks=request.data.get('remarks', ''),
+                from_location=self._location(request, 'from_location'),
             )
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)

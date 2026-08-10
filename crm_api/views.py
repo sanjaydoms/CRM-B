@@ -181,16 +181,30 @@ class CustomerViewSet(viewsets.ModelViewSet):
             saved_path = default_storage.save(path, ContentFile(f.read()))
             image_urls.append(request.build_absolute_uri(default_storage.url(saved_path)))
 
-        # Create FabricSelection
-        selection = FabricSelection.objects.create(
-            customer=customer,
-            is_boutique_fabric=is_boutique_fabric,
-            fabric_name=fabric_name,
-            fabric_price=fabric_price,
-            uploaded_fabric_images=image_urls
-        )
+        # Update the customer's current pick rather than appending another one.
+        # 'Save as Draft' and 'Next' both call this, and Back/Next through step
+        # 4 calls it again, so a customer who changed their mind twice ended up
+        # with three FabricSelection rows and no way to delete any of them --
+        # and the design studio's context builder reads whatever rows exist.
+        # Re-selecting is the normal case here; a genuinely new selection is
+        # what a new order is for.
+        selection = customer.fabric_selections.order_by('-id').first()
+        created = selection is None
+        if created:
+            selection = FabricSelection(customer=customer)
+
+        selection.is_boutique_fabric = is_boutique_fabric
+        selection.fabric_name = fabric_name
+        selection.fabric_price = fabric_price
+        if image_urls or created:
+            # Keep photographs already attached when this pass uploaded none.
+            selection.uploaded_fabric_images = image_urls
+        selection.save()
+
         serializer = FabricSelectionSerializer(selection)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @action(detail=True, methods=['POST'], url_path='create-order')
     def create_order(self, request, pk=None):

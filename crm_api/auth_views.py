@@ -1,5 +1,8 @@
 import uuid
 
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.utils.text import slugify
 from rest_framework import status, views
 from rest_framework.response import Response
@@ -28,6 +31,23 @@ class SignupView(views.APIView):
         email = (request.data.get('email_address') or '').strip().lower()
         mobile = request.data.get('mobile_number')
         password = request.data.get('password')
+
+        # create_user() does not run AUTH_PASSWORD_VALIDATORS, so signup
+        # accepted a one-character password while the form promised "min 6
+        # characters", and took "not-an-email" as an address -- which then
+        # became the boutique's only route back into its own account.
+        if email:
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                return Response({"error": "Enter a valid email address."},
+                                status=status.HTTP_400_BAD_REQUEST)
+        if password:
+            try:
+                validate_password(password)
+            except DjangoValidationError as exc:
+                return Response({"error": " ".join(exc.messages)},
+                                status=status.HTTP_400_BAD_REQUEST)
 
         if not email or not password or not first_name or not last_name:
             return Response(
@@ -248,6 +268,13 @@ class SeedDataView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        # Owner-only. This re-creates the default staff, fabrics and designs, so
+        # signed in as any tailor it resurrected rows the owner had deliberately
+        # deleted -- and IsAuthenticated alone let them.
+        if resolve_user_role(request.user) != OWNER:
+            return Response({"error": "Only the boutique owner can seed data."},
+                            status=status.HTTP_403_FORBIDDEN)
+
         from crm_api.utils import seed_tenant_defaults
         try:
             seed_tenant_defaults()

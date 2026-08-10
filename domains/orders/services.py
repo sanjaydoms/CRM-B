@@ -73,11 +73,19 @@ class OrderService:
     @staticmethod
     @transaction.atomic
     def create_order_for_customer(customer, data, user=None):
+        # A tailor_id that resolves to nobody used to be dropped in silence and
+        # the order booked unstaffed, which surfaces days later as a garment
+        # with no one assigned to stitch it. Not supplying one at all is still
+        # fine -- staff can be assigned later.
         tailor_id = data.get('tailor_id')
         tailor = Tailor.objects.filter(id=tailor_id).first() if tailor_id else None
+        if tailor_id and tailor is None:
+            raise ValueError(f'No staff member with id {tailor_id}.')
 
         master_id = data.get('master_id')
         master = Tailor.objects.filter(id=master_id).first() if master_id else None
+        if master_id and master is None:
+            raise ValueError(f'No master with id {master_id}.')
 
         def safe_float(val, default=0.0):
             try:

@@ -318,7 +318,7 @@ class InventoryService:
 
     @staticmethod
     @transaction.atomic
-    def adjust(item, new_quantity, *, user=None, remarks=''):
+    def adjust(item, new_quantity, *, user=None, remarks='', from_location=None):
         """Correct the book figure to a counted one, in one auditable step."""
         try:
             counted = Decimal(str(new_quantity))
@@ -338,10 +338,15 @@ class InventoryService:
         difference = counted - on_hand
         if difference == 0:
             return None
+        # A count is taken somewhere. Naming the location lets a shortfall come
+        # off the shelf that was actually counted, rather than off whichever one
+        # record_movement would have defaulted to.
         return InventoryService.record_movement(
             item, StockMovement.Type.ADJUSTMENT, abs(difference),
             stock_delta=1 if difference > 0 else -1, reserved_delta=0,
             user=user, remarks=remarks or f'Stock count adjusted to {counted}.',
+            from_location=from_location if difference < 0 else None,
+            to_location=from_location if difference > 0 else None,
         )
 
     # --- alerts ---------------------------------------------------------

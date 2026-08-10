@@ -1000,3 +1000,29 @@ class CustomerContactValidationTests(WorkflowTestBase):
         }, format='json')
 
         self.assertEqual(response.status_code, 201, response.data)
+
+
+class FabricSelectionTests(WorkflowTestBase):
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        token, _ = Token.objects.get_or_create(user=self.owner)
+        self.client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+
+    def test_changing_the_fabric_replaces_the_pick_instead_of_stacking_rows(self):
+        """'Save as Draft' and 'Next' both post here, and Back/Next through
+        step 4 posts again, so a customer who changed their mind twice ended up
+        with three selections and no route to delete any of them -- while the
+        design studio's context builder reads whatever rows exist.
+        """
+        customer = self.make_customer(mobile="9800000051")
+        url = f'/api/customers/{customer.id}/fabric-selections/'
+
+        self.client.post(url, {'fabric_name': 'Raw Silk', 'fabric_price': '1850'}, format='multipart')
+        self.client.post(url, {'fabric_name': 'Banarasi', 'fabric_price': '2850'}, format='multipart')
+
+        self.assertEqual(customer.fabric_selections.count(), 1)
+        self.assertEqual(customer.fabric_selections.first().fabric_name, 'Banarasi')

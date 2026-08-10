@@ -10,6 +10,11 @@ ORDER_PREFETCH = (
     'activities',
     'activities__user',
     'stage_histories',
+    # OrderSerializer nests the per-dress spec now; without these an order list
+    # is one extra query per garment, and the wizard writes several per order.
+    'garment_jobs',
+    'garment_jobs__template',
+    'garment_jobs__materials',
 )
 
 

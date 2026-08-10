@@ -186,13 +186,53 @@ export const api = {
 
   // Update customer (e.g. measurements, or drafts)
   async updateCustomer(customerId, customerData) {
+    // profile_photo is an ImageField that serializes OUT as a URL string and
+    // is writable IN as a file. Every screen that opens an existing customer
+    // spreads the API row straight into the form, so the URL came back here as
+    // a string and the field rejected it -- re-ordering for any customer who
+    // had a photo died on step 1 with "Failed to update customer". Stripped
+    // here rather than at the three call sites, because fixing any one of them
+    // leaves the other two broken. A real File still passes through untouched.
+    const payload = { ...customerData };
+    if (typeof payload.profile_photo === 'string') delete payload.profile_photo;
+
     const res = await fetch(`${BASE_URL}/customers/${customerId}/`, {
       method: 'PATCH',
       headers: getHeaders(),
-      body: JSON.stringify(customerData),
+      body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error('Failed to update customer');
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      const first = Object.entries(detail)[0];
+      throw new Error(
+        first ? `${first[0]}: ${[].concat(first[1]).join(', ')}` : 'Failed to update customer');
+    }
     return res.json();
+  },
+
+  // --- Appointments ---------------------------------------------------------
+  // apps/scheduling has had full CRUD since it was written and the customer's
+  // tracking page already renders a trial card from it, but no frontend code
+  // had ever called it -- the dashboard showed two hardcoded appointments
+  // instead, naming staff who may not exist in that boutique.
+
+  async getAppointments(params = {}) {
+    const url = new URL(`${BASE_URL}/scheduling/appointments/`);
+    Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) throw new Error('Failed to load appointments');
+    return res.json();
+  },
+
+  async createAppointment(payload) {
+    const res = await fetch(`${BASE_URL}/scheduling/appointments/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    return data;
   },
 
   // Save design preferences (Step 3)
@@ -864,17 +904,10 @@ export const api = {
     return res.json();
   },
 
-  async getDesignDashboard() {
-    const res = await fetch(`${BASE_URL}/design-studio/dashboard/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load the design dashboard');
-    return res.json();
-  },
-
-  async getDesignerPortfolio(id) {
-    const res = await fetch(`${BASE_URL}/design-studio/designers/${id}/portfolio/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load the portfolio');
-    return res.json();
-  },
+  // getDesignDashboard and getDesignerPortfolio used to be defined again here,
+  // a second time in the same object literal. The later key silently wins in
+  // JS, so the earlier pair above was unreachable and any edit made to it
+  // would have been discarded without a word. One definition each, above.
 
   async getCollections(params = {}) {
     const url = new URL(`${BASE_URL}/design-studio/collections/`);

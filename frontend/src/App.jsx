@@ -33,6 +33,14 @@ const ScreenLoading = () => (
 );
 import { splitSpec, validateSpec } from './services/templates';
 
+// Mirrors Appointment.TYPE_CHOICES in apps/scheduling/models.py.
+const APPOINTMENT_TYPE_LABELS = {
+  CONSULTATION: 'Design Consultation',
+  MEASUREMENT: 'Measurement Fitting',
+  TRIAL: 'Garment Trial',
+  DELIVERY: 'Final Delivery',
+};
+
 // Mirrors Tailor.ROLE_CHOICES. A boutique run by one generalist keeps using Master;
 // larger studios split the work, and each stage only accepts its own specialists.
 const STAFF_ROLES = [
@@ -726,6 +734,12 @@ function App() {
   // Backend fetched collections
   const [dashboardData, setDashboardData] = useState(null);
   const [tailors, setTailors] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [appointmentForm, setAppointmentForm] = useState({
+    customer: '', appointment_type: 'TRIAL', scheduled_time: '', assigned_staff: '', notes: '',
+  });
+  const [savingAppointment, setSavingAppointment] = useState(false);
   const [fabrics, setFabrics] = useState([]);
   const [allDesigns, setAllDesigns] = useState([]);
   const [customersList, setCustomersList] = useState([]);
@@ -883,6 +897,7 @@ function App() {
       }),
       load('orders', api.getOrders, setOrdersList),
       load('tailors', api.getTailors, setTailors),
+      load('appointments', api.getAppointments, setAppointments),
       load('fabrics', api.getFabrics, setFabrics),
       load('designs', api.getAllBoutiqueDesigns, setAllDesigns),
       load('settings', api.getBoutiqueSettings, setBoutiqueSettings),
@@ -942,6 +957,29 @@ function App() {
       } catch (err) {
         alert("Failed to delete fabric: " + err.message);
       }
+    }
+  };
+
+  const handleSaveAppointment = async (e) => {
+    e.preventDefault();
+    if (savingAppointment) return;
+    setSavingAppointment(true);
+    try {
+      await api.createAppointment({
+        ...appointmentForm,
+        assigned_staff: appointmentForm.assigned_staff || null,
+        scheduled_time: new Date(appointmentForm.scheduled_time).toISOString(),
+      });
+      const fresh = await api.getAppointments();
+      setAppointments(fresh);
+      setShowAppointmentModal(false);
+      setAppointmentForm({
+        customer: '', appointment_type: 'TRIAL', scheduled_time: '', assigned_staff: '', notes: '',
+      });
+    } catch (err) {
+      alert("Could not book the appointment: " + err.message);
+    } finally {
+      setSavingAppointment(false);
     }
   };
 
@@ -1321,7 +1359,16 @@ function App() {
         try {
           await api.saveDesignBoardToOrder(designBoard.boardId, order.order_id);
         } catch (err) {
+          // Say so. This used to console.error only, so an order whose design
+          // failed to attach still produced the green confirmation screen and
+          // went to the floor carrying no design at all. The order itself is
+          // already saved and is not worth rolling back for this, so tell the
+          // owner what is missing and let them re-attach.
           console.error("Could not attach the design board to the order", err);
+          alert(
+            `Order ${order.order_id} was created, but the approved design could not be `
+            + `attached to it (${err.message}). Open the order and set the design before `
+            + `it goes to the tailor.`);
         }
       }
       setConfirmedOrder(order);
@@ -1357,11 +1404,18 @@ function App() {
 
   const performNext = async () => {
     try {
+      // Checked on every step, not only the first. 'Reorder Style' drops the
+      // owner straight into step 3 without ever setting garmentJobs, so the
+      // step-1 guard was skipped entirely and the wizard happily booked an
+      // order with no dress on it -- saveGarmentJobs iterated an empty array
+      // and nobody found out until production. Guarding at the point of
+      // submission is the choke point; no entry point can route around it.
+      if (garmentJobs.length === 0) {
+        alert("Please choose at least one garment for this order.");
+        if (currentStep !== 1) setCurrentStep(1);
+        return;
+      }
       if (currentStep === 1) {
-        if (garmentJobs.length === 0) {
-          alert("Please choose at least one garment for this order.");
-          return;
-        }
         await saveStep1();
         setCurrentStep(2);
       } else if (currentStep === 2) {
@@ -1664,12 +1718,12 @@ function App() {
             
             <form onSubmit={handleLoginSubmit} className="auth-form" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label className="form-label" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Email or Mobile Number</label>
+                <label className="form-label" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Email</label>
                 <div className="input-wrapper" style={{ position: 'relative' }}>
                   <Mail size={16} className="input-icon-left" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                   <input 
                     type="text" 
-                    placeholder="Enter your email or mobile number"
+                    placeholder="Enter your email"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     style={{ width: '100%', padding: '12px 14px 12px 42px', fontSize: '14px', borderRadius: '8px', border: '1px solid #eaecef', outline: 'none' }}
@@ -1705,7 +1759,14 @@ function App() {
                   <input type="checkbox" defaultChecked style={{ accentColor: '#b07c40' }} />
                   Remember me
                 </label>
-                <a href="#" className="forgot-password-link" style={{ color: 'var(--accent-text, #b07c40)', textDecoration: 'none', fontWeight: 500 }}>Forgot password?</a>
+                {/* No reset flow exists anywhere in the product -- no view, no
+                    url, no serializer -- so this promised the only recovery
+                    path a locked-out owner has and delivered nothing. Pointing
+                    them at the boutique instead is honest; the real flow is a
+                    feature, not a fix. */}
+                <span className="forgot-password-link" style={{ color: 'var(--text-secondary)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  Password help? Ask your admin
+                </span>
               </div>
 
               <button type="submit" className="btn-primary" style={{ justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600, fontSize: '14px' }}>
@@ -2509,7 +2570,11 @@ function App() {
                     <h4>Fabric Library</h4>
                     <p>Explore fabrics</p>
                   </div>
-                  <div className="quick-action-item">
+                  {/* This tile was the one of five with no onClick at all --
+                      it looked identical to its four working siblings and did
+                      nothing when pressed. Booking now opens a real
+                      appointment against apps/scheduling. */}
+                  <div className="quick-action-item" onClick={() => setShowAppointmentModal(true)}>
                     <div className="quick-action-icon-box"><Calendar size={18} /></div>
                     <h4>Book Appointment</h4>
                     <p>Consult with stylist</p>
@@ -2522,7 +2587,7 @@ function App() {
                   <div className="orders-list-panel">
                     <div className="panel-header-row">
                       <h3 style={{ fontSize: '16px', fontWeight: 600 }}>My Orders</h3>
-                      <a href="#" className="view-all-link">VIEW ALL ORDERS →</a>
+                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>VIEW ALL ORDERS →</a>
                     </div>
 
                     {loading ? (
@@ -2579,7 +2644,7 @@ function App() {
                   <div className="order-detail-progress-card">
                     <div className="panel-header-row">
                       <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Order Progress</h3>
-                      <a href="#" className="view-all-link">VIEW ALL</a>
+                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>VIEW ALL</a>
                     </div>
 
                     {selectedDashboardOrder ? (
@@ -2826,29 +2891,43 @@ function App() {
                 <div className="dashboard-row-layout">
                   <div>
                     <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Upcoming Appointments</h3>
+                    {/* Real appointments. These were two literal cards naming
+                        "Anya (Stylist)" and "Rohit (Master Tailor)" on fixed
+                        dates -- shown to every boutique including one created
+                        a minute ago, whose owner has no such staff and no such
+                        bookings. apps/scheduling has always been able to
+                        answer this; nothing had ever asked it. An empty panel
+                        is better than an invented one. */}
                     <div className="appointments-section-panel">
-                      <div className="appt-card">
-                        <div className="appt-date-box">
-                          <span className="appt-day">31</span>
-                          <span className="appt-month">May</span>
+                      {appointments.length === 0 ? (
+                        <div style={{ padding: '16px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                          No appointments booked.
                         </div>
-                        <div className="appt-info">
-                          <span className="appt-title">Styling Consultation</span>
-                          <span className="appt-sub">with Anya (Stylist)</span>
-                          <span className="appt-time">05:00 PM — 05:30 PM</span>
-                        </div>
-                      </div>
-                      <div className="appt-card">
-                        <div className="appt-date-box">
-                          <span className="appt-day">07</span>
-                          <span className="appt-month">Jun</span>
-                        </div>
-                        <div className="appt-info">
-                          <span className="appt-title">Measurement Review</span>
-                          <span className="appt-sub">with Rohit (Master Tailor)</span>
-                          <span className="appt-time">11:00 AM — 11:30 AM</span>
-                        </div>
-                      </div>
+                      ) : appointments.map(appt => {
+                        const when = new Date(appt.scheduled_time);
+                        return (
+                          <div className="appt-card" key={appt.id}>
+                            <div className="appt-date-box">
+                              <span className="appt-day">{when.toLocaleDateString(undefined, { day: '2-digit' })}</span>
+                              <span className="appt-month">{when.toLocaleDateString(undefined, { month: 'short' })}</span>
+                            </div>
+                            <div className="appt-info">
+                              <span className="appt-title">
+                                {APPOINTMENT_TYPE_LABELS[appt.appointment_type] || 'Appointment'}
+                              </span>
+                              <span className="appt-sub">
+                                {appt.customer_detail
+                                  ? `${appt.customer_detail.first_name} ${appt.customer_detail.last_name}`
+                                  : 'Client'}
+                                {appt.assigned_staff_detail ? ` · with ${appt.assigned_staff_detail.name}` : ''}
+                              </span>
+                              <span className="appt-time">
+                                {when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -5224,6 +5303,72 @@ function App() {
             </div>
           )}
 
+          {/* Appointment booking. apps/scheduling has always accepted these and
+              the customer's tracking page already renders a trial card from
+              them; there was simply no way to create one from the product. */}
+          {showAppointmentModal && (
+            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+              <div className="search-modal-card" style={{ maxWidth: '460px', width: '100%' }}>
+                <div className="search-modal-header">
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
+                    Book an Appointment
+                  </h3>
+                  <button className="close-btn" onClick={() => setShowAppointmentModal(false)}><X size={20} /></button>
+                </div>
+                <form onSubmit={handleSaveAppointment} style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label className="form-label">Client *</label>
+                    <select className="form-control" required
+                            value={appointmentForm.customer}
+                            onChange={(e) => setAppointmentForm({ ...appointmentForm, customer: e.target.value })}>
+                      <option value="">Select a client</option>
+                      {allCustomers.map(c => (
+                        <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Type</label>
+                    <select className="form-control"
+                            value={appointmentForm.appointment_type}
+                            onChange={(e) => setAppointmentForm({ ...appointmentForm, appointment_type: e.target.value })}>
+                      {Object.entries(APPOINTMENT_TYPE_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Date & time *</label>
+                    <input className="form-control" type="datetime-local" required
+                           value={appointmentForm.scheduled_time}
+                           onChange={(e) => setAppointmentForm({ ...appointmentForm, scheduled_time: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="form-label">With</label>
+                    <select className="form-control"
+                            value={appointmentForm.assigned_staff}
+                            onChange={(e) => setAppointmentForm({ ...appointmentForm, assigned_staff: e.target.value })}>
+                      <option value="">Unassigned</option>
+                      {tailors.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Notes</label>
+                    <textarea className="form-control" rows={2}
+                              value={appointmentForm.notes}
+                              onChange={(e) => setAppointmentForm({ ...appointmentForm, notes: e.target.value })} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                    <button type="button" className="btn-secondary" onClick={() => setShowAppointmentModal(false)}>Cancel</button>
+                    <button type="submit" className="btn-primary" disabled={savingAppointment}>
+                      {savingAppointment ? 'Booking…' : 'Book appointment'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
           {/* Tailors CRUD Modal Overlay */}
           {showTailorModal && (
             <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
@@ -6391,6 +6536,16 @@ function App() {
 
                       <div className="fabrics-grid">
                         {fabrics
+                          // Don't offer a roll the boutique has marked Out of
+                          // Stock. Manage Fabrics renders that badge and lets
+                          // the owner toggle it, but this grid consulted only
+                          // the material filter -- so the owner could sell a
+                          // fabric they had just told the system they had none
+                          // of, with no signal on the card either way.
+                          // Filtered here rather than in the viewset because
+                          // Manage Fabrics legitimately needs the rows this
+                          // hides; it is the screen that sets the flag.
+                          .filter(f => f.is_available !== false)
                           .filter(f => fabricFilter === 'All' || f.material === fabricFilter)
                           .map(f => {
                             const resolvedImg = resolveMediaUrl(f.image_url);
@@ -7777,6 +7932,20 @@ function App() {
               {/* Subtotal & Taxes Breakdown */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '12px' }}>
                 <div style={{ width: '250px' }}>
+                  {/* The 5% tax is charged and stored, and the invoice showed
+                      only the gross total -- so the one document the customer
+                      keeps did not say what the tax was. Both figures are
+                      already on the payload. */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    <span>Subtotal</span>
+                    <strong style={{ fontWeight: 600 }}>
+                      ₹{(parseFloat(confirmedOrder.total_amount || 0) - parseFloat(confirmedOrder.taxes || 0)).toLocaleString('en-IN')}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    <span>Taxes (GST 5%)</span>
+                    <strong style={{ fontWeight: 600 }}>₹{parseFloat(confirmedOrder.taxes || 0).toLocaleString('en-IN')}</strong>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 6px 0', borderTop: '2px solid #0f291e', fontSize: '16px' }}>
                     <span style={{ fontWeight: 700, color: '#0f291e' }}>Total Amount</span>
                     <strong style={{ fontWeight: 800, color: '#107c41' }}>₹{parseFloat(confirmedOrder.total_amount || 0).toLocaleString('en-IN')}</strong>
@@ -7957,6 +8126,43 @@ function App() {
                 Close
               </button>
             </div>
+
+            {/* What is actually being made. The wizard collects a full spec and
+                measurement snapshot per dress and saved it correctly -- and
+                then no screen ever read it back, so the person opening this
+                stage to cut or stitch the garment could not see what the
+                customer had asked for. Nested on the order payload, so it
+                needs no fetch of its own. */}
+            {(activeReviewOrder.garment_jobs || []).length > 0 && (
+              <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
+                <div style={{ fontWeight: 700, marginBottom: '8px' }}>What to make</div>
+                {activeReviewOrder.garment_jobs.map(job => (
+                  <div key={job.id} style={{ marginBottom: '10px' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '4px' }}>{job.template_name || job.template_key}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '4px 12px' }}>
+                      {Object.entries(job.measurements || {}).map(([k, v]) => (
+                        <span key={k} style={{ color: 'var(--text-secondary)' }}>
+                          {k.replace(/_/g, ' ')}: <strong style={{ color: 'var(--text-primary)' }}>{String(v)}</strong>
+                        </span>
+                      ))}
+                      {Object.entries(job.spec || {})
+                        .filter(([, v]) => v !== '' && v !== null && v !== undefined)
+                        .map(([k, v]) => (
+                          <span key={k} style={{ color: 'var(--text-secondary)' }}>
+                            {k.replace(/_/g, ' ')}: <strong style={{ color: 'var(--text-primary)' }}>{String(v)}</strong>
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                ))}
+                {activeReviewOrder.special_instructions && (
+                  <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Special instructions: </span>
+                    <strong>{activeReviewOrder.special_instructions}</strong>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Stage Info Details */}
             {selectedStageObj && (

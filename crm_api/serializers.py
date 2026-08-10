@@ -165,6 +165,13 @@ class OrderSerializer(serializers.ModelSerializer):
     stages = OrderStageSerializer(many=True, read_only=True)
     activities = OrderActivitySerializer(many=True, read_only=True)
     garment_images = GarmentImageSerializer(many=True, read_only=True)
+    # The per-dress spec and measurement snapshot. Wizard steps 1-2 collect a
+    # full spec per garment and save it, and the read side worked -- but nothing
+    # ever called it, so what the customer asked for was written once and shown
+    # on no screen afterwards, least of all to the tailor who has to cut it.
+    # Nesting it here rather than wiring a fetch is the choke point: every
+    # screen that shows an order already reads this serializer.
+    garment_jobs = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -180,13 +187,21 @@ class OrderSerializer(serializers.ModelSerializer):
             'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image',
             'special_instructions',
             'master_verification', 'stage_histories', 'current_stage_key', 'production_status',
-            'stages', 'activities', 'garment_images', 'garment_images_published'
+            'stages', 'activities', 'garment_images', 'garment_images_published',
+            'garment_jobs',
         ]
 
     def get_customer_name(self, obj):
         if obj.customer:
             return f"{obj.customer.first_name} {obj.customer.last_name}"
         return 'Unknown Customer'
+
+    def get_garment_jobs(self, obj):
+        # Imported inside the method: apps.catalog.serializers imports from this
+        # module, so a module-level import would be circular.
+        from apps.catalog.serializers import GarmentJobSerializer
+        return GarmentJobSerializer(obj.garment_jobs.all(), many=True).data
+
 
 def build_style_dna(obj, avg_price=None, last_order_date=None):
     """Derive the Style DNA panel for a customer.
