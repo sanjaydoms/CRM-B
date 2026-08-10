@@ -1295,6 +1295,14 @@ function App() {
       payment_status: paymentOption === 'full' ? 'Paid' : 'Partially Paid',
       advance_paid: paymentOption === 'full' ? getTotalPrice() : (parseFloat(advancePaymentAmount) || getTotalPrice() / 2),
       custom_requirements: specialInstructions || customerForm.custom_requirements,
+      // The earliest date any dress on this order is due -- an order is only as
+      // early as its slowest-promised garment is late, so the soonest date is
+      // the one the customer must not be told wrong. Omitted when no garment
+      // carries a date, and the server falls back to its own estimate.
+      estimated_delivery: garmentJobs
+        .map(j => j.values?.delivery_date)
+        .filter(Boolean)
+        .sort()[0] || null,
       delivery_method: deliveryMethod,
       courier_service: deliveryMethod === 'Courier' ? courierService : null,
       tracking_number: deliveryMethod === 'Courier' ? trackingNumber : null,
@@ -2548,8 +2556,16 @@ function App() {
                               <div className="order-row-fabric">Tailor: {order.tailor_name || 'Unassigned'}</div>
                             </div>
                             <div className="order-row-status-box">
-                              <span className={`order-row-badge ${order.order_status === 'Confirmed' ? 'confirmed' : 'in_progress'}`}>
-                                {order.order_status === 'Confirmed' ? 'Confirmed' : 'In Progress'}
+                              {/* Show the status the order is actually in. This
+                                  used to be a two-way test -- 'Confirmed', or
+                                  else the words "In Progress" -- so a dress that
+                                  had been finished, shipped and handed over
+                                  still read "In Progress" on the owner's
+                                  dashboard, directly beside the word Delivered.
+                                  Green for the settled states, amber while the
+                                  garment is still moving. */}
+                              <span className={`order-row-badge ${['Confirmed', 'Shipped', 'Delivered'].includes(order.order_status) ? 'confirmed' : 'in_progress'}`}>
+                                {order.order_status || 'In Progress'}
                               </span>
                               <span className="order-row-date">Est. {new Date(order.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
                             </div>
@@ -7648,11 +7664,19 @@ function App() {
               {/* Billed To / Designer Details */}
               <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', borderTop: '1px solid #eaecef', borderBottom: '1px solid #eaecef', padding: '20px 0', marginBottom: '32px' }}>
                 <div>
+                  {/* Bill the customer this invoice is FOR. These fields used to
+                      read customerForm -- the new-order wizard's state -- which
+                      is empty or stale when the invoice is opened from the
+                      Invoices tab, because that button sets only
+                      confirmedOrder. The printed invoice then carried a
+                      different client's name, address, phone and email while
+                      showing the right order id and total: a wrong bill and a
+                      disclosure of one customer's details to another. */}
                   <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Billed To:</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{customerForm.first_name} {customerForm.last_name}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>{customerForm.address}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 +91 {customerForm.mobile_number}</span>
-                  {customerForm.email_address && <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {customerForm.email_address}</span>}
+                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{confirmedOrder.customer_name}</span>
+                  <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>{confirmedOrder.delivery_address || confirmedOrder.customer_address}</span>
+                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 +91 {confirmedOrder.customer_mobile}</span>
+                  {confirmedOrder.customer_email && <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {confirmedOrder.customer_email}</span>}
                 </div>
                 <div>
                   <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Atelier Details:</span>
@@ -7661,9 +7685,9 @@ function App() {
                   <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {boutiqueSettings?.phone || "+91 9999999999"}</span>
                   <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {boutiqueSettings?.email || "contact@scaleezy.com"}</span>
                   <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>Boutique Owner: {currentUser?.first_name || 'Aditi'} {currentUser?.last_name || 'Mehta'}</span>
-                  {selectedTailor && (
+                  {confirmedOrder.tailor_name && (
                     <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      Assigned Tailor: <strong>{selectedTailor.name}</strong> ({selectedTailor.specialty})
+                      Assigned Tailor: <strong>{confirmedOrder.tailor_name}</strong>
                     </span>
                   )}
                   <span style={{ display: 'block', color: 'var(--text-secondary)' }}>Estimated Delivery: {new Date(confirmedOrder.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
@@ -7676,34 +7700,37 @@ function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '11px' }}>
                   <div>
                     <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Garment Type</span>
-                    <strong style={{ fontSize: '12px' }}>{customerForm.customer_type} • {customerForm.garment_type}</strong>
+                    <strong style={{ fontSize: '12px' }}>{confirmedOrder.customer_type} • {confirmedOrder.customer_garment_type}</strong>
                   </div>
                   <div>
                     <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Fabric</span>
                     <strong style={{ fontSize: '12px' }}>
-                      {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer Fabric'}
+                      {/* Priced from the order, so it is right whichever screen
+                          opened this invoice. A zero fabric charge is what
+                          "customer brought their own" looks like on the bill. */}
+                      {Number(confirmedOrder.fabric_price) > 0 ? `₹${confirmedOrder.fabric_price}` : 'Customer Fabric'}
                     </strong>
                   </div>
                   <div>
                     <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Occasion</span>
-                    <strong style={{ fontSize: '12px' }}>{customerForm.occasion || 'Wedding'}</strong>
+                    <strong style={{ fontSize: '12px' }}>{confirmedOrder.customer_occasion || '—'}</strong>
                   </div>
-                  {customerForm.neckline_style && (
+                  {confirmedOrder.customer_neckline_style && (
                     <div>
                       <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Neckline Style</span>
-                      <strong>{customerForm.neckline_style}</strong>
+                      <strong>{confirmedOrder.customer_neckline_style}</strong>
                     </div>
                   )}
-                  {customerForm.sleeve_style && (
+                  {confirmedOrder.customer_sleeve_style && (
                     <div>
                       <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Sleeve Style</span>
-                      <strong>{customerForm.sleeve_style}</strong>
+                      <strong>{confirmedOrder.customer_sleeve_style}</strong>
                     </div>
                   )}
-                  {customerForm.back_style && (
+                  {confirmedOrder.customer_back_style && (
                     <div>
                       <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Back Style</span>
-                      <strong>{customerForm.back_style}</strong>
+                      <strong>{confirmedOrder.customer_back_style}</strong>
                     </div>
                   )}
                 </div>
@@ -7720,12 +7747,12 @@ function App() {
                 <tbody style={{ fontSize: '12px' }}>
                   <tr style={{ borderBottom: '2px solid #eaecef' }}>
                     <td style={{ padding: '16px 8px' }}>
-                      <strong style={{ fontSize: '14px', color: '#0f291e' }}>Bespoke Handcrafted {customerForm.garment_type}</strong>
+                      <strong style={{ fontSize: '14px', color: '#0f291e' }}>Bespoke Handcrafted {confirmedOrder.customer_garment_type}</strong>
                       <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                         Custom garment design tailored to individual measurement specifications.
                       </span>
                       <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                        Fabric: {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer Supplied Fabric'}
+                        Fabric: {Number(confirmedOrder.fabric_price) > 0 ? `Boutique fabric — ₹${confirmedOrder.fabric_price}` : 'Customer Supplied Fabric'}
                       </span>
                     </td>
                     <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>

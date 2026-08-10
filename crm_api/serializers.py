@@ -150,6 +150,17 @@ class OrderSerializer(serializers.ModelSerializer):
     customer_name = serializers.SerializerMethodField()
     customer_garment_type = serializers.CharField(source='customer.garment_type', read_only=True)
     customer_measurements = MeasurementSerializer(source='customer.measurements', read_only=True)
+    # The invoice has to be printable from the Invoices tab, where none of the
+    # order wizard's state exists. Without these the modal fell back to
+    # whatever customer the wizard last held, and billed the wrong person.
+    customer_mobile = serializers.CharField(source='customer.mobile_number', read_only=True)
+    customer_email = serializers.CharField(source='customer.email_address', read_only=True)
+    customer_address = serializers.CharField(source='customer.address', read_only=True)
+    customer_type = serializers.CharField(source='customer.customer_type', read_only=True)
+    customer_occasion = serializers.CharField(source='customer.occasion', read_only=True)
+    customer_neckline_style = serializers.CharField(source='customer.neckline_style', read_only=True)
+    customer_sleeve_style = serializers.CharField(source='customer.sleeve_style', read_only=True)
+    customer_back_style = serializers.CharField(source='customer.back_style', read_only=True)
     stage_histories = OrderStageHistorySerializer(many=True, read_only=True)
     stages = OrderStageSerializer(many=True, read_only=True)
     activities = OrderActivitySerializer(many=True, read_only=True)
@@ -159,6 +170,8 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type', 'customer_measurements',
+            'customer_mobile', 'customer_email', 'customer_address', 'customer_type', 'customer_occasion',
+            'customer_neckline_style', 'customer_sleeve_style', 'customer_back_style',
             'tailor', 'tailor_name', 'master', 'master_name',
             'payment_status', 'order_status', 'base_price', 'fabric_price',
             'embroidery_price', 'customization_price', 'tailoring_charges',

@@ -28,8 +28,12 @@ class CatalogueProvider(DesignSourceProvider):
     def search(self, queries, context, limit=20):
         # The catalogue moved into the library; these are the same rows.
         from ..models import DesignAsset
+        # Same rule as LibraryProvider below -- an archived catalogue design is
+        # a design the owner took off the table, and discovery must not put it
+        # back on.
         designs = DesignAsset.objects.filter(
-            source__in=[DesignAsset.SOURCE_CATALOGUE, DesignAsset.SOURCE_SUGGESTION])
+            source__in=[DesignAsset.SOURCE_CATALOGUE, DesignAsset.SOURCE_SUGGESTION],
+            status=DesignAsset.Status.ACTIVE)
         if context.garment_type:
             # Narrow to the garment being ordered, but fall back to the full
             # catalogue rather than showing an empty gallery when nothing in
@@ -113,7 +117,14 @@ class LibraryProvider(DesignSourceProvider):
     label = 'Saved & Uploaded Designs'
 
     def search(self, queries, context, limit=20):
-        assets = DesignAsset.objects.all()
+        # ACTIVE only. This used to be .all(), so a design the owner had
+        # reviewed and ARCHIVED -- rejected -- kept coming back through
+        # discovery, could be shortlisted onto a board, approved, and handed to
+        # the tailor as the garment to stitch. DesignCategoryView already
+        # filters on ACTIVE, so the two read paths disagreed about what a
+        # rejection meant. Drafts and pending-approval uploads are excluded for
+        # the same reason: neither has been approved for production.
+        assets = DesignAsset.objects.filter(status=DesignAsset.Status.ACTIVE)
         if context.garment_type:
             narrowed = assets.filter(garment_type__iexact=context.garment_type)
             assets = narrowed if narrowed.exists() else assets

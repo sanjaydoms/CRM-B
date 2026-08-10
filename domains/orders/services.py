@@ -49,7 +49,25 @@ class OrderService:
         total_amount = subtotal + taxes
 
         order_id = _generate_order_id()
-        est_delivery = datetime.date.today() + datetime.timedelta(days=15)
+        # The wizard asks for a delivery date per garment, and that date is what
+        # the boutique actually promised. It used to be dropped on the floor --
+        # every order got today+15 regardless -- and that invented date is the
+        # one the customer is shown on the tracking page and told over WhatsApp.
+        # A garment quoted for mid-September was being promised three weeks
+        # early. today+15 stays as the fallback for callers that supply nothing.
+        # Parse here rather than letting Django coerce on save: the order object
+        # is handed to create_order_notifications before it is re-read, and that
+        # calls .strftime() on this field -- a raw "2026-09-15" from the wizard
+        # would crash order creation outright. A malformed date falls back to
+        # the estimate instead of taking the order down with it.
+        requested_delivery = data.get('estimated_delivery')
+        if isinstance(requested_delivery, str):
+            try:
+                requested_delivery = datetime.date.fromisoformat(requested_delivery)
+            except ValueError:
+                requested_delivery = None
+        est_delivery = requested_delivery or (
+            datetime.date.today() + datetime.timedelta(days=15))
 
         payment_status = data.get('payment_status', 'Paid')
         advance_paid = 0.0
@@ -261,11 +279,21 @@ class OrderService:
         order_stage.save()
 
         order.current_stage_key = stage_key
-        all_stages = list(order.stages.all())
-        if all(s.status == 'COMPLETED' for s in all_stages):
-            order.production_status = 'COMPLETED'
-        else:
-            order.production_status = 'IN_PROGRESS'
+        # Ask the database, not order.stages.all(). OrderRepository.base_queryset
+        # prefetches 'stages', so on an order loaded through the API that .all()
+        # returns the prefetch cache -- captured before order_stage.save() above,
+        # and never refreshed. The stage just completed still reads NOT_STARTED
+        # in it, so the "everything done" test failed on the very transition
+        # that made it true and production_status was pinned to IN_PROGRESS for
+        # the life of the order, including after delivery. A fresh queryset
+        # (.exclude builds one) bypasses the cache and costs one COUNT.
+        #
+        # SKIPPED counts as settled, not pending: skipping is a deliberate "this
+        # garment needs no Maggam work" and the ladder allows delivery over it,
+        # so leaving it to block COMPLETED would strand every order that used
+        # the Skip Stage button.
+        pending = order.stages.exclude(status__in=['COMPLETED', 'SKIPPED']).exists()
+        order.production_status = 'IN_PROGRESS' if pending else 'COMPLETED'
 
         status_map = {
             'created': 'Received',

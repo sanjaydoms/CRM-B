@@ -6,6 +6,8 @@ test coverage. These cases pin down the role gating, the sequencing guards, the
 status mapping and the side effects on staff availability.
 """
 
+import datetime
+
 from django.contrib.auth.models import User
 from django.urls import reverse
 from django_tenants.test.cases import TenantTestCase
@@ -16,6 +18,7 @@ from rest_framework.test import APIClient
 from crm_api.models import (
     BoutiqueSettings, Customer, Measurement, Order, OrderStage, Tailor,
 )
+from domains.orders.repositories import OrderRepository
 from domains.orders.services import OrderService
 
 
@@ -225,6 +228,49 @@ class StageBookkeepingTests(WorkflowTestBase):
         order.refresh_from_db()
         self.assertEqual(order.production_status, "COMPLETED")
 
+    def test_production_status_completes_on_an_order_loaded_the_way_the_api_loads_it(self):
+        """The test above passes an order built in memory, whose `stages` was
+        never prefetched. Every real transition arrives through OrderViewSet,
+        which loads orders from OrderRepository.base_queryset() -- and that
+        prefetches 'stages'. Reading order.stages.all() then returned the
+        prefetch cache from before the stage was saved, so the "all done" test
+        was always one transition stale and production_status stayed
+        IN_PROGRESS even on a delivered order.
+        """
+        order = self.make_order()
+        for conf in BoutiqueSettings.objects.get(id=1).workflow_config:
+            stage = self.stage(order, conf["key"])
+            if stage.status != "COMPLETED" and conf["key"] != "delivered":
+                stage.status = "COMPLETED"
+                stage.save()
+
+        # The prefetch is the whole point -- do not swap this for Order.objects.get.
+        prefetched = OrderRepository.get_by_id(order.id)
+        self.complete(prefetched, "delivered")
+
+        order.refresh_from_db()
+        self.assertEqual(order.production_status, "COMPLETED")
+
+    def test_a_skipped_stage_does_not_strand_production_status(self):
+        """Skip Stage is a real button in the owner's stage modal, and the
+        ladder lets an order deliver over a skipped stage. Treating SKIPPED as
+        outstanding work would leave every such order reading IN_PROGRESS
+        forever.
+        """
+        order = self.make_order()
+        for conf in BoutiqueSettings.objects.get(id=1).workflow_config:
+            key = conf["key"]
+            if key == "delivered":
+                continue
+            stage = self.stage(order, key)
+            stage.status = "SKIPPED" if key == "maggam_work" else "COMPLETED"
+            stage.save()
+
+        self.complete(order, "delivered")
+
+        order.refresh_from_db()
+        self.assertEqual(order.production_status, "COMPLETED")
+
     def test_comments_are_recorded_against_the_stage(self):
         order = self.make_order()
         OrderService.transition_order_stage(
@@ -274,6 +320,51 @@ class OrderCreationTests(WorkflowTestBase):
         customer = self.make_customer(mobile="9800000021", with_measurements=False)
         order = self.make_order(customer=customer)
         self.assertEqual(self.stage(order, "measurements_completed").status, "NOT_STARTED")
+
+    def test_the_promised_delivery_date_is_the_one_that_is_kept(self):
+        """The date the boutique quoted per garment is what the tracking page
+        and the WhatsApp update show the customer. It used to be discarded in
+        favour of today+15, so a September garment was promised in August.
+        """
+        order = self.make_order(estimated_delivery="2026-09-15")
+        order.refresh_from_db()
+        self.assertEqual(str(order.estimated_delivery), "2026-09-15")
+
+    def test_delivery_estimate_falls_back_when_no_date_was_promised(self):
+        order = self.make_order()
+        expected = datetime.date.today() + datetime.timedelta(days=15)
+        self.assertEqual(order.estimated_delivery, expected)
+
+    def test_a_malformed_delivery_date_does_not_take_the_order_down(self):
+        """The date arrives as text from the browser. Notifications format it
+        during creation, so an unparseable value must not reach the order --
+        it fails there with AttributeError and the customer gets no order.
+        """
+        order = self.make_order(estimated_delivery="not-a-date")
+        expected = datetime.date.today() + datetime.timedelta(days=15)
+        self.assertEqual(order.estimated_delivery, expected)
+
+    def test_the_order_carries_the_identity_its_invoice_has_to_print(self):
+        """The invoice is printed from the Invoices tab, where none of the
+        order wizard's state exists. It used to fall back to that state and
+        bill whichever customer the wizard last held -- the wrong person, and
+        one client's contact details shown on another's invoice. The order
+        payload has to carry its own customer's identity for that to be fixable.
+        """
+        from crm_api.serializers import OrderSerializer
+
+        customer = self.make_customer(mobile="9800000077")
+        customer.email_address = "meera@example.test"
+        customer.address = "12 Kamaraj Street, Chennai"
+        customer.save()
+        order = self.make_order(customer=customer)
+
+        data = OrderSerializer(order).data
+
+        self.assertEqual(data["customer_name"], "Meera Nair")
+        self.assertEqual(data["customer_mobile"], "9800000077")
+        self.assertEqual(data["customer_email"], "meera@example.test")
+        self.assertEqual(data["customer_address"], "12 Kamaraj Street, Chennai")
 
     def test_production_tasks_are_created_and_routed(self):
         from apps.production.models import ProductionTask

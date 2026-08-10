@@ -227,6 +227,30 @@ class DiscoveryTests(StudioTestCase):
         self.assertIn("Maroon Bridal Lehenga", titles)
         self.assertTrue(all(c.attributes for c in outcome['results']))
 
+    def test_a_rejected_design_is_not_offered_again(self):
+        """Archiving is how an owner rejects a design. Discovery used to read
+        every row regardless of status, so a rejected design came straight back
+        into the gallery, could be shortlisted onto a board and approved, and
+        reached the tailor as the garment to stitch.
+        """
+        self.design.status = DesignAsset.Status.ARCHIVED
+        self.design.save(update_fields=['status'])
+
+        outcome = services.discover(self.customer, {'budget': '40000'})
+
+        self.assertNotIn("Maroon Bridal Lehenga", [c.title for c in outcome['results']])
+
+    def test_a_design_awaiting_approval_is_not_offered_either(self):
+        """PENDING means a Master uploaded it and the owner has not reviewed
+        it. Offering it for selection would route around the approval queue.
+        """
+        self.design.status = DesignAsset.Status.PENDING
+        self.design.save(update_fields=['status'])
+
+        outcome = services.discover(self.customer, {'budget': '40000'})
+
+        self.assertNotIn("Maroon Bridal Lehenga", [c.title for c in outcome['results']])
+
     def test_a_failing_source_does_not_empty_the_gallery(self):
         from .providers import registry
 
