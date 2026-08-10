@@ -44,9 +44,35 @@ class OrderService:
         tailoring_charges = safe_float(data.get('tailoring_charges', 0.0))
         packaging_handling = safe_float(data.get('packaging_handling', 0.0))
 
-        subtotal = base_price + fabric_price + embroidery_price + customization_price + tailoring_charges + packaging_handling
+        # This endpoint is the trust boundary for every order-creation path --
+        # the wizard, the API, and anything added later -- and nothing checked
+        # sign or magnitude before. safe_float turns garbage into 0.0 but passes
+        # negatives straight through, so a mistyped base price took the
+        # dashboard's revenue below zero, and total_amount is
+        # DecimalField(max_digits=10), so anything from 10^8 up died as an
+        # unhandled psycopg DataError behind a generic "Failed to submit order".
+        components = {
+            'base_price': base_price, 'fabric_price': fabric_price,
+            'embroidery_price': embroidery_price,
+            'customization_price': customization_price,
+            'tailoring_charges': tailoring_charges,
+            'packaging_handling': packaging_handling,
+        }
+        for field, value in components.items():
+            if value < 0:
+                raise ValueError(f'{field} cannot be negative.')
+
+        subtotal = sum(components.values())
         taxes = subtotal * 0.05
         total_amount = subtotal + taxes
+
+        # max_digits=10, decimal_places=2 -> 99,999,999.99 is the ceiling the
+        # column can actually hold. Refuse it here with a message rather than
+        # letting the driver raise one nobody can act on.
+        if total_amount > 99_999_999:
+            raise ValueError(
+                'Order total exceeds the maximum this system can record '
+                '(99,999,999). Check the prices entered.')
 
         order_id = _generate_order_id()
         # The wizard asks for a delivery date per garment, and that date is what
@@ -76,7 +102,15 @@ class OrderService:
             advance_paid = total_amount
             amount_paid = total_amount
         elif payment_status == 'Partially Paid':
-            advance_paid = safe_float(data.get('advance_paid', total_amount * 0.5))
+            # Clamped to the order. An advance of 150000 against a 31500 order
+            # used to be stored verbatim and counted as revenue, while the
+            # customer's tracking page read "Balance due Rs0.00" and the
+            # delivery message skipped asking for the balance entirely. The
+            # wizard's own "Remaining Balance Due" preview clamps with
+            # Math.max(0, ...), so it hid the mistake at the moment of entry.
+            advance_paid = min(
+                max(safe_float(data.get('advance_paid', total_amount * 0.5)), 0.0),
+                total_amount)
             amount_paid = advance_paid
 
         has_measurements = hasattr(customer, 'measurements') and (

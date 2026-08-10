@@ -1,13 +1,16 @@
 import json
 import os
 import uuid
+from decimal import Decimal
+
 from django.utils import timezone
 from django.contrib.auth.models import User
 from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from core.permissions import OwnerOnly, visible_customers, visible_orders
+from core.permissions import OwnerOnly, SUPERVISOR_ROLES, visible_customers, visible_orders
+from core.roles import OWNER, resolve_user_role
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.db.models import Q, Sum, Count
@@ -192,7 +195,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['POST'], url_path='create-order')
     def create_order(self, request, pk=None):
         customer = self.get_object()
-        order = OrderService.create_order_for_customer(customer, request.data, user=request.user)
+        try:
+            order = OrderService.create_order_for_customer(
+                customer, request.data, user=request.user)
+        except ValueError as ve:
+            # Money validation lives in the service, which is the one choke
+            # point every order-creation path routes through. Surface its
+            # reason as a 400 the wizard can print, not a 500.
+            return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
         serializer = OrderSerializer(order)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -256,25 +266,83 @@ class OrderViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         old_status = serializer.instance.order_status
         order = serializer.save()
-        if order.payment_status == 'Paid':
-            order.amount_paid = order.total_amount
-            order.save(update_fields=['amount_paid'])
-        elif order.payment_status == 'Pending':
-            order.amount_paid = 0.00
-            order.save(update_fields=['amount_paid'])
+        self._reconcile_payment(order, serializer.validated_data)
 
         if old_status != order.order_status:
             create_order_notifications(order, created=False)
 
+    @staticmethod
+    def _reconcile_payment(order, changed):
+        """Keep the money and the payment label in step, money first.
+
+        This used to run the other way: payment_status was authoritative and
+        rewrote amount_paid -- to the full total on 'Paid', to zero on
+        'Pending' -- while never touching advance_paid and having no branch at
+        all for 'Partially Paid'. Three consequences, all seen:
+
+          * Setting 'Partially Paid' did nothing whatsoever, so the row read
+            "Balance Rs0" beside the words Partially Paid.
+          * Setting 'Pending' zeroed amount_paid but left advance_paid, so the
+            invoice printed "Advance Paid Rs10,000 / Balance Due Rs0" next to a
+            table saying Balance Rs31,500.
+          * The dashboard sums advance_paid for Partially Paid rows, so money
+            zeroed here reappeared there.
+
+        Deriving the label from the amount makes recording a part-payment
+        possible at all -- the serializer already accepts amount_paid, so the
+        Invoices row only needs to PATCH a number.
+        """
+        total = order.total_amount or Decimal('0')
+
+        if 'amount_paid' in changed or 'advance_paid' in changed:
+            paid = order.amount_paid if 'amount_paid' in changed else order.advance_paid
+        elif order.payment_status == 'Paid':
+            paid = total
+        elif order.payment_status == 'Pending':
+            paid = Decimal('0')
+        else:
+            paid = order.amount_paid or Decimal('0')
+
+        paid = min(max(Decimal(paid or 0), Decimal('0')), total)
+
+        if paid <= 0:
+            label = 'Pending'
+        elif paid >= total:
+            label = 'Paid'
+        else:
+            label = 'Partially Paid'
+
+        order.amount_paid = paid
+        # The advance is what was taken up front; it can never exceed what has
+        # actually been paid, which is where the stale-advance contradiction
+        # came from.
+        order.advance_paid = min(order.advance_paid or Decimal('0'), paid)
+        order.payment_status = label
+        order.save(update_fields=['amount_paid', 'advance_paid', 'payment_status'])
+
     # A client-facing status corresponds to completing a specific stage. Statuses
-    # absent here (e.g. Stylist Review) carry no stage meaning.
+    # absent here (e.g. Stylist Review, Shipped) carry no stage meaning and are
+    # recorded directly by the no-stage branch in update_status below.
+    #
+    # 'Shipped' used to alias 'ready_for_delivery', whose own status_map entry
+    # maps back to 'Ready for Dispatch' -- so picking Shipped answered 200 and
+    # stored something else. order_status could never hold 'Shipped' through any
+    # UI path, which made the Shipped branch of create_order_notifications, the
+    # only message carrying courier_service and tracking_number, unreachable.
+    # Dropping the alias lets it fall through to the no-stage branch, which
+    # writes the status and fires the notification.
+    #
+    # 'Quality Check' used to map to 'stitching_completed', while delivery is
+    # gated on 'master_quality_check'. The dropdown therefore walked the owner
+    # to the last rung, claimed QC had happened when it had not, and then
+    # refused delivery naming a step it had never offered. stitching_completed
+    # is still reached by 'Design & Creation' advancing through the ladder.
     STATUS_TO_STAGE = {
         'Received': 'created',
         'Confirmed': 'fabric_confirmed',
         'Design & Creation': 'assigned_to_tailor',
-        'Quality Check': 'stitching_completed',
+        'Quality Check': 'master_quality_check',
         'Ready for Dispatch': 'ready_for_delivery',
-        'Shipped': 'ready_for_delivery',
         'Delivered': 'delivered',
     }
 
@@ -605,42 +673,73 @@ class NotificationViewSet(viewsets.ModelViewSet):
     queryset = Notification.objects.all().order_by('-created_at')
     serializer_class = NotificationSerializer
 
+    def _audience(self):
+        """(role, email) this caller may read, derived from who signed in.
+
+        This used to be read straight off ?role=, with an unfiltered
+        `return qs` for anything unrecognised -- so ?role=Customer handed any
+        signed-in staff member every customer notification in the boutique,
+        balances and contact details included, and ?role=Owner handed over the
+        owner's own. 'Owner' was also api.getNotifications' default argument,
+        so the client was asking for it by accident on every load.
+
+        Keyed on the Tailor profile rather than a role allowlist: a boutique
+        that has split the floor has Cutting Masters and QC Masters too (see
+        Tailor.ROLE_CHOICES), and naming only 'Master' and 'Tailor' would cut
+        every specialist off from their own notifications.
+        """
+        role = resolve_user_role(self.request.user)
+        if role == OWNER:
+            return 'Owner', None
+        profile = getattr(self.request.user, 'tailor_profile', None)
+        if profile is not None:
+            return profile.role, (profile.email or self.request.user.email)
+        # Designers and anyone else get nothing rather than everything.
+        return None, None
+
     def get_queryset(self):
-        role = self.request.query_params.get('role', 'Owner')
-        email = self.request.query_params.get('email', None)
+        role, email = self._audience()
         qs = Notification.objects.all()
+        if role is None:
+            return qs.none()
         if role == 'Owner':
             return qs.filter(recipient_role='Owner').order_by('-created_at')
-        elif role in ['Master', 'Tailor']:
-            if email:
-                return qs.filter(recipient_role=role, recipient_email=email).order_by('-created_at')
-            return qs.filter(recipient_role=role).order_by('-created_at')
+        qs = qs.filter(recipient_role=role)
+        if email:
+            qs = qs.filter(recipient_email=email)
         return qs.order_by('-created_at')
 
     @action(detail=False, methods=['POST'], url_path='mark-all-read')
     def mark_all_read(self, request):
-        role = request.query_params.get('role', 'Owner')
-        email = request.query_params.get('email', None)
-        qs = Notification.objects.filter(is_read=False)
-        if role == 'Owner':
-            qs.filter(recipient_role='Owner').update(is_read=True)
-        elif role in ['Master', 'Tailor']:
-            if email:
-                qs.filter(recipient_role=role, recipient_email=email).update(is_read=True)
-            else:
-                qs.filter(recipient_role=role).update(is_read=True)
+        # Same derivation as the read path -- otherwise a tailor could mark the
+        # owner's notifications read by asking for ?role=Owner.
+        self.get_queryset().filter(is_read=False).update(is_read=True)
         return Response({'status': 'marked as read'})
 
 class DashboardView(views.APIView):
+    """The landing numbers, scoped to what the caller is allowed to see.
+
+    Every queryset here goes through visible_orders/visible_customers, the same
+    helpers OrderViewSet.get_queryset uses one class above. They were missing:
+    the dashboard read Customer.objects and Order.objects directly, so a tailor
+    who correctly got a 404 asking for an order they were not on could load
+    this endpoint and receive the boutique's turnover, its order count, and the
+    full summary row -- mobile number, measurements, total spend -- for every
+    client in the building, including the ones they had never been assigned.
+    """
+
     def get(self, request):
-        total_customers = Customer.objects.count()
+        orders = visible_orders(Order.objects.all(), request.user)
+        customers = visible_customers(Customer.objects.all(), request.user)
+
+        total_customers = customers.count()
 
         # The order count and both revenue figures used to be three separate
         # queries that each scanned the same table, and the dashboard is the
         # first thing every session loads. Conditional aggregation asks for all
         # three in one pass, which matters far more than the scan itself when
         # the database is a network hop away: three round trips become one.
-        order_totals = Order.objects.aggregate(
+        order_totals = orders.aggregate(
             total=Count('id'),
             paid=Sum('total_amount', filter=Q(payment_status='Paid')),
             partial=Sum('advance_paid', filter=Q(payment_status='Partially Paid')),
@@ -648,16 +747,16 @@ class DashboardView(views.APIView):
         total_orders = order_totals['total']
         revenue = float(order_totals['paid'] or 0.0) + float(order_totals['partial'] or 0.0)
 
-        status_counts = Order.objects.values('order_status').annotate(count=Count('id'))
+        status_counts = orders.values('order_status').annotate(count=Count('id'))
 
         # Recent orders. The dashboard renders the stage tracker but never the
         # activity log or stage histories, so those stay out of the payload.
-        recent_orders = OrderRepository.summary_queryset()[:5]
+        recent_orders = visible_orders(OrderRepository.summary_queryset(), request.user)[:5]
         recent_orders_data = OrderSummarySerializer(recent_orders, many=True, context={'request': request}).data
 
         # Recent customers, as flat summary rows -- the dashboard shows name, type
         # and spend, not each client's full order history.
-        recent_customers = CustomerRepository.summary_queryset()[:5]
+        recent_customers = visible_customers(CustomerRepository.summary_queryset(), request.user)[:5]
         recent_customers_data = CustomerSummarySerializer(recent_customers, many=True, context={'request': request}).data
 
         return Response({

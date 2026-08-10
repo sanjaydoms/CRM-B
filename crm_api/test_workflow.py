@@ -7,6 +7,7 @@ status mapping and the side effects on staff availability.
 """
 
 import datetime
+from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -16,7 +17,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 from crm_api.models import (
-    BoutiqueSettings, Customer, Measurement, Order, OrderStage, Tailor,
+    BoutiqueSettings, Customer, Measurement, Notification, Order, OrderStage, Tailor,
 )
 from domains.orders.repositories import OrderRepository
 from domains.orders.services import OrderService
@@ -626,3 +627,253 @@ class TransitionEndpointTests(WorkflowTestBase):
         body = response.json()
         completed = [s for s in body["stages"] if s["stage_key"] == "fabric_confirmed"]
         self.assertEqual(completed[0]["status"], "COMPLETED")
+
+
+class DashboardAndNotificationScopingTests(WorkflowTestBase):
+    """What a signed-in tailor is allowed to read.
+
+    OrderViewSet already hid other people's orders behind visible_orders, but
+    two endpoints routed around it: the dashboard read Order.objects and
+    Customer.objects directly, and the notification list trusted a
+    client-supplied ?role=. Between them a tailor could read the boutique's
+    turnover and every client's contact details and unpaid balance.
+    """
+
+    def _client_for(self, user):
+        client = APIClient()
+        token, _ = Token.objects.get_or_create(user=user)
+        client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        return client
+
+    def setUp(self):
+        super().setUp()
+        # One order the tailor is on, one they are not.
+        self.theirs = self.make_order()
+        stranger = self.make_customer(mobile="9800000099")
+        self.not_theirs = self.make_order(customer=stranger, tailor=False, master=False)
+
+    def test_the_dashboard_does_not_hand_a_tailor_the_whole_boutique(self):
+        response = self._client_for(self.tailor_user).get(reverse("dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        stats = response.data["stats"]
+        self.assertEqual(stats["total_orders"], 1)
+        self.assertEqual(stats["total_customers"], 1)
+        names = [c["first_name"] for c in response.data["recent_customers"]]
+        self.assertNotIn("Meera", names[1:2])
+        self.assertEqual(len(response.data["recent_orders"]), 1)
+
+    def test_the_owner_still_sees_everything_on_the_dashboard(self):
+        response = self._client_for(self.owner).get(reverse("dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["stats"]["total_orders"], 2)
+        self.assertEqual(response.data["stats"]["total_customers"], 2)
+
+    def test_a_tailor_cannot_ask_for_the_owners_notifications(self):
+        Notification.objects.create(
+            recipient_role="Owner", recipient_email="owner@workflow.test",
+            title="Turnover", message="Balance of Rs20000 outstanding.",
+        )
+
+        response = self._client_for(self.tailor_user).get(
+            "/api/notifications/", {"role": "Owner"})
+
+        self.assertEqual(response.status_code, 200)
+        # The param is ignored now, so the tailor gets their own rows (order
+        # creation already raised one). What must not appear is anyone else's.
+        self.assertEqual({n["recipient_role"] for n in response.data} - {"Tailor"}, set())
+
+    def test_an_unrecognised_role_returns_nothing_rather_than_everything(self):
+        Notification.objects.create(
+            recipient_role="Customer", recipient_email="meera@example.test",
+            title="Delivered", message="Please complete your remaining balance.",
+        )
+
+        response = self._client_for(self.tailor_user).get(
+            "/api/notifications/", {"role": "Customer"})
+
+        self.assertEqual(response.status_code, 200)
+        roles = {n["recipient_role"] for n in response.data}
+        self.assertNotIn("Customer", roles)
+        messages = " ".join(n["message"] for n in response.data)
+        self.assertNotIn("remaining balance", messages)
+
+    def test_a_tailor_still_receives_their_own_notifications(self):
+        Notification.objects.create(
+            recipient_role="Tailor", recipient_email="tailor@workflow.test",
+            title="Assigned", message="You have been assigned an order.",
+        )
+
+        response = self._client_for(self.tailor_user).get("/api/notifications/")
+
+        self.assertEqual(response.status_code, 200)
+        titles = [n["title"] for n in response.data]
+        self.assertIn("Assigned", titles)
+        self.assertEqual({n["recipient_role"] for n in response.data}, {"Tailor"})
+
+
+class StatusDropdownTests(WorkflowTestBase):
+    """The Update Status dropdown, which is a second way to drive the ladder.
+
+    It has to mean the same thing as the stage tracker beside it, and it has to
+    be able to express every status it offers.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        token, _ = Token.objects.get_or_create(user=self.owner)
+        self.client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+
+    def _set(self, order, value):
+        return self.client.patch(
+            reverse("order-update-status", args=[order.id]),
+            {"status": value}, format="json")
+
+    def test_shipped_is_actually_stored(self):
+        """'Shipped' used to alias the ready_for_delivery stage, whose own map
+        turns it back into 'Ready for Dispatch' -- so the endpoint answered 200
+        for a status it never stored, and the only customer message carrying
+        the courier name and tracking number could never fire.
+        """
+        order = self.make_order(
+            delivery_method="Courier", courier_service="BlueDart",
+            tracking_number="BD123456789")
+        self.complete(order, "stitching_completed")
+        self.complete(order, "master_quality_check")
+
+        response = self._set(order, "Shipped")
+
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Shipped")
+
+    def test_choosing_quality_check_actually_runs_quality_check(self):
+        """It used to complete stitching_completed while delivery is gated on
+        master_quality_check, so the dropdown claimed QC had happened and then
+        refused the final rung naming a step it had never offered.
+        """
+        order = self.make_order()
+        self._set(order, "Design & Creation")
+
+        response = self._set(order, "Quality Check")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.stage(order, "master_quality_check").status, "COMPLETED")
+
+    def test_the_dropdown_can_walk_an_order_all_the_way_to_delivered(self):
+        """The whole point of the control. Before, the last hop returned 400."""
+        order = self.make_order()
+        for value in ["Confirmed", "Design & Creation", "Quality Check",
+                      "Ready for Dispatch", "Delivered"]:
+            response = self._set(order, value)
+            self.assertEqual(response.status_code, 200, f"{value} -> {response.data}")
+
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Delivered")
+
+    def test_a_refused_transition_explains_itself(self):
+        """The reason has to survive as far as the owner; api.js prints it."""
+        order = self.make_order()
+
+        response = self._set(order, "Delivered")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("quality check", str(response.data).lower())
+
+
+class OrderMoneyTests(WorkflowTestBase):
+    """Money at the two points it can be wrong: creation, and afterwards."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        token, _ = Token.objects.get_or_create(user=self.owner)
+        self.client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+
+    def _create(self, customer, **data):
+        return self.client.post(
+            reverse("customer-create-order", args=[customer.id]), data, format="json")
+
+    def test_an_advance_larger_than_the_order_is_clamped_not_banked(self):
+        """150000 against a 31500 order used to be stored verbatim and counted
+        as revenue, while the customer's page read 'Balance due Rs0.00'.
+        """
+        order = self.make_order(
+            base_price=30000, payment_status="Partially Paid", advance_paid=150000)
+
+        self.assertEqual(order.amount_paid, order.total_amount)
+        self.assertLessEqual(order.advance_paid, order.total_amount)
+
+    def test_a_negative_advance_is_floored_at_zero(self):
+        order = self.make_order(
+            base_price=30000, payment_status="Partially Paid", advance_paid=-5000)
+
+        self.assertGreaterEqual(order.advance_paid, 0)
+
+    def test_a_negative_price_is_refused_rather_than_banked(self):
+        """A negative base price took the dashboard's revenue below zero."""
+        customer = self.make_customer(mobile="9800000031")
+
+        response = self._create(customer, base_price=-32000)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("negative", str(response.data).lower())
+
+    def test_an_impossible_total_is_refused_with_a_readable_reason(self):
+        """total_amount is max_digits=10; 10^8 up died as an unhandled
+        psycopg DataError behind a generic 'Failed to submit order'.
+        """
+        customer = self.make_customer(mobile="9800000032")
+
+        response = self._create(customer, base_price=99999999)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("maximum", str(response.data).lower())
+
+    def test_a_part_payment_can_be_recorded_after_the_order_exists(self):
+        """There was no way to do this at all: the status dropdown was the only
+        control and 'Partially Paid' was a silent no-op.
+        """
+        order = self.make_order(base_price=30000, payment_status="Pending")
+        url = reverse("order-detail", args=[order.id])
+
+        response = self.client.patch(url, {"amount_paid": "10000.00"}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.amount_paid, Decimal("10000.00"))
+        self.assertEqual(order.payment_status, "Partially Paid")
+
+    def test_paying_the_balance_settles_the_order(self):
+        order = self.make_order(base_price=30000, payment_status="Pending")
+        url = reverse("order-detail", args=[order.id])
+
+        self.client.patch(url, {"amount_paid": str(order.total_amount)}, format="json")
+
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "Paid")
+
+    def test_marking_pending_does_not_leave_a_stale_advance_behind(self):
+        """The invoice printed 'Advance Paid Rs10,000 / Balance Due Rs0' beside
+        a table saying the full amount was outstanding.
+        """
+        order = self.make_order(
+            base_price=30000, payment_status="Partially Paid", advance_paid=10000)
+        url = reverse("order-detail", args=[order.id])
+
+        self.client.patch(url, {"payment_status": "Pending"}, format="json")
+
+        order.refresh_from_db()
+        self.assertEqual(order.amount_paid, Decimal("0.00"))
+        self.assertEqual(order.advance_paid, Decimal("0.00"))

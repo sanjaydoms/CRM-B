@@ -4514,8 +4514,15 @@ function App() {
 
                 {/* Finance Overview widgets */}
                 {(() => {
-                  const paidTotal = ordersList.filter(o => o.payment_status === 'Paid').reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
-                  const pendingTotal = ordersList.filter(o => o.payment_status === 'Pending' || o.payment_status === 'Partially Paid').reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+                  // Collected is what has actually been received, and
+                  // outstanding is the same (total - paid) expression the
+                  // Balance Due cell in every row below uses. These two used to
+                  // count the FULL total_amount of each order -- collected
+                  // counted a part-paid order at zero, outstanding counted it
+                  // in full -- so the header disagreed with its own table in
+                  // both directions on the same screen.
+                  const paidTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
+                  const pendingTotal = ordersList.reduce((sum, o) => sum + Math.max(0, parseFloat(o.total_amount || 0) - parseFloat(o.amount_paid || 0)), 0);
                   const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
                   
                   return (
@@ -4659,9 +4666,14 @@ function App() {
 
             {/* 7. ANALYTICS TAB */}
             {dashboardTab === 'analytics' && (() => {
-              const paidRevenue = ordersList.filter(o => o.payment_status === 'Paid').reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
-              const totalBilling = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
-              const pendingBill = totalBilling - paidRevenue;
+              // Same definition as the Invoices header and the Balance Due
+              // cells: collected is money received, not the face value of
+              // orders that happen to be labelled Paid. Counting a part-paid
+              // order as zero collected and its full value as outstanding was
+              // wrong in both directions at once.
+              const paidRevenue = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
+              const totalBilling = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+              const pendingBill = Math.max(0, totalBilling - paidRevenue);
               const aov = ordersList.length > 0 ? (totalBilling / ordersList.length) : 0;
 
               const garmentDist = {};

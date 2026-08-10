@@ -300,7 +300,14 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify({ status }),
     });
-    if (!res.ok) throw new Error('Failed to update order status');
+    // Read the body before throwing. This used to discard the response, so the
+    // API's actual explanation -- "Cannot deliver order before Master Quality
+    // Check is completed." -- was replaced by a generic failure the owner
+    // could not act on. Matches what transitionStage already does below.
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.error || detail.detail || 'Failed to update order status');
+    }
     return res.json();
   },
 
