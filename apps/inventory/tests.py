@@ -2376,3 +2376,25 @@ class ReportDateWindowTests(OrderMaterialTestBase):
         response = self.client.get(
             '/api/inventory/reports/movement-summary/?since=2026-01-01T00:00:00Z')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class WriteOffWhileReservedTests(InventoryTestBase):
+    """Physical loss has to be recordable even when the material is spoken for."""
+
+    def test_damage_can_be_recorded_against_reserved_stock(self):
+        """record_movement refused any movement leaving reserved > stock, with a
+        message hardcoded to 'Cannot reserve'. It fired for DAMAGE, SCRAP,
+        supplier returns and stock counts -- operations that carry no
+        reservation at all -- so a real loss could not be written off, and the
+        owner was told about a reservation they never attempted.
+        """
+        item = self.make_item()
+        InventoryService.stock_in(item, 10, user=self.owner)
+        InventoryService.reserve(item, 10, user=self.owner)
+
+        InventoryService.damage(item, 4, user=self.owner)
+
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('6'))
+        # The reservation cannot outlive the stock that backed it.
+        self.assertEqual(item.reserved_stock, Decimal('6'))

@@ -1,6 +1,6 @@
 import datetime
 import secrets
-from django.db import transaction
+from django.db import models, transaction
 from core.roles import OWNER, resolve_user_role
 from crm_api.models import Order, OrderStage, OrderActivity, Tailor, BoutiqueSettings
 from domains.orders.notifications import create_order_notifications
@@ -19,6 +19,54 @@ def _generate_order_id():
             return candidate
     # Fall back to a wider space rather than raising on a very busy day.
     return f"T2B-{today}-{secrets.token_hex(4)}"
+
+
+# Orders that no longer occupy the person working on them.
+_SETTLED_ORDER_STATUSES = ('Shipped', 'Delivered')
+
+
+def refresh_staff_availability(*staff):
+    """Recompute Available/Busy from the orders each person is actually on.
+
+    Tailor.status is one global flag with no reference counting, and it used to
+    be written by hand at three sites: set Busy when an order was created or
+    stitching started, and set Available the moment ONE order's stitching
+    completed -- regardless of how many other garments that tailor still had
+    open. Finishing one dress advertised them as free for the next while three
+    were still on their table, which is how a boutique double-books its best
+    person.
+
+    Deriving it from live orders at every write site means the flag cannot
+    drift: getting a decrement right in three places requires three correct
+    edits, and this requires none.
+    """
+    for person in staff:
+        if person is None:
+            continue
+
+        live = Order.objects.exclude(order_status__in=_SETTLED_ORDER_STATUSES)
+        # Stitching they have not finished yet. Their part of an order is done
+        # once stitching_completed is COMPLETED, which is what the old code
+        # meant -- it just applied it to whichever order happened to finish
+        # rather than asking across all of them.
+        #
+        # The subquery is load-bearing. Spelling this as
+        # .exclude(stages__stage_key=..., stages__status=...) reads correctly
+        # and is wrong: across a multi-valued relation Django does not require
+        # the two conditions to hold on the SAME stage row, so it excluded every
+        # order that merely has a stitching_completed stage -- which is all of
+        # them -- and reported every tailor free.
+        finished = OrderStage.objects.filter(
+            stage_key='stitching_completed', status='COMPLETED',
+        ).values('order_id')
+        stitching = live.filter(tailor=person).exclude(pk__in=finished).exists()
+        # A master supervises until the garment leaves the building.
+        supervising = live.filter(master=person).exists()
+
+        wanted = 'Busy' if (stitching or supervising) else 'Available'
+        if person.status != wanted:
+            person.status = wanted
+            person.save(update_fields=['status'])
 
 
 class OrderService:
@@ -137,6 +185,7 @@ class OrderService:
             courier_service=data.get('courier_service'),
             tracking_number=data.get('tracking_number'),
             delivery_address=data.get('delivery_address'),
+            special_instructions=data.get('custom_requirements') or '',
             advance_paid=advance_paid,
             amount_paid=amount_paid,
             current_stage_key='measurements_completed' if has_measurements else 'created',
@@ -184,12 +233,12 @@ class OrderService:
         tasks_to_create = [
             ProductionTask(order=order, title="Verify Measurements & Requirements", stage_key="measurements_completed", assigned_to=master or tailor, sequence=1, priority="HIGH"),
             ProductionTask(order=order, title="Fabric & Lining Selection Approval", stage_key="fabric_confirmed", assigned_to=master or tailor, sequence=2, priority="MEDIUM"),
-            ProductionTask(order=order, title="Pattern Cutting & Drafting", stage_key="pattern_cutting", assigned_to=master, sequence=3, priority="HIGH"),
+            ProductionTask(order=order, title="Pattern Cutting & Drafting", stage_key="pattern_cutting", assigned_to=master or tailor, sequence=3, priority="HIGH"),
             ProductionTask(order=order, title="Garment Assembly & Stitching", stage_key="stitching_in_progress", assigned_to=tailor, sequence=4, priority="URGENT"),
             ProductionTask(order=order, title="Hemming & Finishing", stage_key="finishing", assigned_to=tailor, sequence=5, priority="MEDIUM"),
             ProductionTask(order=order, title="Pressing", stage_key="pressing", assigned_to=master or tailor, sequence=6, priority="MEDIUM"),
-            ProductionTask(order=order, title="Master Quality Control Inspection", stage_key="master_quality_check", assigned_to=master, sequence=7, priority="HIGH"),
-            ProductionTask(order=order, title="Customer Fitting Trial", stage_key="trial_scheduled", assigned_to=master, sequence=8, priority="MEDIUM"),
+            ProductionTask(order=order, title="Master Quality Control Inspection", stage_key="master_quality_check", assigned_to=master or tailor, sequence=7, priority="HIGH"),
+            ProductionTask(order=order, title="Customer Fitting Trial", stage_key="trial_scheduled", assigned_to=master or tailor, sequence=8, priority="MEDIUM"),
             ProductionTask(order=order, title="Final Packaging & Dispatch Preparation", stage_key="ready_for_delivery", assigned_to=master or tailor, sequence=9, priority="MEDIUM"),
         ]
         ProductionTask.objects.bulk_create(tasks_to_create)
@@ -216,12 +265,7 @@ class OrderService:
 
         create_order_notifications(order, created=True)
 
-        if tailor:
-            tailor.status = 'Busy'
-            tailor.save()
-        if master:
-            master.status = 'Busy'
-            master.save()
+        refresh_staff_availability(tailor, master)
 
         return order
 
@@ -238,7 +282,11 @@ class OrderService:
         except OrderStage.DoesNotExist:
             raise ValueError(f'Unknown stage "{stage_key}" for order {order.order_id}')
 
-        valid_statuses = {'NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED'}
+        # PAUSED belongs here: the stage modal renders a 'Pause Stage' button
+        # that posts it, Order.production_status documents it, and the dashboard
+        # already has a colour and label for it. Leaving it out made all of that
+        # dead code and the button an unavoidable error.
+        valid_statuses = {'NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'PAUSED'}
         if new_status not in valid_statuses:
             raise ValueError(f'Invalid stage status "{new_status}"')
 
@@ -351,6 +399,35 @@ class OrderService:
             order.order_status = status_map[stage_key]
         order.save()
 
+        # Keep the production task in step with its stage. Nine of these are
+        # written per order and nothing ever touched them again, so
+        # /api/production/tasks/ answered with every task NOT_STARTED on an
+        # order that had already been delivered. One lookup inside the atomic
+        # block every stage change already passes through is enough to make the
+        # rows honest -- and the alternative, deleting them, would throw away
+        # two working ViewSets.
+        from apps.production.models import ProductionTask
+        # ProductionTask has its own vocabulary -- PENDING where a stage says
+        # NOT_STARTED, BLOCKED where a stage says PAUSED -- so translate rather
+        # than copying the string across and writing a value the field's own
+        # choices do not allow.
+        task_status = {
+            'NOT_STARTED': 'PENDING',
+            'IN_PROGRESS': 'IN_PROGRESS',
+            'COMPLETED': 'COMPLETED',
+            'SKIPPED': 'SKIPPED',
+            'PAUSED': 'BLOCKED',
+        }.get(new_status)
+        task = ProductionTask.objects.filter(order=order, stage_key=stage_key).first()
+        if task is not None and task_status:
+            task.status = task_status
+            fields = ['status']
+            performer = order_stage.performed_by
+            if performer is not None and task.assigned_to_id != performer.id:
+                task.assigned_to = performer
+                fields.append('assigned_to')
+            task.save(update_fields=fields)
+
         creator = user if (user and user.is_authenticated) else None
         OrderActivity.objects.create(
             order=order,
@@ -365,16 +442,11 @@ class OrderService:
             }
         )
 
-        if stage_key == 'stitching_in_progress' and new_status == 'IN_PROGRESS' and order.tailor:
-            order.tailor.status = 'Busy'
-            order.tailor.save()
-        elif stage_key == 'stitching_completed' and new_status == 'COMPLETED' and order.tailor:
-            order.tailor.status = 'Available'
-            order.tailor.save()
-
-        if stage_key == 'delivered' and new_status == 'COMPLETED' and order.master:
-            order.master.status = 'Available'
-            order.master.save()
+        # Both people, on every stage change that could free either of them.
+        # Derived, so completing one garment no longer advertises a tailor as
+        # free while their other orders are still open.
+        if stage_key in ('stitching_in_progress', 'stitching_completed', 'delivered'):
+            refresh_staff_availability(order.tailor, order.master)
 
         create_order_notifications(
             order,

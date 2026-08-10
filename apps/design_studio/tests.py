@@ -1336,3 +1336,68 @@ class DesignerLoginTests(StudioTestCase):
         priya.refresh_from_db()
         response = self._designer_client(priya).get('/api/design-studio/assets/')
         self.assertEqual(response.status_code, 200)
+
+
+class UploadAttributionTests(StudioTestCase):
+    """What the browser actually posts, and who ends up credited."""
+
+    def _designer_client(self, name="Priya", email="priya@studio.test"):
+        user = User.objects.create_user(username=email, email=email, password="pass12345")
+        Designer.objects.create(name=name, email=email, user=user)
+        client = APIClient()
+        client.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
+        client.force_authenticate(user=user)
+        return client
+
+    def test_multipart_json_fields_are_decoded_not_stored_as_text(self):
+        """The browser always posts multipart and api.js JSON.stringify()s
+        these fields. create() rebuilds request.data as a plain dict, which
+        defeats DRF's HTML-input detection, so the JSON arrived as a string and
+        was saved verbatim -- every library filter then matched nothing. The
+        existing coverage posts format='json', which no browser does.
+        """
+        response = self.client.post(
+            '/api/design-studio/assets/',
+            {'title': 'Multipart Lehenga', 'garment_type': 'Lehenga',
+             'image_url': 'https://example.test/l.jpg',
+             'tags': '["Bridal", "Maroon"]',
+             'attributes': '{"neckline_style": "Sweetheart"}'},
+            format='multipart')
+
+        self.assertEqual(response.status_code, 201)
+        asset = DesignAsset.objects.get(title='Multipart Lehenga')
+        self.assertEqual(asset.tags, ["Bridal", "Maroon"])
+        self.assertEqual(asset.attributes, {"neckline_style": "Sweetheart"})
+
+    def test_a_designer_is_credited_on_their_own_upload(self):
+        """The Upload modal leaves designer_ref empty and api.js drops empty
+        values, so a designer's own work was saved Unattributed -- and the
+        permission carve-out that lets them edit their own uploads is keyed on
+        designer_ref, so they were locked out of it immediately.
+        """
+        client = self._designer_client()
+
+        response = client.post(
+            '/api/design-studio/assets/',
+            {'title': 'Her Own Work', 'garment_type': 'Lehenga',
+             'image_url': 'https://example.test/h.jpg'},
+            format='multipart')
+
+        self.assertEqual(response.status_code, 201)
+        asset = DesignAsset.objects.get(title='Her Own Work')
+        self.assertIsNotNone(asset.designer_ref)
+        self.assertEqual(asset.designer_ref.name, "Priya")
+
+    def test_an_explicit_designer_still_wins(self):
+        ravi = Designer.objects.create(name="Ravi")
+        client = self._designer_client(name="Priya2", email="priya2@studio.test")
+
+        client.post(
+            '/api/design-studio/assets/',
+            {'title': 'Credited To Ravi', 'garment_type': 'Lehenga',
+             'image_url': 'https://example.test/r.jpg',
+             'designer_ref': str(ravi.id)},
+            format='multipart')
+
+        self.assertEqual(
+            DesignAsset.objects.get(title='Credited To Ravi').designer_ref, ravi)

@@ -283,6 +283,13 @@ class Order(models.Model):
     garment_images_published = models.BooleanField(default=False)
 
     # Workflow integration
+    # What the owner typed on the last step of the wizard. It was posted as
+    # custom_requirements and read by nothing -- Order had no field for it and
+    # the Customer row was not touched either -- so an instruction the staff
+    # were asked for was accepted and dropped. Distinct from
+    # Customer.custom_requirements, which is a standing preference rather than
+    # a note about this one garment.
+    special_instructions = models.TextField(blank=True, default='')
     current_stage_key = models.CharField(max_length=100, default="created", db_index=True)
     production_status = models.CharField(max_length=50, default="NOT_STARTED", db_index=True) # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
 

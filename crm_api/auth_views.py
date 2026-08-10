@@ -1,3 +1,6 @@
+import uuid
+
+from django.utils.text import slugify
 from rest_framework import status, views
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -7,7 +10,7 @@ from django.contrib.auth.models import User
 from django.db import connection
 from tenants.models import BoutiqueTenant, Domain
 from django_tenants.utils import schema_context
-from core.roles import resolve_user_role
+from core.roles import OWNER, resolve_user_role
 
 class SignupView(views.APIView):
     permission_classes = [AllowAny]
@@ -15,7 +18,14 @@ class SignupView(views.APIView):
     def post(self, request):
         first_name = request.data.get('first_name')
         last_name = request.data.get('last_name')
-        email = request.data.get('email_address')
+        # Normalized once, here, because this is where a boutique's identity is
+        # established. Nothing lowercased it before, and the duplicate check on
+        # owner_email is case-sensitive, so Owner@x.com and owner@x.com were two
+        # boutiques -- while django_tenants compares schema names case-
+        # insensitively, so the second one's CREATE SCHEMA silently returned
+        # instead of raising and left an orphan tenant row with no schema
+        # behind it.
+        email = (request.data.get('email_address') or '').strip().lower()
         mobile = request.data.get('mobile_number')
         password = request.data.get('password')
 
@@ -33,8 +43,20 @@ class SignupView(views.APIView):
             )
 
         try:
-            # Create a clean schema name from email
-            schema_name = email.replace('@', '_').replace('.', '_').replace('-', '_')
+            # A schema name is a Postgres identifier, not a display value, and
+            # making the email do both jobs caused three separate faults at
+            # once. The old `email.replace('@','_').replace('.','_')
+            # .replace('-','_')` flattened '@', '.', '-' and '_' onto the same
+            # character, so a.b@x.com and a-b@x.com collided on one schema;
+            # TenantMixin.schema_name is varchar(63) while an email can be far
+            # longer; and casing forked tenants (handled above). A slug plus a
+            # short random suffix fixes all three, because all three were the
+            # same mistake. Nothing derives the schema name from the address --
+            # login looks the tenant up by owner_email -- so this is free.
+            base = slugify(email).replace('-', '_')[:50].strip('_') or 'boutique'
+            if not base[0].isalpha():
+                base = f"b_{base}"[:50]
+            schema_name = f"{base}_{uuid.uuid4().hex[:8]}"
             
             # Create tenant (triggers migrations automatically)
             tenant = BoutiqueTenant.objects.create(
@@ -83,7 +105,18 @@ class SignupView(views.APIView):
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "email": user.email,
-                    "username": user.username
+                    "username": user.username,
+                    # Signup is the one payload of the three that omitted this,
+                    # and App.jsx sets currentUser straight from it without
+                    # re-fetching. A brand-new owner therefore had
+                    # currentUser.role undefined until their first reload,
+                    # which the strict owner gate at App.jsx:2677 read as
+                    # "not the owner" -- so they could not assign a production
+                    # stage for their whole first session. The signing-up user
+                    # is always the boutique owner, by construction.
+                    "role": OWNER,
+                    "tailor_id": None,
+                    "designer_id": None,
                 }
             }, status=status.HTTP_201_CREATED)
         except Exception as e:
@@ -95,7 +128,9 @@ class LoginView(views.APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        username_or_email = request.data.get('username')
+        # Same normalization as signup, or an owner who capitalises their email
+        # in the login box cannot sign in to the boutique they created.
+        username_or_email = (request.data.get('username') or '').strip().lower()
         password = request.data.get('password')
 
         if not username_or_email or not password:

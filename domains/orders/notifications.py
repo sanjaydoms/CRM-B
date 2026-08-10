@@ -73,7 +73,17 @@ def create_order_notifications(order, created=False, status_changed=True):
         if status == 'Design & Creation':
             cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} is now in the Design & Creation phase. Our master tailors are crafting it!"
         elif status == 'Ready for Dispatch':
-            cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} has passed quality checks and is Ready for Dispatch!"
+            # Only claim the quality check when it actually ran. This status is
+            # reached from ready_for_delivery, trial_scheduled AND
+            # trial_completed, none of which require master_quality_check, so
+            # the boutique was telling customers their garment had passed an
+            # inspection that had never happened.
+            passed_qc = order.stages.filter(
+                stage_key='master_quality_check', status='COMPLETED').exists()
+            if passed_qc:
+                cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} has passed quality checks and is Ready for Dispatch!"
+            else:
+                cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} is Ready for Dispatch!"
         elif status == 'Shipped':
             if order.delivery_method == 'Courier':
                 cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been Shipped via {order.courier_service or 'Courier'}! Tracking Number: {order.tracking_number or 'TBD'}."

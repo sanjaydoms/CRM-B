@@ -259,3 +259,79 @@ class DemoRequestIntakeTests(TransactionTestCase):
         response = Client().post(self.URL, dict(self.VALID, problem='x' * 2001))
         self.assertEqual(response.status_code, 400)
         self.assertEqual(DemoRequest.objects.count(), 0)
+
+
+class SignupIdentityTests(TransactionTestCase):
+    """Signup is where a boutique's identity is established, and it had no
+    coverage at all. Schema creation is DDL, hence TransactionTestCase."""
+
+    def _signup(self, email, **extra):
+        payload = {
+            'first_name': 'Qa', 'last_name': 'Probe',
+            'email_address': email, 'mobile_number': '9600000000',
+            'password': 'SignupProbe2026!',
+        }
+        payload.update(extra)
+        return APIClient().post('/api/auth/signup/', payload, format='json')
+
+    def _drop(self, email):
+        connection.set_schema_to_public()
+        for tenant in BoutiqueTenant.objects.filter(owner_email=email.lower()):
+            tenant.delete(force_drop=True)
+
+    def test_signup_reports_the_owner_role(self):
+        """App.jsx sets currentUser straight from this payload and never
+        re-fetches, so an omitted role left a brand-new owner unable to assign
+        any production stage for their whole first session.
+        """
+        try:
+            response = self._signup('role.probe@ownerflow.test')
+            self.assertEqual(response.status_code, 201, response.data)
+            self.assertEqual(response.data['user']['role'], 'Owner')
+        finally:
+            self._drop('role.probe@ownerflow.test')
+
+    def test_the_email_is_stored_lowercase_so_case_cannot_fork_a_boutique(self):
+        """The duplicate check on owner_email is case-sensitive while
+        django_tenants compares schema names case-insensitively, so a second
+        signup differing only in case created an orphan tenant row whose
+        CREATE SCHEMA had silently returned instead of raising.
+        """
+        try:
+            first = self._signup('Case.Probe@Ownerflow.test')
+            self.assertEqual(first.status_code, 201, first.data)
+
+            second = self._signup('case.probe@ownerflow.test')
+            self.assertEqual(second.status_code, 400)
+
+            connection.set_schema_to_public()
+            self.assertEqual(
+                BoutiqueTenant.objects.filter(
+                    owner_email__iexact='case.probe@ownerflow.test').count(), 1)
+        finally:
+            self._drop('case.probe@ownerflow.test')
+
+    def test_punctuation_in_an_address_cannot_collide_two_boutiques(self):
+        """schema_name was the email with '@', '.' and '-' all flattened onto
+        '_', so a.b@x.com and a-b@x.com landed on one schema.
+        """
+        try:
+            first = self._signup('a.b@collide.test')
+            second = self._signup('a-b@collide.test')
+
+            self.assertEqual(first.status_code, 201, first.data)
+            self.assertEqual(second.status_code, 201, second.data)
+            self.assertNotEqual(first.data['tenant_id'], second.data['tenant_id'])
+        finally:
+            self._drop('a.b@collide.test')
+            self._drop('a-b@collide.test')
+
+    def test_a_long_address_still_fits_a_postgres_identifier(self):
+        """schema_name is varchar(63) and was exactly as long as the email."""
+        long_email = ('x' * 60) + '@averylongdomainname.example.test'
+        try:
+            response = self._signup(long_email)
+            self.assertEqual(response.status_code, 201, response.data)
+            self.assertLessEqual(len(response.data['tenant_id']), 63)
+        finally:
+            self._drop(long_email)

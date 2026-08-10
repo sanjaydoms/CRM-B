@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 from datetime import timedelta
@@ -8,7 +9,7 @@ from django.core.files.storage import default_storage
 from django.db.models import Count, F, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import status, viewsets, views
+from rest_framework import serializers, status, viewsets, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -186,6 +187,24 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         # separately by _store_images(), so the serializer only needs the
         # non-file fields.
         data = {key: value for key, value in request.data.items() if key != 'images'}
+
+        # Rebuilding the QueryDict above costs the JSON parsing DRF would
+        # normally do for us. rest_framework.fields.JSONField only treats an
+        # incoming value as encoded text when the container looks like an HTML
+        # form -- it tests hasattr(dictionary, 'getlist') -- and a plain dict
+        # fails that test, so a multipart "{\"neckline\":\"V\"}" was saved into
+        # the JSONField verbatim as a string. Every upload from the browser is
+        # multipart and api.js JSON.stringify()s these fields, so this was all
+        # of them; the library's own filters then matched nothing. Decoding by
+        # field type rather than by name keeps any JSONField added later
+        # working, which naming spec_tags alone would not.
+        for name, field in self.get_serializer().fields.items():
+            if isinstance(field, serializers.JSONField) and isinstance(data.get(name), str):
+                try:
+                    data[name] = json.loads(data[name])
+                except (TypeError, ValueError):
+                    pass  # leave it; the serializer reports the real error
+
         uploaded = self._store_images(request)
         if uploaded:
             # The first photograph is the one the cards show; the rest are the
@@ -211,6 +230,14 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
 
         asset = serializer.save(
             created_by=request.user if request.user.is_authenticated else None,
+            # A signed-in designer is credited on their own upload by default.
+            # The Upload modal leaves designer_ref as '' ("Unattributed") and
+            # api.js drops empty values, so a designer's own work was saved with
+            # designer_ref None -- and DesignLibraryPermission gates their
+            # edit/delete carve-out on designer_ref_id matching, so they were
+            # then locked out of the design they had just uploaded.
+            designer_ref=(serializer.validated_data.get('designer_ref')
+                          or getattr(request.user, 'designer_profile', None)),
             gallery=uploaded[1:] if len(uploaded) > 1 else [],
             status=initial_status,
         )

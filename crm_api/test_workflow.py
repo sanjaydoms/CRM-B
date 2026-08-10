@@ -877,3 +877,126 @@ class OrderMoneyTests(WorkflowTestBase):
         order.refresh_from_db()
         self.assertEqual(order.amount_paid, Decimal("0.00"))
         self.assertEqual(order.advance_paid, Decimal("0.00"))
+
+
+class StaffAvailabilityAcrossOrdersTests(WorkflowTestBase):
+    """Availability has to account for every order a person is on, not just
+    the one whose stage was touched."""
+
+    def test_finishing_one_garment_does_not_free_a_tailor_who_has_another(self):
+        """Tailor.status is one flag with no reference counting: completing
+        stitching on any ONE order used to write 'Available' outright, so a
+        tailor with three garments open advertised as free after the first.
+        """
+        first = self.make_order()
+        second = self.make_order(customer=self.make_customer(mobile="9800000041"))
+
+        self.complete(first, "stitching_completed", user=self.tailor_user)
+
+        self.tailor.refresh_from_db()
+        self.assertEqual(self.tailor.status, "Busy")
+
+    def test_the_tailor_frees_up_once_the_last_garment_is_stitched(self):
+        first = self.make_order()
+        second = self.make_order(customer=self.make_customer(mobile="9800000042"))
+
+        self.complete(first, "stitching_completed", user=self.tailor_user)
+        self.complete(second, "stitching_completed", user=self.tailor_user)
+
+        self.tailor.refresh_from_db()
+        self.assertEqual(self.tailor.status, "Available")
+
+
+class BackendCorrectnessTests(WorkflowTestBase):
+    """Defects found by the end-to-end audit, each pinned to its symptom."""
+
+    def test_a_stage_can_be_paused(self):
+        """The stage modal has a 'Pause Stage' button, the model documents
+        PAUSED and the dashboard has a colour for it -- but the service
+        rejected the value, so all of that was dead code.
+        """
+        order = self.make_order()
+        OrderService.transition_order_stage(
+            order=order, stage_key="fabric_confirmed",
+            new_status="PAUSED", user=self.owner,
+        )
+        self.assertEqual(self.stage(order, "fabric_confirmed").status, "PAUSED")
+
+    def test_special_instructions_survive_order_creation(self):
+        """The last wizard step asks for them and posted them as
+        custom_requirements; nothing read the key and Order had no field, so
+        an instruction the staff were asked for was silently dropped.
+        """
+        order = self.make_order(custom_requirements="Extra margin at the waist.")
+        order.refresh_from_db()
+        self.assertEqual(order.special_instructions, "Extra margin at the waist.")
+
+    def test_the_production_task_follows_its_stage(self):
+        """Nine tasks are written per order and nothing ever touched them, so
+        the production endpoints reported every task NOT_STARTED on a
+        delivered order.
+        """
+        from apps.production.models import ProductionTask
+
+        order = self.make_order()
+        self.complete(order, "fabric_confirmed")
+
+        task = ProductionTask.objects.get(order=order, stage_key="fabric_confirmed")
+        self.assertEqual(task.status, "COMPLETED")
+
+    def test_every_production_task_has_someone_on_it_without_a_master(self):
+        """Three of the nine were assigned to master with no `or tailor`
+        fallback, unlike their six siblings -- and master is optional in the
+        wizard, so those three were created unassigned.
+        """
+        from apps.production.models import ProductionTask
+
+        order = self.make_order(master=False)
+
+        unassigned = ProductionTask.objects.filter(order=order, assigned_to__isnull=True)
+        self.assertEqual(list(unassigned), [])
+
+    def test_ready_for_dispatch_does_not_claim_a_quality_check_that_never_ran(self):
+        """'Ready for Dispatch' is reached from three stages, none of which
+        require master_quality_check, and the message asserted the garment had
+        passed inspection regardless.
+        """
+        order = self.make_order()
+        self.complete(order, "stitching_completed")
+        self.complete(order, "trial_scheduled")
+
+        messages = " ".join(
+            n.message for n in Notification.objects.filter(recipient_role="Customer"))
+        self.assertNotIn("passed quality checks", messages)
+
+
+class CustomerContactValidationTests(WorkflowTestBase):
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        token, _ = Token.objects.get_or_create(user=self.owner)
+        self.client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+
+    def test_an_unreachable_mobile_number_is_refused(self):
+        """No validator on the model, none in the serializer, none on the form:
+        a nine-digit slip was stored and every WhatsApp update after it opened a
+        chat with nobody, behind a button the owner could mark as sent.
+        """
+        response = self.client.post('/api/customers/', {
+            'first_name': 'Meera', 'last_name': 'Iyer',
+            'mobile_number': '96001',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('mobile_number', response.data)
+
+    def test_a_good_mobile_number_is_accepted(self):
+        response = self.client.post('/api/customers/', {
+            'first_name': 'Meera', 'last_name': 'Iyer',
+            'mobile_number': '9600123456',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)

@@ -7,7 +7,7 @@ from .models import (
     Customer, CustomerMessage, GarmentImage, Measurement, DesignPreference,
     FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign,
     Notification, OrderStageHistory, BoutiqueSettings, MeasurementHistory,
-    OrderStage, OrderActivity
+    OrderStage, OrderActivity, whatsapp_number
 )
 
 class BoutiqueSettingsSerializer(serializers.ModelSerializer):
@@ -178,6 +178,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'packaging_handling', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
             'delivery_method', 'courier_service', 'tracking_number', 'delivery_address',
             'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image',
+            'special_instructions',
             'master_verification', 'stage_histories', 'current_stage_key', 'production_status',
             'stages', 'activities', 'garment_images', 'garment_images_published'
         ]
@@ -307,6 +308,23 @@ class CustomerSerializer(serializers.ModelSerializer):
     segment = serializers.SerializerMethodField()
     total_spend = serializers.SerializerMethodField()
     order_count = serializers.SerializerMethodField()
+
+    def validate_mobile_number(self, value):
+        """Refuse a number the boutique could never actually reach.
+
+        There was no validator on the model, none here and none on the form, so
+        a nine-digit slip was accepted silently -- and every WhatsApp update
+        after that rendered as a working "Open WhatsApp" button pointing at
+        nobody, which the owner could then mark as sent. whatsapp_number() is
+        already the single definition of what is reachable (see
+        crm_api/models.py); asking it here means the wizard, the API and any
+        future caller all get the same answer.
+        """
+        if value and not whatsapp_number(value):
+            raise serializers.ValidationError(
+                'Enter a mobile number the boutique can actually reach '
+                '-- 10 digits, or a full international number.')
+        return value
 
     class Meta:
         model = Customer

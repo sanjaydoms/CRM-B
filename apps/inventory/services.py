@@ -109,10 +109,23 @@ class InventoryService:
                 f"{previous_reserved} is reserved."
             )
         if new_reserved > new_stock:
-            raise ValueError(
-                f"Cannot reserve {quantity} {locked.get_unit_display()} of '{locked.name}' -- "
-                f"only {previous_stock - previous_reserved} available."
-            )
+            if reserved_delta > 0:
+                raise ValueError(
+                    f"Cannot reserve {quantity} {locked.get_unit_display()} of '{locked.name}' -- "
+                    f"only {previous_stock - previous_reserved} available."
+                )
+            # Nothing is being reserved here -- this is DAMAGE, SCRAP, a
+            # supplier return or a stock count, all of which reduce physical
+            # stock and carry reserved_delta == 0. Refusing them because the
+            # material happened to be spoken for meant a real loss could not be
+            # recorded at all, and the refusal talked about a reservation the
+            # owner had never attempted. The stock is gone either way; the
+            # reservation it was backing cannot outlive it, so release the
+            # difference implicitly and let the movement row carry the fact.
+            released = new_reserved - new_stock
+            new_reserved = new_stock
+            notes = f"Reservation reduced by {released} -- stock no longer available."
+            remarks = f"{remarks} {notes}".strip() if remarks else notes
 
         # Keep the per-location breakdown in step with the total, inside the same
         # transaction, so the two can never drift. A movement that adds stock

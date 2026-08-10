@@ -458,7 +458,12 @@ class OrderViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        already = order.garment_images_published
+        # Ask whether the message was already queued, not whether the gallery is
+        # currently published. garment_images_published is cleared by this same
+        # endpoint on unpublish, so it was never the one-way latch the comment
+        # below intends: hiding the gallery and re-sharing it messaged the
+        # customer "your outfit is ready" a second time.
+        already = order.customer_messages.filter(template_key='garment_ready').exists()
         order.garment_images_published = publish
         order.save(update_fields=['garment_images_published'])
 
