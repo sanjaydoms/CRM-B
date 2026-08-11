@@ -2,13 +2,30 @@ from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from core.permissions import visible_orders
+from crm_api.models import Order
 from .models import ProductionTask, QCRecord
 from .serializers import ProductionTaskSerializer, QCRecordSerializer
 from apps.activities.models import UniversalActivity
 
+
+def _visible_order_ids(user):
+    """Orders this caller may see, as a queryset of ids.
+
+    RolePermission grants every non-Owner staff member all SAFE_METHODS, which
+    is only safe because each viewset narrows its own queryset. These two never
+    did, so /api/production/tasks/ handed any signed-in tailor every order id
+    and customer name in the boutique.
+    """
+    return visible_orders(Order.objects.all(), user).values('id')
+
+
 class ProductionTaskViewSet(viewsets.ModelViewSet):
     queryset = ProductionTask.objects.select_related('order', 'order__customer', 'assigned_to').all()
     serializer_class = ProductionTaskSerializer
+
+    def get_queryset(self):
+        return super().get_queryset().filter(order_id__in=_visible_order_ids(self.request.user))
 
     def perform_create(self, serializer):
         task = serializer.save()
@@ -52,6 +69,9 @@ class ProductionTaskViewSet(viewsets.ModelViewSet):
 class QCRecordViewSet(viewsets.ModelViewSet):
     queryset = QCRecord.objects.select_related('order', 'task', 'inspector').all()
     serializer_class = QCRecordSerializer
+
+    def get_queryset(self):
+        return super().get_queryset().filter(order_id__in=_visible_order_ids(self.request.user))
 
     def perform_create(self, serializer):
         qc = serializer.save()

@@ -220,7 +220,14 @@ class StageBookkeepingTests(WorkflowTestBase):
         order.refresh_from_db()
         self.assertEqual(order.production_status, "IN_PROGRESS")
 
+        # Everything except the stage we are about to transition. Pre-setting
+        # 'delivered' too would mean asking the engine to complete a stage that
+        # is already complete, which it now declines -- re-completing walks an
+        # order backwards, which is how a tailor could drop a Delivered order to
+        # 'Quality Check' and re-message the customer.
         for conf in BoutiqueSettings.objects.get(id=1).workflow_config:
+            if conf["key"] == "delivered":
+                continue
             stage = self.stage(order, conf["key"])
             if stage.status != "COMPLETED":
                 stage.status = "COMPLETED"
@@ -1352,3 +1359,117 @@ class UpdateStatusAuthorityTests(WorkflowTestBase):
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(self.stage(order, "stitching_completed").status, "COMPLETED")
+
+
+class NotificationBellTests(WorkflowTestBase):
+    """The bell is on every screen, so its permissions are load-bearing."""
+
+    def _client_for(self, user):
+        client = APIClient()
+        token, _ = Token.objects.get_or_create(user=user)
+        client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        return client
+
+    def test_staff_can_clear_their_own_notifications(self):
+        """mark-all-read is a POST, and NotificationViewSet used the default
+        RolePermission, which grants a non-Owner only the named order actions
+        as writes. Every staff member got a 403 opening the drawer -- and the
+        frontend threw it inside the click handler, dropping the whole
+        application to its runtime-error screen. A tailor lost the app on their
+        first click of a control present on every page.
+        """
+        Notification.objects.create(
+            recipient_role="Tailor", recipient_email="tailor@workflow.test",
+            title="Assigned", message="You have work.", is_read=False)
+
+        response = self._client_for(self.tailor_user).post(
+            "/api/notifications/mark-all-read/")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertFalse(
+            Notification.objects.filter(recipient_role="Tailor", is_read=False).exists())
+
+    def test_clearing_does_not_touch_anybody_elses_feed(self):
+        """Safe without a role check only because get_queryset scopes to the
+        caller -- so pin that."""
+        Notification.objects.create(
+            recipient_role="Owner", recipient_email="owner@workflow.test",
+            title="Owner only", message="Turnover.", is_read=False)
+
+        self._client_for(self.tailor_user).post("/api/notifications/mark-all-read/")
+
+        self.assertTrue(
+            Notification.objects.filter(recipient_role="Owner", is_read=False).exists())
+
+
+class CrossRouterScopingTests(WorkflowTestBase):
+    """RolePermission grants every non-Owner staff member all SAFE_METHODS.
+    That is only safe because each viewset narrows its own queryset -- a promise
+    the routers outside crm_api never made, so a tailor read the whole boutique
+    through them."""
+
+    def _client_for(self, user):
+        client = APIClient()
+        token, _ = Token.objects.get_or_create(user=user)
+        client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        return client
+
+    def setUp(self):
+        super().setUp()
+        self.mine = self.make_order()
+        stranger = self.make_customer(mobile="9800000077")
+        stranger.email_address = "stranger@client.test"
+        stranger.address = "9 Secret Lane"
+        stranger.save()
+        self.stranger = stranger
+        self.not_mine = self.make_order(customer=stranger, tailor=False, master=False)
+
+    def test_appointments_do_not_hand_over_a_strangers_contact_details(self):
+        """AppointmentSerializer nests the full CustomerSerializer, which nests
+        that customer's orders and their money -- and the frontend loads this
+        endpoint for every role on every login, so it arrived unasked.
+        """
+        from apps.scheduling.models import Appointment
+        from django.utils import timezone
+        Appointment.objects.create(
+            customer=self.stranger, scheduled_time=timezone.now(), appointment_type='TRIAL')
+
+        response = self._client_for(self.tailor_user).get('/api/scheduling/appointments/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = str(response.data)
+        self.assertNotIn('Secret Lane', payload)
+        self.assertNotIn('stranger@client.test', payload)
+
+    def test_production_tasks_are_scoped_to_the_callers_own_orders(self):
+        response = self._client_for(self.tailor_user).get('/api/production/tasks/')
+
+        self.assertEqual(response.status_code, 200)
+        order_ids = {t['order'] for t in response.data}
+        self.assertNotIn(self.not_mine.id, order_ids)
+
+    def test_the_activity_log_is_not_open_to_the_whole_floor(self):
+        response = self._client_for(self.tailor_user).get('/api/activities/activities/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 0)
+
+    def test_supplier_trading_terms_are_owner_only(self):
+        response = self._client_for(self.tailor_user).get('/api/inventory/suppliers/')
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_a_colleagues_login_address_is_not_on_the_staff_list(self):
+        response = self._client_for(self.tailor_user).get('/api/tailors/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('email', response.data[0])
+        # The owner still needs it -- that is the screen which mints logins.
+        owner_view = self._client_for(self.owner).get('/api/tailors/')
+        self.assertIn('email', owner_view.data[0])

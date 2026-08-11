@@ -80,6 +80,28 @@ class RolePermission(permissions.BasePermission):
         return action in self.SUPERVISOR_ORDER_ACTIONS and role in SUPERVISOR_ROLES
 
 
+class OwnNotifications(permissions.BasePermission):
+    """Anyone signed in may read and clear their OWN notification feed.
+
+    NotificationViewSet used the default RolePermission, which allows a
+    non-Owner every safe method but only the named order actions as writes --
+    and mark-all-read is a POST that is on neither list. So every staff member
+    got a 403 the moment they opened the notification drawer, and because the
+    frontend surfaced that as a thrown error inside the click handler, the
+    whole application dropped to its runtime-error screen. The bell is on every
+    screen, so a tailor lost the app on their first click.
+
+    Safe without a role check: get_queryset derives the audience from the
+    signed-in user, so both the read and the update are already confined to the
+    caller's own rows. There is nothing here to escalate.
+    """
+
+    message = "Sign in to see your notifications."
+
+    def has_permission(self, request, view):
+        return resolve_user_role(request.user) is not None
+
+
 class OwnerOnly(permissions.BasePermission):
     """For the things only the person who owns the business should see.
 

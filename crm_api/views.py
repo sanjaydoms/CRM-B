@@ -9,7 +9,9 @@ from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from core.permissions import OwnerOnly, SUPERVISOR_ROLES, visible_customers, visible_orders
+from core.permissions import (
+    OwnerOnly, OwnNotifications, SUPERVISOR_ROLES, visible_customers, visible_orders,
+)
 from core.roles import OWNER, resolve_user_role
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
@@ -822,6 +824,11 @@ class OrderViewSet(viewsets.ModelViewSet):
 class NotificationViewSet(viewsets.ModelViewSet):
     queryset = Notification.objects.all().order_by('-created_at')
     serializer_class = NotificationSerializer
+    # Not the default RolePermission: see OwnNotifications. get_queryset scopes
+    # every row to the signed-in user, so there is nothing here a role check
+    # would protect -- and the default refused mark-all-read to every
+    # non-Owner, which took the whole app down when they opened the bell.
+    permission_classes = [OwnNotifications]
 
     def _audience(self):
         """(role, email) this caller may read, derived from who signed in.
@@ -897,7 +904,10 @@ class DashboardView(views.APIView):
         total_orders = order_totals['total']
         revenue = float(order_totals['paid'] or 0.0) + float(order_totals['partial'] or 0.0)
 
-        status_counts = orders.values('order_status').annotate(count=Count('id'))
+        # distinct: the same stages join that scopes a tailor multiplies each
+        # order by its fifteen stage rows, so an unqualified Count made every
+        # status bucket fifteen times too big on their dashboard.
+        status_counts = orders.values('order_status').annotate(count=Count('id', distinct=True))
 
         # Recent orders. The dashboard renders the stage tracker but never the
         # activity log or stage histories, so those stay out of the payload.

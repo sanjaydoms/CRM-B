@@ -41,6 +41,12 @@ def _as_bool(value):
 
 
 class SupplierViewSet(viewsets.ModelViewSet):
+    # Supplier names, phone numbers, email addresses and GST numbers are the
+    # boutique's trading relationships, and they sat one URL away from an
+    # InventoryReportViewSet that correctly refuses the same commercial data to
+    # anyone but the Owner. RolePermission's blanket SAFE_METHODS grant meant
+    # any signed-in tailor could read the lot.
+    permission_classes = [OwnerOnly]
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
 
@@ -300,6 +306,9 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
+    # What the boutique pays, and to whom. Same commercial position OwnerOnly
+    # already protects on the reports endpoint.
+    permission_classes = [OwnerOnly]
     serializer_class = PurchaseOrderSerializer
 
     def get_queryset(self):

@@ -39,6 +39,19 @@ import { splitSpec, validateSpec } from './services/templates';
 // place instead of hunting every comparison.
 const SUPERVISOR_ROLES = ['Master'];
 
+// Everyone who works on garments. resolve_user_role returns the Tailor
+// profile's role verbatim, so a boutique that has split its floor produces
+// seven role strings beyond 'Tailor' and 'Master' -- and get_default_workflow
+// permits each of them on a specific stage. Comparing against the two literal
+// names stranded every specialist: routed to a tab their own nav does not
+// contain, and shown an order's money that the permission matrix says
+// production staff must not see.
+const PRODUCTION_ROLES = [
+  'Tailor', 'Master', 'Measurement Master', 'Pattern Master', 'Cutting Master',
+  'Maggam Master', 'Finishing Master', 'Pressing Staff', 'QC Master',
+];
+const isProductionStaff = (role) => PRODUCTION_ROLES.includes(role);
+
 // Mirrors Appointment.TYPE_CHOICES in apps/scheduling/models.py.
 const APPOINTMENT_TYPE_LABELS = {
   CONSULTATION: 'Design Consultation',
@@ -840,7 +853,7 @@ function App() {
           setDashboardTab('designs');
           return;
         }
-        if (user.role === 'Master' || user.role === 'Tailor') {
+        if (isProductionStaff(user.role)) {
           setDashboardTab('assignments');
         } else {
           setDashboardTab('overview');
@@ -1089,7 +1102,7 @@ function App() {
         setDashboardTab('designs');
         return;
       }
-      if (res.user.role === 'Master' || res.user.role === 'Tailor') {
+      if (isProductionStaff(res.user.role)) {
         setDashboardTab('assignments');
       } else {
         setDashboardTab('overview');
@@ -2138,7 +2151,10 @@ function App() {
             onOpenNotifications={() => {
               setShowNotificationsDrawer(true);
               api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
-                .then(() => fetchNotifications());
+                .then(() => fetchNotifications())
+                    // Never let the bell take the app down: a refused or failed
+                    // mark-read is not worth losing the session over.
+                    .catch(() => {});
             }}
           />
 
@@ -2163,7 +2179,10 @@ function App() {
                 onClick={() => {
                   setShowNotificationsDrawer(true);
                   api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
-                    .then(() => fetchNotifications());
+                    .then(() => fetchNotifications())
+                    // Never let the bell take the app down: a refused or failed
+                    // mark-read is not worth losing the session over.
+                    .catch(() => {});
                 }}
                 className="btn-secondary"
                 style={{ padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -2195,7 +2214,10 @@ function App() {
                 onClick={() => {
                   setShowNotificationsDrawer(true);
                   api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
-                    .then(() => fetchNotifications());
+                    .then(() => fetchNotifications())
+                    // Never let the bell take the app down: a refused or failed
+                    // mark-read is not worth losing the session over.
+                    .catch(() => {});
                 }}
                 className="btn-secondary"
                 style={{
@@ -2372,8 +2394,8 @@ function App() {
                             
                             {/* Price / Scope */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-color)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                              <div className="assignment-card-sub-info" style={{ borderBottom: (currentUser.role !== 'Tailor' || order.customer_measurements) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px', fontSize: '13px' }}>
-                                {currentUser.role !== 'Tailor' && <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>}
+                              <div className="assignment-card-sub-info" style={{ borderBottom: (!isProductionStaff(currentUser.role) || order.customer_measurements) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px', fontSize: '13px' }}>
+                                {!isProductionStaff(currentUser.role) && <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>}
                                 <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</span></div>
                                 <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
                               </div>
@@ -2415,17 +2437,30 @@ function App() {
                             {/* Production stages -- a master runs most of the
                                 workflow, so the tracker belongs on the screen
                                 they land on, not only on the order registry. */}
-                            {(currentUser.role === 'Master' || currentUser.role === 'Owner' || !currentUser.role) && (
-                              <div>
-                                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>
-                                  Production Stages — select a stage to update
-                                </div>
-                                <StageTimeline
-                                  stages={order.stages}
-                                  onSelectStage={(stage) => openStageReview(order, stage)}
-                                />
+                            {/* Everyone who works the floor, not just supervisors.
+                                stitching_in_progress is one of only two stages a
+                                Tailor is authorised on, and this gate was the
+                                reason no screen in the product let them touch it:
+                                their nav offers only My Assignments and My
+                                Account, and the timeline is the sole control that
+                                posts a transition. Their stage never left
+                                NOT_STARTED, so the record said the garment was
+                                finished without ever being started, and the order
+                                stayed IN_PROGRESS after delivery until an Owner
+                                unstuck it. Opening the panel is safe for any
+                                role: transition_order_stage refuses every stage
+                                their role does not list, and the modal's Assign
+                                and Record-performer selects carry their own
+                                supervisor gates. */}
+                            <div>
+                              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>
+                                Production Stages — select a stage to update
                               </div>
-                            )}
+                              <StageTimeline
+                                stages={order.stages}
+                                onSelectStage={(stage) => openStageReview(order, stage)}
+                              />
+                            </div>
 
                              {/* Delivery Information */}
                             <div style={{ fontSize: '13px', background: 'rgba(0,0,0,0.01)', padding: '12px', borderRadius: '8px', border: '1px dashed var(--border-color)', marginTop: '4px' }}>
@@ -5756,7 +5791,10 @@ function App() {
             onOpenNotifications={() => {
               setShowNotificationsDrawer(true);
               api.markNotificationsAsRead(currentUser?.role || 'Owner', currentUser?.email)
-                .then(() => fetchNotifications());
+                .then(() => fetchNotifications())
+                    // Never let the bell take the app down: a refused or failed
+                    // mark-read is not worth losing the session over.
+                    .catch(() => {});
             }}
           />
 

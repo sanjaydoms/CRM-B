@@ -21,6 +21,27 @@ class TailorSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['user']
 
+    def to_representation(self, instance):
+        """Colleagues' login addresses are the owner's business, not the floor's.
+
+        TailorViewSet has no queryset scoping and this serializer is
+        fields='__all__', so any signed-in staff member could read the whole
+        roster including every colleague's email -- which is also their
+        username, against a bootstrap password that is written in this
+        repository. core/permissions.py's own docstring names "the staff list"
+        among the things it exists to stop leaking; only the write path was ever
+        closed. Everything else on the row is what the floor legitimately needs
+        to pick who does a stage.
+        """
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request is not None:
+            from core.roles import OWNER, resolve_user_role
+            if resolve_user_role(request.user) != OWNER:
+                data.pop('email', None)
+                data.pop('user', None)
+        return data
+
 class BoutiqueFabricSerializer(serializers.ModelSerializer):
     class Meta:
         model = BoutiqueFabric
@@ -318,11 +339,30 @@ class CustomerSerializer(serializers.ModelSerializer):
     measurement_history = MeasurementHistorySerializer(many=True, read_only=True)
     design_preferences = DesignPreferenceSerializer(many=True, read_only=True)
     fabric_selections = FabricSelectionSerializer(many=True, read_only=True)
-    orders = OrderSerializer(many=True, read_only=True)
+    orders = serializers.SerializerMethodField()
     style_dna = serializers.SerializerMethodField()
     segment = serializers.SerializerMethodField()
     total_spend = serializers.SerializerMethodField()
     order_count = serializers.SerializerMethodField()
+
+    def get_orders(self, obj):
+        """This customer's orders, scoped the way the order endpoint scopes them.
+
+        It was a plain nested OrderSerializer, so opening a customer a tailor
+        legitimately works for handed back that customer's ENTIRE order history
+        -- including orders belonging to a different tailor, which
+        /api/orders/<id>/ refuses them with a 404 one request earlier. The money,
+        all fifteen stage rows and the activity log came with it. Scoping the
+        queryset decides which customers you may open; it does nothing about
+        what the representation then nests inside them.
+        """
+        from core.permissions import visible_orders
+
+        queryset = obj.orders.all()
+        request = self.context.get('request')
+        if request is not None:
+            queryset = visible_orders(queryset, request.user)
+        return OrderSerializer(queryset, many=True, context=self.context).data
 
     def validate_mobile_number(self, value):
         """Refuse a number the boutique could never actually reach.

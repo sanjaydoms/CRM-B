@@ -31,9 +31,16 @@ class CustomerRepository:
         """
         from django.db.models import Avg, Count, Max, Sum
         return Customer.objects.select_related('measurements').annotate(
+            # distinct throughout. visible_customers scopes a tailor with
+            # Q(orders__stages__assigned_to=...), and that join multiplies each
+            # order row by its fifteen stages. Count already had it; Sum and Avg
+            # did not, so a tailor's view of a client's spend came back fifteen
+            # times too large. .distinct() on the queryset does not save an
+            # annotated aggregate, which is why the row list looked right while
+            # the money did not.
             orders_count=Count('orders', distinct=True),
-            orders_total_spend=Sum('orders__total_amount'),
-            orders_avg_price=Avg('orders__total_amount'),
+            orders_total_spend=Sum('orders__total_amount', distinct=True),
+            orders_avg_price=Avg('orders__total_amount', distinct=True),
             orders_last_date=Max('orders__order_date'),
         ).order_by('-created_at')
 

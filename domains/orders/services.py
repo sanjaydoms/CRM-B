@@ -359,9 +359,23 @@ class OrderService:
                 raise ValueError(
                     'Cannot pass quality check before stitching is completed.')
 
+        # Re-completing a stage that is already COMPLETED walks the order
+        # BACKWARDS: status_map below rewrites order_status unconditionally, so
+        # a tailor touching the status dropdown on a Delivered order dropped it
+        # to 'Quality Check', flipped the customer's own tracking page, and sent
+        # them a fresh message saying so. Nothing needs re-completing; if a
+        # stage genuinely has to be reopened, that is a move to IN_PROGRESS.
+        if order_stage.status == 'COMPLETED' and new_status == 'COMPLETED':
+            return order
+
         old_status = order_stage.status
         order_stage.status = new_status
-        order_stage.comments = comments
+        # Only when there is something to write. This assigned unconditionally,
+        # and update_status calls through with no comments at all -- so a tailor
+        # who submitted a completion note and then touched the status dropdown
+        # had that note blanked on the very stage row the Master reads.
+        if comments:
+            order_stage.comments = comments
 
         if performer_id:
             try:
