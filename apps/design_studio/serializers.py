@@ -21,6 +21,26 @@ class DesignerSerializer(serializers.ModelSerializer):
     def get_has_login(self, designer):
         return designer.user_id is not None
 
+    def to_representation(self, instance):
+        """A colleague's address is also their username.
+
+        DesignStudioPermission opens all safe methods to every signed-in role,
+        so this shipped every designer's email AND whether that address can be
+        signed in as -- a map of live accounts, next to a bootstrap password
+        written in this repository and in the browser bundle. TailorSerializer
+        was narrowed for exactly this reason; one of the two staff serializers
+        was fixed and the other was not. The library's designer filter needs
+        only id, name and design_count.
+        """
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request is not None:
+            from core.roles import OWNER, resolve_user_role
+            if resolve_user_role(request.user) != OWNER:
+                data.pop('email', None)
+                data.pop('has_login', None)
+        return data
+
 
 class CollectionSerializer(serializers.ModelSerializer):
     design_count = serializers.IntegerField(read_only=True)
@@ -59,6 +79,16 @@ class DesignAssetSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'created_by', 'created_at', 'updated_at',
             'status', 'approved_by', 'approved_at', 'gallery',
+            # `source` is provenance, and provenance is what defines the
+            # catalogue: BoutiqueDesignViewSet selects on source alone. Leaving
+            # it writable let a designer PATCH their own unreviewed upload to
+            # source='catalogue' and put it in front of customers with its
+            # status still PENDING and no approval recorded -- straight past the
+            # gate the approval queue exists to be. The counters are here for
+            # the same reason: they are earned by the library recording views
+            # and orders, not claimed by whoever posts.
+            'source', 'external_id',
+            'view_count', 'order_count', 'popularity', 'is_favourite',
         ]
 
     def get_designer_name(self, asset):

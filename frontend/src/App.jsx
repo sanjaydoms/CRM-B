@@ -8263,7 +8263,7 @@ function App() {
                 person stitching it through no screen at all. The notes box
                 lives here because the endpoint that writes it had nowhere to be
                 called from until the board was on screen. */}
-            {stageDesignBrief && stageDesignBrief.design && (
+            {stageDesignBrief && (stageDesignBrief.design || stageDesignBrief.selected) && (
               <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
                 <div style={{ fontWeight: 700, marginBottom: '8px' }}>Approved design</div>
                 <div style={{ display: 'flex', gap: '12px' }}>

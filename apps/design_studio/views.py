@@ -421,6 +421,22 @@ class DesignerViewSet(viewsets.ModelViewSet):
     serializer_class = DesignerSerializer
     permission_classes = [DesignStudioPermission]
 
+    def perform_destroy(self, instance):
+        """Removing a designer must not leave a live login behind.
+
+        Designer.user is SET_NULL, so deleting the row detached the account and
+        left it with no profile of any kind -- and resolve_user_role answers
+        OWNER for exactly that, so a removed designer's login, password
+        unchanged and token still valid, was promoted to boutique owner.
+        Deactivating is better than deleting the User: it keeps the audit trail
+        on everything they created, and an inactive account cannot authenticate.
+        """
+        user = instance.user
+        super().perform_destroy(instance)
+        if user is not None and user.is_active:
+            user.is_active = False
+            user.save(update_fields=['is_active'])
+
     def get_queryset(self):
         # design_count is read per row by the serializer; annotate it once here
         # so a list of designers is one query rather than one per designer.
@@ -450,14 +466,42 @@ class DesignerViewSet(viewsets.ModelViewSet):
                 {'detail': f'{designer.name} already has a login.'},
                 status=status.HTTP_400_BAD_REQUEST)
 
-        email = request.data.get('email') or designer.email
+        # Normalised before any lookup, the same way TailorViewSet does it.
+        # This matched a raw address exactly, so granting a login on an
+        # address that already existed in another casing missed it, minted a
+        # SECOND User, and left the designer unable to sign in under any
+        # spelling -- while the roster showed a green "Has a login" and the
+        # owner had been told to hand over the bootstrap password.
+        email = (request.data.get('email') or designer.email or '').strip().lower()
         if not email:
             return Response({'email': 'An email address is required.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        user = User.objects.filter(email=email).first()
+        user = User.objects.filter(email__iexact=email).first()
+
+        # Never attach a designer profile to the boutique owner or to floor
+        # staff. resolve_user_role answers a Designer profile before it falls
+        # through to OWNER, so granting a login on the owner's own address made
+        # the owner a Designer -- permanently, because every screen that could
+        # undo it is then refused to them. On a Master's or Tailor's address it
+        # is quieter but still wrong: the roster prints a password that is not
+        # that account's.
+        if user is not None:
+            from django.db import connection
+            tenant_owner = (getattr(connection.tenant, 'owner_email', '') or '').lower()
+            if tenant_owner and (user.email or '').lower() == tenant_owner:
+                return Response(
+                    {'email': 'That address belongs to the boutique owner. '
+                              'Use a separate address for this designer.'},
+                    status=status.HTTP_400_BAD_REQUEST)
+            if getattr(user, 'tailor_profile', None) is not None:
+                return Response(
+                    {'email': f'That address already belongs to {user.tailor_profile.name} '
+                              f'({user.tailor_profile.role}). Use a separate address.'},
+                    status=status.HTTP_400_BAD_REQUEST)
+
         if user is None:
-            username = email.split('@')[0]
+            username = email.split('@')[0].lower()
             original, counter = username, 1
             while User.objects.filter(username=username).exists():
                 username = f"{original}{counter}"
@@ -521,11 +565,31 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
         order_id = self.request.query_params.get('order_id')
         if order_id:
             queryset = queryset.filter(order__order_id=order_id)
+
+        # Boards for orders this caller may see. visible_boards narrows by
+        # STATUS -- draft, approved -- and says nothing about WHOSE order it is,
+        # so an approved board for any customer in the boutique reached every
+        # tailor, complete with the customer's name and the order id. Chaining
+        # visible_orders is the same rule OrderViewSet and DashboardView apply,
+        # for the reason core/permissions.py states outright. Boards with no
+        # order yet are still in-flight deliberation and stay on the owner path
+        # that visible_boards already governs.
+        from core.permissions import visible_orders
+        from crm_api.models import Order
+        if resolve_user_role(self.request.user) != OWNER:
+            queryset = queryset.filter(
+                Q(order__isnull=True)
+                | Q(order__in=visible_orders(Order.objects.all(), self.request.user)))
         return visible_boards(queryset, self.request.user)
 
     def get_serializer_class(self):
-        # A tailor gets the production brief, not the whole deliberation.
-        if resolve_user_role(self.request.user) == 'Tailor':
+        # The production brief, not the whole deliberation -- for anyone on the
+        # floor, not just the one role string 'Tailor'. Only TailorBriefSerializer
+        # emits the `design` key the stage modal renders the brief from, so a
+        # Master -- the ONLY non-Owner the API lets write production notes --
+        # never saw the box they alone are permitted to fill in.
+        if (getattr(self.request.user, 'tailor_profile', None) is not None
+                and resolve_user_role(self.request.user) != OWNER):
             return TailorBriefSerializer
         return DesignBoardSerializer
 

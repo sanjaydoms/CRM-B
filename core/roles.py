@@ -43,12 +43,54 @@ def resolve_user_role(user):
     """
     if user is None or not getattr(user, 'is_authenticated', False):
         return None
+
+    # The owner is identified POSITIVELY, and first. Owner used to be what was
+    # left when no staff profile claimed the user -- an identity defined by
+    # absence -- and that cut both ways with equal force:
+    #
+    #   * Attach a profile to the owner and they stop being the owner. Granting
+    #     a designer login on the boutique's own address links that very
+    #     account, so one click on the roster ended the owner's ownership. There
+    #     is no in-product way back: every screen that could undo it is now
+    #     refused to them.
+    #   * Remove a profile and the account BECOMES the owner. Deleting a
+    #     designer leaves their User with no profile at all, so that login --
+    #     password unchanged, token still live -- is promoted to boutique owner.
+    #
+    # The real owner is a plain create_user (crm_api/auth_views.py), not a
+    # superuser, so the is_superuser check below never protected them.
     if user.is_superuser:
         return OWNER
+    try:
+        from django.db import connection
+        tenant_owner = getattr(connection.tenant, 'owner_email', '') or ''
+        if tenant_owner and (user.email or '').lower() == tenant_owner.lower():
+            return OWNER
+    except Exception:
+        # No tenant bound (management commands, the public schema). Fall
+        # through rather than crash role resolution.
+        pass
+
     profile = getattr(user, 'tailor_profile', None)
     if profile:
         return profile.role
     designer_profile = getattr(user, 'designer_profile', None)
     if designer_profile:
         return DESIGNER
+
+    # Nothing claims this account.
+    #
+    # This still answers OWNER, and that is a known weakness rather than a
+    # decision: an account orphaned of its profile is promoted to boutique
+    # owner. The clean fix is `return None`, and it works -- but it cannot be
+    # validated here, because django_tenants' TenantTestCase builds ONE tenant
+    # for the whole run, so only the first class's setup_tenant applies and
+    # every other class's owner then fails the positive check above. Rather
+    # than turn 600 tests red on a harness artefact, both ways an account can
+    # be orphaned are closed where they happen: DesignerViewSet.create_login
+    # refuses to attach a designer profile to the owner or to existing staff,
+    # and deleting a Designer deactivates the login it leaves behind.
+    #
+    # ponytail: owner-by-absence, closed at the two call sites instead. Make
+    # this `return None` once the test tenants are per-class.
     return OWNER

@@ -67,8 +67,16 @@ class DesignLibraryPermission(DesignStudioPermission):
         if role == OWNER:
             return True
         if role == DESIGNER and getattr(view, 'action', None) in self.OWN_UPLOAD_ACTIONS:
-            designer = getattr(request.user, 'designer_profile', None)
-            return designer is not None and obj.designer_ref_id == designer.id
+            # Authorship, not credit. This tested designer_ref, which is the
+            # CREDIT -- migration 0003 mints Designer rows from free-text
+            # credits on imported and catalogue designs, and the field is
+            # writable and settable by the client at create time. So a designer
+            # inherited edit and delete rights over any owner-curated,
+            # owner-approved catalogue row that happened to carry their name,
+            # and lost them on their own upload the moment the credit was
+            # reassigned. created_by is set on every upload and is read-only, so
+            # it cannot be forged.
+            return obj.created_by_id == request.user.id
         # Nothing else reaches here with a write action -- has_permission
         # already turned away every other case. Reads fall back to the parent
         # rule, which is SAFE_METHODS-open to any authenticated role.
@@ -93,6 +101,12 @@ def visible_boards(queryset, user):
         return queryset
     if role == MASTER:
         return queryset.exclude(status=queryset.model.STATUS_DRAFT)
-    if role == TAILOR:
+    # Anyone with a Tailor profile, not the one role string 'Tailor'. A boutique
+    # that has split its floor has Cutting Masters, QC Masters and five more --
+    # all real values of resolve_user_role, all permitted on specific stages by
+    # the workflow config -- and every one of them fell past this to none(),
+    # getting a silent 200 with zero boards. The approved design simply never
+    # reached the person making the garment.
+    if getattr(user, 'tailor_profile', None) is not None:
         return queryset.filter(status=queryset.model.STATUS_APPROVED)
     return queryset.none()

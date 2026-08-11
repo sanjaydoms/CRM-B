@@ -1,5 +1,5 @@
 from django.db.models import Prefetch
-from rest_framework import status, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -27,8 +27,19 @@ def _full_template_queryset():
 
 
 class GarmentTemplateViewSet(viewsets.ReadOnlyModelViewSet):
-    """Templates are read-only over the API; they are edited in the admin."""
+    """Templates are read-only over the API; they are edited in the admin.
 
+    Readable by anyone signed in. This viewset declared no permission policy at
+    all, so it silently inherited RolePermission -- whose DESIGNER branch
+    returns False before the safe-method check is ever reached, because it was
+    written for customers, orders and money. Templates are neither: they are
+    the garment vocabulary the design upload form is built from, and refusing
+    them left a designer's Garment dropdown permanently empty, so every design
+    they uploaded landed with template=null, garment_type='' and spec_tags={} --
+    invisible to the very filters the library ships with.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'key'
     serializer_class = GarmentTemplateSerializer
 

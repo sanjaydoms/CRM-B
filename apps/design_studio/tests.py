@@ -1401,3 +1401,108 @@ class UploadAttributionTests(StudioTestCase):
 
         self.assertEqual(
             DesignAsset.objects.get(title='Credited To Ravi').designer_ref, ravi)
+
+
+class DesignerBoundaryTests(StudioTestCase):
+    """What a designer may write, and what must stay out of their hands."""
+
+    def _designer(self, name="Priya", email="priya@studio.test"):
+        user = User.objects.create_user(username=email, email=email, password="pass12345")
+        designer = Designer.objects.create(name=name, email=email, user=user)
+        client = APIClient()
+        client.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
+        client.force_authenticate(user=user)
+        return client, designer, user
+
+    def _upload(self, client, title):
+        return client.post('/api/design-studio/assets/', {
+            'title': title, 'garment_type': 'Lehenga',
+            'image_url': 'https://example.test/u.jpg',
+        }, format='multipart')
+
+    def test_a_designer_cannot_patch_their_upload_into_the_catalogue(self):
+        """`source` decides what the customer-facing gallery contains, and it
+        was writable -- so an unreviewed upload could be PATCHed straight past
+        the approval queue with its status still PENDING.
+        """
+        client, _, _ = self._designer()
+        asset_id = self._upload(client, 'Sneaky').data['id']
+
+        client.patch(f'/api/design-studio/assets/{asset_id}/',
+                     {'source': DesignAsset.SOURCE_CATALOGUE}, format='json')
+
+        self.assertEqual(DesignAsset.objects.get(pk=asset_id).source, DesignAsset.SOURCE_UPLOAD)
+
+    def test_ownership_follows_the_uploader_not_the_credit(self):
+        """designer_ref is the CREDIT -- migration 0003 mints it from free text
+        on catalogue rows. Keying edit rights on it handed a designer delete
+        rights over owner-curated designs that merely carried their name.
+        """
+        client, designer, _ = self._designer()
+        curated = DesignAsset.objects.create(
+            title="Owner's catalogue piece", garment_type='Lehenga',
+            source=DesignAsset.SOURCE_CATALOGUE,
+            image_url='https://example.test/c.jpg',
+            designer_ref=designer)          # credited to them, not theirs
+
+        response = client.delete(f'/api/design-studio/assets/{curated.id}/')
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(DesignAsset.objects.filter(pk=curated.id).exists())
+
+    def test_a_designer_still_owns_what_they_uploaded(self):
+        client, _, _ = self._designer()
+        asset_id = self._upload(client, 'Mine').data['id']
+
+        self.assertEqual(
+            client.patch(f'/api/design-studio/assets/{asset_id}/',
+                         {'title': 'Mine, retitled'}, format='json').status_code, 200)
+        self.assertEqual(
+            client.delete(f'/api/design-studio/assets/{asset_id}/').status_code, 204)
+
+    def test_the_roster_does_not_hand_out_colleagues_login_addresses(self):
+        client, _, _ = self._designer()
+        Designer.objects.create(name="Ravi", email="ravi@studio.test")
+
+        rows = client.get('/api/design-studio/designers/').data
+
+        self.assertTrue(rows)
+        self.assertNotIn('email', rows[0])
+        self.assertNotIn('has_login', rows[0])
+        self.assertIn('email', self.client.get('/api/design-studio/designers/').data[0])
+
+    def test_a_designer_can_read_the_garment_templates_their_form_needs(self):
+        """The upload form's Garment dropdown is built from these. The viewset
+        declared no permission policy and inherited the rule written for
+        customers and money, which refuses a designer outright -- so every
+        design they uploaded had no template and no spec tags.
+        """
+        client, _, _ = self._designer()
+
+        self.assertEqual(client.get('/api/catalog/templates/').status_code, 200)
+
+    def test_granting_a_login_on_the_owners_address_is_refused(self):
+        """resolve_user_role answers a Designer profile before it falls through
+        to OWNER, so this made the boutique owner a Designer -- permanently,
+        because every screen that could undo it is then refused to them.
+        """
+        designer = Designer.objects.create(name="Trap")
+
+        response = self.client.post(
+            f'/api/design-studio/designers/{designer.id}/create-login/',
+            {'email': 'owner@studio.test'}, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        designer.refresh_from_db()
+        self.assertIsNone(designer.user_id)
+
+    def test_removing_a_designer_does_not_leave_an_owner_behind(self):
+        """Designer.user is SET_NULL, so the login was detached and left with no
+        profile at all -- which resolve_user_role answers as OWNER.
+        """
+        _, designer, user = self._designer(name="Leaving", email="leaving@studio.test")
+
+        self.client.delete(f'/api/design-studio/designers/{designer.id}/')
+
+        user.refresh_from_db()
+        self.assertFalse(user.is_active)

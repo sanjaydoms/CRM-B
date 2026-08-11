@@ -137,7 +137,13 @@ class LibraryProvider(DesignSourceProvider):
                 title=asset.title,
                 image_url=asset.image_url,
                 source_url=asset.source_url,
-                designer=asset.designer,
+                # The linked credit wins over the legacy free-text column.
+                # Every design uploaded through the product sets designer_ref
+                # and leaves `designer` empty -- the upload form has a picker,
+                # not a text box -- so reading only the old column showed the
+                # designer's own work uncredited in the gallery the owner picks
+                # from, which is precisely where attribution matters.
+                designer=(asset.designer_ref.name if asset.designer_ref_id else asset.designer),
                 garment_type=asset.garment_type,
                 occasion=asset.occasion,
                 attributes=dict(asset.attributes or {}),
