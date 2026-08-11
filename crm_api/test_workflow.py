@@ -1095,3 +1095,195 @@ class MasterJourneyTests(WorkflowTestBase):
 
         order.refresh_from_db()
         self.assertEqual(order.order_status, "Delivered")
+
+
+class StaffAccountTests(WorkflowTestBase):
+    """Creating and editing staff logins. Both defects here made a Master's
+    account unusable or, worse, over-privileged."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        token, _ = Token.objects.get_or_create(user=self.owner)
+        self.client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+
+    def test_a_capitalised_email_still_produces_a_usable_login(self):
+        """LoginView lowercases the whole input and then matched exactly, while
+        the staff bootstrap stored the address as the owner typed it. A Master
+        entered as Rohit.Mehra@... got an account that looked correct in Manage
+        Tailors and could never be signed in to, with valid credentials.
+        """
+        response = self.client.post('/api/tailors/', {
+            'name': 'Kavya Rao', 'specialty': 'Bridal', 'role': 'Master',
+            'email': 'Kavya.Rao@Studio.Test',
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+
+        tailor = Tailor.objects.get(id=response.data['id'])
+        self.assertEqual(tailor.email, 'kavya.rao@studio.test')
+        self.assertEqual(tailor.user.username, tailor.user.username.lower())
+
+        login = APIClient().post('/api/auth/login/', {
+            'username': 'Kavya.Rao@Studio.Test', 'password': 'TailorSecure2026!',
+        }, format='json')
+        self.assertEqual(login.status_code, 200, login.data)
+        self.assertEqual(login.data['user']['role'], 'Master')
+
+    def test_changing_a_masters_email_keeps_their_own_login(self):
+        """_ensure_user_account looked the account up by email, so changing the
+        address created a SECOND user and left the Master's real login attached
+        to no Tailor profile -- and resolve_user_role treats a profile-less
+        account as the OWNER, so that session silently gained the run of the
+        boutique.
+        """
+        created = self.client.post('/api/tailors/', {
+            'name': 'Meena', 'specialty': 'Bridal', 'role': 'Master',
+            'email': 'meena@studio.test',
+        }, format='json')
+        tailor = Tailor.objects.get(id=created.data['id'])
+        original_user_id = tailor.user_id
+        before = User.objects.count()
+
+        self.client.patch(f"/api/tailors/{tailor.id}/",
+                          {'email': 'meena.new@studio.test'}, format='json')
+
+        tailor.refresh_from_db()
+        self.assertEqual(tailor.user_id, original_user_id, "login was orphaned")
+        self.assertEqual(User.objects.count(), before, "a duplicate account was created")
+        tailor.user.refresh_from_db()
+        self.assertEqual(tailor.user.email, 'meena.new@studio.test')
+        # The account still resolves as a Master, not as the boutique owner.
+        from core.roles import resolve_user_role
+        self.assertEqual(resolve_user_role(tailor.user), 'Master')
+
+
+class MasterVerificationChecklistTests(WorkflowTestBase):
+    """The one feature built exclusively for a Master."""
+
+    def _client_for(self, user):
+        client = APIClient()
+        token, _ = Token.objects.get_or_create(user=user)
+        client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        return client
+
+    def test_a_master_can_save_the_checklist(self):
+        """It was saved with a plain PATCH of the order, which DRF calls
+        partial_update -- an action supervisors are not granted -- so every
+        checkbox 403'd for the only role allowed to see the checklist.
+        """
+        order = self.make_order()
+        url = reverse("order-master-verification", args=[order.id])
+
+        response = self._client_for(self.master_user).patch(
+            url, {'master_verification': {'cutting': True, 'pressing': False}},
+            format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.master_verification, {'cutting': True, 'pressing': False})
+
+    def test_the_checklist_route_cannot_be_used_to_touch_money(self):
+        """The narrow action exists precisely so partial_update stays shut --
+        that same action carries payment_status and amount_paid.
+        """
+        order = self.make_order(payment_status='Pending')
+        url = reverse("order-master-verification", args=[order.id])
+
+        self._client_for(self.master_user).patch(
+            url, {'master_verification': {'cutting': True},
+                  'amount_paid': '99999.00', 'payment_status': 'Paid'},
+            format='json')
+
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, 'Pending')
+        self.assertEqual(order.amount_paid, Decimal('0.00'))
+
+    def test_a_plain_tailor_cannot_save_the_masters_checklist(self):
+        order = self.make_order()
+        url = reverse("order-master-verification", args=[order.id])
+
+        response = self._client_for(self.tailor_user).patch(
+            url, {'master_verification': {'cutting': True}}, format='json')
+
+        self.assertEqual(response.status_code, 403)
+
+
+class AssignStageTests(WorkflowTestBase):
+    """Handing work out -- the supervisor action that is a Master's job."""
+
+    def _client_for(self, user):
+        client = APIClient()
+        token, _ = Token.objects.get_or_create(user=user)
+        client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        return client
+
+    def test_an_assigned_tailor_can_start_stitching_without_order_tailor(self):
+        """The stitching guard read order.tailor, but assign_stage -- the only
+        assignment write a Master is permitted -- sets stage.assigned_to.
+        Setting order.tailor needs a PATCH of the order, which is Owner-only,
+        so a Master's assignment was accepted and then dead-ended.
+        """
+        order = self.make_order(tailor=False)
+        self._client_for(self.master_user).post(
+            reverse("order-assign-stage", args=[order.id]),
+            {'stage_key': 'stitching_in_progress', 'tailor_id': self.tailor.id},
+            format='json')
+
+        OrderService.transition_order_stage(
+            order=order, stage_key='stitching_in_progress',
+            new_status='IN_PROGRESS', user=self.tailor_user)
+
+        self.assertEqual(self.stage(order, 'stitching_in_progress').status, 'IN_PROGRESS')
+
+    def test_assigning_tells_the_person_and_leaves_a_record(self):
+        """Every other order event notifies and writes an activity row.
+        OrderActivity's own field comment lists 'ASSIGNMENT' as an expected
+        event_type that nothing ever wrote.
+        """
+        order = self.make_order()
+        before = Notification.objects.count()
+
+        self._client_for(self.master_user).post(
+            reverse("order-assign-stage", args=[order.id]),
+            {'stage_key': 'stitching_completed', 'tailor_id': self.tailor.id}, format='json')
+
+        self.assertEqual(Notification.objects.count(), before + 1)
+        self.assertTrue(order.activities.filter(event_type='ASSIGNMENT').exists())
+
+    def test_the_production_task_follows_the_assignment(self):
+        from apps.production.models import ProductionTask
+
+        order = self.make_order()
+        self._client_for(self.master_user).post(
+            reverse("order-assign-stage", args=[order.id]),
+            {'stage_key': 'stitching_in_progress', 'tailor_id': self.tailor.id}, format='json')
+
+        task = ProductionTask.objects.get(order=order, stage_key='stitching_in_progress')
+        self.assertEqual(task.assigned_to, self.tailor)
+
+    def test_a_non_numeric_tailor_id_is_a_400_not_a_500(self):
+        order = self.make_order()
+
+        response = self._client_for(self.master_user).post(
+            reverse("order-assign-stage", args=[order.id]),
+            {'stage_key': 'stitching_completed', 'tailor_id': 'not-a-number'}, format='json')
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_plain_tailor_cannot_hand_out_work(self):
+        order = self.make_order()
+
+        response = self._client_for(self.tailor_user).post(
+            reverse("order-assign-stage", args=[order.id]),
+            {'stage_key': 'stitching_completed', 'tailor_id': self.tailor.id}, format='json')
+
+        self.assertEqual(response.status_code, 403)

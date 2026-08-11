@@ -183,10 +183,14 @@ class LoginView(views.APIView):
         with schema_context('public'):
             tenant = BoutiqueTenant.objects.filter(owner_email=username_or_email).first()
             if not tenant:
-                # Search other schemas for a user with this email/username
+                # Search other schemas for a user with this email/username.
+                # iexact, not exact: the input is lowercased above, and staff
+                # accounts predating that normalization still carry whatever
+                # casing the owner typed. A case-sensitive match made those
+                # logins permanently unreachable with valid credentials.
                 for t in BoutiqueTenant.objects.exclude(schema_name='public'):
                     with schema_context(t.schema_name):
-                        if User.objects.filter(email=username_or_email).exists() or User.objects.filter(username=username_or_email).exists():
+                        if User.objects.filter(email__iexact=username_or_email).exists() or User.objects.filter(username__iexact=username_or_email).exists():
                             tenant = t
                             break
 
@@ -201,10 +205,12 @@ class LoginView(views.APIView):
             connection.set_tenant(tenant)
 
             username_to_auth = username_or_email
-            if '@' in username_or_email:
-                user_obj = User.objects.filter(email=username_or_email).first()
-                if user_obj:
-                    username_to_auth = user_obj.username
+            user_obj = (User.objects.filter(email__iexact=username_or_email).first()
+                        or User.objects.filter(username__iexact=username_or_email).first())
+            if user_obj:
+                # authenticate() matches username exactly, so hand it the stored
+                # spelling rather than the lowercased input.
+                username_to_auth = user_obj.username
 
             user = authenticate(username=username_to_auth, password=password)
             if not user:

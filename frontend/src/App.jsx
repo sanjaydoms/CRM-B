@@ -33,6 +33,12 @@ const ScreenLoading = () => (
 );
 import { splitSpec, validateSpec } from './services/templates';
 
+// Mirrors core/permissions.py SUPERVISOR_ROLES. Roles that run the floor and
+// may hand work to someone else. A list rather than a bare === 'Master' check
+// so a boutique that splits its floor into specialists can be added in one
+// place instead of hunting every comparison.
+const SUPERVISOR_ROLES = ['Master'];
+
 // Mirrors Appointment.TYPE_CHOICES in apps/scheduling/models.py.
 const APPOINTMENT_TYPE_LABELS = {
   CONSULTATION: 'Design Consultation',
@@ -2453,7 +2459,7 @@ function App() {
                                               [item.key]: e.target.checked
                                             };
                                             try {
-                                              await api.updateOrder(order.id, { master_verification: updatedVerification });
+                                              await api.saveMasterVerification(order.id, updatedVerification);
                                               fetchDashboardAndConfig();
                                             } catch (err) {
                                               alert("Failed to update verification check: " + err.message);
@@ -3673,7 +3679,7 @@ function App() {
                                             [item.key]: e.target.checked
                                           };
                                           try {
-                                            await api.updateOrder(order.id, { master_verification: updatedVerification });
+                                            await api.saveMasterVerification(order.id, updatedVerification);
                                             fetchDashboardAndConfig();
                                           } catch (err) {
                                             alert("Failed to update verification check: " + err.message);
@@ -8323,18 +8329,56 @@ function App() {
                 Manage Stage Transition
               </h4>
 
-              {/* Performer Assignment Dropdown */}
-              {(!currentUser.role || currentUser.role === 'Owner' || currentUser.role === 'Master') && (
+              {/* Hand this stage to someone, ahead of the work starting.
+                  assign_stage is in SUPERVISOR_ORDER_ACTIONS specifically so a
+                  Master can delegate -- "handing work to someone else is a
+                  supervisor's call" -- and the API honours it, but the only
+                  Assign control in the product was gated to Owner AND lived on
+                  the overview tab, which a Master's nav does not contain and
+                  login never routes them to. The capability was granted and
+                  unreachable. Here it sits on the screen a Master actually
+                  works from. */}
+              {selectedStageObj && (!currentUser.role || currentUser.role === 'Owner'
+                || SUPERVISOR_ROLES.includes(currentUser.role)) && (
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Assign Performer (Staff/Tailor)</label>
-                  <select 
+                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                    Assign this stage to
+                  </label>
+                  <select
+                    className="form-control"
+                    style={{ fontSize: '12px', padding: '6px' }}
+                    value={selectedStageObj.assigned_to || ''}
+                    disabled={assigningStageKey === selectedStageObj.stage_key}
+                    onChange={(e) => handleAssignStage(
+                      activeReviewOrder.id, selectedStageObj.stage_key, e.target.value)}
+                  >
+                    <option value="">Unassigned</option>
+                    {eligibleStaffForStage(selectedStageObj.stage_key).map(t => (
+                      <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Who actually did the work, recorded with the transition. This
+                  is a different question from who it was assigned to, and it
+                  used to offer every member of staff regardless of whether the
+                  stage's role list permits them -- so it wrote a pairing that
+                  assign-stage refuses with a 400. */}
+              {(!currentUser.role || currentUser.role === 'Owner'
+                || SUPERVISOR_ROLES.includes(currentUser.role)) && (
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Record who performed this</label>
+                  <select
                     className="form-control"
                     style={{ fontSize: '12px', padding: '6px' }}
                     value={selectedPerformerId}
                     onChange={(e) => setSelectedPerformerId(e.target.value)}
                   >
                     <option value="">-- Select Tailor / Master --</option>
-                    {tailors.map(t => (
+                    {(selectedStageObj
+                      ? eligibleStaffForStage(selectedStageObj.stage_key)
+                      : tailors).map(t => (
                       <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
                     ))}
                   </select>

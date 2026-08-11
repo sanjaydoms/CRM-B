@@ -317,7 +317,15 @@ class OrderService:
                 raise ValueError('Cannot deliver order before Master Quality Check is completed.')
 
         if stage_key == 'stitching_in_progress' and new_status == 'IN_PROGRESS':
-            if not order.tailor:
+            # Two fields answer "who is stitching this": order.tailor, set when
+            # the order is taken, and stage.assigned_to, set by assign_stage --
+            # which is the ONLY assignment write a Master is permitted, since
+            # setting order.tailor needs a PATCH of the order and that is
+            # Owner-only. Reading just order.tailor meant a Master could hand
+            # the stitching to a tailor, see the assignment recorded correctly,
+            # and have that tailor refused when they tried to start: the order
+            # was stuck until the Owner intervened.
+            if not order.tailor and not order_stage.assigned_to:
                 raise ValueError('Cannot start stitching. No tailor is assigned to this order.')
 
         if stage_key == 'assigned_to_tailor' and new_status == 'COMPLETED':

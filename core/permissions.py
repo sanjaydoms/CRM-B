@@ -53,6 +53,13 @@ class RolePermission(permissions.BasePermission):
     SUPERVISOR_ORDER_ACTIONS = frozenset({
         'assign_stage', 'upload_garment_image', 'delete_garment_image',
         'publish_garment_images',
+        # The Master's production checklist. It has its own narrow action
+        # precisely so it can live here: the checklist used to be saved with a
+        # plain PATCH of the order, which DRF calls 'partial_update', and that
+        # action also carries payment_status and amount_paid. Admitting it
+        # wholesale would have opened the money fields to a supervisor to make
+        # a row of tick boxes work.
+        'master_verification',
     })
 
     def has_permission(self, request, view):

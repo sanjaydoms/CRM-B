@@ -431,8 +431,29 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(orderData),
     });
-    if (!res.ok) throw new Error('Failed to update order');
+    // Read the body before throwing, like updateOrderStatus does. This threw a
+    // fixed string, so the Master's checklist reported "Failed to update
+    // order" for what was really a 403 naming the permission.
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.error || detail.detail || 'Failed to update order');
+    }
     return res.json();
+  },
+
+  // The Master's production checklist has its own narrow route: a plain PATCH
+  // of the order resolves to DRF's 'partial_update', which supervisors are not
+  // granted -- and must not be, because that same action carries the money
+  // fields.
+  async saveMasterVerification(orderId, checks) {
+    const res = await fetch(`${BASE_URL}/orders/${orderId}/master-verification/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ master_verification: checks }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.detail || 'Failed to save the checklist');
+    return data;
   },
 
   // Customer messages. There is no WhatsApp Business integration: these are

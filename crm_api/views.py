@@ -234,23 +234,38 @@ class TailorViewSet(viewsets.ModelViewSet):
 
     def _ensure_user_account(self, tailor):
         if tailor.email:
-            # Check if user already exists
-            user = User.objects.filter(email=tailor.email).first()
+            # Normalize on the way in. LoginView lowercases the whole input
+            # before matching, and these lookups are case-sensitive, so a
+            # Master whose address the owner typed with any capital letter got
+            # an account that looked correct in Manage Tailors and could never
+            # be signed in to -- the credentials were valid and nothing matched
+            # them.
+            tailor.email = tailor.email.strip().lower()
+
+            # Repoint the account this staff member ALREADY has, rather than
+            # hunting for one under the new address. Looking up by email meant
+            # that changing a Master's email created a second User and left the
+            # first -- their real login, with a live token and unchanged
+            # password -- attached to no Tailor profile at all. resolve_user_role
+            # then falls through to OWNER for a profile-less account, so that
+            # session silently became the boutique owner: the OwnerOnly wall
+            # opened and their notifications switched to the owner's feed.
+            if tailor.user_id:
+                existing = tailor.user
+                if existing.email != tailor.email:
+                    existing.email = tailor.email
+                    existing.username = self._unique_username(
+                        tailor.email.split('@')[0], exclude_pk=existing.pk)
+                    existing.save(update_fields=['email', 'username'])
+                return
+
+            user = User.objects.filter(email__iexact=tailor.email).first()
             if not user:
-                # Create user
-                username = tailor.email.split('@')[0]
-                # Ensure username is unique
-                original_username = username
-                counter = 1
-                while User.objects.filter(username=username).exists():
-                    username = f"{original_username}{counter}"
-                    counter += 1
-                
                 # Shared bootstrap password for staff accounts. Override with
                 # TAILOR_DEFAULT_PASSWORD; every tailor otherwise shares one
                 # credential that is visible in this repository.
                 user = User.objects.create_user(
-                    username=username,
+                    username=self._unique_username(tailor.email.split('@')[0]),
                     email=tailor.email,
                     password=os.environ.get('TAILOR_DEFAULT_PASSWORD', 'TailorSecure2026!'),
                     first_name=tailor.name
@@ -259,6 +274,17 @@ class TailorViewSet(viewsets.ModelViewSet):
             if tailor.user != user:
                 tailor.user = user
                 tailor.save()
+
+    @staticmethod
+    def _unique_username(base, exclude_pk=None):
+        """A free username derived from `base`, lowercased to match login."""
+        base = (base or 'staff').strip().lower() or 'staff'
+        candidate, counter = base, 1
+        taken = User.objects.exclude(pk=exclude_pk) if exclude_pk else User.objects.all()
+        while taken.filter(username=candidate).exists():
+            candidate = f"{base}{counter}"
+            counter += 1
+        return candidate
 
 class BoutiqueFabricViewSet(viewsets.ModelViewSet):
     queryset = BoutiqueFabric.objects.all()
@@ -369,6 +395,33 @@ class OrderViewSet(viewsets.ModelViewSet):
         'Ready for Dispatch': 'ready_for_delivery',
         'Delivered': 'delivered',
     }
+
+    @action(detail=True, methods=['PATCH'], url_path='master-verification')
+    def master_verification(self, request, pk=None):
+        """The Master's production checklist.
+
+        It needs its own route because the checklist is the ONE feature built
+        exclusively for a Master -- rendered on both their screens behind
+        `currentUser.role === 'Master'` -- and it was saved with a plain PATCH
+        of the order. DRF resolves that to `partial_update`, which is in
+        neither STAFF_ORDER_ACTIONS nor SUPERVISOR_ORDER_ACTIONS, so every
+        checkbox 403'd for the only role allowed to see it.
+
+        Widening `partial_update` for supervisors was the tempting fix and the
+        wrong one: it is the same action that carries payment_status,
+        amount_paid and advance_paid, so it would have handed a Master the
+        money fields to fix a checklist. A narrow action writes exactly the one
+        JSON column and nothing else.
+        """
+        order = self.get_object()
+        checks = request.data.get('master_verification')
+        if not isinstance(checks, dict):
+            return Response({'error': 'master_verification must be an object.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        # Booleans only: this is a checklist, not a free-form store on the order.
+        order.master_verification = {str(k): bool(v) for k, v in checks.items()}
+        order.save(update_fields=['master_verification'])
+        return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['PATCH'], url_path='update-status')
     def update_status(self, request, pk=None):
@@ -648,6 +701,16 @@ class OrderViewSet(viewsets.ModelViewSet):
             stage.save(update_fields=['assigned_to'])
             return Response(OrderStageSerializer(stage).data, status=status.HTTP_200_OK)
 
+        # int() first: id is an AutoField, so a non-numeric value reaches the
+        # database as a bad cast and surfaces as a 500 rather than the 400 it
+        # is. The same guard is already written for message_id further up this
+        # file; assign_stage never got it.
+        try:
+            tailor_id = int(tailor_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'tailor_id must be a number.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         tailor = Tailor.objects.filter(id=tailor_id).first()
         if not tailor:
             return Response({'error': 'Staff member not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -664,6 +727,33 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         stage.assigned_to = tailor
         stage.save(update_fields=['assigned_to'])
+
+        # Tell the person, and leave a record. Every other meaningful order
+        # event does both -- creation notifies, every transition writes an
+        # OrderActivity -- and OrderActivity's own field comment lists
+        # 'ASSIGNMENT' as an expected event_type that nothing ever wrote. Being
+        # handed work is exactly the event a staff member needs to hear about.
+        Notification.objects.create(
+            recipient_role=tailor.role,
+            recipient_email=tailor.email or (tailor.user.email if tailor.user_id else ''),
+            title=f"New assignment on {order.order_id}",
+            message=f"You have been assigned {stage.stage_name} on order {order.order_id}.",
+        )
+        OrderActivity.objects.create(
+            order=order,
+            event_type='ASSIGNMENT',
+            user=request.user if request.user.is_authenticated else None,
+            metadata={'stage_key': stage_key, 'stage_name': stage.stage_name,
+                      'assigned_to': tailor.name, 'assigned_to_id': tailor.id},
+        )
+
+        # Keep the production queue naming the right person. transition_stage
+        # already moves the matching ProductionTask alongside its stage; an
+        # assignment left the task pointing at whoever the order was created
+        # with until somebody started the work.
+        from apps.production.models import ProductionTask
+        ProductionTask.objects.filter(order=order, stage_key=stage_key).update(assigned_to=tailor)
+
         return Response(OrderStageSerializer(stage).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['POST'], url_path='transition')
