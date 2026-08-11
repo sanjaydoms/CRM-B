@@ -1287,3 +1287,68 @@ class AssignStageTests(WorkflowTestBase):
             {'stage_key': 'stitching_completed', 'tailor_id': self.tailor.id}, format='json')
 
         self.assertEqual(response.status_code, 403)
+
+
+class UpdateStatusAuthorityTests(WorkflowTestBase):
+    """update_status is in STAFF_ORDER_ACTIONS so a tailor can drive their own
+    stages. Statuses that map to a stage are gated by that stage's role list.
+    The ones that map to nothing were gated by nothing at all."""
+
+    def _client_for(self, user):
+        client = APIClient()
+        token, _ = Token.objects.get_or_create(user=user)
+        client.credentials(
+            HTTP_AUTHORIZATION="Token " + token.key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name,
+        )
+        return client
+
+    def _set(self, user, order, value):
+        return self._client_for(user).patch(
+            reverse("order-update-status", args=[order.id]),
+            {"status": value}, format="json")
+
+    def test_a_tailor_cannot_tell_the_customer_the_order_shipped(self):
+        """'Shipped' maps to no stage, so it fell into the branch that writes
+        order_status directly and fires create_order_notifications -- the only
+        message carrying the courier name and tracking number. Any tailor could
+        send it.
+        """
+        order = self.make_order()
+
+        response = self._set(self.tailor_user, order, "Shipped")
+
+        self.assertEqual(response.status_code, 403)
+        order.refresh_from_db()
+        self.assertNotEqual(order.order_status, "Shipped")
+
+    def test_an_arbitrary_string_is_not_an_order_status(self):
+        """The endpoint stored whatever it was handed, so an order's status --
+        shown to the customer on the tracking page -- could be any text at all.
+        """
+        order = self.make_order()
+
+        response = self._set(self.owner, order, "Totally Made Up")
+
+        self.assertEqual(response.status_code, 400)
+        order.refresh_from_db()
+        self.assertNotEqual(order.order_status, "Totally Made Up")
+
+    def test_a_supervisor_can_still_move_a_stageless_status(self):
+        order = self.make_order()
+
+        response = self._set(self.master_user, order, "Stylist Review")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Stylist Review")
+
+    def test_a_tailor_can_still_drive_their_own_stage(self):
+        """The gate must not cost a tailor the thing update_status is in
+        STAFF_ORDER_ACTIONS for."""
+        order = self.make_order()
+
+        response = self._set(self.tailor_user, order, "Design & Creation")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self.stage(order, "stitching_completed").status, "COMPLETED")

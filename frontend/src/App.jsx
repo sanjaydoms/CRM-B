@@ -1568,6 +1568,24 @@ function App() {
     return fullName.includes(query) || (c.mobile_number || '').includes(query);
   });
 
+  // Is this order mine to work on? The same three-way test core/permissions.py
+  // visible_orders applies server-side: the order's tailor, its master, or a
+  // stage assigned to me.
+  //
+  // The stage clause is the one that was missing. assign_stage exists precisely
+  // so a supervisor can hand ONE stage to someone who is not the order's
+  // tailor, and visible_orders deliberately returns that order to them -- but
+  // this screen, which is the only screen a tailor has, threw it away and told
+  // them "No active orders are assigned to you at the moment." Work was handed
+  // out and the person was never told.
+  const isMyAssignment = (order) => {
+    const me = currentUser?.tailor_id;
+    if (!me) return false;
+    return order.master === me
+      || order.tailor === me
+      || (order.stages || []).some(s => s.assigned_to === me);
+  };
+
   // Opens the stage review panel for a given order and stage.
   const openStageReview = (order, stage) => {
     setActiveReviewStage(stage.stage_name);
@@ -2300,14 +2318,14 @@ function App() {
                     
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       {ordersList.filter(o => 
-                        currentUser.role === 'Master' ? o.master === currentUser.tailor_id : o.tailor === currentUser.tailor_id
+                        isMyAssignment(o)
                       ).length === 0 ? (
                         <p style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center', fontSize: '13px' }}>
                           No active orders are assigned to you at the moment.
                         </p>
                       ) : (
                         ordersList.filter(o => 
-                          currentUser.role === 'Master' ? o.master === currentUser.tailor_id : o.tailor === currentUser.tailor_id
+                          isMyAssignment(o)
                         ).map(order => (
                           <div key={order.id} style={{
                             background: 'rgba(0,0,0,0.01)',

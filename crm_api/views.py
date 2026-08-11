@@ -396,6 +396,14 @@ class OrderViewSet(viewsets.ModelViewSet):
         'Delivered': 'delivered',
     }
 
+    #: Every status this endpoint will accept. Mirrors Order.order_status's own
+    #: documented values and the dropdown the UI offers. Without it the endpoint
+    #: stored any string it was handed.
+    CLIENT_STATUSES = frozenset({
+        'Received', 'Confirmed', 'Stylist Review', 'Design & Creation',
+        'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered',
+    })
+
     @action(detail=True, methods=['PATCH'], url_path='master-verification')
     def master_verification(self, request, pk=None):
         """The Master's production checklist.
@@ -439,9 +447,32 @@ class OrderViewSet(viewsets.ModelViewSet):
         if not new_status:
             return Response({'error': 'no status provided'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # An allowlist, because this wrote whatever string it was given. A
+        # tailor could PATCH {'status': 'Totally Made Up'} and that became the
+        # order's status, on the customer's tracking page, with a customer
+        # notification behind it.
+        if new_status not in self.CLIENT_STATUSES:
+            return Response(
+                {'error': f"Unknown order status '{new_status}'.",
+                 'allowed': sorted(self.CLIENT_STATUSES)},
+                status=status.HTTP_400_BAD_REQUEST)
+
         stage_key = self.STATUS_TO_STAGE.get(new_status)
         if not stage_key:
-            # No stage maps to this status; record it without touching the workflow.
+            # No stage maps to this status, so there is no workflow rule to
+            # enforce -- which is exactly why this branch needs its own role
+            # check. update_status is in STAFF_ORDER_ACTIONS so that a tailor
+            # can drive their own stages, and every status that maps to a stage
+            # is gated by that stage's role list. The ones that map to nothing
+            # were gated by nothing at all: a tailor could set 'Shipped' and
+            # send the customer the courier-and-tracking message. Moving an
+            # order without doing the work is a supervisor's call.
+            role = resolve_user_role(request.user)
+            if role != OWNER and role not in SUPERVISOR_ROLES:
+                return Response(
+                    {'error': f"Role {role} is not authorized to set the order to "
+                              f"{new_status}."},
+                    status=status.HTTP_403_FORBIDDEN)
             if order.order_status != new_status:
                 order.order_status = new_status
                 order.save(update_fields=['order_status'])
