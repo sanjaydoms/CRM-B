@@ -516,8 +516,8 @@ function App() {
     password: ''
   });
   const [otpCode, setOtpCode] = useState('');
-  const [profileOccupation, setProfileOccupation] = useState('');
-  const [profileComm, setProfileComm] = useState('WhatsApp');
+  const [boutiqueName, setBoutiqueName] = useState('');
+  const [boutiqueAddress, setBoutiqueAddress] = useState('');
 
   // Customer/Order Wizard State
   const [currentStep, setCurrentStep] = useState(1);
@@ -774,6 +774,9 @@ function App() {
   const [stageReviewComments, setStageReviewComments] = useState('');
   const [stageReviewImage, setStageReviewImage] = useState(null);
   const [selectedStageObj, setSelectedStageObj] = useState(null);
+  const [stageDesignBrief, setStageDesignBrief] = useState(null);
+  const [productionNotesDraft, setProductionNotesDraft] = useState('');
+  const [savingProductionNotes, setSavingProductionNotes] = useState(false);
   const [selectedPerformerId, setSelectedPerformerId] = useState('');
   const [globalError, setGlobalError] = useState(null);
   // Names of the dashboard collections that failed to load, so the UI can say so
@@ -1120,8 +1123,8 @@ function App() {
         email_address: signupForm.email_address,
         mobile_number: signupForm.mobile_number,
         password: signupForm.password,
-        occupation: profileOccupation,
-        preferred_communication: profileComm
+        business_name: boutiqueName,
+        business_address: boutiqueAddress
       });
       setCurrentUser(res.user);
       setSignupStep(5);
@@ -1566,6 +1569,19 @@ function App() {
     setSelectedStageObj(stage);
     setStageReviewComments(stage.comments || '');
     setStageReviewImage(null);
+
+    // Fetch the approved design for this order. Best-effort: a board that does
+    // not exist is the normal case for an order placed without one, and must
+    // not stop the stage panel from opening.
+    setStageDesignBrief(null);
+    setProductionNotesDraft('');
+    api.getDesignBoards({ order_id: order.order_id })
+      .then((boards) => {
+        const brief = Array.isArray(boards) ? boards[0] : boards;
+        setStageDesignBrief(brief || null);
+        setProductionNotesDraft(brief?.design?.production_notes || '');
+      })
+      .catch(() => setStageDesignBrief(null));
   };
 
   // The directory list returns flat rows without orders or measurement history,
@@ -1985,32 +2001,38 @@ function App() {
 
             {signupStep === 3 && (
               <>
-                <h2 className="auth-title">Complete Profile</h2>
-                <p className="auth-subtitle">Tell us about your boutique role and communication channel.</p>
-                
+                <h2 className="auth-title">Your Boutique</h2>
+                <p className="auth-subtitle">This is what your customers see on invoices and messages.</p>
+
+                {/* This step used to ask for an occupation and a preferred
+                    communication channel. Neither was read by anything -- the
+                    signup view bound one of them and never mentioned it again
+                    -- while the two fields the product genuinely prints on
+                    every invoice, the boutique's name and address, were never
+                    asked for at all and fell back to "123 Atelier Way, Fashion
+                    District". Same step, same number of fields, now feeding
+                    BoutiqueSettings. */}
                 <div className="auth-form">
                   <div className="form-group">
-                    <label className="form-label">Occupation / Role</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. Master Stylist, Atelier Director"
+                    <label className="form-label">Boutique name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Aditi's Atelier"
                       className="form-control"
-                      value={profileOccupation}
-                      onChange={(e) => setProfileOccupation(e.target.value)}
+                      value={boutiqueName}
+                      onChange={(e) => setBoutiqueName(e.target.value)}
                     />
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Preferred Communication channel</label>
-                    <select 
+                    <label className="form-label">Boutique address</label>
+                    <input
+                      type="text"
+                      placeholder="Street, area, city, PIN"
                       className="form-control"
-                      value={profileComm}
-                      onChange={(e) => setProfileComm(e.target.value)}
-                    >
-                      <option value="WhatsApp">WhatsApp</option>
-                      <option value="Call">Phone Call</option>
-                      <option value="Email">Email</option>
-                    </select>
+                      value={boutiqueAddress}
+                      onChange={(e) => setBoutiqueAddress(e.target.value)}
+                    />
                   </div>
 
                   <button className="btn-primary" style={{ justifyContent: 'center' }} onClick={handleProfileSubmit}>
@@ -8161,6 +8183,61 @@ function App() {
                     <strong>{activeReviewOrder.special_instructions}</strong>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* The approved design, and the Master's note on how to make it.
+                GET /design-studio/boards/ has always served this and even swaps
+                in TailorBriefSerializer for a Tailor -- but api.getDesignBoards
+                had zero callers, so the design the owner approved reached the
+                person stitching it through no screen at all. The notes box
+                lives here because the endpoint that writes it had nowhere to be
+                called from until the board was on screen. */}
+            {stageDesignBrief && stageDesignBrief.design && (
+              <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
+                <div style={{ fontWeight: 700, marginBottom: '8px' }}>Approved design</div>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  {stageDesignBrief.design.image_url && (
+                    <img src={resolveMediaUrl(stageDesignBrief.design.image_url)} alt="Approved design"
+                         style={{ width: '84px', height: '110px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }} />
+                  )}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>{stageDesignBrief.design.title}</div>
+                    {stageDesignBrief.design.tailor_instructions && (
+                      <div style={{ marginTop: '4px', color: 'var(--text-secondary)' }}>
+                        {stageDesignBrief.design.tailor_instructions}
+                      </div>
+                    )}
+                    {stageDesignBrief.design.customer_notes && (
+                      <div style={{ marginTop: '4px', color: 'var(--text-secondary)' }}>
+                        Customer: {stageDesignBrief.design.customer_notes}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <label className="form-label" style={{ marginTop: '10px', display: 'block' }}>Production notes</label>
+                <textarea className="form-control" rows={2}
+                          placeholder="How this is to be made — cutting, finishing, anything the tailor needs."
+                          value={productionNotesDraft}
+                          onChange={(e) => setProductionNotesDraft(e.target.value)} />
+                <button className="btn-secondary" style={{ marginTop: '6px', padding: '5px 10px', fontSize: '11px' }}
+                        disabled={savingProductionNotes}
+                        onClick={async () => {
+                          setSavingProductionNotes(true);
+                          try {
+                            await api.saveProductionNotes(
+                              stageDesignBrief.id, stageDesignBrief.design.id, productionNotesDraft);
+                            const fresh = await api.getDesignBoards({ order_id: activeReviewOrder.order_id });
+                            setStageDesignBrief(Array.isArray(fresh) ? fresh[0] : fresh);
+                          } catch (err) {
+                            alert("Could not save the production notes: " + err.message);
+                          } finally {
+                            setSavingProductionNotes(false);
+                          }
+                        }}>
+                  {savingProductionNotes ? 'Saving…' : 'Save notes'}
+                </button>
               </div>
             )}
 

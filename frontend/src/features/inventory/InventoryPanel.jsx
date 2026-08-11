@@ -14,6 +14,13 @@ const MOVEMENTS = [
   { key: 'reserve', label: 'Reserve', help: 'Spoken for by an order, still on the shelf.' },
   { key: 'release', label: 'Release', help: 'Cancel a reservation.' },
   { key: 'issue', label: 'Issue to production', help: 'Hand to the workroom. Leaves the shelf.' },
+  // Consumption and waste were missing from this list while the Reports tab
+  // counted exactly them: reports.consumption reads CONSUMPTION and loss_rates
+  // derives waste_percent from CONSUMPTION + WASTE. Both endpoints existed and
+  // took the same payload as their neighbours, so the two panels were correct
+  // and correctly reported nothing, for ever.
+  { key: 'consume', label: 'Consume', help: 'Actually used up on a garment.' },
+  { key: 'waste', label: 'Waste', help: 'Offcuts and loss during production.' },
   { key: 'return', label: 'Return', help: 'Unused material back from the workroom.' },
   { key: 'damage', label: 'Damage', help: 'Written off as damaged.' },
   { key: 'scrap', label: 'Scrap', help: 'Written off as scrap.' },
@@ -433,15 +440,35 @@ function ItemsTab({
   );
 }
 
+// Movements that take material off a shelf, and therefore need to say which.
+const STOCK_OUT = new Set(['issue', 'consume', 'waste', 'damage', 'scrap', 'reserve', 'adjust']);
+// Movements that belong to a particular garment. cost_per_order reads
+// OrderMaterialLine and the consumption report groups by order, so a movement
+// recorded without one is invisible to both.
+const ORDER_LINKED = new Set(['issue', 'consume', 'waste', 'reserve', 'release', 'return']);
+
 function MovementModal({ item, onClose, onDone }) {
   const [movement, setMovement] = useState('stock-in');
   const [amount, setAmount] = useState('');
   const [remarks, setRemarks] = useState('');
   const [stageKey, setStageKey] = useState('');
+  const [orderId, setOrderId] = useState('');
+  const [fromLocation, setFromLocation] = useState('');
+  const [orders, setOrders] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const chosen = MOVEMENTS.find((m) => m.key === movement);
+
+  // Both lists are best-effort: the modal has to keep working for a boutique
+  // that tracks neither orders nor multiple locations.
+  useEffect(() => {
+    api.getOrders().then((rows) => setOrders(rows || [])).catch(() => setOrders([]));
+    api.getItemLocations(item.id)
+      .then((data) => setLocations(data?.breakdown || []))
+      .catch(() => setLocations([]));
+  }, [item.id]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -451,6 +478,14 @@ function MovementModal({ item, onClose, onDone }) {
       const payload = { remarks };
       payload[chosen.field || 'quantity'] = amount;
       if (movement === 'issue' && stageKey) payload.stage_key = stageKey;
+      // The backend has always read both of these; the form simply never sent
+      // them. Without order_id every movement was written with order=None, so
+      // the cost-per-order and consumption reports had nothing to group by;
+      // without from_location, record_movement substituted the default
+      // location, so any stock-out failed once material had been transferred
+      // to the workshop and Main Store held zero.
+      if (orderId && ORDER_LINKED.has(movement)) payload.order_id = orderId;
+      if (fromLocation && STOCK_OUT.has(movement)) payload.from_location = fromLocation;
       await api.moveStock(item.id, movement, payload);
       onDone();
     } catch (err) {
@@ -487,6 +522,35 @@ function MovementModal({ item, onClose, onDone }) {
             onChange={(e) => setAmount(e.target.value)}
           />
         </div>
+
+        {ORDER_LINKED.has(movement) && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600 }}>Against order (optional)</label>
+            <select className="form-control" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+              <option value="">Not tied to an order</option>
+              {orders.map((o) => (
+                <option key={o.id} value={o.id}>{o.order_id} · {o.customer_name}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Needed for the cost-per-order and consumption reports.
+            </span>
+          </div>
+        )}
+
+        {STOCK_OUT.has(movement) && locations.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600 }}>From location</label>
+            <select className="form-control" value={fromLocation} onChange={(e) => setFromLocation(e.target.value)}>
+              <option value="">Default location</option>
+              {locations.map((row) => (
+                <option key={row.location_id} value={row.location_id}>
+                  {row.location} · {qty(row.quantity)} {item.unit_display}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {movement === 'issue' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

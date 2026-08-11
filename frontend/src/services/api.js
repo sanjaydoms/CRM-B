@@ -789,6 +789,23 @@ export const api = {
     return res.json();
   },
 
+  // The Master's note on how to make the selected design. The endpoint has a
+  // dedicated Master-only permission carve-out, a model field, a slot in
+  // TailorBriefSerializer and two tests -- and its URL appeared nowhere in this
+  // file, so the note could never be written from the product.
+  async saveProductionNotes(boardId, itemId, notes) {
+    const res = await fetch(
+      `${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/production-notes/`,
+      {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ production_notes: notes }),
+      });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to save production notes');
+    return data;
+  },
+
   async addDesignToBoard(boardId, design) {
     const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/`, {
       method: 'POST',

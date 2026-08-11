@@ -335,3 +335,56 @@ class SignupIdentityTests(TransactionTestCase):
             self.assertLessEqual(len(response.data['tenant_id']), 63)
         finally:
             self._drop(long_email)
+
+
+class SignupBoutiqueIdentityTests(TransactionTestCase):
+    """What the owner types about their boutique has to reach the documents
+    their customers actually see."""
+
+    def _drop(self, email):
+        connection.set_schema_to_public()
+        for tenant in BoutiqueTenant.objects.filter(owner_email=email.lower()):
+            tenant.delete(force_drop=True)
+
+    def test_the_boutiques_own_details_land_on_its_settings(self):
+        """Signup collected a mobile number and discarded it, and created no
+        BoutiqueSettings row at all -- so the row was conjured later by
+        get_or_create(id=1) with its defaults, and every boutique's printed
+        invoice claimed to be at "123 Atelier Way, Fashion District" on
+        +91 9999999999.
+        """
+        email = 'identity.probe@ownerflow.test'
+        try:
+            response = APIClient().post('/api/auth/signup/', {
+                'first_name': 'Aditi', 'last_name': 'Rao',
+                'email_address': email, 'mobile_number': '9600004444',
+                'password': 'SignupProbe2026!',
+                'business_name': "Aditi's Atelier",
+                'business_address': '4 Nungambakkam High Road, Chennai 600034',
+            }, format='json')
+            self.assertEqual(response.status_code, 201, response.data)
+
+            from crm_api.models import BoutiqueSettings
+            with schema_context(response.data['tenant_id']):
+                settings_row = BoutiqueSettings.objects.get(id=1)
+                self.assertEqual(settings_row.name, "Aditi's Atelier")
+                self.assertEqual(settings_row.email, email)
+                self.assertEqual(settings_row.phone, '9600004444')
+                self.assertIn('Nungambakkam', settings_row.address)
+        finally:
+            self._drop(email)
+
+    def test_a_boutique_that_names_nothing_still_gets_sensible_defaults(self):
+        email = 'default.probe@ownerflow.test'
+        try:
+            response = APIClient().post('/api/auth/signup/', {
+                'first_name': 'Qa', 'last_name': 'Probe',
+                'email_address': email, 'password': 'SignupProbe2026!',
+            }, format='json')
+            self.assertEqual(response.status_code, 201, response.data)
+
+            from crm_api.models import BoutiqueSettings
+            with schema_context(response.data['tenant_id']):
+                self.assertEqual(BoutiqueSettings.objects.get(id=1).name, "Qa's Boutique")
+        finally:
+            self._drop(email)

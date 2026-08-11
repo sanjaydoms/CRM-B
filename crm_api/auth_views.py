@@ -82,7 +82,8 @@ class SignupView(views.APIView):
             tenant = BoutiqueTenant.objects.create(
                 schema_name=schema_name,
                 owner_email=email,
-                name=f"{first_name}'s Boutique"
+                name=(request.data.get('business_name') or '').strip()
+                     or f"{first_name}'s Boutique"
             )
             
             # Create domain
@@ -104,6 +105,25 @@ class SignupView(views.APIView):
             # Seed default catalog and tailors for the new schema
             from crm_api.utils import seed_tenant_defaults
             seed_tenant_defaults()
+
+            # Give the boutique its own identity from what the owner just
+            # typed. Signup collected a mobile number and never used it, and no
+            # BoutiqueSettings row was created at all -- so the row was
+            # conjured later by get_or_create(id=1) carrying its defaults, and
+            # every boutique's printed invoice showed "+91 9999999999" and
+            # contact@scaleezy.com as its own contact details.
+            from crm_api.models import BoutiqueSettings
+            business_name = (request.data.get('business_name') or '').strip()
+            business_address = (request.data.get('business_address') or '').strip()
+            BoutiqueSettings.objects.update_or_create(
+                id=1,
+                defaults={
+                    'name': business_name or f"{first_name}'s Boutique",
+                    'email': email,
+                    **({'phone': mobile} if mobile else {}),
+                    **({'address': business_address} if business_address else {}),
+                },
+            )
 
             # Create the tenant-specific user
             user = User.objects.create_user(

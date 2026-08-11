@@ -117,6 +117,10 @@ class TailorBriefSerializer(serializers.ModelSerializer):
         if item is None:
             return None
         return {
+            # The item id is what the production-notes endpoint is keyed on.
+            # Without it the brief could be read but never annotated, which is
+            # half of why that endpoint had no caller.
+            'id': str(item.id),
             'title': item.title,
             'image_url': item.image_url,
             'source': item.source,
