@@ -3444,9 +3444,17 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right">
-                    <button className="btn-primary" onClick={handleStartNewCustomer}>
-                      <Plus size={16} /> New Custom Order
-                    </button>
+                    {/* Owner-only. A Master reaches this registry -- they
+                        supervise the whole floor -- and was shown this button
+                        too, but taking an order means creating a customer and
+                        RolePermission refuses every non-Owner write outside the
+                        order actions. The wizard therefore 403'd on step 1,
+                        after the Master had filled the form in. */}
+                    {(!currentUser?.role || currentUser.role === 'Owner') && (
+                      <button className="btn-primary" onClick={handleStartNewCustomer}>
+                        <Plus size={16} /> New Custom Order
+                      </button>
+                    )}
                   </div>
                 </header>
 

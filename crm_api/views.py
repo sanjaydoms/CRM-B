@@ -354,7 +354,17 @@ class OrderViewSet(viewsets.ModelViewSet):
     STATUS_TO_STAGE = {
         'Received': 'created',
         'Confirmed': 'fabric_confirmed',
-        'Design & Creation': 'assigned_to_tailor',
+        # 'Design & Creation' means the garment is being made, and the status
+        # after it is Quality Check -- so the stage it must land on is the one
+        # that says the making is finished. It used to map to
+        # assigned_to_tailor, which meant NO dropdown value touched either
+        # stitching stage: an order could walk Received -> ... -> Delivered
+        # through this control with both of them still NOT_STARTED, i.e.
+        # delivered with the garment recorded as never sewn. Mapping it here
+        # also makes the quality-check guard satisfiable from the dropdown,
+        # and correctly refuses a Master, since stitching is the tailor's own
+        # work.
+        'Design & Creation': 'stitching_completed',
         'Quality Check': 'master_quality_check',
         'Ready for Dispatch': 'ready_for_delivery',
         'Delivered': 'delivered',

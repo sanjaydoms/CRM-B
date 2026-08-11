@@ -580,19 +580,26 @@ class TransitionEndpointTests(WorkflowTestBase):
         self.assertEqual(self.stage(order, "fabric_confirmed").status, "COMPLETED")
 
     def test_update_status_in_the_right_order_reaches_delivered(self):
+        """The dropdown walks the client-facing statuses in order, and that is
+        now enough on its own -- 'Design & Creation' records that the stitching
+        is finished, so quality check has something to inspect. This case used
+        to open on 'Quality Check' and complete master_quality_check by hand,
+        because no dropdown value touched either stitching stage.
+        """
         order = self.make_order()
-        for target in ["Quality Check", "Ready for Dispatch", "Delivered"]:
-            if target == "Delivered":
-                # Quality check is a stage of its own, not a client-facing status.
-                self.complete(order, "master_quality_check")
+        for target in ["Confirmed", "Design & Creation", "Quality Check",
+                       "Ready for Dispatch", "Delivered"]:
             response = self.client.patch(
                 reverse("order-update-status", args=[order.id]),
                 {"status": target}, format="json",
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK, target)
+            self.assertEqual(response.status_code, status.HTTP_200_OK,
+                             f"{target} -> {response.data}")
         order.refresh_from_db()
         self.assertEqual(order.order_status, "Delivered")
         self.assertEqual(self.stage(order, "delivered").status, "COMPLETED")
+        # And the garment is recorded as actually made.
+        self.assertEqual(self.stage(order, "stitching_completed").status, "COMPLETED")
 
     def test_tailor_cannot_use_update_status_to_reach_a_master_stage(self):
         order = self.make_order()
@@ -1026,3 +1033,65 @@ class FabricSelectionTests(WorkflowTestBase):
 
         self.assertEqual(customer.fabric_selections.count(), 1)
         self.assertEqual(customer.fabric_selections.first().fabric_name, 'Banarasi')
+
+
+class MasterJourneyTests(WorkflowTestBase):
+    """The supervisor's path. A Master runs the floor but is deliberately barred
+    from the two stitching stages, which are the Tailor's own work."""
+
+    def test_quality_check_cannot_pass_a_garment_that_was_never_stitched(self):
+        """The delivery gate depends on master_quality_check, and QC had no
+        guard of its own -- so a Master could pass inspection and mark the order
+        Delivered with both stitching stages still NOT_STARTED. The customer's
+        tracking page then read "Delivered" over a garment the record says
+        nobody made. trial_scheduled already guarded this; QC did not.
+        """
+        order = self.make_order()
+
+        with self.assertRaises(ValueError) as ctx:
+            self.complete(order, "master_quality_check", user=self.master_user)
+
+        self.assertIn("stitching", str(ctx.exception).lower())
+
+    def test_quality_check_passes_once_the_garment_is_stitched(self):
+        order = self.make_order()
+        self.complete(order, "stitching_completed", user=self.tailor_user)
+
+        self.complete(order, "master_quality_check", user=self.master_user)
+
+        self.assertEqual(self.stage(order, "master_quality_check").status, "COMPLETED")
+
+    def test_a_skipped_stitching_stage_still_allows_quality_check(self):
+        """Skip Stage is a real control. A garment the boutique did not stitch
+        itself must not be trapped short of QC."""
+        order = self.make_order()
+        stage = self.stage(order, "stitching_completed")
+        stage.status = "SKIPPED"
+        stage.save()
+
+        self.complete(order, "master_quality_check", user=self.master_user)
+
+        self.assertEqual(self.stage(order, "master_quality_check").status, "COMPLETED")
+
+    def test_a_master_cannot_do_the_tailors_stitching(self):
+        """Not a defect -- the matrix says stitching is ["Owner","Tailor"].
+        Pinned so the refusal stays explicit and legible."""
+        order = self.make_order()
+
+        with self.assertRaises(ValueError) as ctx:
+            self.complete(order, "stitching_completed", user=self.master_user)
+
+        self.assertIn("not authorized", str(ctx.exception).lower())
+
+    def test_a_master_can_take_a_stitched_garment_all_the_way_to_delivered(self):
+        """With the tailor's part done, the Master owns every remaining rung."""
+        order = self.make_order()
+        self.complete(order, "stitching_completed", user=self.tailor_user)
+
+        for key in ["finishing", "pressing", "master_quality_check",
+                    "trial_scheduled", "trial_completed", "ready_for_delivery",
+                    "delivered"]:
+            self.complete(order, key, user=self.master_user)
+
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Delivered")

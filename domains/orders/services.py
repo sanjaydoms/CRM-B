@@ -334,6 +334,23 @@ class OrderService:
             if stitch_stage and stitch_stage.status != 'COMPLETED':
                 raise ValueError('Cannot schedule trial before stitching is completed.')
 
+        if stage_key == 'master_quality_check' and new_status == 'COMPLETED':
+            # You cannot inspect a garment nobody has sewn. trial_scheduled
+            # already refused to run ahead of stitching, but quality check --
+            # the one stage the delivery gate depends on -- did not, so a
+            # Master could pass QC and deliver an order whose stitching stages
+            # were both still NOT_STARTED. The customer's tracking page then
+            # read "Delivered" over a garment the record says was never made.
+            #
+            # Guarding here rather than at 'delivered' is the choke point:
+            # delivery already requires QC, so requiring stitching for QC makes
+            # stitching transitively required for delivery, and it stops the
+            # false "passed quality checks" claim at the same time.
+            stitch_stage = order.stages.filter(stage_key='stitching_completed').first()
+            if stitch_stage and stitch_stage.status not in ('COMPLETED', 'SKIPPED'):
+                raise ValueError(
+                    'Cannot pass quality check before stitching is completed.')
+
         old_status = order_stage.status
         order_stage.status = new_status
         order_stage.comments = comments
