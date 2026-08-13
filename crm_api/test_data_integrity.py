@@ -66,7 +66,12 @@ class CustomerValidationTests(IntegrityTestBase):
             "first_name": "D", "last_name": "Four", "mobile_number": "9444444444",
         }, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        customer = Customer.objects.get(mobile_number="9444444444")
+        # Looked up by the CANONICAL number. Mobile numbers are now stored in
+        # one form whatever spelling was typed (Customer.save), so that a
+        # returning client entered as "+91 (0) 94444 44444" is the same record
+        # rather than a second profile. The bare ten digits this used to query
+        # are no longer what is in the column.
+        customer = Customer.objects.get(mobile_number="919444444444")
         self.assertTrue(hasattr(customer, "measurements"))
 
 

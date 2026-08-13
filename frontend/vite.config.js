@@ -11,7 +11,16 @@ export default defineConfig({
       // static HTML assembled by build-site.mjs after this runs -- it has no
       // bundle, no framework and no client-side routing on purpose, because a
       // crawler that does not execute JavaScript has to be able to read it.
-      input: { app: fileURLToPath(new URL('./app.html', import.meta.url)) },
+      // Two entries, two bundles, on purpose. The platform console shares no
+      // component with the boutique workspace and is opened by a handful of
+      // people; folding it into app.html would put it in the download every
+      // boutique makes. They share React and lucide-react, which the chunking
+      // below already splits out, so the second entry costs its own code and
+      // nothing else.
+      input: {
+        app: fileURLToPath(new URL('./app.html', import.meta.url)),
+        superadmin: fileURLToPath(new URL('./superadmin.html', import.meta.url)),
+      },
       output: {
         // Everything used to land in one ~594KB file, so shipping a one-line
         // change to the app invalidated React and the icon set along with it,

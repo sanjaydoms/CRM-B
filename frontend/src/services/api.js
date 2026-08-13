@@ -1,5 +1,28 @@
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
+/**
+ * A 401 anywhere means this session is over -- stop pretending otherwise.
+ *
+ * Nothing in this file inspected status for 401, while the platform console's
+ * own client does exactly this and says why. So signing out on a phone left the
+ * shop desktop failing every request with an alert, still painting the customer
+ * list, the order book and the money from whatever was last in React state --
+ * indefinitely, and with no hint that what was on screen was stale.
+ *
+ * Reloading rather than routing: the token is gone, so every screen behind it
+ * is invalid, and a reload is the one operation that cannot leave a fragment of
+ * the previous session behind. Guarded so a burst of concurrent 401s -- the
+ * dashboard opens by firing eight requests -- reloads once.
+ */
+let sessionEndedHandled = false;
+const handleSessionEnded = () => {
+  if (sessionEndedHandled) return;
+  sessionEndedHandled = true;
+  localStorage.removeItem('token');
+  localStorage.removeItem('tenant_id');
+  window.location.reload();
+};
+
 const getHeaders = (isMultipart = false) => {
   const headers = {};
   if (!isMultipart) {
@@ -24,6 +47,12 @@ const getHeaders = (isMultipart = false) => {
  * has no useful text in it, so the status is all there is to report.
  */
 const describeApiError = (res, data) => {
+  // Every failed request in this file ends up here, which makes it the one
+  // place that can notice the session has ended without touching 60 call sites.
+  if (res.status === 401) {
+    handleSessionEnded();
+    return 'Your session has ended. Please sign in again.';
+  }
   if (data && typeof data === 'object') {
     const fields = Object.entries(data)
       .map(([key, value]) => {
@@ -40,6 +69,24 @@ const describeApiError = (res, data) => {
   return `That request failed (error ${res.status}).`;
 };
 
+/**
+ * Throw a sentence a boutique owner can act on, for any failed response.
+ *
+ * Most calls in this file used to throw a hand-written string -- "Failed to
+ * fetch tailors" -- or, at four sites, JSON.stringify(body), which rendered
+ * in an alert() as {"mobile_number":["Enter a mobile number the boutique can
+ * actually reach"]}. describeApiError already unpacks exactly that shape and
+ * was used by only a handful of callers.
+ *
+ * Routing every failure through here also gives the 401 handler somewhere to
+ * live: a session that ended on another device now ends here too, rather than
+ * on whichever call happened to use describeApiError.
+ */
+const failWith = async (res, fallback) => {
+  const data = await res.json().catch(() => ({}));
+  throw new Error(describeApiError(res, data) || fallback);
+};
+
 export const api = {
   // Auth API
   async login(username, password) {
@@ -50,8 +97,11 @@ export const api = {
       },
       body: JSON.stringify({ username, password })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to login');
+    // Parsed defensively: an HTML 502 page from the proxy made res.json()
+    // throw "Unexpected token '<'", which is what the owner saw at the two
+    // moments a clear message matters most.
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || describeApiError(res, data));
     
     // Store token and tenant_id
     if (data.token) {
@@ -71,8 +121,11 @@ export const api = {
       },
       body: JSON.stringify(signupData)
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to sign up');
+    // Parsed defensively: an HTML 502 page from the proxy made res.json()
+    // throw "Unexpected token '<'", which is what the owner saw at the two
+    // moments a clear message matters most.
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || describeApiError(res, data));
     
     if (data.token) {
       localStorage.setItem('token', data.token);
@@ -80,6 +133,32 @@ export const api = {
     if (data.tenant_id) {
       localStorage.setItem('tenant_id', data.tenant_id);
     }
+    return data;
+  },
+
+  // Both of these are deliberately unauthenticated and deliberately vague on
+  // failure -- see PasswordResetRequestView. The request call answers the same
+  // way for an address that exists and one that does not, so there is nothing
+  // here to branch on and nothing worth reporting except that it went through.
+  async requestPasswordReset(email) {
+    const res = await fetch(`${BASE_URL}/auth/password-reset/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(describeApiError(res, data));
+    return data;
+  },
+
+  async confirmPasswordReset(token, password) {
+    const res = await fetch(`${BASE_URL}/auth/password-reset/confirm/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
@@ -104,7 +183,15 @@ export const api = {
       headers: getHeaders()
     });
     if (!res.ok) {
-      localStorage.removeItem('token');
+      // Only an auth failure clears the token. This used to drop it on ANY
+      // non-ok status, so a 500 from a cold database, or a 502 while Render
+      // recycled a worker, signed the owner out of a session that was still
+      // perfectly valid -- and because this runs on every page load, a bad
+      // thirty seconds on the server logged the whole shop out.
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('tenant_id');
+      }
       return null;
     }
     const data = await res.json();
@@ -121,7 +208,7 @@ export const api = {
     });
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || 'Failed to seed mock data');
+      throw new Error(describeApiError(res, errData) || 'Failed to seed mock data');
     }
     return res.json();
   },
@@ -131,7 +218,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/dashboard/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch dashboard');
+    if (!res.ok) await failWith(res, 'Failed to fetch dashboard');
     return res.json();
   },
 
@@ -140,7 +227,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/tailors/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch tailors');
+    if (!res.ok) await failWith(res, 'Failed to fetch tailors');
     return res.json();
   },
 
@@ -149,7 +236,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/fabrics/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch fabrics');
+    if (!res.ok) await failWith(res, 'Failed to fetch fabrics');
     return res.json();
   },
 
@@ -177,10 +264,9 @@ export const api = {
       headers: getHeaders(true), // true = multipart (no Content-Type header)
       body: formData,
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(JSON.stringify(err) || 'Failed to create customer');
-    }
+    // failWith reads the body itself; consuming it here first would leave it
+    // with nothing to unpack.
+    if (!res.ok) await failWith(res, 'Failed to create customer');
     return res.json();
   },
 
@@ -201,12 +287,9 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(payload),
     });
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}));
-      const first = Object.entries(detail)[0];
-      throw new Error(
-        first ? `${first[0]}: ${[].concat(first[1]).join(', ')}` : 'Failed to update customer');
-    }
+    // Hand-rolled unpacking of the first field error, which is what
+    // describeApiError does for every field rather than only the first.
+    if (!res.ok) await failWith(res, 'Failed to update customer');
     return res.json();
   },
 
@@ -220,7 +303,7 @@ export const api = {
     const url = new URL(`${BASE_URL}/scheduling/appointments/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
     const res = await fetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load appointments');
+    if (!res.ok) await failWith(res, 'Failed to load appointments');
     return res.json();
   },
 
@@ -231,7 +314,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
@@ -252,7 +335,7 @@ export const api = {
       headers: getHeaders(true),
       body: formData,
     });
-    if (!res.ok) throw new Error('Failed to save design preferences');
+    if (!res.ok) await failWith(res, 'Failed to save design preferences');
     return res.json();
   },
 
@@ -265,7 +348,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to approve design');
+      throw new Error(describeApiError(res, err) || 'Failed to approve design');
     }
     return res.json();
   },
@@ -279,7 +362,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to assign stage');
+      throw new Error(describeApiError(res, err) || 'Failed to assign stage');
     }
     return res.json();
   },
@@ -289,7 +372,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/customers/${customerId}/ai-suggestions/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch AI suggestions');
+    if (!res.ok) await failWith(res, 'Failed to fetch AI suggestions');
     return res.json();
   },
 
@@ -298,7 +381,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/customers/${customerId}/boutique-designs/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch boutique designs');
+    if (!res.ok) await failWith(res, 'Failed to fetch boutique designs');
     return res.json();
   },
 
@@ -318,7 +401,7 @@ export const api = {
       headers: getHeaders(true),
       body: formData,
     });
-    if (!res.ok) throw new Error('Failed to save fabric selection');
+    if (!res.ok) await failWith(res, 'Failed to save fabric selection');
     return res.json();
   },
 
@@ -329,7 +412,16 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(orderData),
     });
-    if (!res.ok) throw new Error('Failed to create order');
+    // Read the body before throwing, the way the sibling updateOrder already
+    // does. The fixed string this replaces discarded every reason the server
+    // takes trouble to produce -- "base_price cannot be negative", the total
+    // ceiling, a missing tailor -- so the owner was told "Failed to create
+    // order" for a mistake they could have corrected in seconds if anyone had
+    // told them which field it was.
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(describeApiError(res, data));
+    }
     return res.json();
   },
 
@@ -346,7 +438,7 @@ export const api = {
     // could not act on. Matches what transitionStage already does below.
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}));
-      throw new Error(detail.error || detail.detail || 'Failed to update order status');
+      throw new Error(describeApiError(res, detail) || 'Failed to update order status');
     }
     return res.json();
   },
@@ -361,7 +453,7 @@ export const api = {
       headers: getHeaders(true),
       body: formData
     });
-    if (!res.ok) throw new Error('Failed to submit completion');
+    if (!res.ok) await failWith(res, 'Failed to submit completion');
     return res.json();
   },
 
@@ -370,7 +462,7 @@ export const api = {
       method: 'GET',
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to get boutique settings');
+    if (!res.ok) await failWith(res, 'Failed to get boutique settings');
     return res.json();
   },
 
@@ -380,7 +472,7 @@ export const api = {
       headers: getHeaders(true),
       body: formData
     });
-    if (!res.ok) throw new Error('Failed to update boutique settings');
+    if (!res.ok) await failWith(res, 'Failed to update boutique settings');
     return res.json();
   },
 
@@ -396,7 +488,7 @@ export const api = {
       headers: getHeaders(true),
       body: formData
     });
-    if (!res.ok) throw new Error('Failed to submit stage review');
+    if (!res.ok) await failWith(res, 'Failed to submit stage review');
     return res.json();
   },
 
@@ -420,7 +512,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.error || 'Failed to transition stage');
+      throw new Error(describeApiError(res, err) || 'Failed to transition stage');
     }
     return res.json();
   },
@@ -436,7 +528,7 @@ export const api = {
     // order" for what was really a 403 naming the permission.
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}));
-      throw new Error(detail.error || detail.detail || 'Failed to update order');
+      throw new Error(describeApiError(res, detail) || 'Failed to update order');
     }
     return res.json();
   },
@@ -452,7 +544,7 @@ export const api = {
       body: JSON.stringify({ master_verification: checks }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || data.detail || 'Failed to save the checklist');
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
@@ -463,7 +555,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/orders/customer-messages/`, {
       headers: getHeaders(),
     });
-    if (!res.ok) throw new Error('Failed to fetch customer messages');
+    if (!res.ok) await failWith(res, 'Failed to fetch customer messages');
     return res.json();
   },
 
@@ -475,7 +567,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to mark the message sent');
+      throw new Error(describeApiError(res, err) || 'Failed to mark the message sent');
     }
     return res.json();
   },
@@ -522,7 +614,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(fabricData),
     });
-    if (!res.ok) throw new Error('Failed to create fabric');
+    if (!res.ok) await failWith(res, 'Failed to create fabric');
     return res.json();
   },
 
@@ -532,7 +624,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(fabricData),
     });
-    if (!res.ok) throw new Error('Failed to update fabric');
+    if (!res.ok) await failWith(res, 'Failed to update fabric');
     return res.json();
   },
 
@@ -541,7 +633,7 @@ export const api = {
       method: 'DELETE',
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to delete fabric');
+    if (!res.ok) await failWith(res, 'Failed to delete fabric');
     return true;
   },
 
@@ -552,7 +644,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(tailorData),
     });
-    if (!res.ok) throw new Error('Failed to create tailor');
+    if (!res.ok) await failWith(res, 'Failed to create tailor');
     return res.json();
   },
 
@@ -562,7 +654,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(tailorData),
     });
-    if (!res.ok) throw new Error('Failed to update tailor');
+    if (!res.ok) await failWith(res, 'Failed to update tailor');
     return res.json();
   },
 
@@ -571,7 +663,7 @@ export const api = {
       method: 'DELETE',
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to delete tailor');
+    if (!res.ok) await failWith(res, 'Failed to delete tailor');
     return true;
   },
 
@@ -580,7 +672,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/boutique-designs/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch all boutique designs');
+    if (!res.ok) await failWith(res, 'Failed to fetch all boutique designs');
     return res.json();
   },
 
@@ -590,7 +682,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(designData),
     });
-    if (!res.ok) throw new Error('Failed to create boutique design');
+    if (!res.ok) await failWith(res, 'Failed to create boutique design');
     return res.json();
   },
 
@@ -600,7 +692,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(designData),
     });
-    if (!res.ok) throw new Error('Failed to update boutique design');
+    if (!res.ok) await failWith(res, 'Failed to update boutique design');
     return res.json();
   },
 
@@ -609,7 +701,7 @@ export const api = {
       method: 'DELETE',
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to delete boutique design');
+    if (!res.ok) await failWith(res, 'Failed to delete boutique design');
     return true;
   },
 
@@ -618,7 +710,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/customers/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch customers');
+    if (!res.ok) await failWith(res, 'Failed to fetch customers');
     return res.json();
   },
 
@@ -628,7 +720,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/customers/${customerId}/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch customer');
+    if (!res.ok) await failWith(res, 'Failed to fetch customer');
     return res.json();
   },
 
@@ -636,7 +728,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/orders/`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch orders');
+    if (!res.ok) await failWith(res, 'Failed to fetch orders');
     return res.json();
   },
 
@@ -645,19 +737,19 @@ export const api = {
     const url = new URL(`${BASE_URL}/inventory/items/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
     const res = await fetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch inventory');
+    if (!res.ok) await failWith(res, 'Failed to fetch inventory');
     return res.json();
   },
 
   async getInventorySummary() {
     const res = await fetch(`${BASE_URL}/inventory/items/summary/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch inventory summary');
+    if (!res.ok) await failWith(res, 'Failed to fetch inventory summary');
     return res.json();
   },
 
   async getInventoryOptions() {
     const res = await fetch(`${BASE_URL}/inventory/items/options/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch inventory options');
+    if (!res.ok) await failWith(res, 'Failed to fetch inventory options');
     return res.json();
   },
 
@@ -672,7 +764,7 @@ export const api = {
     );
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || JSON.stringify(err) || 'Failed to save item');
+      throw new Error(describeApiError(res, err) || 'Failed to save item');
     }
     return res.json();
   },
@@ -687,20 +779,20 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to record stock movement');
+      throw new Error(describeApiError(res, err) || 'Failed to record stock movement');
     }
     return res.json();
   },
 
   async getItemMovements(itemId) {
     const res = await fetch(`${BASE_URL}/inventory/items/${itemId}/movements/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch stock history');
+    if (!res.ok) await failWith(res, 'Failed to fetch stock history');
     return res.json();
   },
 
   async getSuppliers() {
     const res = await fetch(`${BASE_URL}/inventory/suppliers/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch suppliers');
+    if (!res.ok) await failWith(res, 'Failed to fetch suppliers');
     return res.json();
   },
 
@@ -708,13 +800,13 @@ export const api = {
     const res = await fetch(`${BASE_URL}/inventory/suppliers/`, {
       method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error('Failed to create supplier');
+    if (!res.ok) await failWith(res, 'Failed to create supplier');
     return res.json();
   },
 
   async getPurchaseOrders() {
     const res = await fetch(`${BASE_URL}/inventory/purchase-orders/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch purchase orders');
+    if (!res.ok) await failWith(res, 'Failed to fetch purchase orders');
     return res.json();
   },
 
@@ -724,7 +816,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || JSON.stringify(err) || 'Failed to create purchase order');
+      throw new Error(describeApiError(res, err) || 'Failed to create purchase order');
     }
     return res.json();
   },
@@ -735,7 +827,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to receive goods');
+      throw new Error(describeApiError(res, err) || 'Failed to receive goods');
     }
     return res.json();
   },
@@ -747,7 +839,7 @@ export const api = {
     const res = await fetch(url.toString(), {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to fetch notifications');
+    if (!res.ok) await failWith(res, 'Failed to fetch notifications');
     return res.json();
   },
 
@@ -759,7 +851,7 @@ export const api = {
       method: 'POST',
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to mark notifications as read');
+    if (!res.ok) await failWith(res, 'Failed to mark notifications as read');
     return res.json();
   },
 
@@ -771,7 +863,7 @@ export const api = {
       if (value) url.searchParams.append(key, value);
     });
     const res = await fetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load design context');
+    if (!res.ok) await failWith(res, 'Failed to load design context');
     return res.json();
   },
 
@@ -781,7 +873,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(payload)
     });
-    if (!res.ok) throw new Error('Failed to search designs');
+    if (!res.ok) await failWith(res, 'Failed to search designs');
     return res.json();
   },
 
@@ -796,7 +888,7 @@ export const api = {
         search_queries: queries
       })
     });
-    if (!res.ok) throw new Error('Failed to create design board');
+    if (!res.ok) await failWith(res, 'Failed to create design board');
     return res.json();
   },
 
@@ -806,7 +898,7 @@ export const api = {
       if (value) url.searchParams.append(key, value);
     });
     const res = await fetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load design boards');
+    if (!res.ok) await failWith(res, 'Failed to load design boards');
     return res.json();
   },
 
@@ -823,7 +915,7 @@ export const api = {
         body: JSON.stringify({ production_notes: notes }),
       });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to save production notes');
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
@@ -833,7 +925,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(design)
     });
-    if (!res.ok) throw new Error('Failed to shortlist design');
+    if (!res.ok) await failWith(res, 'Failed to shortlist design');
     return res.json();
   },
 
@@ -842,7 +934,7 @@ export const api = {
       method: 'DELETE',
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to remove design');
+    if (!res.ok) await failWith(res, 'Failed to remove design');
     return true;
   },
 
@@ -851,7 +943,7 @@ export const api = {
       method: 'POST',
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to select design');
+    if (!res.ok) await failWith(res, 'Failed to select design');
     return res.json();
   },
 
@@ -861,7 +953,7 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(changes)
     });
-    if (!res.ok) throw new Error('Failed to save customisation');
+    if (!res.ok) await failWith(res, 'Failed to save customisation');
     return res.json();
   },
 
@@ -871,7 +963,7 @@ export const api = {
       headers: getHeaders()
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Failed to approve design');
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
@@ -879,7 +971,7 @@ export const api = {
 
   async getDesignCategories() {
     const res = await fetch(`${BASE_URL}/design-studio/categories/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load design categories');
+    if (!res.ok) await failWith(res, 'Failed to load design categories');
     return res.json();
   },
 
@@ -889,7 +981,7 @@ export const api = {
       if (v !== '' && v !== null && v !== undefined) url.searchParams.append(k, v);
     });
     const res = await fetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load the design library');
+    if (!res.ok) await failWith(res, 'Failed to load the design library');
     return res.json();
   },
 
@@ -900,25 +992,25 @@ export const api = {
       body: JSON.stringify({ decision, note })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(JSON.stringify(data));
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
   async getDesignApprovalHistory(id) {
     const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/approval-history/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load approval history');
+    if (!res.ok) await failWith(res, 'Failed to load approval history');
     return res.json();
   },
 
   async getDesignDashboard() {
     const res = await fetch(`${BASE_URL}/design-studio/dashboard/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load the design dashboard');
+    if (!res.ok) await failWith(res, 'Failed to load the design dashboard');
     return res.json();
   },
 
   async getDesignerPortfolio(id) {
     const res = await fetch(`${BASE_URL}/design-studio/designers/${id}/portfolio/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load the portfolio');
+    if (!res.ok) await failWith(res, 'Failed to load the portfolio');
     return res.json();
   },
 
@@ -932,13 +1024,13 @@ export const api = {
       body: JSON.stringify({ email })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || data.email || JSON.stringify(data));
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
   async getDesignAsset(id) {
     const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load the design');
+    if (!res.ok) await failWith(res, 'Failed to load the design');
     return res.json();
   },
 
@@ -951,7 +1043,7 @@ export const api = {
     const url = new URL(`${BASE_URL}/design-studio/collections/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
     const res = await fetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load collections');
+    if (!res.ok) await failWith(res, 'Failed to load collections');
     return res.json();
   },
 
@@ -962,7 +1054,7 @@ export const api = {
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(JSON.stringify(data));
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
@@ -1004,7 +1096,7 @@ export const api = {
     const url = new URL(`${BASE_URL}/design-studio/designers/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
     const res = await fetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load designers');
+    if (!res.ok) await failWith(res, 'Failed to load designers');
     return res.json();
   },
 
@@ -1018,7 +1110,7 @@ export const api = {
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || data.name || JSON.stringify(data));
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
@@ -1028,13 +1120,13 @@ export const api = {
 
   async getGarmentTemplates() {
     const res = await fetch(`${BASE_URL}/catalog/templates/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to load garment templates');
+    if (!res.ok) await failWith(res, 'Failed to load garment templates');
     return res.json();
   },
 
   async getGarmentTemplate(key) {
     const res = await fetch(`${BASE_URL}/catalog/templates/${key}/`, { headers: getHeaders() });
-    if (!res.ok) throw new Error(`Failed to load the ${key} template`);
+    if (!res.ok) await failWith(res, `Failed to load the ${key} template`);
     return res.json();
   },
 
@@ -1045,7 +1137,7 @@ export const api = {
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(JSON.stringify(data));
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },
 
@@ -1053,7 +1145,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/catalog/jobs/?order=${encodeURIComponent(orderId)}`, {
       headers: getHeaders()
     });
-    if (!res.ok) throw new Error('Failed to load the garments on this order');
+    if (!res.ok) await failWith(res, 'Failed to load the garments on this order');
     return res.json();
   },
 
@@ -1064,7 +1156,7 @@ export const api = {
       body: JSON.stringify({ order_id: orderId })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Failed to attach design to order');
+    if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   }
 };
@@ -1126,7 +1218,7 @@ Object.assign(api, {
     const res = await fetch(inventoryUrl(`bom-lines/${id}/`), {
       method: 'DELETE', headers: getHeaders(),
     });
-    if (!res.ok && res.status !== 204) throw new Error('Could not remove the line.');
+    if (!res.ok && res.status !== 204) await failWith(res, 'Could not remove the line.');
     return true;
   },
 

@@ -52,6 +52,41 @@ const PRODUCTION_ROLES = [
 ];
 const isProductionStaff = (role) => PRODUCTION_ROLES.includes(role);
 
+/**
+ * A stored mobile number, written the way its owner would recognise it.
+ *
+ * Numbers are now stored canonically -- Customer.save folds "+91 (0) 98765
+ * 43211", "0091 9876543211" and "098765 43211" onto one value -- so that a
+ * returning client is the same record rather than a second profile. The stored
+ * form is 919876543211, which is right for identity and wrong for a human: it
+ * was printing on the invoice, and three screens rendered "+91 919876543211"
+ * by prefixing a country code the value already carried.
+ *
+ * Storage is canonical; display is formatted. Anything that is not a
+ * recognisable Indian number is shown exactly as it was typed, because those
+ * digits are the only record of how to reach that client.
+ */
+const formatMobile = (raw) => {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) {
+    const n = digits.slice(2);
+    return `+91 ${n.slice(0, 5)} ${n.slice(5)}`;
+  }
+  if (digits.length === 10) return `${digits.slice(0, 5)} ${digits.slice(5)}`;
+  return raw || '';
+};
+
+/**
+ * wa.me wants digits only, with the country code and no punctuation.
+ *
+ * Built as `wa.me/91${mobile}` at the call site, which produced
+ * wa.me/91+91 98765 43211 for any number the owner had typed with formatting --
+ * and, once numbers were stored canonically, wa.me/91919876543211. Both open a
+ * chat with nobody. The stored value already carries the country code.
+ */
+const waLink = (raw) => `https://wa.me/${String(raw || '').replace(/\D/g, '')}`;
+
+
 // Mirrors Appointment.TYPE_CHOICES in apps/scheduling/models.py.
 const APPOINTMENT_TYPE_LABELS = {
   CONSULTATION: 'Design Consultation',
@@ -512,11 +547,43 @@ function StageTimeline({ stages, onSelectStage }) {
   );
 }
 
+/**
+ * Give a design brief one shape, whatever the server sent.
+ *
+ * /design-studio/boards/ answers with TailorBriefSerializer -- which has a
+ * `design` key -- only for a caller who has a tailor profile and is not the
+ * Owner. Everyone else, the Owner included, gets DesignBoardSerializer, whose
+ * approved item is under `selected` and which has no `design` at all.
+ *
+ * The stage panel guarded on `(brief.design || brief.selected)` and then read
+ * `brief.design.image_url` on the next line, so for an Owner the guard passed
+ * on `selected` and the read threw on `design`. A TypeError inside render hits
+ * the error boundary, which unmounts the whole workspace -- and that panel is
+ * the only place a stage can be started, paused or completed, so an Owner
+ * could not run production on any order that had been through the Design
+ * Studio at all.
+ *
+ * Normalising here rather than at each of the four reads: one place to be
+ * wrong, and the next serializer shape that appears has one place to be taught.
+ */
+const normaliseDesignBrief = (brief) => {
+  if (!brief) return null;
+  return { ...brief, design: brief.design || brief.selected || null };
+};
+
 function App() {
   // The marketing site is static HTML at / and no longer a view in here -- see
   // frontend/index.html. This bundle is the workspace, served from /app, so it
   // opens on the sign-in screen and "back" links leave for the marketing site.
-  const [view, setView] = useState('login'); // 'login', 'signup', 'dashboard', 'order-selector', 'wizard', 'confirmed'
+  // 'login', 'signup', 'forgot', 'reset', 'dashboard', 'order-selector', 'wizard', 'confirmed'
+  //
+  // Opens on 'reset' when the address bar carries a reset token, and that wins
+  // over a restored session on purpose: whoever followed the link may still be
+  // signed in here -- the ordinary case when an owner has merely forgotten a
+  // password rather than lost it -- and sending them to the dashboard would
+  // swallow the link without ever showing the form.
+  const [view, setView] = useState(
+    () => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login');
   const [dashboardTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs'
   const [currentUser, setCurrentUser] = useState(null);
   
@@ -524,6 +591,27 @@ function App() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+
+  // Password reset. `resetToken` is read out of the query string on mount --
+  // the link in the email is the only way into the 'reset' view, and the
+  // browser following it has no session and no tenant header yet, so the token
+  // carries the schema itself (see PasswordResetRequestView).
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSent, setResetSent] = useState(false);
+  // Read once, as the initial value, rather than in an effect: setting state
+  // synchronously inside an effect makes React render the login screen first
+  // and the reset screen a frame later, which is a visible flash of the wrong
+  // page on the one screen where the user has just clicked a link in an email.
+  const [resetToken, setResetToken] = useState(
+    () => new URLSearchParams(window.location.search).get('reset'));
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetDone, setResetDone] = useState(false);
+  // Shown inside the auth card. These screens deliberately do not use the
+  // alert() the rest of this file reaches for: a modal dialog on top of a
+  // sign-in form is the wrong shape for "that address is not valid".
+  const [authError, setAuthError] = useState(null);
+  const [authBusy, setAuthBusy] = useState(false);
 
   // Signup Wizard State
   const [signupStep, setSignupStep] = useState(1); // 1: Account, 2: Verify, 3: Profile, 4: Prefs, 5: Complete
@@ -534,7 +622,8 @@ function App() {
     mobile_number: '',
     password: ''
   });
-  const [otpCode, setOtpCode] = useState('');
+  const [signupBusy, setSignupBusy] = useState(false);
+  const [signupError, setSignupError] = useState(null);
   const [boutiqueName, setBoutiqueName] = useState('');
   const [boutiqueAddress, setBoutiqueAddress] = useState('');
 
@@ -612,6 +701,12 @@ function App() {
   const [showTailorModal, setShowTailorModal] = useState(false);
   const [editingTailor, setEditingTailor] = useState(null);
   const [shareCredsTailor, setShareCredsTailor] = useState(null);
+  // Recording a payment: which row is in flight, and what went wrong. Shown in
+  // the Invoices header rather than through alert() -- a modal dialog over a
+  // ledger the owner is reading down is the wrong shape for "that did not save".
+  const [wizardError, setWizardError] = useState(null);
+  const [savingPaymentId, setSavingPaymentId] = useState(null);
+  const [paymentError, setPaymentError] = useState(null);
   const [tailorForm, setTailorForm] = useState({
     name: '',
     email: '',
@@ -830,10 +925,75 @@ function App() {
     setNotifications(data);
   };
 
-  // Persisted Session check
+  // Persisted Session check.
+  //
+  // The reset link is checked first and wins. Someone following it may well
+  // still hold a live token in this browser -- that is the ordinary case when
+  // an owner resets a password they simply forgot rather than one that was
+  // stolen -- and restoring them to the dashboard would swallow the link
+  // without ever showing the form.
   useEffect(() => {
+    if (resetToken) {
+      // Take it out of the address bar so the token is not left in history,
+      // in a bookmark, or in whatever the next Referer header carries.
+      window.history.replaceState({}, '', window.location.pathname);
+      // checkAuthSession is what normally clears `loading`, and it is
+      // deliberately skipped on this path. Without this line the flag stays
+      // true forever, and the moment the reset finishes and the view goes back
+      // to 'login' the app renders its full-screen "Loading Atelier CRM..."
+      // spinner instead of the sign-in form -- with nothing left to load and
+      // no way out but a reload.
+      setLoading(false);
+      return;
+    }
     checkAuthSession();
   }, []);
+
+  const handleForgotSubmit = async (e) => {
+    if (e) e.preventDefault();
+    const email = resetEmail.trim();
+    if (!email) {
+      setAuthError('Enter the email address you sign in with.');
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      await api.requestPasswordReset(email);
+      // Shown whatever the server found. It answers identically for an address
+      // it knows and one it does not -- on purpose -- so telling the two apart
+      // here would undo that.
+      setResetSent(true);
+    } catch (err) {
+      setAuthError(err.message || 'Could not send the reset email.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleResetSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (resetPassword !== resetConfirm) {
+      setAuthError('Those two passwords do not match.');
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      await api.confirmPasswordReset(resetToken, resetPassword);
+      // The reset signed every device out, this one included, so anything
+      // still in localStorage is a token the server has already deleted.
+      localStorage.removeItem('token');
+      localStorage.removeItem('tenant_id');
+      setResetDone(true);
+      setResetPassword('');
+      setResetConfirm('');
+    } catch (err) {
+      setAuthError(err.message || 'Could not change your password.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
 
   const checkAuthSession = async () => {
     try {
@@ -1012,15 +1172,20 @@ function App() {
         ...tailorForm,
         rating: parseFloat(tailorForm.rating) || 5.0
       };
-      if (editingTailor) {
-        await api.updateTailor(editingTailor.id, payload);
-      } else {
-        await api.createTailor(payload);
-      }
+      const saved = editingTailor
+        ? await api.updateTailor(editingTailor.id, payload)
+        : await api.createTailor(payload);
       setShowTailorModal(false);
       setEditingTailor(null);
       setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
       fetchDashboardAndConfig();
+      // The server generates this account's password and returns it on this one
+      // response, never again -- so if it is here, show it now. Opening the
+      // share panel straight away is the point: closing this without reading it
+      // means the only way to give them a password is a reset link.
+      if (saved && saved.bootstrap_password) {
+        setShareCredsTailor(saved);
+      }
     } catch (err) {
       alert("Failed to save tailor: " + err.message);
     }
@@ -1119,22 +1284,17 @@ function App() {
       alert("Please enter all required signup fields.");
       return;
     }
-    setSignupStep(2); // Mock verification
-  };
-
-  const handleVerifyOTP = async () => {
-    if (!otpCode) {
-      alert("Please enter the verification code sent to your phone/email.");
-      return;
-    }
-    setSignupStep(3); // Enter profile info
-  };
-
-  const handleProfileSubmit = () => {
-    setSignupStep(4); // Select preferences
+    setSignupStep(2); // Boutique details
   };
 
   const handleCompleteRegistration = async () => {
+    // Signup creates a Postgres schema and runs every migration into it, which
+    // takes seconds rather than milliseconds -- long enough that an owner who
+    // hears nothing back presses the button again. The second press used to
+    // start a second boutique; it now cannot start until the first has
+    // answered.
+    if (signupBusy) return;
+    setSignupBusy(true);
     try {
       const res = await api.signup({
         first_name: signupForm.first_name,
@@ -1146,14 +1306,19 @@ function App() {
         business_address: boutiqueAddress
       });
       setCurrentUser(res.user);
-      setSignupStep(5);
+      setSignupStep(3);
       setTimeout(() => {
         setView('dashboard');
         fetchDashboardAndConfig(res.user);
       }, 1500);
     } catch (err) {
-      alert(err.message || "Registration failed.");
-      setSignupStep(1);
+      // Stays on this step and says so in the card. It used to alert() and
+      // throw the owner back to step 1, so "that email is already registered"
+      // -- much the commonest failure here -- read as the form having been
+      // wiped for no stated reason.
+      setSignupError(err.message || 'Registration failed.');
+    } finally {
+      setSignupBusy(false);
     }
   };
 
@@ -1335,6 +1500,7 @@ function App() {
 
   const submitOrderAndConfirm = async () => {
     if (!customerId) return;
+    setWizardError(null);
     
     const base = parseFloat(quotePrices.base || 0);
     const fabricPrice = parseFloat(quotePrices.fabric || 0);
@@ -1353,7 +1519,11 @@ function App() {
       tailoring_charges: tailoring,
       packaging_handling: packaging,
       payment_status: paymentOption === 'full' ? 'Paid' : 'Partially Paid',
-      advance_paid: paymentOption === 'full' ? getTotalPrice() : (parseFloat(advancePaymentAmount) || getTotalPrice() / 2),
+      // `|| getTotalPrice() / 2` here was the other half of the same bug: the
+      // box starts at 0 and clears to 0, and both are falsy, so leaving it
+      // empty booked half the order as received. Number(...) rather than
+      // `parseFloat(...) || 0` because a deliberate 0 must survive.
+      advance_paid: paymentOption === 'full' ? getTotalPrice() : (Number(advancePaymentAmount) || 0),
       custom_requirements: specialInstructions || customerForm.custom_requirements,
       // The earliest date any dress on this order is due -- an order is only as
       // early as its slowest-promised garment is late, so the soonest date is
@@ -1369,12 +1539,36 @@ function App() {
       delivery_address: deliveryMethod === 'Courier' ? deliveryAddress : null
     };
 
+    // Creating the order is its own step, and the only one whose failure means
+    // nothing was written. Everything after it runs against an order that
+    // already exists, so it must not be able to send the owner back to press
+    // Confirm again -- that press wrote a SECOND Order with the same
+    // total_amount and advance_paid, and create_order_for_customer has no
+    // idempotency check to catch it. Two invoices and doubled revenue in
+    // Analytics, from one failed sub-step and one reasonable retry.
+    let order;
     try {
-      const order = await api.createOrder(customerId, payload);
+      order = await api.createOrder(customerId, payload);
+    } catch (err) {
+      console.error(err);
+      setWizardError(err.message || 'Could not create the order. Nothing was saved — please try again.');
+      return;
+    }
+
+    try {
       // Every dress on the order, with its own spec and measurement snapshot.
-      // Written before the confirmation screen so a failure here is visible
-      // rather than leaving an order with no garment on it.
-      await saveGarmentJobs(order.id);
+      try {
+        await saveGarmentJobs(order.id);
+      } catch (err) {
+        // The order is committed. Say what is missing and carry on to the
+        // confirmation screen -- the same shape as the design-board branch
+        // below, and for the same reason: going back is what bills twice.
+        console.error("Could not save the garment details", err);
+        alert(
+          `Order ${order.order_id} was created, but its garment details could not be `
+          + `saved (${err.message}). Open the order and add them before it goes to `
+          + `the tailor.`);
+      }
       // The design board is built in step 3, before an order exists to hold
       // it. Attach it now so the approved reference travels into production.
       if (designBoard.boardId && designBoard.approved) {
@@ -1396,8 +1590,15 @@ function App() {
       setConfirmedOrder(order);
       setView('confirmed');
     } catch (err) {
+      // Anything unexpected after the order exists. Still lands on the
+      // confirmation screen naming the order, because the one thing that must
+      // not happen here is the owner pressing Confirm a second time.
       console.error(err);
-      alert("Failed to submit order.");
+      alert(
+        `Order ${order.order_id} was created, but something went wrong finishing it `
+        + `(${err.message}). Open the order and check its details — do not place it again.`);
+      setConfirmedOrder(order);
+      setView('confirmed');
     }
   };
 
@@ -1614,8 +1815,9 @@ function App() {
     setProductionNotesDraft('');
     api.getDesignBoards({ order_id: order.order_id })
       .then((boards) => {
-        const brief = Array.isArray(boards) ? boards[0] : boards;
-        setStageDesignBrief(brief || null);
+        const brief = normaliseDesignBrief(
+          Array.isArray(boards) ? boards[0] : boards);
+        setStageDesignBrief(brief);
         setProductionNotesDraft(brief?.design?.production_notes || '');
       })
       .catch(() => setStageDesignBrief(null));
@@ -1647,6 +1849,21 @@ function App() {
     if (allowed.length === 0) return tailors;
     return tailors.filter(t => allowed.includes(t.role));
   };
+
+  // Who may actually be given the stitching.
+  //
+  // These pickers filtered `t.role !== 'Master'`, which passes all SEVEN
+  // specialist roles -- Measurement, Pattern, Cutting, Maggam, Finishing,
+  // Pressing and QC Master -- while get_default_workflow restricts both
+  // stitching stages to ["Owner", "Tailor"]. So the owner could hand the
+  // stitching to the Finishing Master, the order was accepted, and that person
+  // could see it and never advance it: transition_order_stage refuses their
+  // role. The order sat until the owner worked out what had happened.
+  //
+  // eligibleStaffForStage reads the stage's own role list, which is the same
+  // list the server checks, so the dropdown cannot offer a choice the API will
+  // reject.
+  const stitchingStaff = () => eligibleStaffForStage('stitching_in_progress');
 
   // Sign off a design. The detail record is refetched so the approved badge and the
   // superseded state of the other designs both come from the server, not a guess.
@@ -1808,18 +2025,22 @@ function App() {
               </div>
 
               <div className="auth-remember-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', margin: '6px 0 10px 0' }}>
-                <label className="remember-me-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                  <input type="checkbox" defaultChecked style={{ accentColor: '#b07c40' }} />
-                  Remember me
-                </label>
-                {/* No reset flow exists anywhere in the product -- no view, no
-                    url, no serializer -- so this promised the only recovery
-                    path a locked-out owner has and delivered nothing. Pointing
-                    them at the boutique instead is honest; the real flow is a
-                    feature, not a fix. */}
-                <span className="forgot-password-link" style={{ color: 'var(--text-secondary)', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                  Password help? Ask your admin
-                </span>
+                {/* "Remember me" was uncontrolled, defaultChecked and read by
+                    nothing -- the token goes to localStorage either way, so the
+                    session always persisted and the box was decoration that
+                    implied a choice. Wiring it to sessionStorage would mean
+                    touching four api functions for a preference nobody asked
+                    for; saying nothing is more honest than a control that does
+                    not control anything. */}
+                <span />
+                <button
+                  type="button"
+                  className="forgot-password-link"
+                  onClick={() => { setResetEmail(loginEmail); setResetSent(false); setAuthError(null); setView('forgot'); }}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-text, #b07c40)', fontWeight: 600, fontSize: '13px', whiteSpace: 'nowrap' }}
+                >
+                  Forgot password?
+                </button>
               </div>
 
               <button type="submit" className="btn-primary" style={{ justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600, fontSize: '14px' }}>
@@ -1827,22 +2048,13 @@ function App() {
               </button>
             </form>
 
-            <div className="divider-container" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', color: 'var(--text-muted)', margin: '24px 0', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              <div style={{ flex: 1, height: '1px', background: '#eaecef' }}></div>
-              OR CONTINUE WITH
-              <div style={{ flex: 1, height: '1px', background: '#eaecef' }}></div>
-            </div>
-
-            <div className="social-auth-buttons" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button className="social-btn" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #eaecef', background: '#fff', fontSize: '13px', cursor: 'pointer' }}>
-                <Compass size={16} />
-                Continue with Google
-              </button>
-              <button className="social-btn" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #eaecef', background: '#fff', fontSize: '13px', cursor: 'pointer' }}>
-                <User size={16} />
-                Continue with Apple
-              </button>
-            </div>
+            {/* "Continue with Google" and "Continue with Apple" used to sit
+                here. Neither had an onClick, and there is no OAuth anywhere in
+                this product -- no client id, no callback route, no social
+                account model. Two buttons that do nothing on the first screen
+                a new owner sees. Deleted rather than wired up: adding a second
+                identity provider is a feature with its own account-linking
+                questions, not a fix for a dead button. */}
 
             <div className="auth-card-footer" style={{ borderTop: '1px solid #eaecef', marginTop: '32px', paddingTop: '20px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
               Don't have a boutique account? <a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600, textDecoration: 'none' }} onClick={() => { setSignupStep(1); setView('signup'); }}>Signup</a>
@@ -1852,6 +2064,106 @@ function App() {
       )}
 
       {/* 3. SIGN UP SCREEN (Image 3) */}
+      {/* Ask for a reset link. Reached from the login screen; leaves back to
+          it. Nothing here reveals whether the address is one we know. */}
+      {view === 'forgot' && (
+        <div className="auth-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
+          <div className="auth-card" style={{ background: '#fff', border: '1px solid #eaecef', borderRadius: '14px', padding: '36px', width: '100%', maxWidth: '420px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '22px' }}>Reset your password</h2>
+
+            {resetSent ? (
+              <>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.6 }}>
+                  If <strong>{resetEmail}</strong> has an account, a reset link is on its way.
+                  It stops working in an hour. Check your spam folder if it has not arrived
+                  in a few minutes.
+                </p>
+                <button type="button" className="btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '13px', borderRadius: '8px', fontWeight: 600 }} onClick={() => { setResetSent(false); setView('login'); }}>
+                  Back to sign in
+                </button>
+              </>
+            ) : (
+              <form onSubmit={handleForgotSubmit}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.6, marginTop: 0 }}>
+                  Enter the email address you sign in with and we will send you a link to
+                  choose a new password.
+                </p>
+                <input
+                  type="email"
+                  autoFocus
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="you@yourboutique.com"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #eaecef', fontSize: '14px', marginBottom: '12px', boxSizing: 'border-box' }}
+                />
+                {authError && (
+                  <div role="alert" style={{ background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', marginBottom: '12px' }}>
+                    {authError}
+                  </div>
+                )}
+                <button type="submit" className="btn-primary" disabled={authBusy} style={{ width: '100%', justifyContent: 'center', padding: '13px', borderRadius: '8px', fontWeight: 600, opacity: authBusy ? 0.6 : 1, cursor: authBusy ? 'wait' : 'pointer' }}>
+                  {authBusy ? 'Sending…' : 'Send reset link'}
+                </button>
+                <button type="button" onClick={() => { setAuthError(null); setView('login'); }} style={{ width: '100%', marginTop: '10px', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}>
+                  Back to sign in
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Choose the new password. Only reachable by following the emailed
+          link, which is what put resetToken in state. */}
+      {view === 'reset' && (
+        <div className="auth-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
+          <div className="auth-card" style={{ background: '#fff', border: '1px solid #eaecef', borderRadius: '14px', padding: '36px', width: '100%', maxWidth: '420px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '22px' }}>Choose a new password</h2>
+
+            {resetDone ? (
+              <>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.6 }}>
+                  Your password has been changed, and every device that was signed in to
+                  this account has been signed out.
+                </p>
+                <button type="button" className="btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '13px', borderRadius: '8px', fontWeight: 600 }} onClick={() => { setResetDone(false); setResetToken(null); setView('login'); }}>
+                  Sign in
+                </button>
+              </>
+            ) : (
+              <form onSubmit={handleResetSubmit}>
+                <input
+                  type="password"
+                  autoFocus
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="New password"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #eaecef', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box' }}
+                />
+                <input
+                  type="password"
+                  value={resetConfirm}
+                  onChange={(e) => setResetConfirm(e.target.value)}
+                  placeholder="Repeat new password"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #eaecef', fontSize: '14px', marginBottom: '12px', boxSizing: 'border-box' }}
+                />
+                {authError && (
+                  <div role="alert" style={{ background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', marginBottom: '12px', whiteSpace: 'pre-wrap' }}>
+                    {authError}
+                  </div>
+                )}
+                <button type="submit" className="btn-primary" disabled={authBusy} style={{ width: '100%', justifyContent: 'center', padding: '13px', borderRadius: '8px', fontWeight: 600, opacity: authBusy ? 0.6 : 1, cursor: authBusy ? 'wait' : 'pointer' }}>
+                  {authBusy ? 'Saving…' : 'Change password'}
+                </button>
+                <button type="button" onClick={() => { setAuthError(null); setResetToken(null); setView('login'); }} style={{ width: '100%', marginTop: '10px', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}>
+                  Back to sign in
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
       {view === 'signup' && (
         <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
           
@@ -1888,12 +2200,24 @@ function App() {
 
           {/* Auth Steps Tracker */}
           <div className="auth-steps-tracker">
+            {/* Was five steps, two of which were scenery.
+                "Verify" showed an OTP box under "We have sent a 6-digit OTP
+                code to +91 <number>". Nothing was ever sent -- no SMS
+                provider exists in this product -- and handleVerifyOTP checked
+                only that the field was non-empty, so any six characters, or
+                any one character, walked through. It taught a new owner that
+                the number they typed had been confirmed when it had not.
+                "Preferences" listed six style tags as plain <span>s: no
+                onClick, no state, nothing saved anywhere, and a heading
+                asking the owner to select from them.
+                Both are gone rather than implemented. Real mobile
+                verification is an SMS provider, a cost per message and a
+                resend/expiry flow; style tags are a feature nothing in the
+                product reads yet. Neither is a fix for a fake step. */}
             {[
               { step: 1, label: 'Account' },
-              { step: 2, label: 'Verify' },
-              { step: 3, label: 'Profile' },
-              { step: 4, label: 'Preferences' },
-              { step: 5, label: 'Complete' }
+              { step: 2, label: 'Boutique' },
+              { step: 3, label: 'Complete' }
             ].map(item => (
               <div key={item.step} className={`auth-step-item ${signupStep === item.step ? 'active' : ''}`}>
                 <div className="auth-step-num">{item.step}</div>
@@ -2009,35 +2333,6 @@ function App() {
 
             {signupStep === 2 && (
               <>
-                <h2 className="auth-title">Verify Mobile Number</h2>
-                <p className="auth-subtitle">We have sent a 6-digit OTP code to +91 {signupForm.mobile_number}</p>
-                
-                <div className="auth-form">
-                  <div className="form-group">
-                    <label className="form-label">Verification Code (OTP)</label>
-                    <input 
-                      type="text" 
-                      maxLength="6"
-                      placeholder="Enter 6-digit code"
-                      className="form-control"
-                      value={otpCode}
-                      onChange={(e) => setOtpCode(e.target.value)}
-                      style={{ textAlign: 'center', letterSpacing: '8px', fontSize: '20px' }}
-                    />
-                  </div>
-
-                  <button className="btn-primary" style={{ justifyContent: 'center' }} onClick={handleVerifyOTP}>
-                    Verify OTP
-                  </button>
-                  <button className="btn-secondary" style={{ justifyContent: 'center' }} onClick={() => setSignupStep(1)}>
-                    Back
-                  </button>
-                </div>
-              </>
-            )}
-
-            {signupStep === 3 && (
-              <>
                 <h2 className="auth-title">Your Boutique</h2>
                 <p className="auth-subtitle">This is what your customers see on invoices and messages.</p>
 
@@ -2072,46 +2367,22 @@ function App() {
                     />
                   </div>
 
-                  <button className="btn-primary" style={{ justifyContent: 'center' }} onClick={handleProfileSubmit}>
-                    Next: Customizer Prefs
+                  {signupError && (
+                    <div role="alert" style={{ background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', marginBottom: '4px', whiteSpace: 'pre-wrap' }}>
+                      {signupError}
+                    </div>
+                  )}
+                  <button className="btn-primary" style={{ justifyContent: 'center' }} disabled={signupBusy} onClick={handleCompleteRegistration}>
+                    {signupBusy ? 'Creating your boutique…' : 'Create my boutique'}
+                  </button>
+                  <button type="button" className="btn-secondary" style={{ justifyContent: 'center' }} onClick={() => setSignupStep(1)}>
+                    Back
                   </button>
                 </div>
               </>
             )}
 
-            {signupStep === 4 && (
-              <>
-                <h2 className="auth-title">Design Style Preferences</h2>
-                <p className="auth-subtitle">Select style tags that correspond to your boutique specialization.</p>
-                
-                <div className="auth-form">
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', margin: '16px 0' }}>
-                    {['Bridal Lehenga', 'Embroidery Gowns', 'Mens Sherwani', 'Premium Silk Sarees', 'Designer Kurta Sets', 'Western Suits'].map(tag => (
-                      <span 
-                        key={tag} 
-                        style={{ 
-                          padding: '8px 16px', 
-                          borderRadius: '99px', 
-                          border: '1px solid #b07c40', 
-                          backgroundColor: '#fcf6ee',
-                          color: '#b07c40',
-                          fontSize: '12px',
-                          fontWeight: '600'
-                        }}
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-
-                  <button className="btn-primary" style={{ justifyContent: 'center' }} onClick={handleCompleteRegistration}>
-                    Submit Registration
-                  </button>
-                </div>
-              </>
-            )}
-
-            {signupStep === 5 && (
+            {signupStep === 3 && (
               <div style={{ textAlign: 'center', padding: '32px' }}>
                 <div className="success-circle" style={{ margin: '0 auto 20px' }}><Check size={36} /></div>
                 <h2 className="auth-title">Registration Complete!</h2>
@@ -2287,18 +2558,24 @@ function App() {
             </nav>
 
             <div className="portal-sidebar-footer">
-              <div className="portal-sidebar-help">
-                <h4 style={{ fontSize: '12px', fontWeight: 700 }}>Need Help?</h4>
-                <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Our style concierge is here to assist you.</p>
-                <button 
-                  className="whatsapp-btn" 
-                  style={{ width: '100%', padding: '6px', fontSize: '11px' }}
-                  onClick={() => window.open('https://wa.me/919876543210')}
-                >
-                  <MessageSquare size={12} />
-                  Chat Now
-                </button>
-              </div>
+              {/* Opened wa.me/919876543210 -- an invented number belonging to
+                  a real stranger, offered to boutique staff as their "style
+                  concierge". Rendered only when the boutique has given its own
+                  number, and pointed at that. */}
+              {boutiqueSettings?.phone && (
+                <div className="portal-sidebar-help">
+                  <h4 style={{ fontSize: '12px', fontWeight: 700 }}>Need Help?</h4>
+                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Message your boutique directly.</p>
+                  <button
+                    className="whatsapp-btn"
+                    style={{ width: '100%', padding: '6px', fontSize: '11px' }}
+                    onClick={() => window.open(`https://wa.me/${String(boutiqueSettings.phone).replace(/\D/g, '')}`)}
+                  >
+                    <MessageSquare size={12} />
+                    Chat Now
+                  </button>
+                </div>
+              )}
             </div>
           </aside>
 
@@ -3012,20 +3289,14 @@ function App() {
                     </div>
                   </div>
 
-                  <div>
-                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Style Inspiration</h3>
-                    <div className="inspiration-grid-row">
-                      <div className="inspiration-circle-avatar">
-                        <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100" alt="Insp1" />
-                      </div>
-                      <div className="inspiration-circle-avatar">
-                        <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100" alt="Insp2" />
-                      </div>
-                      <div className="inspiration-circle-avatar">
-                        <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100" alt="Insp3" />
-                      </div>
-                    </div>
-                  </div>
+                  {/* "Style Inspiration" was three hardcoded Unsplash
+                      portraits of strangers with no behaviour and no
+                      relationship to this boutique's work -- stock photography
+                      presented on the owner's own dashboard as if it were
+                      theirs. Deleted rather than repointed at real designs: the
+                      Design Catalogue quick-action above already goes there,
+                      and a second silent route to the same screen is not worth
+                      a panel. */}
                 </div>
               </>
             )}
@@ -3256,10 +3527,10 @@ function App() {
                       </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {tailors.filter(t => t.role !== 'Master').length === 0 ? (
+                        {stitchingStaff().length === 0 ? (
                           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors registered yet.</p>
                         ) : (
-                          tailors.filter(t => t.role !== 'Master').map(tailor => (
+                          stitchingStaff().map(tailor => (
                             <div key={tailor.id} style={{
                               background: 'rgba(0,0,0,0.015)',
                               border: '1px solid var(--border-color)',
@@ -3377,7 +3648,7 @@ function App() {
                                     onChange={(e) => handleAssignWorkflow(order.id, { tailor: e.target.value || null })}
                                   >
                                     <option value="">Unassigned</option>
-                                    {tailors.filter(t => t.role !== 'Master').map(s => (
+                                    {stitchingStaff().map(s => (
                                       <option key={s.id} value={s.id}>{s.name}</option>
                                     ))}
                                   </select>
@@ -3591,7 +3862,24 @@ function App() {
                             textAlign: 'center',
                             color: 'var(--text-muted)'
                           }}>
-                            No orders found matching the criteria.
+                            {/* Distinguish "no results for your filters" from
+                                "you have not made an order yet". On day one no
+                                filter is set and there is nothing to filter, so
+                                telling a new owner their filters matched
+                                nothing is both wrong and a dead end. The
+                                dashboard's own orders panel already gets this
+                                right. */}
+                            {ordersList.length === 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No orders yet</div>
+                                <div style={{ fontSize: '13px', maxWidth: '44ch', lineHeight: 1.5 }}>
+                                  Orders you create will appear here, with their production stage and who is working on them.
+                                </div>
+                                <button className="btn-primary" onClick={() => setView('order-selector')}>
+                                  Create your first order
+                                </button>
+                              </div>
+                            ) : 'No orders found matching the criteria.'}
                           </div>
                         );
                       }
@@ -3687,10 +3975,22 @@ function App() {
                               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Stitching Tailor</span>
                               <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || 'Unassigned'}</div>
                             </div>
-                            <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Value</span>
-                              <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
-                            </div>
+                            {/* The same guard the assignment card one screen
+                                earlier already applies to the identical figure.
+                                isProductionStaff includes 'Master', and the
+                                Master's nav routes to this registry -- so the
+                                one screen that was left ungated showed every
+                                order's value to the roles the rule exists to
+                                keep it from. Guarded here rather than by
+                                popping the field from OrderSerializer, which is
+                                also the read path for the invoice modal, the
+                                customer tracking page and the whole registry. */}
+                            {!isProductionStaff(currentUser.role) && (
+                              <div>
+                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Value</span>
+                                <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
+                              </div>
+                            )}
                             <div>
                               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Est. Delivery</span>
                               <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? new Date(order.estimated_delivery).toLocaleDateString() : 'TBD'}</div>
@@ -3892,7 +4192,19 @@ function App() {
                     </div>
                   ) : directoryCustomers.length === 0 ? (
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>No customers found matching current filters</span>
+                      {customersList.length === 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+                          <div style={{ fontWeight: 600 }}>No customers yet</div>
+                          <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '44ch', lineHeight: 1.5 }}>
+                            Everyone you take an order for is kept here, with their measurements, past orders and preferences.
+                          </div>
+                          <button className="btn-primary" onClick={handleStartNewCustomer}>
+                            Add your first customer
+                          </button>
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)' }}>No customers found matching current filters</span>
+                      )}
                     </div>
                   ) : (
                     directoryCustomers.map(cust => (
@@ -3931,7 +4243,7 @@ function App() {
                              </div>
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                            <div>📞 {cust.mobile_number}</div>
+                            <div>📞 {formatMobile(cust.mobile_number)}</div>
                             {cust.email_address && <div>✉️ {cust.email_address}</div>}
                             {cust.address && <div>📍 {cust.address}, {cust.city_region}</div>}
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Registered: {new Date(cust.created_at).toLocaleDateString()}</div>
@@ -4147,6 +4459,16 @@ function App() {
                     <ArrowLeft size={16} /> Back to Customer Directory
                   </button>
 
+                  {/* Owner only, the same gate the Orders registry already
+                      puts on the identical button -- and for the reason its
+                      comment there records. Both of these routes land in the
+                      order wizard, whose first step PATCHes the customer, and
+                      RolePermission refuses partial_update for anyone but the
+                      Owner. A Master reached here from the Customers tab (which
+                      their nav includes), filled the form in, and got "Your
+                      role does not permit this" with everything they had typed
+                      thrown away and no route onward. */}
+                  {(!currentUser?.role || currentUser.role === 'Owner') && (
                   <div className="customer-detail-header-actions">
                     {/* Flow Option 1: Re-use Existing Design */}
                     <button 
@@ -4204,6 +4526,7 @@ function App() {
                       Create New Design
                     </button>
                   </div>
+                  )}
                 </div>
 
                 {/* Customer Main Banner */}
@@ -4230,7 +4553,7 @@ function App() {
                        </span>
                      </div>
                     <div style={{ display: 'flex', gap: '20px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                      <span>📞 {selectedDirectoryCustomer.mobile_number}</span>
+                      <span>📞 {formatMobile(selectedDirectoryCustomer.mobile_number)}</span>
                       {selectedDirectoryCustomer.email_address && <span>✉️ {selectedDirectoryCustomer.email_address}</span>}
                       {selectedDirectoryCustomer.address && <span>📍 {selectedDirectoryCustomer.address}, {selectedDirectoryCustomer.city_region}</span>}
                     </div>
@@ -4749,6 +5072,13 @@ function App() {
                   </div>
                 </div>
 
+                {paymentError && (
+                  <div role="alert" style={{ marginTop: '16px', background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '12px 14px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                    <span>{paymentError}</span>
+                    <button type="button" onClick={() => setPaymentError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700 }}>Dismiss</button>
+                  </div>
+                )}
+
                 <div className="invoices-content" style={{ marginTop: '24px' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                     <thead>
@@ -4782,7 +5112,11 @@ function App() {
                         if (filtered.length === 0) {
                           return (
                             <tr>
-                              <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No invoices matching the criteria.</td>
+                              <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                {ordersList.length === 0
+                                  ? 'Invoices appear here once you have created an order.'
+                                  : 'No invoices matching the criteria.'}
+                              </td>
                             </tr>
                           );
                         }
@@ -4794,7 +5128,54 @@ function App() {
                             <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{new Date(order.order_date).toLocaleDateString()}</td>
                             <td style={{ padding: '16px', fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString('en-IN')}</td>
                             <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>₹{parseFloat(order.advance_paid || 0).toLocaleString('en-IN')}</td>
-                            <td style={{ padding: '16px', color: '#107c41', fontWeight: 600 }}>₹{parseFloat(order.amount_paid || 0).toLocaleString('en-IN')}</td>
+                            {/* Editable, because until now there was no screen
+                                anywhere that could record a part payment. The
+                                only control was the status dropdown beside it,
+                                and picking "Partially Paid" sent no amount, so
+                                _reconcile_payment re-derived the label from the
+                                unchanged number and it snapped straight back to
+                                Pending. A customer paying an instalment at the
+                                counter could not be recorded at all: only zero
+                                and paid-in-full were expressible, which made
+                                the ledger, the tracking page's balance and the
+                                Analytics totals wrong for every part-paid
+                                order. The backend already accepted amount_paid
+                                and derives the label, clamps to the total and
+                                caps the advance -- only the input was missing. */}
+                            <td style={{ padding: '16px', color: '#107c41', fontWeight: 600 }}>
+                              <span style={{ marginRight: '2px' }}>₹</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                max={order.total_amount}
+                                defaultValue={parseFloat(order.amount_paid || 0)}
+                                disabled={savingPaymentId === order.id}
+                                aria-label={`Amount paid for invoice ${order.order_id}`}
+                                onBlur={async (e) => {
+                                  const next = parseFloat(e.target.value);
+                                  const current = parseFloat(order.amount_paid || 0);
+                                  // Blur fires on every tab-through; only write
+                                  // when the number actually moved.
+                                  if (isNaN(next) || next === current) {
+                                    e.target.value = current;
+                                    return;
+                                  }
+                                  setSavingPaymentId(order.id);
+                                  try {
+                                    await api.updateOrder(order.id, { amount_paid: next });
+                                    await fetchDashboardAndConfig();
+                                  } catch (err) {
+                                    e.target.value = current;
+                                    setPaymentError(`Could not record that payment for ${order.order_id} — ${err.message}`);
+                                  } finally {
+                                    setSavingPaymentId(null);
+                                  }
+                                }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                                style={{ width: '110px', padding: '4px 6px', fontSize: '13px', fontWeight: 600, color: '#107c41', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'transparent' }}
+                              />
+                            </td>
                             <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>₹{Math.max(0, parseFloat(order.total_amount) - parseFloat(order.amount_paid || 0)).toLocaleString('en-IN')}</td>
                             <td style={{ padding: '16px' }}>
                               <select 
@@ -4804,14 +5185,28 @@ function App() {
                                     await api.updateOrder(order.id, { payment_status: e.target.value });
                                     fetchDashboardAndConfig();
                                   } catch (err) {
-                                    alert("Failed to update payment status: " + err.message);
+                                    e.target.value = order.payment_status;
+                                    setPaymentError(`Could not update ${order.order_id} — ${err.message}`);
                                   }
                                 }}
                                 className="form-control"
                                 style={{ padding: '4px 8px', fontSize: '12px', width: '130px', margin: 0 }}
                               >
+                                {/* "Partially Paid" is not offered here on
+                                    purpose: it is a *derived* label, not a
+                                    thing to choose. Selecting it sent no
+                                    amount, so the server recomputed the same
+                                    label from the same number and the control
+                                    snapped back -- a dropdown that visibly
+                                    refused its own option. It still appears as
+                                    the current value when the amount beside it
+                                    puts the order there. Pending and Paid stay
+                                    because both are unambiguous shortcuts:
+                                    nothing received, and settled in full. */}
                                 <option value="Pending">Pending</option>
-                                <option value="Partially Paid">Partially Paid</option>
+                                {order.payment_status === 'Partially Paid' && (
+                                  <option value="Partially Paid">Partially Paid</option>
+                                )}
                                 <option value="Paid">Paid</option>
                               </select>
                             </td>
@@ -5156,7 +5551,11 @@ function App() {
                     </div>
                     <div>
                       <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{currentUser.first_name} {currentUser.last_name}</h3>
-                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>Boutique Owner</p>
+                      {/* The signed-in role, not a hardcoded claim. This said
+                          "Boutique Owner" to every account -- tailors, masters
+                          and designers included -- on the one screen whose job
+                          is telling you who you are signed in as. */}
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>{currentUser.role || 'Boutique Owner'}</p>
                     </div>
                     
                     <div style={{ width: '100%', height: '1px', background: 'var(--border-color, rgba(255,255,255,0.08))' }}></div>
@@ -5165,21 +5564,30 @@ function App() {
                       <div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Tenant Domain</div>
                         <div style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>
-                          {localStorage.getItem('tenant_id') || 'Aditi\'s Boutique'}
+                          {localStorage.getItem('tenant_id') || '--'}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Atelier Email</div>
                         <div style={{ fontWeight: 600 }}>{currentUser.email}</div>
                       </div>
-                      <div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Registered Since</div>
-                        <div style={{ fontWeight: 600 }}>June 2024</div>
-                      </div>
+                      {/* "Registered Since: June 2024" was a literal, shown to
+                          every boutique whatever date they actually signed up.
+                          Nothing in the API carries the tenant's created_on, so
+                          the row is gone rather than invented -- an absent fact
+                          beats a confident wrong one. Restore it by adding
+                          created_on to the MeView payload. */}
                     </div>
                   </div>
 
-                  {/* Right editable profile settings */}
+                  {/* Owner only. Every role saw this form, and submitting it
+                      POSTs /boutique-settings/ -- whose `create` action is on
+                      neither the safe-method list nor the named-action list in
+                      RolePermission, so a Master, Tailor or Designer got a
+                      certain 403 rendered as "Failed to update boutique
+                      settings" with no reason given. A form that cannot
+                      succeed should not be drawn. */}
+                  {(!currentUser?.role || currentUser.role === 'Owner') && (
                   <div className="content-card">
                     <h3 className="card-title">Edit Boutique Profile</h3>
                     <form 
@@ -5212,7 +5620,8 @@ function App() {
                           type="text" 
                           name="boutiqueName"
                           className="form-control" 
-                          defaultValue={boutiqueSettings?.name || "Scaleezy Atelier"} 
+                          defaultValue={boutiqueSettings?.name || ''}
+                          placeholder="e.g. Aditi's Atelier" 
                           required
                         />
                       </div>
@@ -5223,7 +5632,8 @@ function App() {
                           name="boutiqueAddress"
                           className="form-control" 
                           style={{ minHeight: '80px', resize: 'vertical' }}
-                          defaultValue={boutiqueSettings?.address || "123 Atelier Way, Fashion District"} 
+                          defaultValue={boutiqueSettings?.address || ''}
+                          placeholder="Street, area, city, PIN" 
                           required
                         />
                       </div>
@@ -5235,7 +5645,8 @@ function App() {
                             type="text" 
                             name="boutiquePhone"
                             className="form-control" 
-                            defaultValue={boutiqueSettings?.phone || "+91 9999999999"} 
+                            defaultValue={boutiqueSettings?.phone || ''}
+                            placeholder="+91 98765 43210" 
                             required
                           />
                         </div>
@@ -5245,7 +5656,8 @@ function App() {
                             type="email" 
                             name="boutiqueEmail"
                             className="form-control" 
-                            defaultValue={boutiqueSettings?.email || "contact@scaleezy.com"} 
+                            defaultValue={boutiqueSettings?.email || ''}
+                            placeholder="you@yourboutique.com" 
                             required
                           />
                         </div>
@@ -5294,6 +5706,7 @@ function App() {
                       </button>
                     </form>
                   </div>
+                  )}
                 </div>
               </>
             )}
@@ -5584,9 +5997,25 @@ function App() {
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Username / Email</span>
                       <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{shareCredsTailor.email}</div>
                     </div>
+                    {/* The password is generated per account and returned on
+                        the one response that created it -- it is never stored
+                        in readable form, so this panel can only show it in the
+                        moment it was made. Opened from the roster later, there
+                        is nothing to show, and saying so is the honest answer:
+                        this used to print a fixed literal that was in the
+                        repository and in this bundle, and which stopped being
+                        the real password the moment anyone set the override
+                        environment variable the code recommended. */}
                     <div>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Temporary Password</span>
-                      <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px' }}>TailorSecure2026!</div>
+                      {shareCredsTailor.bootstrap_password ? (
+                        <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', fontFamily: 'ui-monospace, monospace', letterSpacing: '.5px' }}>{shareCredsTailor.bootstrap_password}</div>
+                      ) : (
+                        <div style={{ fontSize: '13px', marginTop: '2px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                          Shown only once, when the account was created. Ask {shareCredsTailor.name} to use
+                          <strong> Forgot password?</strong> on the sign-in screen to set a new one.
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -5598,7 +6027,9 @@ function App() {
                       type="button" 
                       className="btn-secondary" 
                       onClick={() => {
-                        const txt = `Atelier Staff Login Credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: TailorSecure2026!`;
+                        const txt = shareCredsTailor.bootstrap_password
+                          ? `Atelier Staff Login Credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: ${shareCredsTailor.bootstrap_password}`
+                          : `Atelier Staff Login:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nUse "Forgot password?" on the sign-in screen to set your password.`;
                         navigator.clipboard.writeText(txt);
                         alert("Credentials copied to clipboard!");
                       }}
@@ -5612,7 +6043,9 @@ function App() {
                       type="button" 
                       className="btn-primary" 
                       onClick={() => {
-                        const msg = encodeURIComponent(`Hello ${shareCredsTailor.name},\nHere are your Atelier login credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: TailorSecure2026!\n\nPlease log in to view your supervised/stitch tasks.`);
+                        const msg = encodeURIComponent(shareCredsTailor.bootstrap_password
+                          ? `Hello ${shareCredsTailor.name},\nHere are your Atelier login credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: ${shareCredsTailor.bootstrap_password}\n\nPlease log in to view your supervised/stitch tasks.`
+                          : `Hello ${shareCredsTailor.name},\nYour Atelier login is ready:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\n\nUse "Forgot password?" on the sign-in screen to set your password, then log in to view your tasks.`);
                         window.open(`https://wa.me/?text=${msg}`);
                       }}
                       style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -5809,9 +6242,11 @@ function App() {
             
             <nav className="portal-menu">
               <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); }}><Users size={16} /> Dashboard</a>
-              <a className="portal-menu-item"><ShoppingBag size={16} /> My Orders</a>
-              <a className="portal-menu-item"><Calendar size={16} /> Appointments</a>
-              <a className="portal-menu-item"><Scissors size={16} /> Measurements</a>
+              {/* My Orders / Appointments / Measurements sat here with no
+                  onClick and no href, between two links that work -- so on the
+                  order-selector sidebar three of five items silently did
+                  nothing. Deleted rather than wired: each already has a real
+                  home on the dashboard this screen returns to. */}
               <a className="portal-menu-item" onClick={handleLogout}><User size={16} /> Logout</a>
             </nav>
           </aside>
@@ -5989,7 +6424,7 @@ function App() {
                       >
                         <div>
                           <div className="search-result-name">{cust.first_name} {cust.last_name}</div>
-                          <div className="search-result-phone">📞 {cust.mobile_number}</div>
+                          <div className="search-result-phone">📞 {formatMobile(cust.mobile_number)}</div>
                         </div>
                         <span className="search-result-garment">{cust.garment_type}</span>
                       </div>
@@ -6010,9 +6445,10 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', maxWidth: '1280px', margin: '0 auto 16px' }}>
               <div className="brand-logo" style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '1px', color: 'var(--text-primary)' }}>SCALEEZY</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                  <HelpCircle size={16} /> Need help?
-                </span>
+                {/* "Need help?" carried cursor:pointer and no handler --
+                    the wizard's own header inviting a click that does nothing.
+                    There is no help surface to point it at. */}
+                <span />
                 <span style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} onClick={() => setView('dashboard')}>
                   <X size={20} />
                 </span>
@@ -6626,6 +7062,27 @@ function App() {
                         ))}
                       </div>
 
+                      {/* An empty library is now the ordinary day-one state:
+                          new boutiques are no longer seeded with five fabrics
+                          at another business's prices, so this grid rendered as
+                          a blank rectangle with no explanation and no way
+                          forward. The wizard's tailor step already handles its
+                          own empty case this way. Both routes out are offered,
+                          because using the customer's own cloth is a normal
+                          boutique workflow, not a fallback. */}
+                      {fabrics.filter(f => f.is_available !== false).length === 0 && (
+                        <div style={{ padding: '24px', border: '1px dashed var(--border-color)', borderRadius: '10px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+                          <div style={{ fontWeight: 600 }}>Your fabric library is empty</div>
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '13px', maxWidth: '46ch', lineHeight: 1.5 }}>
+                            Add the rolls you stock to pick from them here — or switch to
+                            <strong> Customer's Own Fabric</strong> above if the client is bringing their own.
+                          </div>
+                          <button type="button" className="btn-secondary" onClick={() => { setView('dashboard'); setDashboardTab('fabrics'); }}>
+                            Add fabrics
+                          </button>
+                        </div>
+                      )}
+
                       <div className="fabrics-grid">
                         {fabrics
                           // Don't offer a roll the boutique has marked Out of
@@ -6778,7 +7235,7 @@ function App() {
                       2. Assign Stitching Tailor (Sewing & Details)
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {tailors.filter(t => t.role !== 'Master').length === 0 ? (
+                      {stitchingStaff().length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
                           <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors available. Add one to continue:</div>
                           <button 
@@ -6794,7 +7251,7 @@ function App() {
                           </button>
                         </div>
                       ) : (
-                        tailors.filter(t => t.role !== 'Master').map(t => (
+                        stitchingStaff().map(t => (
                           <div 
                             key={t.id} 
                             className={`tailor-row ${selectedTailor?.id === t.id ? 'selected' : ''}`}
@@ -6904,6 +7361,17 @@ function App() {
             {/* STEP 6: Review & Complete Order / Payment */}
             {currentStep === 6 && (
               <>
+                {/* Shown when creating the order failed outright -- the one
+                    failure that wrote nothing, and so the one where trying
+                    again is safe. Everything after that point lands on the
+                    confirmation screen instead, because going back is what
+                    creates a second order. */}
+                {wizardError && (
+                  <div role="alert" style={{ margin: '4px 0 16px', background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '12px 14px', fontSize: '13.5px', display: 'flex', justifyContent: 'space-between', gap: '12px', whiteSpace: 'pre-wrap' }}>
+                    <span>{wizardError}</span>
+                    <button type="button" onClick={() => setWizardError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700 }}>Dismiss</button>
+                  </div>
+                )}
                 {!paymentPhase ? (
                   // Review & Complete Order Phase (Mockup 1)
                   <>
@@ -7142,7 +7610,7 @@ function App() {
                             <div>
                               <span style={{ fontSize: '12px', fontWeight: 600, display: 'block' }}>{customerForm.first_name} {customerForm.last_name}</span>
                               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', lineHeight: 1.4 }}>{customerForm.address || 'B-32, Green Park Extension, New Delhi - 110016, India'}</span>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>📞 +91 {customerForm.mobile_number}</span>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>📞 {formatMobile(customerForm.mobile_number)}</span>
                             </div>
                           </div>
                         </div>
@@ -7167,7 +7635,7 @@ function App() {
                             <MessageSquare size={16} style={{ color: '#107c41', flexShrink: 0, marginTop: '2px' }} />
                             <div>
                               <span style={{ fontSize: '12px', fontWeight: 600, display: 'block' }}>WhatsApp</span>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>+91 {customerForm.mobile_number}</span>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>{formatMobile(customerForm.mobile_number)}</span>
                             </div>
                           </div>
                         </div>
@@ -7364,7 +7832,13 @@ function App() {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
                               <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Remaining Balance Due at Delivery</span>
-                              <span style={{ fontSize: '16px', fontWeight: 700 }}>₹{Math.max(0, getTotalPrice() - (advancePaymentAmount || getTotalPrice() / 2)).toLocaleString('en-IN')}</span>
+                              {/* Must agree with what is actually sent above.
+                                  Showing the half here while sending the half
+                                  there made the two consistent and both wrong;
+                                  showing the half here while sending zero would
+                                  be worse, because the preview is the number
+                                  the owner reads back to the customer. */}
+                              <span style={{ fontSize: '16px', fontWeight: 700 }}>₹{Math.max(0, getTotalPrice() - (Number(advancePaymentAmount) || 0)).toLocaleString('en-IN')}</span>
                             </div>
                             <span style={{ fontSize: '8px', backgroundColor: '#e2f5ec', color: '#107c41', padding: '2px 4px', borderRadius: '2px', fontWeight: 600 }}>DUE AT DELIVERY</span>
                           </div>
@@ -7753,8 +8227,21 @@ function App() {
             </div>
             <div className="meta-info-block">
               <span className="meta-info-label">Payment Status</span>
-              <span className="meta-info-val" style={{ color: 'var(--success-color)' }}>
-                Paid • ₹{confirmedOrder.total_amount.toLocaleString('en-IN')}
+              {/* Was the literal `Paid • ₹{total_amount}` in success green,
+                  referencing neither payment_status nor amount_paid -- so the
+                  screen staff turn to face the customer announced the order
+                  settled in full the moment it was placed, and contradicted the
+                  invoice one click later. total_amount also arrives as a string
+                  (COERCE_DECIMAL_TO_STRING is unset), and String.toLocaleString
+                  does no grouping, so it printed ₹51502.50 rather than
+                  ₹51,502.50. parseFloat fixes the second half. */}
+              <span className="meta-info-val" style={{ color: confirmedOrder.payment_status === 'Paid' ? 'var(--success-color)' : 'var(--text-primary)' }}>
+                {confirmedOrder.payment_status} • ₹{parseFloat(confirmedOrder.amount_paid || 0).toLocaleString('en-IN')}
+                {confirmedOrder.payment_status !== 'Paid' && (
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
+                    {' '}of ₹{parseFloat(confirmedOrder.total_amount || 0).toLocaleString('en-IN')}
+                  </span>
+                )}
               </span>
             </div>
             <div className="meta-info-block">
@@ -7791,7 +8278,7 @@ function App() {
               <span className="whatsapp-title">Crafting something just for you ✨</span>
               <span className="whatsapp-desc">Need changes or have questions? Chat directly with us on WhatsApp.</span>
             </div>
-            <button className="whatsapp-btn" onClick={() => window.open(`https://wa.me/91${customerForm.mobile_number}`)}>
+            <button className="whatsapp-btn" onClick={() => window.open(waLink(customerForm.mobile_number))}>
               <MessageSquare size={18} />
               Chat on WhatsApp
             </button>
@@ -7934,15 +8421,29 @@ function App() {
                   <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Billed To:</span>
                   <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{confirmedOrder.customer_name}</span>
                   <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>{confirmedOrder.delivery_address || confirmedOrder.customer_address}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 +91 {confirmedOrder.customer_mobile}</span>
+                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {formatMobile(confirmedOrder.customer_mobile)}</span>
                   {confirmedOrder.customer_email && <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {confirmedOrder.customer_email}</span>}
                 </div>
                 <div>
                   <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Atelier Details:</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{boutiqueSettings?.name || "Scaleezy Boutique Portal"}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>📍 {boutiqueSettings?.address || "123 Atelier Way, Fashion District"}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {boutiqueSettings?.phone || "+91 9999999999"}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {boutiqueSettings?.email || "contact@scaleezy.com"}</span>
+                  {/* No vendor fallbacks on the customer's copy. These printed
+                      "123 Atelier Way, Fashion District" and
+                      "contact@scaleezy.com" as the BOUTIQUE'S OWN details on an
+                      invoice handed to a real customer -- our demo strings, in
+                      their name, telling them to pay and collect somewhere that
+                      does not exist. A blank line is the honest failure: it
+                      shows the owner something is missing from their profile,
+                      and shows the customer nothing false. */}
+                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{boutiqueSettings?.name || ''}</span>
+                  {boutiqueSettings?.address && (
+                    <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>📍 {boutiqueSettings.address}</span>
+                  )}
+                  {boutiqueSettings?.phone && (
+                    <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {boutiqueSettings.phone}</span>
+                  )}
+                  {boutiqueSettings?.email && (
+                    <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {boutiqueSettings.email}</span>
+                  )}
                   <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>Boutique Owner: {currentUser?.first_name || 'Aditi'} {currentUser?.last_name || 'Mehta'}</span>
                   {confirmedOrder.tailor_name && (
                     <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -8014,8 +8515,15 @@ function App() {
                         Fabric: {Number(confirmedOrder.fabric_price) > 0 ? `Boutique fabric — ₹${confirmedOrder.fabric_price}` : 'Customer Supplied Fabric'}
                       </span>
                     </td>
+                    {/* The line item is the amount BEFORE tax -- the same
+                        expression the Subtotal row below uses. It printed
+                        total_amount, which already includes the 5%, so the
+                        invoice read: line item Rs33,075, Subtotal Rs31,500,
+                        Tax Rs1,575, Total Rs33,075. The one column a customer
+                        adds up did not add up, on the document they are asked
+                        to pay against. */}
                     <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>
-                      ₹{parseFloat(confirmedOrder.total_amount || 0).toLocaleString('en-IN')}
+                      ₹{(parseFloat(confirmedOrder.total_amount || 0) - parseFloat(confirmedOrder.taxes || 0)).toLocaleString('en-IN')}
                     </td>
                   </tr>
                 </tbody>
@@ -8046,15 +8554,27 @@ function App() {
                     <span>Payment Status</span>
                     <strong style={{ fontWeight: 600 }}>{confirmedOrder.payment_status}</strong>
                   </div>
-                  {confirmedOrder.advance_paid > 0 && (
+                  {/* Keyed on amount_paid, not advance_paid.
+                      The advance is only what was taken up front, and
+                      _reconcile_payment merely CAPS it as later payments land --
+                      so a settled order kept its original advance while
+                      amount_paid reached the total, and the invoice printed
+                      "Payment Status: Paid" directly above "Advance Paid
+                      ₹10,000 / Balance Due ₹23,075". Reachable for any existing
+                      order through Invoices → View Invoice, which is the copy
+                      that gets handed to the customer.
+                      Balance Due now uses the same expression as the Invoices
+                      table and the customer tracking page, so the three cannot
+                      disagree about what is owed. */}
+                  {parseFloat(confirmedOrder.amount_paid || 0) > 0 && (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        <span>Advance Paid</span>
-                        <strong style={{ fontWeight: 600 }}>₹{parseFloat(confirmedOrder.advance_paid).toLocaleString('en-IN')}</strong>
+                        <span>Paid</span>
+                        <strong style={{ fontWeight: 600 }}>₹{parseFloat(confirmedOrder.amount_paid || 0).toLocaleString('en-IN')}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
                         <span>Balance Due</span>
-                        <strong style={{ fontWeight: 600 }}>₹{(parseFloat(confirmedOrder.total_amount) - parseFloat(confirmedOrder.advance_paid)).toLocaleString('en-IN')}</strong>
+                        <strong style={{ fontWeight: 600 }}>₹{Math.max(0, parseFloat(confirmedOrder.total_amount || 0) - parseFloat(confirmedOrder.amount_paid || 0)).toLocaleString('en-IN')}</strong>
                       </div>
                     </>
                   )}
@@ -8263,7 +8783,7 @@ function App() {
                 person stitching it through no screen at all. The notes box
                 lives here because the endpoint that writes it had nowhere to be
                 called from until the board was on screen. */}
-            {stageDesignBrief && (stageDesignBrief.design || stageDesignBrief.selected) && (
+            {stageDesignBrief && stageDesignBrief.design && (
               <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
                 <div style={{ fontWeight: 700, marginBottom: '8px' }}>Approved design</div>
                 <div style={{ display: 'flex', gap: '12px' }}>
@@ -8299,7 +8819,7 @@ function App() {
                             await api.saveProductionNotes(
                               stageDesignBrief.id, stageDesignBrief.design.id, productionNotesDraft);
                             const fresh = await api.getDesignBoards({ order_id: activeReviewOrder.order_id });
-                            setStageDesignBrief(Array.isArray(fresh) ? fresh[0] : fresh);
+                            setStageDesignBrief(normaliseDesignBrief(Array.isArray(fresh) ? fresh[0] : fresh));
                           } catch (err) {
                             alert("Could not save the production notes: " + err.message);
                           } finally {

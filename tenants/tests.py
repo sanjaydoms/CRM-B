@@ -7,6 +7,7 @@ from django_tenants.utils import schema_context
 from rest_framework.test import APIClient
 
 from crm_api.models import Customer
+from tenants.middleware import clear_platform_cache, clear_tenant_cache
 from tenants.models import BoutiqueTenant, DemoRequest, Domain
 from tenants.views import HONEYPOT_FIELD
 
@@ -30,6 +31,26 @@ def temporary_tenant(schema_name, owner_email, name):
         tenant.delete(force_drop=True)
 
 
+def get_customers(token_schema, tenant_header):
+    """Call the directory as a user signed in to `token_schema`, addressing
+    `tenant_header`.
+
+    The token and the header are separate arguments because they are separate
+    concerns -- and because APIClient.credentials() overrides per-request
+    headers, so the tenant header has to travel with the credentials.
+    """
+    from django.contrib.auth.models import User
+    from rest_framework.authtoken.models import Token
+    with schema_context(token_schema):
+        user, _ = User.objects.get_or_create(username=f'probe@{token_schema}')
+        token, _ = Token.objects.get_or_create(user=user)
+        key = token.key
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION='Token ' + key,
+                       HTTP_X_TENANT_ID=tenant_header)
+    return client.get('/api/customers/')
+
+
 class TenantIsolationTests(TransactionTestCase):
     """Guards the schema boundary now that connections are reused between requests.
 
@@ -38,23 +59,7 @@ class TenantIsolationTests(TransactionTestCase):
     """
 
     def _get_customers(self, token_schema, tenant_header):
-        """Call the directory as a user signed in to `token_schema`, addressing
-        `tenant_header`.
-
-        The token and the header are separate arguments because they are separate
-        concerns -- and because APIClient.credentials() overrides per-request
-        headers, so the tenant header has to travel with the credentials.
-        """
-        from django.contrib.auth.models import User
-        from rest_framework.authtoken.models import Token
-        with schema_context(token_schema):
-            user, _ = User.objects.get_or_create(username=f'probe@{token_schema}')
-            token, _ = Token.objects.get_or_create(user=user)
-            key = token.key
-        client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION='Token ' + key,
-                           HTTP_X_TENANT_ID=tenant_header)
-        return client.get('/api/customers/')
+        return get_customers(token_schema, tenant_header)
 
     def _names(self, schema):
         response = self._get_customers(schema, schema)
@@ -89,6 +94,62 @@ class TenantIsolationTests(TransactionTestCase):
 
             # The bad request must not poison the connection for the next caller.
             self.assertEqual(self._names('iso_test_c'), ['Dee'])
+
+
+class SuspensionTests(TransactionTestCase):
+    """A boutique the platform administrator has switched off must be shut out
+    of BOTH doors -- the API (TenantHeaderMiddleware) and login (LoginView),
+    which resolve their tenant by different routes.
+
+    Login is the one that is easy to leave open: it sends no X-Tenant-ID, so
+    the middleware check never fires for it, and without its own guard a
+    suspended owner would still be issued a working token.
+    """
+
+    def test_api_is_refused_while_suspended_and_restored_after(self):
+        with temporary_tenant('susp_test_a', 'a@susp.test', 'Atelier A') as tenant:
+            with schema_context('susp_test_a'):
+                Customer.objects.create(first_name='Eve', last_name='S',
+                                        mobile_number='9000000005')
+
+            self.assertEqual(
+                get_customers('susp_test_a', 'susp_test_a').status_code, 200)
+
+            BoutiqueTenant.objects.filter(pk=tenant.pk).update(is_active=False)
+            clear_tenant_cache()  # else the middleware serves its cached copy
+
+            response = get_customers('susp_test_a', 'susp_test_a')
+            self.assertEqual(response.status_code, 403)
+            self.assertIn('suspended', response.json()['error'])
+
+            BoutiqueTenant.objects.filter(pk=tenant.pk).update(is_active=True)
+            clear_tenant_cache()
+            self.assertEqual(
+                get_customers('susp_test_a', 'susp_test_a').status_code, 200)
+
+    def test_login_is_refused_while_suspended(self):
+        from django.contrib.auth.models import User
+
+        with temporary_tenant('susp_test_b', 'owner@susp.test', 'Atelier B') as tenant:
+            with schema_context('susp_test_b'):
+                User.objects.create_user(username='owner@susp.test',
+                                         email='owner@susp.test',
+                                         password='correct-horse-battery')
+
+            credentials = {'username': 'owner@susp.test',
+                           'password': 'correct-horse-battery'}
+            ok = APIClient().post('/api/auth/login/', credentials, format='json')
+            self.assertEqual(ok.status_code, 200)
+
+            BoutiqueTenant.objects.filter(pk=tenant.pk).update(is_active=False)
+            clear_tenant_cache()
+
+            refused = APIClient().post('/api/auth/login/', credentials, format='json')
+            # 403 with the real reason, not a 400 "invalid credentials" that
+            # would send the owner to the password-reset form.
+            self.assertEqual(refused.status_code, 403)
+            self.assertIn('suspended', refused.json()['error'])
+            self.assertNotIn('token', refused.json())
 
 
 class DemoRequestIntakeTests(TransactionTestCase):
@@ -388,3 +449,314 @@ class SignupBoutiqueIdentityTests(TransactionTestCase):
                 self.assertEqual(BoutiqueSettings.objects.get(id=1).name, "Qa's Boutique")
         finally:
             self._drop(email)
+
+
+def tenant_client(schema_name):
+    """get_customers()'s client, without its path.
+
+    Same token/header pairing and the same reason for it -- credentials()
+    overrides per-request headers, so the tenant header has to be set alongside
+    the token -- but handed back so a test can call any URL. The module gate is
+    a per-prefix rule, so its tests need more than one prefix.
+    """
+    from django.contrib.auth.models import User
+    from rest_framework.authtoken.models import Token
+    with schema_context(schema_name):
+        user, _ = User.objects.get_or_create(username=f'probe@{schema_name}')
+        token, _ = Token.objects.get_or_create(user=user)
+        key = token.key
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION='Token ' + key, HTTP_X_TENANT_ID=schema_name)
+    return client
+
+
+def set_modules(tenant, enabled_modules):
+    """Write a boutique's module switches the way the console will.
+
+    .update() rather than .save() so nothing else on the row is touched, then
+    clear_tenant_cache() because the middleware reads its cached copy of the
+    tenant and would otherwise serve the old switches for _TENANT_CACHE_TTL.
+    """
+    connection.set_schema_to_public()
+    BoutiqueTenant.objects.filter(pk=tenant.pk).update(enabled_modules=enabled_modules)
+    clear_tenant_cache()
+
+
+class ModuleGateTests(TransactionTestCase):
+    """Modules are withheld from a boutique in the middleware, so these tests go
+    through a real request rather than calling is_enabled() directly.
+
+    That is the whole point of the gate: 21 views declare their own
+    permission_classes and never reach RolePermission, so a check anywhere in
+    the DRF layer would hold on some endpoints and not on others. What is worth
+    asserting is that an HTTP request to a switched-off prefix is refused, and
+    that nothing else is.
+    """
+
+    def test_a_disabled_module_is_refused_and_the_message_names_it(self):
+        with temporary_tenant('mod_test_a', 'a@mod.test', 'Atelier A') as tenant:
+            client = tenant_client('mod_test_a')
+            self.assertEqual(client.get('/api/fabrics/').status_code, 200)
+
+            set_modules(tenant, {'fabrics': False})
+
+            response = client.get('/api/fabrics/')
+            self.assertEqual(response.status_code, 403)
+            body = response.json()
+            # Names the module, so the person reading the console log is not
+            # left guessing which of three different 403s this is.
+            self.assertIn('Fabrics', body['error'])
+            self.assertEqual(body['module'], 'fabrics')
+            self.assertNotIn('suspended', body['error'])
+
+    def test_everything_disabled_still_leaves_the_boutique_a_way_in(self):
+        """The lockout test, and the reason ALWAYS_ON exists.
+
+        crm_api is mounted at /api/ alongside login, so a gate keyed a shade too
+        broadly takes the boutique's own account with it and there is no way
+        back in through the product. Switching off every module there is must
+        still leave sign-in, the dashboard and the ungoverned prefixes standing.
+        """
+        from core.modules import MODULES
+
+        with temporary_tenant('mod_test_b', 'owner@mod.test', 'Atelier B') as tenant:
+            with schema_context('mod_test_b'):
+                from django.contrib.auth.models import User
+                User.objects.create_user(username='owner@mod.test',
+                                         email='owner@mod.test',
+                                         password='correct-horse-battery')
+
+            set_modules(tenant, {key: False for key in MODULES})
+
+            # Login sends no X-Tenant-ID at all, which is exactly why /api/auth/
+            # cannot be gateable: it shares its mount with the business routers.
+            login = APIClient().post('/api/auth/login/',
+                                     {'username': 'owner@mod.test',
+                                      'password': 'correct-horse-battery'},
+                                     format='json')
+            self.assertEqual(login.status_code, 200)
+
+            client = tenant_client('mod_test_b')
+            self.assertEqual(client.get('/api/dashboard/').status_code, 200)
+            self.assertEqual(client.get('/api/boutique-settings/').status_code, 200)
+            # Ungoverned rather than always-on: no module claims /api/customers/
+            # (it is STRUCTURAL), and module_for_path() answers None for it. None
+            # must read as "nobody switched this off", never as a denial.
+            self.assertEqual(client.get('/api/customers/').status_code, 200)
+
+    def test_disabling_a_parent_prefix_does_not_take_its_child_with_it(self):
+        """/api/inventory/catalog/ sits underneath /api/inventory/.
+
+        Matched shortest-first, switching off purchasing would silently switch
+        off the fabric catalogue too -- and switching off the catalogue would
+        appear to do nothing, because the parent rule would answer first.
+        """
+        with temporary_tenant('mod_test_c', 'c@mod.test', 'Atelier C') as tenant:
+            client = tenant_client('mod_test_c')
+
+            set_modules(tenant, {'inventory': False})
+            self.assertEqual(client.get('/api/inventory/items/').status_code, 403)
+            self.assertEqual(client.get('/api/inventory/catalog/items/').status_code, 200)
+
+            set_modules(tenant, {'inventory_catalog': False})
+            self.assertEqual(client.get('/api/inventory/items/').status_code, 200)
+            catalog = client.get('/api/inventory/catalog/items/')
+            self.assertEqual(catalog.status_code, 403)
+            self.assertEqual(catalog.json()['module'], 'inventory_catalog')
+
+    def test_a_module_nobody_has_an_opinion_about_is_on(self):
+        """Absent means enabled, and this is the assertion that keeps it so.
+
+        A tenant row written before a module existed says nothing about it. If
+        silence read as "off", adding an entry to core/modules.py would switch
+        the new feature off for every existing boutique the moment it deployed.
+        """
+        with temporary_tenant('mod_test_d', 'd@mod.test', 'Atelier D') as tenant:
+            client = tenant_client('mod_test_d')
+
+            # The default from the migration: no opinion about anything.
+            connection.set_schema_to_public()
+            self.assertEqual(
+                BoutiqueTenant.objects.get(pk=tenant.pk).enabled_modules, {})
+            self.assertEqual(client.get('/api/fabrics/').status_code, 200)
+
+            # An opinion about one module is not an opinion about the rest.
+            set_modules(tenant, {'inventory': False})
+            self.assertEqual(client.get('/api/fabrics/').status_code, 200)
+
+
+class MaintenanceModeTests(TransactionTestCase):
+    """The platform-wide stop switch, and the one thing it must never stop.
+
+    A maintenance mode that also blocks /api/superadmin/ can only be turned off
+    with a database client, which is the wrong tool to be reaching for during
+    the outage it was flipped for.
+    """
+
+    def _set_maintenance(self, **value):
+        from superadmin.models import PlatformSetting
+        connection.set_schema_to_public()
+        PlatformSetting.objects.update_or_create(
+            key='maintenance_mode', defaults={'value': value})
+        # The middleware caches this for _TENANT_CACHE_TTL, so without this the
+        # switch would not be seen for five minutes -- and, more dangerously for
+        # the suite, would still be seen five minutes after the test ended.
+        clear_platform_cache()
+        self.addCleanup(clear_platform_cache)
+
+    def test_a_boutique_is_refused_but_the_console_is_not(self):
+        with temporary_tenant('maint_test_a', 'a@maint.test', 'Atelier A'):
+            client = tenant_client('maint_test_a')
+            self.assertEqual(client.get('/api/customers/').status_code, 200)
+
+            self._set_maintenance(enabled=True, message='Back at 03:00 UTC.')
+
+            response = client.get('/api/customers/')
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(response.json()['error'], 'Back at 03:00 UTC.')
+
+            # The console stays up. Anything but 503 proves the exemption; the
+            # credentials are wrong on purpose, because the point is that the
+            # request reached the view to have its credentials judged at all.
+            console = APIClient().post('/api/superadmin/auth/login/',
+                                       {'username': 'nobody', 'password': 'nobody'},
+                                       format='json')
+            self.assertNotEqual(console.status_code, 503)
+
+            # Signing in is exempt too (ALWAYS_ON), so an administrator is not
+            # locked out of the product by the switch meant to pause it.
+            login = APIClient().post('/api/auth/login/',
+                                     {'username': 'nobody', 'password': 'nobody'},
+                                     format='json')
+            self.assertNotEqual(login.status_code, 503)
+
+            self._set_maintenance(enabled=False)
+            self.assertEqual(client.get('/api/customers/').status_code, 200)
+
+
+class SignupSeedsNothingInventedTests(TransactionTestCase):
+    """A brand-new boutique starts empty, not furnished with someone else's shop.
+
+    seed_tenant_defaults was called unconditionally from SignupView, so every
+    real boutique was born with four employees who do not exist, five fabrics at
+    another business's prices and eleven priced catalogue designs.
+
+    The fabric prices are why this is not cosmetic: the order wizard computes
+    fabric_price = price_per_meter * 3, and that prints on the invoice. A
+    day-one order could be assigned to a person who does not work there, priced
+    at a rate the owner never set, and handed to a customer.
+    """
+
+    def _signup(self, email):
+        return APIClient().post('/api/auth/signup/', {
+            'first_name': 'Nita', 'last_name': 'Rao',
+            'email_address': email, 'password': 'a-real-password-42',
+            'business_name': "Nita's Atelier",
+        }, format='json')
+
+    def test_a_new_boutique_has_no_invented_staff_fabrics_or_designs(self):
+        from crm_api.models import BoutiqueFabric, Tailor
+        from apps.design_studio.models import DesignAsset
+
+        response = self._signup('nita.seed@ownerflow.test')
+        self.assertEqual(response.status_code, 201, response.data)
+        schema = response.data['tenant_id']
+
+        with schema_context(schema):
+            self.assertEqual(Tailor.objects.count(), 0,
+                             list(Tailor.objects.values_list('name', flat=True)))
+            self.assertEqual(BoutiqueFabric.objects.count(), 0,
+                             list(BoutiqueFabric.objects.values_list('name', flat=True)))
+            self.assertFalse(
+                DesignAsset.objects.filter(
+                    source=DesignAsset.SOURCE_CATALOGUE).exists(),
+                'the demo catalogue was seeded into a real boutique')
+
+    def test_the_seed_helper_still_populates_when_asked(self):
+        # seed_data.py and SeedDataView both exist to make a playground; the
+        # flag must not have turned them into no-ops.
+        from crm_api.models import BoutiqueFabric, Tailor
+        from crm_api.utils import seed_tenant_defaults
+
+        response = self._signup('nita.demo@ownerflow.test')
+        schema = response.data['tenant_id']
+        with schema_context(schema):
+            seed_tenant_defaults()
+            self.assertGreater(Tailor.objects.count(), 0)
+            self.assertGreater(BoutiqueFabric.objects.count(), 0)
+
+
+class MultiBoutiqueLoginTests(TransactionTestCase):
+    """A freelance tailor works at two boutiques and must reach both.
+
+    find_tenant_for_account returned the FIRST schema containing a matching
+    email and stopped, so the second account was unreachable with entirely
+    correct credentials -- and which one was reachable depended on row order in
+    the tenant table, so it was not even consistent.
+    """
+
+    def _signup(self, email, name):
+        return APIClient().post('/api/auth/signup/', {
+            'first_name': name, 'last_name': 'Owner',
+            'email_address': email, 'password': 'owner-password-77',
+            'business_name': f"{name}'s Atelier",
+        }, format='json')
+
+    def setUp(self):
+        super().setUp()
+        from crm_api.models import Tailor
+        from django.contrib.auth.models import User
+
+        self.schema_a = self._signup('a.owner@twoshops.test', 'Asha').data['tenant_id']
+        self.schema_b = self._signup('b.owner@twoshops.test', 'Bina').data['tenant_id']
+
+        # The same person, with a different password at each shop.
+        self.shared_email = 'freelance.tailor@twoshops.test'
+        for schema, password in ((self.schema_a, 'password-at-asha-1'),
+                                 (self.schema_b, 'password-at-bina-2')):
+            with schema_context(schema):
+                user = User.objects.create_user(
+                    username=self.shared_email, email=self.shared_email,
+                    password=password, first_name='Ravi')
+                Tailor.objects.create(name='Ravi', specialty='Blouses',
+                                      role='Tailor', status='Available', user=user)
+
+    def _login(self, password):
+        from django.core.cache import cache
+        cache.clear()   # LoginThrottle counts failures per address
+        return APIClient().post('/api/auth/login/',
+                                {'username': self.shared_email, 'password': password},
+                                format='json')
+
+    def test_each_boutiques_password_signs_in_to_that_boutique(self):
+        first = self._login('password-at-asha-1')
+        self.assertEqual(first.status_code, 200, first.data)
+        self.assertEqual(first.data['tenant_id'], self.schema_a)
+
+        second = self._login('password-at-bina-2')
+        self.assertEqual(second.status_code, 200, second.data)
+        self.assertEqual(second.data['tenant_id'], self.schema_b)
+
+    def test_a_wrong_password_is_still_refused_after_trying_every_boutique(self):
+        response = self._login('not-either-of-them')
+        self.assertEqual(response.status_code, 400, response.data)
+
+    def test_a_suspended_boutique_does_not_block_the_other(self):
+        with schema_context('public'):
+            tenant_a = BoutiqueTenant.objects.get(schema_name=self.schema_a)
+            tenant_a.is_active = False
+            tenant_a.save(update_fields=['is_active'])
+        clear_tenant_cache()
+        try:
+            # Asha's shop is suspended; Bina's is not, and that login must work.
+            response = self._login('password-at-bina-2')
+            self.assertEqual(response.status_code, 200, response.data)
+            self.assertEqual(response.data['tenant_id'], self.schema_b)
+            # The suspended one is reported as suspended, not as bad credentials.
+            refused = self._login('password-at-asha-1')
+            self.assertEqual(refused.status_code, 403, refused.data)
+        finally:
+            with schema_context('public'):
+                tenant_a.is_active = True
+                tenant_a.save(update_fields=['is_active'])
+            clear_tenant_cache()

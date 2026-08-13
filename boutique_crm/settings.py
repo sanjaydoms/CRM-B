@@ -14,6 +14,8 @@ import os
 import sys
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -40,17 +42,60 @@ _load_dotenv(BASE_DIR / '.env')
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-local-development-only-do-not-use-in-production',
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
 # Defaults to False so a deploy that forgets to set it cannot serve tracebacks --
 # with DEBUG on, any unauthenticated request that errors returns source paths and
 # settings. Local development turns it back on via .env.
+#
+# Read before SECRET_KEY, because SECRET_KEY's fallback depends on it.
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
+
+# SECURITY WARNING: keep the secret key used in production secret!
+#
+# There is a development fallback, and it is refused outside development --
+# loudly, at import, rather than by serving traffic on a key published in this
+# repository.
+#
+# This is not a hypothetical hardening. DJANGO_SECRET_KEY appeared nowhere in
+# the README's environment list, nowhere in .env and nowhere in start.sh, so a
+# deploy that followed the documentation exactly ran on the literal below. That
+# key signs the customer tracking tokens in domains/orders/tracking.py, and
+# /track/<token>/ accepts them with no authentication at all. Order references
+# are T2B-YYMMDD-NNNN -- nine thousand slots per day -- so knowing the key means
+# minting tokens for any (schema, order) pair and reading a boutique's whole
+# order book: customer names, phone numbers, addresses and balances.
+#
+# Failing to boot is the point. A silent fallback is what let this reach a
+# deployed service in the first place, and the same reasoning already governs
+# create_superuser.py, which refuses to run without DJANGO_SUPERUSER_PASSWORD.
+#
+# `test in sys.argv` matches the USE_LOCAL_DB branch further down: a checkout
+# with no .env must still be able to run the suite, and a test run serves
+# nothing to anyone.
+_DEV_SECRET_KEY = 'django-insecure-local-development-only-do-not-use-in-production'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if DEBUG or 'test' in sys.argv:
+        SECRET_KEY = _DEV_SECRET_KEY
+    else:
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY is not set. It signs the customer tracking "
+            "links, so running on the development key published in this "
+            "repository would let anyone mint a link to any order in any "
+            "boutique. Generate one with:\n\n"
+            "  python -c \"from django.core.management.utils import "
+            "get_random_secret_key; print(get_random_secret_key())\"\n\n"
+            "and set it in the environment. Rotating it invalidates tracking "
+            "links already sent to customers, which is intended."
+        )
+elif SECRET_KEY == _DEV_SECRET_KEY and not (DEBUG or 'test' in sys.argv):
+    # Set, but set to the published value -- the same exposure, reached by
+    # copying the literal into the environment instead of by omitting it.
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is set to the development key that is published in "
+        "this repository. Generate a real one; see the comment in "
+        "boutique_crm/settings.py."
+    )
 
 ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',') if h]
 
@@ -60,6 +105,12 @@ ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',
 SHARED_APPS = [
     'django_tenants',  # mandatory
     'tenants',
+    # The platform console. Shared-only and deliberately so: it reads the tenant
+    # registry and reaches into each boutique's schema on purpose, which is
+    # exactly what must never be installed *inside* a boutique. It owns no
+    # models -- everything it shows already exists somewhere -- so it adds no
+    # migration to either schema set.
+    'superadmin',
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -91,6 +142,14 @@ TENANT_APPS = [
 INSTALLED_APPS = list(set(SHARED_APPS + TENANT_APPS))
 
 MIDDLEWARE = [
+    # Not middleware, and it never handles a request: it raises
+    # MiddlewareNotUsed so Django drops it from the chain entirely. It is here
+    # because MIDDLEWARE is the only list Django imports once per worker before
+    # the first request, and core/exceptions.py needs that moment to connect its
+    # got_request_exception receiver -- `core` is not an installed app, so it has
+    # no AppConfig.ready(). Deleting this line silently switches off every
+    # ErrorEvent on the platform. Position is irrelevant; see core/exceptions.py.
+    'core.exceptions.capture_middleware',
     'corsheaders.middleware.CorsMiddleware',
     'tenants.middleware.TenantHeaderMiddleware',  # header tenant switcher
     'django.middleware.security.SecurityMiddleware',
@@ -294,6 +353,47 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 CORS_ALLOW_METHODS = list(default_methods)
 
 
+# --- Outbound email ------------------------------------------------------
+# Only one thing sends mail: the password reset link. Nothing else in the
+# product emails anyone, and customer messages deliberately go out over the
+# owner's own WhatsApp instead (see CUSTOMER_MESSAGE_BACKEND below).
+#
+# The default is the console backend rather than Django's default SMTP-to-
+# localhost:25. That default is the wrong shape for both environments: locally
+# there is no mail server, so every reset request would raise
+# ConnectionRefusedError inside the view; on Render there is no mail server
+# either, so it would fail the same way in front of a locked-out owner. Printing
+# the link to the log is honest in development and, on a deploy with no SMTP
+# configured, at least leaves the link somewhere an operator can reach it.
+#
+# Set EMAIL_HOST (plus user/password) to send for real; the backend switches
+# itself to SMTP as soon as a host is present, so a deploy needs no second
+# variable to remember.
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_BACKEND = (
+    'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST
+    else 'django.core.mail.backends.console.EmailBackend'
+)
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'no-reply@scaleezy.com')
+
+# Where the reset link lands. This is the *frontend* origin, not the API's:
+# /app is the React workspace and the only thing that can render a new-password
+# form. TRACKING_BASE_URL is deliberately not reused -- that one must point at
+# Django, because /track/<token>/ is a Django route.
+PASSWORD_RESET_BASE_URL = os.environ.get(
+    'PASSWORD_RESET_BASE_URL', 'http://localhost:5173/app.html'
+)
+
+# How long a reset link stays good. Django's default is three days, which is a
+# long time for a link that grants an account to whoever holds it; an hour is
+# enough to read an email and still short enough to matter.
+PASSWORD_RESET_TIMEOUT = int(os.environ.get('PASSWORD_RESET_TIMEOUT', '3600'))
+
+
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
 SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'boutique-crm')
@@ -326,6 +426,96 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'core.permissions.RolePermission',
     ],
+    # Only the password-reset views throttle, and they name the class
+    # themselves. Nothing else is rate limited here, so no DEFAULT_THROTTLE_
+    # CLASSES entry -- an unset default is what keeps this from applying to
+    # every authenticated business endpoint by accident.
+    'DEFAULT_THROTTLE_RATES': {
+        'password_reset': os.environ.get('PASSWORD_RESET_RATE', '5/hour'),
+        # Both login doors share this scope -- crm_api.LoginView and
+        # superadmin.PlatformLoginView -- so one address cannot draw two
+        # allowances by alternating between them.
+        'login': os.environ.get('LOGIN_RATE', '20/hour'),
+    },
+    # Records the exceptions DRF cannot turn into a response -- the 500s -- into
+    # superadmin.ErrorEvent, and nothing else. See core/exceptions.py for why a
+    # 4xx is deliberately not recorded.
+    'EXCEPTION_HANDLER': 'core.exceptions.platform_exception_handler',
+}
+
+
+# --- Logging -------------------------------------------------------------
+# There was no LOGGING dict at all until now, which meant Django's default
+# applied: the root logger sits at WARNING with no handler of ours, and
+# django.request's ERROR records went to mail_admins -- with ADMINS empty, to
+# nobody. So an unhandled 500 produced no line anywhere, and the logger.info()
+# calls in domains/orders/messaging.py, crm_api/auth_views.py and
+# apps/design_studio/services.py were emitted into the void.
+#
+# The root django.log file in the repository is not evidence of a logging setup:
+# it is stale runserver stdout from a one-off shell redirect (it opens with
+# "Watching for file changes with StatReloader"), nothing writes to it and
+# nothing reads it. No FileHandler here on purpose -- gunicorn is configured
+# with errorlog='-' and Render collects the process's streams, so a file on a
+# container's ephemeral disk would be a second copy that disappears on deploy.
+#
+# DJANGO_LOG_LEVEL=INFO turns on the informational lines above (notably every
+# outbound customer message) without a code change, which is the only reason
+# they are worth having at INFO.
+
+
+import logging  # noqa: E402  -- local to this section, like corsheaders above
+
+
+def _log_level(raw):
+    """A level name dictConfig will accept, whatever the environment said.
+
+    The value went in unvalidated, and dictConfig is not lenient about it:
+    DJANGO_LOG_LEVEL=info -- the obvious thing to type, and what a shell history
+    or a copied Render env var will hand you -- raised ValueError inside
+    django.setup(), so every worker died at boot. A logging *preference* took
+    the whole service down, and the deploy that did it looked like a no-op.
+
+    Falling back rather than raising for a level that is not a level, for the
+    same reason: nothing about wanting different log output justifies refusing
+    to start.
+    """
+    level = (raw or '').strip().upper()
+    # getLevelNamesMapping() is the same table dictConfig validates against
+    # (including the WARN/FATAL aliases), so this cannot drift away from it.
+    return level if level in logging.getLevelNamesMapping() else 'WARNING'
+
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'plain': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'plain',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': _log_level(os.environ.get('DJANGO_LOG_LEVEL')),
+    },
+    'loggers': {
+        # The traceback of every unhandled 500. Pinned at ERROR and given its
+        # own handler so raising DJANGO_LOG_LEVEL cannot silence it and lowering
+        # it cannot drown it -- propagate=False keeps it off the root handler so
+        # it is logged once rather than twice.
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
 }
 
 

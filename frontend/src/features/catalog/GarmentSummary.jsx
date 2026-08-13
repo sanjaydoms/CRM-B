@@ -63,8 +63,17 @@ function displayValue(field, value, inventoryNames) {
   }
 
   if (field.field_type === 'file') {
-    if (Array.isArray(value)) return `${value.length} file(s)`;
-    return value.name || 'Attached';
+    // Kept for any value already stored on an existing garment job, but it can
+    // no longer say "Attached" for something that was never saved. TemplateForm
+    // stops rendering file inputs at all (see the comment there): the browser's
+    // File object does not survive JSON.stringify, so what reached the database
+    // was `{}` or `[{}]` while this line reported success. A summary that
+    // confirms an upload the product cannot perform is worse than no summary.
+    if (Array.isArray(value)) {
+      const named = value.filter((v) => v && v.name);
+      return named.length ? named.map((v) => v.name).join(', ') : 'Not saved';
+    }
+    return value?.name || 'Not saved';
   }
 
   const text = String(value);

@@ -32,6 +32,11 @@ urlpatterns = [
     # so a slash-less POST would 301, the browser would retry it as GET, and
     # the form body would vanish with nothing logged.
     path('demo-request/', demo_request, name='demo-request'),
+    # The platform console. Mounted above 'api/' only for legibility -- they do
+    # not overlap. This prefix is matched by SUPERADMIN_PREFIX in
+    # tenants/middleware.py to pin the connection to the public schema; change
+    # one and you must change the other.
+    path('api/superadmin/', include('superadmin.urls')),
     path('api/', include('crm_api.urls')),
     path('api/production/', include('apps.production.urls')),
     path('api/activities/', include('apps.activities.urls')),

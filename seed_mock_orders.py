@@ -9,6 +9,7 @@ from django.contrib.auth.models import User
 from tenants.models import BoutiqueTenant
 from django_tenants.utils import schema_context
 from crm_api.models import Customer, Measurement, Tailor, Order, OrderStageHistory, Notification
+from core.utils import refuse_unless_local_database
 import datetime
 
 def seed_tenant_orders(schema_name):
@@ -50,7 +51,7 @@ def seed_tenant_orders(schema_name):
             user = User.objects.create_user(
                 username=username,
                 email=t["email"],
-                password="TailorSecure2026!",
+                password=os.environ.get("SEED_STAFF_PASSWORD", "seed-only-not-for-real-use"),
                 first_name=t["name"].split(' ')[0],
                 last_name=t["name"].split(' ')[1] if len(t["name"].split(' ')) > 1 else ''
             )
@@ -248,6 +249,12 @@ def seed_tenant_orders(schema_name):
         print("Mocks and login credentials seeded successfully!")
 
 def seed_all():
+    # This function's first act, per tenant, is to delete every order, customer
+    # and tailor in that schema -- looped over every boutique on the platform.
+    # Nothing in the build or start path calls it, so the only way it ever runs
+    # is by hand, which is also the only way it ever runs against the wrong
+    # database. See core.utils.
+    refuse_unless_local_database()
     for tenant in BoutiqueTenant.objects.exclude(schema_name='public'):
         try:
             seed_tenant_orders(tenant.schema_name)

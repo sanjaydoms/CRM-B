@@ -1,19 +1,143 @@
+import logging
 import uuid
 
+from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
 from django.core.validators import validate_email
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils.text import slugify
 from rest_framework import status, views
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token
+from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import connection
 from tenants.models import BoutiqueTenant, Domain
 from django_tenants.utils import schema_context
 from core.roles import OWNER, resolve_user_role
+
+logger = logging.getLogger(__name__)
+
+
+def find_tenants_for_account(email_or_username):
+    """Every boutique this email or username has an account in, best first.
+
+    The owner match from the public registry is yielded first because it is
+    exact and cheap; the schema scan follows.
+
+    A generator, and that is the point. This used to return the FIRST match and
+    stop, so a freelance tailor who works at two boutiques -- the same person,
+    the same address, an account in each -- could only ever sign in to whichever
+    schema the scan happened to reach first, with correct credentials for both.
+    Which one that was depended on row order in the tenant table, so it was not
+    even predictable. Yielding candidates lets the caller try each password
+    against each account and stop at the one that authenticates.
+
+    ponytail: the scan is O(number of boutiques) schema switches and runs on
+    every staff login. Fine at tens. Past a hundred or so, carry a lowercased
+    email -> schema map in a public-schema table and write to it wherever a User
+    is created (SignupView here, TailorViewSet._ensure_user_account and
+    DesignerViewSet.create_login).
+    """
+    with schema_context('public'):
+        owner_tenant = BoutiqueTenant.objects.filter(
+            owner_email=email_or_username).first()
+        others = list(BoutiqueTenant.objects.exclude(schema_name='public'))
+
+    if owner_tenant:
+        yield owner_tenant
+
+    for t in others:
+        if owner_tenant and t.pk == owner_tenant.pk:
+            continue
+        with schema_context(t.schema_name):
+            # iexact, not exact: the caller's input is lowercased, and staff
+            # accounts predating that normalization still carry whatever casing
+            # the owner typed.
+            if (User.objects.filter(email__iexact=email_or_username).exists()
+                    or User.objects.filter(
+                        username__iexact=email_or_username).exists()):
+                yield t
+
+
+def find_tenant_for_account(email_or_username):
+    """The first boutique this account belongs to, or None.
+
+    Kept for password reset, which genuinely wants one answer: a reset link has
+    to name a single schema, and sending someone two links for two boutiques
+    would be worse than sending one. Login uses the generator above instead,
+    because it can try each candidate.
+    """
+    return next(find_tenants_for_account(email_or_username), None)
+
+
+class LoginThrottle(AnonRateThrottle):
+    """A ceiling on password guessing, on both of the product's login doors.
+
+    Neither LoginView nor superadmin's PlatformLoginView had any limit, and
+    LoginView in particular resolves an account by searching every boutique's
+    schema for a matching username -- so a single guessed username was tried
+    against the whole platform at once, not against one boutique. That is what
+    turned a shared staff password into unauthenticated access to any boutique
+    that happened to have such an account.
+
+    **Only failed attempts count.** A boutique is one shop on one IP address,
+    and this throttles by address, so counting every login would have made a
+    busy morning -- eight staff signing in, a couple of them twice -- indis-
+    tinguishable from an attack, and locked the whole shop out of the only door
+    the product has for an hour. Counting successes buys nothing anyway: an
+    attacker who is guessing is, by definition, failing.
+
+    That is the difference between this and DRF's own SimpleRateThrottle, which
+    records in allow_request -- before the view knows whether the credentials
+    were any good. So allow_request here still *checks* the history and refuses
+    once it is full, but recording moves to record_failure(), which the two
+    login views call only when authentication has actually failed.
+
+    ponytail: LocMemCache, so this is per gunicorn worker -- the real ceiling
+    is WEB_CONCURRENCY times the rate. Same caveat as _PasswordResetThrottle,
+    and the same remedy if it ever needs to be exact: a shared cache.
+    """
+
+    scope = 'login'
+
+    def throttle_success(self):
+        """Let the request through without spending budget.
+
+        SimpleRateThrottle appends to the history here and writes it back. This
+        override is what makes the limit apply to failures alone; the entry is
+        written by record_failure() instead.
+        """
+        return True
+
+    @classmethod
+    def record_failure(cls, request):
+        """Charge one wrong password to this address.
+
+        Safe to call for an unknown username as well as a wrong password -- both
+        are guesses. Silently does nothing when the throttle is not configured
+        or the caller has no usable identifier, matching allow_request's own
+        behaviour rather than raising inside a login handler.
+        """
+        throttle = cls()
+        if throttle.rate is None:
+            return
+        key = throttle.get_cache_key(request, None)
+        if key is None:
+            return
+        now = throttle.timer()
+        history = throttle.cache.get(key, [])
+        while history and history[-1] <= now - throttle.duration:
+            history.pop()
+        history.insert(0, now)
+        throttle.cache.set(key, history, throttle.duration)
+
 
 class SignupView(views.APIView):
     permission_classes = [AllowAny]
@@ -102,9 +226,21 @@ class SignupView(views.APIView):
             # Switch connection to the tenant's new schema context
             connection.set_tenant(tenant)
 
-            # Seed default catalog and tailors for the new schema
+            # demo=False: a real boutique starts empty.
+            #
+            # This used to seed four invented employees, five fabrics at another
+            # business's prices and eleven priced catalogue designs into every
+            # new boutique. The fabric prices are the part that matters: the
+            # order wizard computes fabric_price = price_per_meter * 3, so a
+            # day-one order could be assigned to a person who does not work
+            # there, priced at a rate the owner never set, and printed on an
+            # invoice for a customer.
+            #
+            # Still called rather than dropped: keeping one entry point means a
+            # future addition that a real tenant DOES need lands here without
+            # anyone having to remember this call site exists.
             from crm_api.utils import seed_tenant_defaults
-            seed_tenant_defaults()
+            seed_tenant_defaults(demo=False)
 
             # Give the boutique its own identity from what the owner just
             # typed. Signup collected a mobile number and never used it, and no
@@ -166,6 +302,7 @@ class SignupView(views.APIView):
 
 class LoginView(views.APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [LoginThrottle]
 
     def post(self, request):
         # Same normalization as signup, or an owner who capitalises their email
@@ -179,48 +316,67 @@ class LoginView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Lookup tenant in public registry
-        with schema_context('public'):
-            tenant = BoutiqueTenant.objects.filter(owner_email=username_or_email).first()
-            if not tenant:
-                # Search other schemas for a user with this email/username.
-                # iexact, not exact: the input is lowercased above, and staff
-                # accounts predating that normalization still carry whatever
-                # casing the owner typed. A case-sensitive match made those
-                # logins permanently unreachable with valid credentials.
-                for t in BoutiqueTenant.objects.exclude(schema_name='public'):
-                    with schema_context(t.schema_name):
-                        if User.objects.filter(email__iexact=username_or_email).exists() or User.objects.filter(username__iexact=username_or_email).exists():
-                            tenant = t
-                            break
+        # Every boutique this address has an account in, tried in turn.
+        #
+        # This used to take the FIRST match and stop, so a freelance tailor who
+        # works at two boutiques could only ever sign in to whichever schema the
+        # scan reached first -- with valid credentials for both, and no way to
+        # say which one they meant. Trying each candidate and stopping at the
+        # one whose password matches is what makes the second account reachable.
+        suspended = None
+        authenticated = None
+        for candidate in find_tenants_for_account(username_or_email):
+            # Login resolves its own tenant and never sends an X-Tenant-ID, so
+            # TenantHeaderMiddleware's suspension check has nothing to act on
+            # and this request would otherwise walk past it -- handing out a
+            # token every subsequent call then refuses. Remembered rather than
+            # returned immediately: a suspended boutique must not stop the
+            # person signing in to a different one that is fine.
+            if not candidate.is_active:
+                suspended = candidate
+                continue
 
-        if not tenant:
+            connection.set_tenant(candidate)
+            user_obj = (User.objects.filter(email__iexact=username_or_email).first()
+                        or User.objects.filter(username__iexact=username_or_email).first())
+            # authenticate() matches username exactly, so hand it the stored
+            # spelling rather than the lowercased input.
+            username_to_auth = user_obj.username if user_obj else username_or_email
+            user = authenticate(username=username_to_auth, password=password)
+            if user:
+                authenticated = (candidate, user)
+                break
+            connection.set_schema_to_public()
+
+        if authenticated is None:
+            connection.set_schema_to_public()
+            # Said plainly rather than as a generic credential error: if the
+            # only boutique this address belongs to is suspended, the password
+            # was probably right, and "invalid credentials" would send the owner
+            # to the reset form instead of to support.
+            if suspended is not None:
+                return Response(
+                    {"error": "This boutique's access has been suspended. "
+                              "Please contact support."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            LoginThrottle.record_failure(request)
             return Response(
                 {"error": "Invalid login credentials. Please try again."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        tenant, user = authenticated
+        # Re-assert the schema, because breaking out of the loop above closed
+        # the generator -- and find_tenants_for_account yields from INSIDE a
+        # schema_context, whose __exit__ then restored the connection to public.
+        # So by the time control reaches here the tenant has been unset, and the
+        # very next ORM call (resolve_user_role reading tailor_profile) fails
+        # with `relation "crm_api_tailor" does not exist`. `user` was already
+        # loaded, so it survives the switch; nothing else has been read yet.
+        connection.set_tenant(tenant)
+
         try:
-            # Switch connection to the tenant's schema
-            connection.set_tenant(tenant)
-
-            username_to_auth = username_or_email
-            user_obj = (User.objects.filter(email__iexact=username_or_email).first()
-                        or User.objects.filter(username__iexact=username_or_email).first())
-            if user_obj:
-                # authenticate() matches username exactly, so hand it the stored
-                # spelling rather than the lowercased input.
-                username_to_auth = user_obj.username
-
-            user = authenticate(username=username_to_auth, password=password)
-            if not user:
-                # Revert schema context on failure
-                connection.set_schema_to_public()
-                return Response(
-                    {"error": "Invalid login credentials. Please try again."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
             role = resolve_user_role(user)
             tailor_id = user.tailor_profile.id if getattr(user, 'tailor_profile', None) else None
             designer_id = user.designer_profile.id if getattr(user, 'designer_profile', None) else None
@@ -289,6 +445,160 @@ class MeView(views.APIView):
             "designer_id": designer_id,
             "tenant_id": connection.schema_name
         }, status=status.HTTP_200_OK)
+
+class _PasswordResetThrottle(AnonRateThrottle):
+    """Speed bump on the one endpoint that sends mail on a stranger's say-so.
+
+    ponytail: DRF throttling counts in the cache, and no CACHES is configured,
+    so this is LocMemCache -- per gunicorn worker. With WEB_CONCURRENCY=2 the
+    real ceiling is twice the number below. That is a speed bump, not a
+    guarantee, and it is the right size for the risk: the endpoint reveals
+    nothing and the worst case is a mailbox filling up. Give it a shared cache
+    (or count rows the way tenants/views.py does) if it ever needs to be exact.
+    """
+
+    scope = 'password_reset'
+
+
+class PasswordResetRequestView(views.APIView):
+    """Start a reset. Answers the same way whether or not the account exists.
+
+    A different answer for a known address turns this into a directory of every
+    boutique owner and staff member on the platform, which is worth more to an
+    attacker than the reset itself.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [_PasswordResetThrottle]
+
+    # Said once, so the two exits below cannot drift into telling the caller
+    # apart by wording.
+    ANSWER = {"detail": "If that account exists, a reset link is on its way."}
+
+    def post(self, request):
+        email = (request.data.get('email') or '').strip().lower()
+        if not email:
+            return Response({"error": "Enter your email address."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        tenant = find_tenant_for_account(email)
+        if not tenant:
+            return Response(self.ANSWER, status=status.HTTP_200_OK)
+
+        with schema_context(tenant.schema_name):
+            user = (User.objects.filter(email__iexact=email).first()
+                    or User.objects.filter(username__iexact=email).first())
+            if not user or not user.is_active:
+                return Response(self.ANSWER, status=status.HTTP_200_OK)
+
+            # The link has to carry the schema. Every part of validating the
+            # token -- loading the user, reading the password hash it is derived
+            # from -- happens inside the boutique's own schema, and the browser
+            # following this link has no session and no X-Tenant-ID yet. The
+            # schema name is not a secret: it is already in localStorage and on
+            # every API call as a header.
+            payload = '.'.join([
+                tenant.schema_name,
+                urlsafe_base64_encode(force_bytes(user.pk)),
+                default_token_generator.make_token(user),
+            ])
+
+        link = f"{settings.PASSWORD_RESET_BASE_URL}?reset={payload}"
+        boutique = tenant.name or 'your boutique'
+        try:
+            send_mail(
+                subject=f"Reset your {boutique} password",
+                message=(
+                    f"Someone asked to reset the password for {email} on "
+                    f"{boutique}.\n\n"
+                    f"Open this link to choose a new one:\n\n{link}\n\n"
+                    f"The link stops working in "
+                    f"{settings.PASSWORD_RESET_TIMEOUT // 60} minutes, and "
+                    f"once you use it every device signed in to this account "
+                    f"is signed out.\n\n"
+                    f"If this was not you, ignore this email -- nothing has "
+                    f"changed."
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email or email],
+                fail_silently=False,
+            )
+        except Exception:
+            # Never surface the mail failure to the caller: which addresses
+            # bounce is the same directory the generic answer above exists to
+            # withhold. Logged with the link because with no SMTP configured
+            # the log is the only place an operator can recover it from.
+            logger.exception('password reset email failed for %s (link: %s)',
+                             email, link)
+
+        return Response(self.ANSWER, status=status.HTTP_200_OK)
+
+
+class PasswordResetConfirmView(views.APIView):
+    """Finish a reset: swap the password and sign every device out."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [_PasswordResetThrottle]
+
+    INVALID = {"error": "This reset link is no longer valid. "
+                        "Please request a new one."}
+
+    def post(self, request):
+        payload = (request.data.get('token') or '').strip()
+        password = request.data.get('password') or ''
+
+        parts = payload.split('.')
+        if len(parts) != 3:
+            return Response(self.INVALID, status=status.HTTP_400_BAD_REQUEST)
+        schema_name, uidb64, token = parts
+
+        with schema_context('public'):
+            tenant = BoutiqueTenant.objects.filter(
+                schema_name=schema_name).first()
+        if not tenant:
+            return Response(self.INVALID, status=status.HTTP_400_BAD_REQUEST)
+        # A suspended boutique is refused at login; letting it set a password
+        # here would be a way back in through the side door.
+        if not tenant.is_active:
+            return Response(
+                {"error": "This boutique's access has been suspended. "
+                          "Please contact support."},
+                status=status.HTTP_403_FORBIDDEN)
+
+        with schema_context(tenant.schema_name):
+            try:
+                user = User.objects.get(
+                    pk=force_str(urlsafe_base64_decode(uidb64)))
+            except (User.DoesNotExist, ValueError, TypeError, OverflowError):
+                return Response(self.INVALID,
+                                status=status.HTTP_400_BAD_REQUEST)
+
+            # Checked before the password rules, so a bad link is never told
+            # apart from a good one by which complaint comes back.
+            if not default_token_generator.check_token(user, token):
+                return Response(self.INVALID,
+                                status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                validate_password(password, user)
+            except DjangoValidationError as exc:
+                return Response({"error": " ".join(exc.messages)},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+            user.set_password(password)
+            user.save(update_fields=['password'])
+
+            # Both of these are the point of a reset rather than housekeeping.
+            # Deleting the auth token signs out whoever was holding it -- which
+            # is the thief, in the case this feature exists for. Changing the
+            # hash also invalidates the reset token itself, since the generator
+            # derives it from the hash, so the link cannot be replayed.
+            Token.objects.filter(user=user).delete()
+
+        return Response({"detail": "Your password has been changed. "
+                                   "Please sign in."},
+                        status=status.HTTP_200_OK)
+
 
 class SeedDataView(views.APIView):
     permission_classes = [IsAuthenticated]

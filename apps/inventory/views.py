@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 from django.db import transaction
 from django.db.models import Count, F, Sum, DecimalField, ExpressionWrapper
 from django.utils import timezone
@@ -52,6 +54,21 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
 
 class InventoryItemViewSet(viewsets.ModelViewSet):
+    # Owner-only, matching all three siblings in this module -- SupplierViewSet,
+    # PurchaseOrderViewSet and InventoryReportViewSet -- whose comments already
+    # say why: stock valuation, purchase price and supplier terms are the
+    # boutique's commercial position, and a tailor needs none of it to sew.
+    #
+    # This one was left on the default RolePermission, which grants any
+    # signed-in non-Owner every safe method. `summary` returns
+    # inventory_value = Sum(current_stock * purchase_price) and the summary
+    # serializer carries purchase_price on every row, so any staff token could
+    # read what the boutique paid for everything it owns.
+    #
+    # Safe to close rather than to trim: /inventory/items/ is called from the
+    # Owner-only Inventory panel, and from TemplateForm/GarmentSummary inside
+    # the order wizard, which is itself Owner-gated.
+    permission_classes = [OwnerOnly]
     serializer_class = InventoryItemSerializer
 
     def get_serializer_class(self):
@@ -320,6 +337,18 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
         Body: {"lines": [{"line_id": "...", "quantity": 5}, ...]}. Each receipt
         writes a PURCHASE movement, so goods-in is visible in the ledger.
+
+        All lines land, or none do. InventoryService.purchase() is individually
+        @transaction.atomic, so each line used to commit on return with nothing
+        tying them together: a multi-line delivery with one mistyped quantity
+        raised on line three while lines one and two were ALREADY in stock and
+        carrying PURCHASE ledger rows -- and the owner saw only that the receipt
+        had failed. Correcting the typo and resubmitting booked the first two a
+        second time, leaving on-hand quantity and inventory valuation
+        permanently wrong with nothing in the ledger to explain it.
+
+        ReceiveModal pre-fills every line, so multi-line receipts are the normal
+        case rather than the exception.
         """
         purchase_order = self.get_object()
         received = request.data.get('lines') or []
@@ -329,42 +358,57 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
         lines_by_id = {str(line.id): line for line in purchase_order.lines.all()}
         try:
-            for entry in received:
-                line = lines_by_id.get(str(entry.get('line_id')))
-                if not line:
-                    raise ValueError(f"Line {entry.get('line_id')} is not on this purchase order.")
-                quantity = entry.get('quantity')
-                if quantity in (None, ''):
-                    continue
-                from decimal import Decimal
-                quantity = Decimal(str(quantity))
-                if quantity <= 0:
-                    raise ValueError('Received quantity must be greater than zero.')
-                if line.quantity_received + quantity > line.quantity_ordered:
-                    raise ValueError(
-                        f"Cannot receive {quantity} of {line.item.name} -- only "
-                        f"{line.quantity_outstanding} outstanding on this order."
+            # The whole receipt, including the purchase order's own status: a
+            # status of RECEIVED committed against rolled-back lines would
+            # describe a delivery that did not happen. The except sits outside
+            # the block so the 400 is answered after the rollback has finished
+            # rather than from inside a transaction that is already doomed.
+            with transaction.atomic():
+                for entry in received:
+                    line = lines_by_id.get(str(entry.get('line_id')))
+                    if not line:
+                        raise ValueError(
+                            f"Line {entry.get('line_id')} is not on this purchase order.")
+                    quantity = entry.get('quantity')
+                    if quantity in (None, ''):
+                        continue
+                    # Decimal('abc') raises InvalidOperation, which is an
+                    # ArithmeticError and would escape the ValueError handler
+                    # below as an unhandled 500. Converted here so a mistyped
+                    # quantity is answered the same way an impossible one is.
+                    try:
+                        quantity = Decimal(str(quantity))
+                    except InvalidOperation:
+                        raise ValueError(f"{quantity!r} is not a quantity.")
+                    if quantity <= 0:
+                        raise ValueError('Received quantity must be greater than zero.')
+                    if line.quantity_received + quantity > line.quantity_ordered:
+                        raise ValueError(
+                            f"Cannot receive {quantity} of {line.item.name} -- only "
+                            f"{line.quantity_outstanding} outstanding on this order."
+                        )
+                    InventoryService.purchase(
+                        line.item, quantity, user=request.user,
+                        remarks=f"Received against {purchase_order.po_number}",
                     )
-                InventoryService.purchase(
-                    line.item, quantity, user=request.user,
-                    remarks=f"Received against {purchase_order.po_number}",
-                )
-                line.quantity_received += quantity
-                if entry.get('batch_number'):
-                    line.batch_number = entry['batch_number']
-                line.save(update_fields=['quantity_received', 'batch_number'])
+                    line.quantity_received += quantity
+                    if entry.get('batch_number'):
+                        line.batch_number = entry['batch_number']
+                    line.save(update_fields=['quantity_received', 'batch_number'])
+
+                lines = purchase_order.lines.all()
+                if all(line.quantity_outstanding <= 0 for line in lines):
+                    purchase_order.status = PurchaseOrder.Status.RECEIVED
+                    purchase_order.received_date = timezone.now().date()
+                elif any(line.quantity_received > 0 for line in lines):
+                    purchase_order.status = PurchaseOrder.Status.PARTIALLY_RECEIVED
+                purchase_order.save(update_fields=['status', 'received_date'])
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        lines = purchase_order.lines.all()
-        if all(line.quantity_outstanding <= 0 for line in lines):
-            purchase_order.status = PurchaseOrder.Status.RECEIVED
-            purchase_order.received_date = timezone.now().date()
-        elif any(line.quantity_received > 0 for line in lines):
-            purchase_order.status = PurchaseOrder.Status.PARTIALLY_RECEIVED
-        purchase_order.save(update_fields=['status', 'received_date'])
-
-        return Response(PurchaseOrderSerializer(purchase_order).data, status=status.HTTP_200_OK)
+        purchase_order.refresh_from_db()
+        return Response(PurchaseOrderSerializer(purchase_order).data,
+                        status=status.HTTP_200_OK)
 
 
 class CatalogSectionViewSet(viewsets.ReadOnlyModelViewSet):

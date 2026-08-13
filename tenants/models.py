@@ -5,7 +5,37 @@ class BoutiqueTenant(TenantMixin):
     owner_email = models.EmailField(unique=True)
     name = models.CharField(max_length=100)
     created_on = models.DateField(auto_now_add=True)
-    
+
+    # The platform administrator's off switch: a boutique that has stopped
+    # paying, or is being abused, is turned off here rather than deleted. The
+    # schema and every row in it survive, so switching it back on restores the
+    # boutique exactly as it was. Enforced at the two places a tenant is bound
+    # to the connection -- TenantHeaderMiddleware and LoginView -- because those
+    # are the only two ways in.
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Unticked, this boutique cannot sign in or use the API. Its data is kept.",
+    )
+
+    # Per-boutique feature switches: {module_key: bool}, keys from core.modules.
+    # Enforced in TenantHeaderMiddleware, which is the only chokepoint every
+    # request passes through.
+    #
+    # An ABSENT key means ENABLED (core.modules.is_enabled), and the default is
+    # {} rather than default_enabled() on purpose. A tenant row written before a
+    # module existed has no opinion about that module, and "no opinion" must not
+    # read as "off" -- otherwise adding an entry to core/modules.py would switch
+    # the new feature off for every existing boutique the moment it deployed,
+    # and the only fix would be a data migration per module forever. Storing
+    # only the explicit decisions also means this column records what an
+    # administrator actually chose, not a snapshot of the module list on the day
+    # the row was created.
+    enabled_modules = models.JSONField(
+        default=dict, blank=True,
+        help_text="Module switches this boutique has had changed, as "
+                  "{module_key: true/false}. A module that is not listed is on.",
+    )
+
     # default true means schema is automatically created on save
     auto_create_schema = True
 

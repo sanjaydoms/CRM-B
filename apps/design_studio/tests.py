@@ -1209,10 +1209,25 @@ class DesignerLoginTests(StudioTestCase):
 
     def test_the_new_account_can_actually_log_in(self):
         priya = self._designer()
-        self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
-                          {'email': 'priya@studio.test'}, format='json')
+        response = self.client.post(
+            f'/api/design-studio/designers/{priya.id}/create-login/',
+            {'email': 'priya@studio.test'}, format='json')
         priya.refresh_from_db()
-        self.assertTrue(priya.user.check_password('DesignerSecure2026!'))
+        # Was check_password('DesignerSecure2026!') -- a single literal shared
+        # by every designer on the platform, published in this repository and
+        # in the shipped JS bundle. The password is now generated per account
+        # and returned on this one response, so the assertion is that the value
+        # the owner is shown is the value that actually works.
+        self.assertTrue(priya.user.check_password(response.data['bootstrap_password']))
+
+    def test_each_designer_gets_a_different_password(self):
+        first = self._designer()
+        second = Designer.objects.create(name='Ira Nathan')
+        a = self.client.post(f'/api/design-studio/designers/{first.id}/create-login/',
+                             {'email': 'first@studio.test'}, format='json')
+        b = self.client.post(f'/api/design-studio/designers/{second.id}/create-login/',
+                             {'email': 'second@studio.test'}, format='json')
+        self.assertNotEqual(a.data['bootstrap_password'], b.data['bootstrap_password'])
 
     def test_a_second_call_is_refused_not_silently_reissued(self):
         priya = self._designer()

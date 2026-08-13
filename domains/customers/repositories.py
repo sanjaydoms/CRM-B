@@ -31,16 +31,27 @@ class CustomerRepository:
         """
         from django.db.models import Avg, Count, Max, Sum
         return Customer.objects.select_related('measurements').annotate(
-            # distinct throughout. visible_customers scopes a tailor with
-            # Q(orders__stages__assigned_to=...), and that join multiplies each
-            # order row by its fifteen stages. Count already had it; Sum and Avg
-            # did not, so a tailor's view of a client's spend came back fifteen
-            # times too large. .distinct() on the queryset does not save an
-            # annotated aggregate, which is why the row list looked right while
-            # the money did not.
+            # distinct stays on Count and is GONE from Sum and Avg, and the
+            # difference matters more than it looks.
+            #
+            # Count(DISTINCT id) counts distinct ROWS, which is what was wanted.
+            # Sum(DISTINCT total_amount) sums distinct VALUES -- so a client with
+            # two ₹40,000 orders had a lifetime spend of ₹40,000. Repeat orders
+            # at a repeated price are the ordinary pattern in a boutique, not an
+            # edge case, and it under-reported for EVERY role including the
+            # Owner, who has no join fan-out at all. The existing test used
+            # [1000, 2500, 500] -- three distinct values -- which is exactly why
+            # it never caught this.
+            #
+            # distinct was added here to counter the row multiplication from
+            # visible_customers' Q(orders__stages__assigned_to=...) join. That
+            # join is now a subquery (see core.permissions.visible_customers),
+            # so there is no fan-out left to counter and the honest aggregate is
+            # the correct one. Do not put distinct back on these two: it treats
+            # equal amounts as duplicates, which is the bug.
             orders_count=Count('orders', distinct=True),
-            orders_total_spend=Sum('orders__total_amount', distinct=True),
-            orders_avg_price=Avg('orders__total_amount', distinct=True),
+            orders_total_spend=Sum('orders__total_amount'),
+            orders_avg_price=Avg('orders__total_amount'),
             orders_last_date=Max('orders__order_date'),
         ).order_by('-created_at')
 

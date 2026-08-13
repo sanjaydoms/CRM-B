@@ -9,7 +9,7 @@ from django.test import override_settings
 import datetime
 
 from apps.design_studio.models import DesignAsset
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, OrderStage
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, OrderStage, Notification
 
 class BoutiqueCRMTests(TenantTestCase):
     @classmethod
@@ -767,3 +767,493 @@ class MediaServingTests(TenantTestCase):
     def test_media_route_rejects_traversal_outside_the_media_root(self):
         response = self.client.get("/media/../boutique_crm/settings.py")
         self.assertNotEqual(response.status_code, 200)
+
+
+class PasswordResetTests(TenantTestCase):
+    """A locked-out owner's only route back in.
+
+    Before this there was none: no view, no url, and a login screen that said
+    "Password help? Ask your admin" because saying anything else would have
+    been a lie. Everything worth asserting here is a security property rather
+    than a happy path, so that is what these test.
+    """
+
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.owner_email = "reset@test.com"
+        tenant.name = "Reset Atelier"
+        return tenant
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        # The reset endpoint is throttled per address, and the whole suite runs
+        # in one process against one LocMemCache -- so without this the fourth
+        # test in the class starts getting 429s from the third one's requests.
+        cache.clear()
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="reset@test.com", email="reset@test.com",
+            password="original-password-1", first_name="Ria", last_name="Nair",
+        )
+        self.token = Token.objects.create(user=self.user)
+
+    def _request_reset(self, email="reset@test.com"):
+        return self.client.post(reverse('auth-password-reset'),
+                                {"email": email}, format='json')
+
+    def _payload_from_outbox(self):
+        from django.core import mail
+        body = mail.outbox[-1].body
+        marker = '?reset='
+        start = body.index(marker) + len(marker)
+        return body[start:].split()[0]
+
+    def _reload_user(self):
+        """Re-read the user from the boutique's own schema.
+
+        The request cycle leaves the connection wherever the middleware put it
+        -- public, for a call that carries no X-Tenant-ID -- so a bare
+        refresh_from_db() here looks for the user in the wrong schema and
+        raises DoesNotExist. The view itself is unaffected: it does its work
+        inside an explicit schema_context.
+        """
+        from django_tenants.utils import schema_context
+        with schema_context(self.tenant.schema_name):
+            return User.objects.get(pk=self.user.pk)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_reset_link_lets_the_owner_choose_a_new_password(self):
+        from django.core import mail
+        mail.outbox = []
+        self.assertEqual(self._request_reset().status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+
+        response = self.client.post(
+            reverse('auth-password-reset-confirm'),
+            {"token": self._payload_from_outbox(),
+             "password": "a-brand-new-password-2"},
+            format='json')
+        self.assertEqual(response.status_code, 200)
+
+        self.assertTrue(self._reload_user().check_password("a-brand-new-password-2"))
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_completing_a_reset_signs_every_device_out(self):
+        # The whole point when the reason for the reset is a stolen token.
+        from django.core import mail
+        mail.outbox = []
+        self._request_reset()
+        self.client.post(
+            reverse('auth-password-reset-confirm'),
+            {"token": self._payload_from_outbox(),
+             "password": "a-brand-new-password-2"},
+            format='json')
+        from django_tenants.utils import schema_context
+        with schema_context(self.tenant.schema_name):
+            self.assertFalse(Token.objects.filter(user=self.user).exists())
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_a_link_cannot_be_used_twice(self):
+        from django.core import mail
+        mail.outbox = []
+        self._request_reset()
+        payload = self._payload_from_outbox()
+        self.client.post(reverse('auth-password-reset-confirm'),
+                         {"token": payload, "password": "first-new-password-2"},
+                         format='json')
+        second = self.client.post(
+            reverse('auth-password-reset-confirm'),
+            {"token": payload, "password": "second-new-password-3"},
+            format='json')
+        self.assertEqual(second.status_code, 400)
+        self.assertTrue(self._reload_user().check_password("first-new-password-2"))
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_an_unknown_address_is_answered_exactly_like_a_known_one(self):
+        # Otherwise this endpoint is a directory of every account on the
+        # platform, readable by anyone.
+        from django.core import mail
+        mail.outbox = []
+        known = self._request_reset()
+        unknown = self._request_reset("nobody@nowhere.test")
+        self.assertEqual(known.status_code, unknown.status_code)
+        self.assertEqual(known.data, unknown.data)
+        self.assertEqual(len(mail.outbox), 1)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_a_tampered_token_is_refused(self):
+        from django.core import mail
+        mail.outbox = []
+        self._request_reset()
+        schema, uid, token = self._payload_from_outbox().split('.')
+        forged = '.'.join([schema, uid, token[:-1] + ('a' if token[-1] != 'a' else 'b')])
+        response = self.client.post(
+            reverse('auth-password-reset-confirm'),
+            {"token": forged, "password": "attackers-password-9"},
+            format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(self._reload_user().check_password("original-password-1"))
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_a_weak_new_password_is_refused(self):
+        from django.core import mail
+        mail.outbox = []
+        self._request_reset()
+        response = self.client.post(
+            reverse('auth-password-reset-confirm'),
+            {"token": self._payload_from_outbox(), "password": "123"},
+            format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(self._reload_user().check_password("original-password-1"))
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_a_suspended_boutique_cannot_reset_its_way_back_in(self):
+        from django.core import mail
+        from django_tenants.utils import schema_context
+        mail.outbox = []
+        self._request_reset()
+        payload = self._payload_from_outbox()
+        with schema_context('public'):
+            self.tenant.is_active = False
+            self.tenant.save(update_fields=['is_active'])
+        try:
+            response = self.client.post(
+                reverse('auth-password-reset-confirm'),
+                {"token": payload, "password": "a-brand-new-password-2"},
+                format='json')
+            self.assertEqual(response.status_code, 403)
+        finally:
+            with schema_context('public'):
+                self.tenant.is_active = True
+                self.tenant.save(update_fields=['is_active'])
+
+
+class BootstrapCredentialTests(TenantTestCase):
+    """Staff and designer logins must not share one published password.
+
+    The literals these replace -- 'TailorSecure2026!' and 'DesignerSecure2026!'
+    -- were in this repository and in the shipped JavaScript bundle, usernames
+    are the email's local part, and find_tenant_for_account searches every
+    boutique's schema for a matching username. So one unauthenticated POST to
+    /api/auth/login/ was a working credential against any boutique that had
+    such an account, not merely the guesser's own.
+    """
+
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.owner_email = "creds@test.com"
+        tenant.name = "Credential Atelier"
+        return tenant
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        cache.clear()   # LoginThrottle counts in the cache; see LoginThrottle
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            username="creds@test.com", email="creds@test.com",
+            password="owner-password-1", first_name="Owner", last_name="One",
+        )
+        self.token = Token.objects.create(user=self.owner)
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key,
+                                HTTP_X_TENANT_ID=self.tenant.schema_name)
+
+    def _create_tailor(self, name, email):
+        return self.client.post(reverse('tailor-list'), {
+            "name": name, "email": email, "specialty": "Blouses",
+            "rating": 4.5, "status": "Available", "role": "Tailor",
+        }, format='json')
+
+    def test_the_published_literal_is_not_a_working_password(self):
+        response = self._create_tailor("Anya Sharma", "anya@test.com")
+        self.assertEqual(response.status_code, 201, response.data)
+        user = User.objects.get(email="anya@test.com")
+        self.assertFalse(user.check_password('TailorSecure2026!'))
+
+    def test_each_staff_account_gets_its_own_password(self):
+        first = self._create_tailor("Anya Sharma", "anya@test.com")
+        second = self._create_tailor("Rahul Verma", "rahul@test.com")
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertNotEqual(first.data['bootstrap_password'],
+                            second.data['bootstrap_password'])
+
+    def test_the_password_is_returned_once_and_never_again(self):
+        created = self._create_tailor("Anya Sharma", "anya@test.com")
+        secret = created.data['bootstrap_password']
+        # It really is the account's password...
+        self.assertTrue(User.objects.get(email="anya@test.com").check_password(secret))
+        # ...and it is gone from every later read, so the roster is not a
+        # password list for anyone who reaches it.
+        listing = self.client.get(reverse('tailor-list'))
+        self.assertEqual(listing.status_code, 200)
+        rows = listing.data['results'] if isinstance(listing.data, dict) else listing.data
+        for row in rows:
+            self.assertNotIn('bootstrap_password', row)
+        detail = self.client.get(reverse('tailor-detail',
+                                         kwargs={'pk': created.data['id']}))
+        self.assertNotIn('bootstrap_password', detail.data)
+
+    def test_editing_a_staff_member_does_not_mint_a_new_password(self):
+        # perform_update also calls _ensure_user_account. Re-issuing there
+        # would silently invalidate the password the owner already handed over.
+        created = self._create_tailor("Anya Sharma", "anya@test.com")
+        secret = created.data['bootstrap_password']
+        edited = self.client.patch(
+            reverse('tailor-detail', kwargs={'pk': created.data['id']}),
+            {"specialty": "Lehengas"}, format='json')
+        self.assertEqual(edited.status_code, 200)
+        self.assertNotIn('bootstrap_password', edited.data)
+        self.assertTrue(User.objects.get(email="anya@test.com").check_password(secret))
+
+
+class LoginThrottleTests(TenantTestCase):
+    """Password guessing has a ceiling on the door that searches every schema."""
+
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.owner_email = "throttle@test.com"
+        tenant.name = "Throttle Atelier"
+        return tenant
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        cache.clear()
+        self.client = APIClient()
+        User.objects.create_user(username="throttle@test.com",
+                                 email="throttle@test.com",
+                                 password="a-real-password-1")
+
+    def tearDown(self):
+        # Put the budget back. This class deliberately spends the entire
+        # per-IP login allowance, the whole suite runs in one process against
+        # one LocMemCache, and every test client reports the same address --
+        # so without this, the tests that merely happen to run afterwards get
+        # 429 from requests they never made. That is exactly what happened:
+        # SuspensionTests and ModuleGateTests both failed on a correct password
+        # because this class had already used the hour up.
+        #
+        # Cleared here rather than in each victim's setUp: the mess is made
+        # here, so it is cleaned up here, and a login test written next year
+        # does not have to know this class exists.
+        from django.core.cache import cache
+        cache.clear()
+        super().tearDown()
+
+    def test_repeated_wrong_passwords_are_eventually_refused(self):
+        # Drives the rate that is actually configured rather than overriding it.
+        # DRF resolves DEFAULT_THROTTLE_RATES through its own cached settings
+        # object, so override_settings(REST_FRAMEWORK=...) does not reach the
+        # throttle here -- the test passed against a limit that was never
+        # applied. Reading the real rate also means this keeps testing the
+        # deployed behaviour if LOGIN_RATE is ever retuned.
+        from rest_framework.settings import api_settings
+        from django.core.cache import cache
+        cache.clear()
+        limit = int(api_settings.DEFAULT_THROTTLE_RATES['login'].split('/')[0])
+        url = reverse('auth-login')
+        codes = [
+            self.client.post(url, {"username": "throttle@test.com",
+                                   "password": f"wrong-{i}"},
+                             format='json').status_code
+            for i in range(limit + 2)
+        ]
+        self.assertIn(429, codes, f"no throttling after {limit + 2} attempts: {codes}")
+        # The wall must not have gone up early enough to lock out a real person
+        # mistyping their password two or three times.
+        self.assertEqual(codes[:3], [400, 400, 400])
+
+    def test_successful_logins_do_not_spend_the_budget(self):
+        # The lockout case this exists to prevent: a boutique is one shop on one
+        # IP, so a morning of staff signing in must not look like an attack. Far
+        # more successful logins than the limit, then a wrong one, which must
+        # still be answered 400 rather than 429.
+        from rest_framework.settings import api_settings
+        from django.core.cache import cache
+        cache.clear()
+        limit = int(api_settings.DEFAULT_THROTTLE_RATES['login'].split('/')[0])
+        url = reverse('auth-login')
+        for _ in range(limit + 5):
+            good = self.client.post(url, {"username": "throttle@test.com",
+                                          "password": "a-real-password-1"},
+                                    format='json')
+            self.assertEqual(good.status_code, 200, good.data)
+        wrong = self.client.post(url, {"username": "throttle@test.com",
+                                       "password": "still-wrong"},
+                                 format='json')
+        self.assertEqual(wrong.status_code, 400, wrong.data)
+
+    def test_an_unknown_username_is_charged_too(self):
+        # The cheapest branch to hammer: it answers without ever reaching a
+        # password check, so it must cost the guesser something.
+        from rest_framework.settings import api_settings
+        from django.core.cache import cache
+        cache.clear()
+        limit = int(api_settings.DEFAULT_THROTTLE_RATES['login'].split('/')[0])
+        url = reverse('auth-login')
+        codes = [
+            self.client.post(url, {"username": f"nobody-{i}@nowhere.test",
+                                   "password": "guess"},
+                             format='json').status_code
+            for i in range(limit + 2)
+        ]
+        self.assertIn(429, codes, f"unknown usernames were never charged: {codes}")
+
+    def test_a_correct_password_still_works_below_the_limit(self):
+        from django.core.cache import cache
+        cache.clear()
+        url = reverse('auth-login')
+        self.client.post(url, {"username": "throttle@test.com",
+                               "password": "wrong-once"}, format='json')
+        good = self.client.post(url, {"username": "throttle@test.com",
+                                      "password": "a-real-password-1"},
+                                format='json')
+        self.assertEqual(good.status_code, 200, good.data)
+
+
+class MobileNumberNormalisationTests(TenantTestCase):
+    """The same person, typed two ways, must be the same customer.
+
+    mobile_number is unique=True on the raw column and both search paths do a
+    literal substring match, while validate_mobile_number used whatsapp_number
+    only as a yes/no check and stored whatever was typed. So a returning client
+    whose number was entered differently the second time missed the search,
+    missed the unique index, and got a second profile -- splitting their
+    measurements, order history and preferences with no signal to anyone.
+    """
+
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.owner_email = "mobile@test.com"
+        tenant.name = "Mobile Atelier"
+        return tenant
+
+    def setUp(self):
+        super().setUp()
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            username="mobile@test.com", email="mobile@test.com",
+            password="owner-password-1")
+        token = Token.objects.create(user=self.owner)
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + token.key,
+                                HTTP_X_TENANT_ID=self.tenant.schema_name)
+
+    def _create(self, mobile, first_name="Meera"):
+        return self.client.post(reverse('customer-list'), {
+            "first_name": first_name, "last_name": "Nair",
+            "mobile_number": mobile,
+        }, format='json')
+
+    def test_the_stored_number_is_canonical(self):
+        response = self._create("098765 43211")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(Customer.objects.get(pk=response.data['id']).mobile_number,
+                         "919876543211")
+
+    def test_the_same_person_typed_differently_is_refused_as_a_duplicate(self):
+        first = self._create("9876543211")
+        self.assertEqual(first.status_code, 201, first.data)
+        # Same person: +91 with a trunk zero and spaces.
+        second = self._create("+91 (0) 98765 43211", first_name="Meera")
+        self.assertEqual(second.status_code, 400,
+                         f"a duplicate profile was created: {second.data}")
+        self.assertEqual(Customer.objects.count(), 1)
+
+    def test_the_international_access_code_reaches_the_same_record(self):
+        self._create("9876543211")
+        second = self._create("0091 9876543211")
+        self.assertEqual(second.status_code, 400, second.data)
+        self.assertEqual(Customer.objects.count(), 1)
+
+    def test_an_unreachable_number_is_still_refused(self):
+        response = self._create("12345")
+        self.assertEqual(response.status_code, 400)
+
+
+class RoleBoundaryTests(TenantTestCase):
+    """What one role may read of another's work, inside one boutique.
+
+    None of these is a cross-tenant leak -- django-tenants schema isolation
+    holds. They are boundaries within a single shop, which is where the audit
+    found every confirmed disclosure in the application layer.
+    """
+
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.owner_email = "boundary@test.com"
+        tenant.name = "Boundary Atelier"
+        return tenant
+
+    def setUp(self):
+        super().setUp()
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        self.owner = User.objects.create_user(
+            username="boundary@test.com", email="boundary@test.com",
+            password="owner-password-1")
+        self.tailor_user = User.objects.create_user(
+            username="stitcher@test.com", email="stitcher@test.com",
+            password="tailor-password-1")
+        self.tailor = Tailor.objects.create(
+            name="Anya", specialty="Lehenga", role="Tailor",
+            status="Available", user=self.tailor_user)
+
+        self.client = APIClient()
+        self.client.credentials(
+            HTTP_AUTHORIZATION='Token ' + Token.objects.create(user=self.tailor_user).key,
+            HTTP_X_TENANT_ID=self.tenant.schema_name)
+
+    def test_a_tailor_cannot_read_garment_jobs_for_orders_that_are_not_theirs(self):
+        """/api/catalog/jobs/ carried every client's measurements and the notes
+        marked "Staff only -- never shown on the customer copy", narrowed only
+        by an optional ?order= filter."""
+        from apps.catalog.models import GarmentJob, GarmentTemplate
+        from domains.orders.services import OrderService
+        other_tailor = Tailor.objects.create(
+            name="Ira", specialty="Gowns", role="Tailor", status="Available")
+        stranger = Customer.objects.create(
+            first_name="Not", last_name="Mine", mobile_number="919800000201")
+        order = OrderService.create_order_for_customer(
+            stranger, {"base_price": 10000, "tailor_id": other_tailor.id,
+                       "master_id": other_tailor.id}, user=self.owner)
+        template = GarmentTemplate.objects.first()
+        GarmentJob.objects.create(
+            order=order, template=template,
+            measurements={'bust': 36, 'waist': 30})
+
+        response = self.client.get('/api/catalog/jobs/')
+        self.assertEqual(response.status_code, 200, response.data)
+        rows = response.data['results'] if isinstance(response.data, dict) else response.data
+        self.assertEqual(list(rows), [], f"another tailor's garments leaked: {rows}")
+
+    def test_a_tailor_cannot_read_stock_valuation(self):
+        response = self.client.get('/api/inventory/items/')
+        self.assertEqual(response.status_code, 403, response.data)
+
+    def test_a_tailor_cannot_forge_a_notification_into_the_owners_feed(self):
+        response = self.client.post(reverse('notification-list'), {
+            'title': 'Payment received',
+            'message': 'Please release the garment.',
+            'recipient_role': 'Owner',
+            'recipient_email': 'boundary@test.com',
+        }, format='json')
+        self.assertEqual(response.status_code, 403, response.data)
+        self.assertFalse(Notification.objects.filter(title='Payment received').exists())
+
+    def test_a_tailor_can_still_read_and_clear_their_own_notifications(self):
+        # The bell is on every screen; breaking it drops the whole app for a
+        # tailor, which is the outage OwnNotifications was written to fix.
+        listing = self.client.get(reverse('notification-list'))
+        self.assertEqual(listing.status_code, 200)
+        cleared = self.client.post(reverse('notification-mark-all-read'), {}, format='json')
+        self.assertEqual(cleared.status_code, 200, cleared.data)

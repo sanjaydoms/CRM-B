@@ -40,6 +40,16 @@ class TailorSerializer(serializers.ModelSerializer):
             if resolve_user_role(request.user) != OWNER:
                 data.pop('email', None)
                 data.pop('user', None)
+
+        # The one-time credential, present only on the response to the request
+        # that just created this staff member's login (see
+        # TailorViewSet._ensure_user_account). It is not a model field and is
+        # not stored anywhere -- only the hash is -- so this is the single
+        # moment it can be shown to the owner. Absent on every later read, which
+        # is exactly what stops the roster from becoming a password list.
+        bootstrap = getattr(instance, '_bootstrap_password', None)
+        if bootstrap:
+            data['bootstrap_password'] = bootstrap
         return data
 
 class BoutiqueFabricSerializer(serializers.ModelSerializer):
@@ -364,6 +374,34 @@ class CustomerSerializer(serializers.ModelSerializer):
             queryset = visible_orders(queryset, request.user)
         return OrderSerializer(queryset, many=True, context=self.context).data
 
+    def to_internal_value(self, data):
+        """Canonicalise the mobile number before anything else validates it.
+
+        Ordering matters here and cost a 500 to discover. DRF runs a field's
+        own validators -- including the UniqueValidator that model's unique=True
+        generates -- on the output of to_internal_value, and only then calls
+        validate_<field>. Normalising in validate_mobile_number therefore left
+        UniqueValidator comparing the RAW string: '+91 (0) 98765 43211' did not
+        match the stored '919876543211', the check passed, and the collision
+        surfaced from Postgres as an IntegrityError -- an unhandled 500 in front
+        of someone simply adding a returning client.
+
+        Doing it here means the uniqueness check sees the same value the column
+        will hold, so a duplicate is a clean 400 naming the field.
+
+        An unparseable number is passed through untouched so that
+        validate_mobile_number below can answer with a sentence a boutique owner
+        can act on, rather than this returning '' and the failure arriving as
+        "this field may not be blank".
+        """
+        raw = data.get('mobile_number') if hasattr(data, 'get') else None
+        if raw:
+            canonical = whatsapp_number(raw)
+            if canonical and canonical != raw:
+                data = data.copy()
+                data['mobile_number'] = canonical
+        return super().to_internal_value(data)
+
     def validate_mobile_number(self, value):
         """Refuse a number the boutique could never actually reach.
 
@@ -375,11 +413,32 @@ class CustomerSerializer(serializers.ModelSerializer):
         crm_api/models.py); asking it here means the wizard, the API and any
         future caller all get the same answer.
         """
-        if value and not whatsapp_number(value):
+        if not value:
+            return value
+        canonical = whatsapp_number(value)
+        if not canonical:
             raise serializers.ValidationError(
                 'Enter a mobile number the boutique can actually reach '
                 '-- 10 digits, or a full international number.')
-        return value
+        # Normally already canonical (see to_internal_value); returning it again
+        # keeps this correct for any caller that reaches the serializer without
+        # going through to_internal_value.
+        # Store the canonical form, not what was typed.
+        #
+        # whatsapp_number was being used purely as a yes/no predicate while the
+        # raw string went to the database. It already folds '+91 (0) 98765
+        # 43211', '0091 9876543211' and '098765 43211' onto one value -- and
+        # mobile_number is unique=True on that raw column, with both search
+        # paths doing a literal substring match. So a returning client whose
+        # number was typed differently the second time missed the search, missed
+        # the unique index, and got a SECOND profile: their measurements,
+        # history, preferences and orders split across two records, with no
+        # signal to anyone that it had happened.
+        #
+        # Existing rows are migrated in the same change (crm_api/migrations),
+        # because normalising only new numbers would leave the duplicates that
+        # already exist unfindable by either spelling.
+        return canonical
 
     class Meta:
         model = Customer

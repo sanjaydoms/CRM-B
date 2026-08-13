@@ -185,12 +185,52 @@ export default function DesignStudio({ customerId, orderInput = {}, onBoardChang
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, orderInput.garment_type, orderInput.occasion]);
 
+  // Recover the customer's existing board before reporting anything upward.
+  //
+  // This component lives under {currentStep === 3 && ...}, so it unmounts on
+  // every step change and every tab toggle, losing `board` and `items` with it.
+  // On the next mount `board` is null, the effect below fires immediately with
+  // {boardId: null, approved: false}, and the wizard's designBoard state is
+  // overwritten with that -- so the `if (designBoard.boardId &&
+  // designBoard.approved)` guard at submit time is false and the approved
+  // design is never attached. The order reaches the floor with no design,
+  // behind a green confirmation screen and with no message: the branch that
+  // exists specifically to make an attach FAILURE loud is never reached,
+  // because nothing was attempted.
+  //
+  // Going back from step 4, or pressing Edit on the step-6 summary, is enough.
+  // The studio also forgot the board it had already created, so re-shortlisting
+  // made a SECOND DesignBoard for the same customer.
+  //
+  // The server already supports the lookup (DesignBoardViewSet filters on
+  // customer_id), so this is a fetch rather than new plumbing.
+  const [boardLoaded, setBoardLoaded] = useState(false);
   useEffect(() => {
+    let cancelled = false;
+    if (!customerId) { setBoardLoaded(true); return; }
+    api.getDesignBoards({ customer_id: customerId })
+      .then((boards) => {
+        if (cancelled) return;
+        const existing = Array.isArray(boards) ? boards[0] : boards;
+        if (existing) {
+          setBoard(existing);
+          setItems(existing.items || []);
+        }
+      })
+      .catch(() => { /* no board yet is the ordinary case */ })
+      .finally(() => { if (!cancelled) setBoardLoaded(true); });
+    return () => { cancelled = true; };
+  }, [customerId]);
+
+  useEffect(() => {
+    // Held until the recovery above has answered, or the first run reports
+    // "no board" and undoes the very state it is about to load.
+    if (!boardLoaded) return;
     if (onBoardChange) {
       onBoardChange({ boardId: board?.id || null, selected: selectedItem, approved: board?.status === 'APPROVED' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board?.id, board?.status, selectedItem?.id]);
+  }, [boardLoaded, board?.id, board?.status, selectedItem?.id]);
 
   const ensureBoard = async () => {
     if (board) return board;

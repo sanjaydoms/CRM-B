@@ -69,6 +69,36 @@ def refresh_staff_availability(*staff):
             person.save(update_fields=['status'])
 
 
+def customer_has_measurements(customer):
+    """Whether anything has been measured for this customer, anywhere.
+
+    The three columns are the *dress-form* set -- bust, waist, hips -- and they
+    are written only by the wizard's CUSTOMER_KEYS map, which translates a
+    handful of garment-template keys onto the Customer row. A saree's
+    measurement section carries `petticoat_length` and `petticoat_waist` and
+    nothing else, so neither key is in that map and all three columns stay NULL
+    for a saree-only order.
+
+    The order then stalls at "Cannot assign tailor. Measurements are not
+    completed for this customer." -- naming a step the wizard never offered,
+    for a garment that has no bust measurement to take. Sarees are ordinary
+    work in this business, so this stranded a bread-and-butter flow.
+
+    So the per-garment snapshot counts too: GarmentJob.measurements is what the
+    wizard actually captured for the dresses on this order, and a non-empty one
+    means somebody did measure something. Kept as one function rather than the
+    two copies of the same expression this replaces, which is how the
+    definition drifted from what the wizard writes in the first place.
+    """
+    columns = getattr(customer, 'measurements', None)
+    if columns and (columns.bust or columns.waist or columns.hips):
+        return True
+    # Any dress on any of this customer's orders carrying a real snapshot.
+    from apps.catalog.models import GarmentJob
+    return GarmentJob.objects.filter(
+        order__customer=customer).exclude(measurements={}).exists()
+
+
 class OrderService:
     @staticmethod
     @transaction.atomic
@@ -164,14 +194,22 @@ class OrderService:
             # delivery message skipped asking for the balance entirely. The
             # wizard's own "Remaining Balance Due" preview clamps with
             # Math.max(0, ...), so it hid the mistake at the moment of entry.
+            # Default 0.0, not half the order.
+            #
+            # `total_amount * 0.5` invented money nobody had received. Combined
+            # with the wizard's own `parseFloat(advancePaymentAmount) ||
+            # getTotalPrice() / 2` -- where the advance box starts at 0 and
+            # clears to 0, so `||` substituted the half -- there was no way to
+            # express "nothing paid yet" on a Partially Paid order at all. The
+            # boutique's collected-revenue figure counted an advance the
+            # customer had not handed over, and the customer's tracking page
+            # showed a balance smaller than what they actually owed.
             advance_paid = min(
-                max(safe_float(data.get('advance_paid', total_amount * 0.5)), 0.0),
+                max(safe_float(data.get('advance_paid', 0.0)), 0.0),
                 total_amount)
             amount_paid = advance_paid
 
-        has_measurements = hasattr(customer, 'measurements') and (
-            customer.measurements.bust or customer.measurements.waist or customer.measurements.hips
-        )
+        has_measurements = customer_has_measurements(customer)
 
         order = Order.objects.create(
             order_id=order_id,
@@ -311,7 +349,19 @@ class OrderService:
         if user_role != OWNER and allowed_roles and user_role not in allowed_roles:
             raise ValueError(f'Role {user_role} is not authorized to update {order_stage.stage_name}')
 
-        if stage_key == 'delivered' and new_status == 'COMPLETED':
+        # Any move on the delivered stage, not only COMPLETED.
+        #
+        # This used to be gated on `new_status == 'COMPLETED'`, which read as
+        # the tight interpretation and was the loose one, because status_map
+        # below wrote 'Delivered' for EVERY new_status on this stage. The
+        # frontend offers "Start In-Progress" on any NOT_STARTED or PAUSED
+        # stage and "Skip Stage" on any non-COMPLETED one, both posting through
+        # here -- so either button on the delivered row flipped an uninspected
+        # garment to Delivered on the public tracking page and drafted the
+        # customer the "successfully Delivered! Please complete your remaining
+        # balance" message. The one hard invariant of the workflow, bypassed by
+        # the two most obvious buttons on the row.
+        if stage_key == 'delivered':
             qc_stage = order.stages.filter(stage_key='master_quality_check').first()
             if qc_stage and qc_stage.status != 'COMPLETED':
                 raise ValueError('Cannot deliver order before Master Quality Check is completed.')
@@ -331,10 +381,7 @@ class OrderService:
         if stage_key == 'assigned_to_tailor' and new_status == 'COMPLETED':
             meas_stage = order.stages.filter(stage_key='measurements_completed').first()
             if meas_stage and meas_stage.status != 'COMPLETED':
-                has_measurements = hasattr(order.customer, 'measurements') and (
-                    order.customer.measurements.bust or order.customer.measurements.waist or order.customer.measurements.hips
-                )
-                if not has_measurements:
+                if not customer_has_measurements(order.customer):
                     raise ValueError('Cannot assign tailor. Measurements are not completed for this customer.')
 
         if stage_key == 'trial_scheduled' and new_status == 'COMPLETED':
@@ -382,8 +429,20 @@ class OrderService:
                 order_stage.performed_by = Tailor.objects.get(id=performer_id)
             except Tailor.DoesNotExist:
                 pass
-        elif user and user.is_authenticated and user_role in ['Master', 'Tailor']:
-            order_stage.performed_by = getattr(user, 'tailor_profile', None)
+        elif user and user.is_authenticated and getattr(user, 'tailor_profile', None):
+            # Test for the profile, not for two role names.
+            #
+            # `user_role in ['Master', 'Tailor']` excluded all seven specialist
+            # roles, so when a Cutting Master or a Pressing Staff advanced their
+            # own stage nothing recorded who did it -- and the performer
+            # dropdown that would let someone set it by hand is Owner/Master
+            # only. The stage history simply had a blank where the person who
+            # did the work should be, on exactly the stages the specialists own.
+            #
+            # It also used to assign None for an Owner acting on the stage,
+            # CLEARING a performer a tailor had already earned. Only writing
+            # when there is a profile to write leaves that record alone.
+            order_stage.performed_by = user.tailor_profile
 
         if new_status == 'IN_PROGRESS' and old_status != 'IN_PROGRESS':
             order_stage.started_at = timezone.now()
@@ -439,7 +498,15 @@ class OrderService:
             'trial_scheduled': 'Ready for Dispatch',
             'trial_completed': 'Ready for Dispatch',
             'ready_for_delivery': 'Ready for Dispatch',
-            'delivered': 'Delivered'
+            # Mirrors master_quality_check above: only a COMPLETED delivery
+            # stage means the garment is with the customer. The bare 'Delivered'
+            # this replaces was written for any new_status, so starting or
+            # pausing the stage announced a delivery that had not happened --
+            # to the customer, on the tracking page, in a message asking for the
+            # balance. Leaving the status untouched is right for the other
+            # transitions: starting delivery is not a change of order state, it
+            # is someone picking the parcel up.
+            'delivered': 'Delivered' if new_status == 'COMPLETED' else order.order_status,
         }
         previous_order_status = order.order_status
         if stage_key in status_map:

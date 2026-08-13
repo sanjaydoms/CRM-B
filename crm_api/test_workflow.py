@@ -370,7 +370,11 @@ class OrderCreationTests(WorkflowTestBase):
         data = OrderSerializer(order).data
 
         self.assertEqual(data["customer_name"], "Meera Nair")
-        self.assertEqual(data["customer_mobile"], "9800000077")
+        # The canonical form. Numbers are stored folded onto one spelling so a
+        # returning client is the same record rather than a second profile (see
+        # Customer.save); the API returns what is stored, and the interface
+        # formats it for reading with formatMobile.
+        self.assertEqual(data["customer_mobile"], "919800000077")
         self.assertEqual(data["customer_email"], "meera@example.test")
         self.assertEqual(data["customer_address"], "12 Kamaraj Street, Chennai")
 
@@ -1133,8 +1137,13 @@ class StaffAccountTests(WorkflowTestBase):
         self.assertEqual(tailor.email, 'kavya.rao@studio.test')
         self.assertEqual(tailor.user.username, tailor.user.username.lower())
 
+        # The password is generated per account and returned once, on the
+        # response that created it -- there is no shared literal to log in with
+        # any more. Reading it from here is the point of returning it: it is
+        # exactly what the owner is shown and hands over.
         login = APIClient().post('/api/auth/login/', {
-            'username': 'Kavya.Rao@Studio.Test', 'password': 'TailorSecure2026!',
+            'username': 'Kavya.Rao@Studio.Test',
+            'password': response.data['bootstrap_password'],
         }, format='json')
         self.assertEqual(login.status_code, 200, login.data)
         self.assertEqual(login.data['user']['role'], 'Master')
@@ -1473,3 +1482,325 @@ class CrossRouterScopingTests(WorkflowTestBase):
         # The owner still needs it -- that is the screen which mints logins.
         owner_view = self._client_for(self.owner).get('/api/tailors/')
         self.assertIn('email', owner_view.data[0])
+
+
+class DeliveryGateTests(WorkflowTestBase):
+    """Nothing reaches the customer as Delivered without passing QC.
+
+    The gate existed but was written `stage_key == 'delivered' and new_status
+    == 'COMPLETED'`, while the status map wrote 'Delivered' for EVERY new_status
+    on that stage. The frontend offers "Start In-Progress" on any NOT_STARTED or
+    PAUSED stage and "Skip Stage" on any non-COMPLETED one, both posting through
+    transition_order_stage -- so the two most obvious buttons on the row walked
+    straight past the one hard invariant in the workflow, flipped the public
+    tracking page, and drafted the customer a message asking for the balance on
+    a garment nobody had inspected.
+    """
+
+    def _order_at_delivery(self):
+        order = self.make_order()
+        for key in ('created', 'measurements_completed', 'fabric_confirmed',
+                    'pattern_cutting', 'assigned_to_tailor',
+                    'stitching_in_progress', 'stitching_completed'):
+            stage = order.stages.filter(stage_key=key).first()
+            if stage:
+                self.complete(order, key)
+        return order
+
+    def test_skipping_delivery_cannot_mark_an_uninspected_order_delivered(self):
+        order = self._order_at_delivery()
+        self.assertNotEqual(
+            self.stage(order, 'master_quality_check').status, 'COMPLETED')
+        with self.assertRaises(ValueError):
+            OrderService.transition_order_stage(
+                order=order, stage_key='delivered', new_status='SKIPPED',
+                user=self.owner)
+        order.refresh_from_db()
+        self.assertNotEqual(order.order_status, 'Delivered')
+
+    def test_starting_delivery_cannot_mark_an_uninspected_order_delivered(self):
+        order = self._order_at_delivery()
+        with self.assertRaises(ValueError):
+            OrderService.transition_order_stage(
+                order=order, stage_key='delivered', new_status='IN_PROGRESS',
+                user=self.owner)
+        order.refresh_from_db()
+        self.assertNotEqual(order.order_status, 'Delivered')
+
+    def test_starting_delivery_after_qc_does_not_yet_announce_delivery(self):
+        # Picking the parcel up is not the same as the customer having it. The
+        # status must not move until the stage is COMPLETED.
+        order = self._order_at_delivery()
+        for key in ('finishing', 'pressing', 'master_quality_check'):
+            if order.stages.filter(stage_key=key).exists():
+                self.complete(order, key)
+        before = Order.objects.get(pk=order.pk).order_status
+        OrderService.transition_order_stage(
+            order=order, stage_key='delivered', new_status='IN_PROGRESS',
+            user=self.owner)
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, before)
+        self.assertNotEqual(order.order_status, 'Delivered')
+
+    def test_completing_delivery_after_qc_still_works(self):
+        # The gate must not have become a wall.
+        order = self._order_at_delivery()
+        for key in ('finishing', 'pressing', 'master_quality_check'):
+            if order.stages.filter(stage_key=key).exists():
+                self.complete(order, key)
+        self.complete(order, 'delivered')
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, 'Delivered')
+
+
+class MasterVerificationMergeTests(WorkflowTestBase):
+    """Ticking a second box must not undo the first.
+
+    Both screens that render the checklist build their payload by spreading the
+    order out of the dashboard's cached list, so the second tick posts a copy
+    taken before the first was saved. The endpoint replaced the stored object
+    wholesale, so the Master watched their own ticks come undone -- and what
+    was recorded afterwards was not what had been verified.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        token, _ = Token.objects.get_or_create(user=self.owner)
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + token.key,
+                                HTTP_X_TENANT_ID=self.tenant.schema_name)
+        self.order = self.make_order()
+
+    def _patch(self, checks):
+        return self.client.patch(
+            f'/api/orders/{self.order.id}/master-verification/',
+            {'master_verification': checks}, format='json')
+
+    def test_a_second_tick_keeps_the_first(self):
+        self._patch({'stitching': True})
+        response = self._patch({'finishing': True})
+        self.assertEqual(response.status_code, 200, response.data)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.master_verification,
+                         {'stitching': True, 'finishing': True})
+
+    def test_a_stale_payload_cannot_erase_a_saved_tick(self):
+        # Exactly the frontend's behaviour: post the object as it was before
+        # the earlier tick landed.
+        self._patch({'stitching': True})
+        self._patch({'finishing': True})
+        self._patch({'stitching': True, 'pressing': True})   # stale: no finishing
+        self.order.refresh_from_db()
+        self.assertEqual(
+            self.order.master_verification,
+            {'stitching': True, 'finishing': True, 'pressing': True})
+
+    def test_unticking_still_works(self):
+        self._patch({'stitching': True})
+        self._patch({'stitching': False})
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.master_verification, {'stitching': False})
+
+
+class SareeMeasurementTests(WorkflowTestBase):
+    """A saree-only order must not stall on measurements it never asked for.
+
+    bust/waist/hips are written only by the wizard's CUSTOMER_KEYS map, and the
+    saree template's measurement section carries petticoat_length and
+    petticoat_waist -- neither of which is in that map. So all three columns
+    stayed NULL and the order stopped at "Cannot assign tailor. Measurements are
+    not completed for this customer", naming a step the wizard never offered for
+    a garment with no bust measurement to take.
+    """
+
+    def test_a_garment_snapshot_counts_as_having_been_measured(self):
+        from apps.catalog.models import GarmentJob, GarmentTemplate
+        customer = self.make_customer(mobile="9800000077", with_measurements=False)
+        order = self.make_order(customer=customer)
+        template = GarmentTemplate.objects.first()
+        self.assertIsNotNone(template, "templates are seeded per tenant")
+        GarmentJob.objects.create(
+            order=order, template=template,
+            measurements={'petticoat_length': 40, 'petticoat_waist': 30},
+        )
+        self.complete(order, 'created')
+        # The stage that used to raise.
+        self.complete(order, 'assigned_to_tailor')
+        self.assertEqual(self.stage(order, 'assigned_to_tailor').status, 'COMPLETED')
+
+    def test_an_order_with_nothing_measured_anywhere_is_still_refused(self):
+        # The guard must not have been removed, only widened.
+        customer = self.make_customer(mobile="9800000078", with_measurements=False)
+        order = self.make_order(customer=customer)
+        self.complete(order, 'created')
+        with self.assertRaises(ValueError):
+            self.complete(order, 'assigned_to_tailor')
+
+
+class CustomerSpendAggregateTests(WorkflowTestBase):
+    """Lifetime spend must count orders, not distinct prices.
+
+    Sum(DISTINCT total_amount) de-duplicates by VALUE, so two orders at the same
+    price totalled one of them. Repeat orders at a repeated price point are the
+    ordinary pattern in a boutique. The existing coverage used three different
+    amounts, which is why this survived.
+    """
+
+    def _summary_for(self, customer, user):
+        from domains.customers.repositories import CustomerRepository
+        from core.permissions import visible_customers
+        rows = visible_customers(CustomerRepository.summary_queryset(), user)
+        return rows.get(pk=customer.pk)
+
+    def test_two_orders_at_the_same_price_are_both_counted(self):
+        customer = self.make_customer(mobile="9800000101")
+        self.make_order(customer=customer, base_price=40000)
+        self.make_order(customer=customer, base_price=40000)
+        row = self._summary_for(customer, self.owner)
+        self.assertEqual(row.orders_count, 2)
+        # Two identical orders must total twice one of them, not once.
+        one_order_total = Order.objects.filter(customer=customer).first().total_amount
+        self.assertEqual(row.orders_total_spend, one_order_total * 2)
+
+    def test_three_identical_orders_still_add_up(self):
+        customer = self.make_customer(mobile="9800000102")
+        for _ in range(3):
+            self.make_order(customer=customer, base_price=25000)
+        row = self._summary_for(customer, self.owner)
+        self.assertEqual(row.orders_count, 3)
+        one = Order.objects.filter(customer=customer).first().total_amount
+        self.assertEqual(row.orders_total_spend, one * 3)
+
+    def test_differing_prices_are_unaffected(self):
+        # The case the old code got right; it must stay right.
+        customer = self.make_customer(mobile="9800000103")
+        self.make_order(customer=customer, base_price=10000)
+        self.make_order(customer=customer, base_price=25000)
+        row = self._summary_for(customer, self.owner)
+        expected = sum(o.total_amount for o in Order.objects.filter(customer=customer))
+        self.assertEqual(row.orders_total_spend, expected)
+
+    def test_a_tailors_view_is_not_multiplied_by_the_stage_join(self):
+        # The fan-out distinct=True was originally added to counter. Removing
+        # distinct must not bring the fifteen-times-too-large figure back.
+        customer = self.make_customer(mobile="9800000104")
+        self.make_order(customer=customer, base_price=40000)
+        self.make_order(customer=customer, base_price=40000)
+        expected = sum(o.total_amount for o in Order.objects.filter(customer=customer))
+        row = self._summary_for(customer, self.tailor_user)
+        self.assertEqual(row.orders_count, 2)
+        self.assertEqual(row.orders_total_spend, expected)
+
+    def test_a_tailor_still_sees_only_their_own_clients(self):
+        # The scoping rewrite must not have widened disclosure. A customer whose
+        # orders belong to nobody this tailor works on stays invisible.
+        from domains.customers.repositories import CustomerRepository
+        from core.permissions import visible_customers
+        other_tailor = Tailor.objects.create(
+            name="Ira Nathan", specialty="Gowns", role="Tailor", status="Available")
+        mine = self.make_customer(mobile="9800000105")
+        self.make_order(customer=mine, base_price=12000)
+        theirs = self.make_customer(mobile="9800000106")
+        OrderService.create_order_for_customer(
+            theirs, {"base_price": 12000, "tailor_id": other_tailor.id,
+                     "master_id": other_tailor.id}, user=self.owner)
+
+        visible = visible_customers(
+            CustomerRepository.summary_queryset(), self.tailor_user)
+        ids = set(visible.values_list('pk', flat=True))
+        self.assertIn(mine.pk, ids)
+        self.assertNotIn(theirs.pk, ids)
+
+    def test_the_scoped_list_has_no_duplicate_rows(self):
+        # .distinct() was dropped along with the join; the subquery must be
+        # doing that work now, or every customer appears once per stage.
+        from domains.customers.repositories import CustomerRepository
+        from core.permissions import visible_customers
+        customer = self.make_customer(mobile="9800000107")
+        self.make_order(customer=customer, base_price=15000)
+        rows = list(visible_customers(
+            CustomerRepository.summary_queryset(), self.tailor_user)
+            .values_list('pk', flat=True))
+        self.assertEqual(len(rows), len(set(rows)), f"duplicate rows: {rows}")
+
+
+class ReassignmentTests(WorkflowTestBase):
+    """Moving an order to another tailor must move everything with it.
+
+    perform_update did only save(), _reconcile_payment and a status
+    notification -- so the departing tailor still read Busy with nothing on
+    their table, the arriving one still read Available with a dress to sew, the
+    production task still named the old person, and nobody was told. Those two
+    badges are what the owner picks staff by.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        token, _ = Token.objects.get_or_create(user=self.owner)
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + token.key,
+                                HTTP_X_TENANT_ID=self.tenant.schema_name)
+        self.other = Tailor.objects.create(
+            name="Ira Nathan", specialty="Gowns", role="Tailor", status="Available")
+        self.order = self.make_order()
+
+    def _reassign_to(self, tailor):
+        return self.client.patch(f'/api/orders/{self.order.id}/',
+                                 {'tailor': tailor.id}, format='json')
+
+    def test_both_tailors_availability_is_recomputed(self):
+        self.tailor.refresh_from_db()
+        self.assertEqual(self.tailor.status, 'Busy')
+
+        response = self._reassign_to(self.other)
+        self.assertEqual(response.status_code, 200, response.data)
+
+        self.tailor.refresh_from_db()
+        self.other.refresh_from_db()
+        self.assertEqual(self.other.status, 'Busy')
+        self.assertEqual(self.tailor.status, 'Available')
+
+    def test_the_production_task_follows_the_order(self):
+        from apps.production.models import ProductionTask
+        self.assertTrue(ProductionTask.objects.filter(
+            order=self.order, assigned_to=self.tailor).exists())
+
+        self._reassign_to(self.other)
+
+        self.assertFalse(ProductionTask.objects.filter(
+            order=self.order, assigned_to=self.tailor).exists())
+        self.assertTrue(ProductionTask.objects.filter(
+            order=self.order, assigned_to=self.other).exists())
+
+    def test_the_new_tailor_is_told(self):
+        from crm_api.models import Notification
+        before = Notification.objects.count()
+        self._reassign_to(self.other)
+        self.assertGreater(Notification.objects.count(), before)
+        note = Notification.objects.filter(
+            title__contains=self.order.order_id).order_by('-id').first()
+        self.assertIsNotNone(note)
+        # The person's OWN role, so their feed actually matches it.
+        self.assertEqual(note.recipient_role, self.other.role)
+
+    def test_a_specialist_master_is_notified_under_their_own_role(self):
+        # The four literal "Tailor"/"Master" recipient_roles meant a specialist
+        # never saw work assigned to them: the feed filters on profile.role.
+        cutting = Tailor.objects.create(
+            name="Ravi Pattern", specialty="Cutting", role="Cutting Master",
+            status="Available")
+        self._reassign_to(cutting)
+        from crm_api.models import Notification
+        note = Notification.objects.filter(
+            title__contains=self.order.order_id).order_by('-id').first()
+        self.assertEqual(note.recipient_role, 'Cutting Master')
+
+    def test_a_plain_edit_does_not_touch_assignment(self):
+        # Only a genuine reassignment should fire any of this.
+        from crm_api.models import Notification
+        before = Notification.objects.count()
+        response = self.client.patch(f'/api/orders/{self.order.id}/',
+                                     {'custom_requirements': 'Add piping'},
+                                     format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(Notification.objects.count(), before)

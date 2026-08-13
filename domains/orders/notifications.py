@@ -9,6 +9,19 @@ from domains.orders.messaging import send_customer_message
 from domains.orders.tracking import tracking_url
 
 
+# Notification.recipient_role must be the person's OWN role, not the job they
+# are doing on this order.
+#
+# NotificationViewSet._audience filters the feed on the signed-in staff member's
+# profile.role, and Tailor.ROLE_CHOICES has nine values -- Master, Tailor and
+# seven specialists (Measurement, Pattern, Cutting, Maggam, Finishing, Pressing,
+# QC). Writing the literal "Tailor" or "Master" here meant that a Cutting Master
+# supervising an order, or a Finishing Master given the stitching, was sent a
+# notification addressed to a role they do not hold -- so it never appeared in
+# their bell and they were never told about work assigned to them. assign_stage
+# already gets this right with recipient_role=tailor.role; these four sites did
+# not.
+
 def create_order_notifications(order, created=False, status_changed=True):
     """Fan out notifications for an order event.
 
@@ -51,14 +64,14 @@ def create_order_notifications(order, created=False, status_changed=True):
             Notification.objects.create(
                 title=f"New Assignment: {order.order_id}",
                 message=f"Order {order.order_id} for client {client_name} has been assigned to you as Supervising Master.",
-                recipient_role="Master",
+                recipient_role=order.master.role,
                 recipient_email=order.master.user.email if order.master.user else None
             )
         if order.tailor:
             Notification.objects.create(
                 title=f"New Stitching Task: {order.order_id}",
                 message=f"Order {order.order_id} has been assigned to you for stitching.",
-                recipient_role="Tailor",
+                recipient_role=order.tailor.role,
                 recipient_email=order.tailor.user.email if order.tailor.user else None
             )
     else:
@@ -113,7 +126,7 @@ def create_order_notifications(order, created=False, status_changed=True):
             Notification.objects.create(
                 title=f"Stitching Ready: {order.order_id}",
                 message=f"Order {order.order_id} is now in Design & Creation phase and ready for stitching.",
-                recipient_role="Tailor",
+                recipient_role=order.tailor.role,
                 recipient_email=order.tailor.user.email if order.tailor.user else None
             )
 
@@ -129,6 +142,6 @@ def create_order_notifications(order, created=False, status_changed=True):
                 Notification.objects.create(
                     title=f"Quality Check Required: {order.order_id}",
                     message=f"Order {order.order_id} stitching has been completed by {order.tailor.name if order.tailor else 'the tailor'} and is ready for your Quality Check.",
-                    recipient_role="Master",
+                    recipient_role=order.master.role,
                     recipient_email=order.master.user.email if order.master.user else None
                 )

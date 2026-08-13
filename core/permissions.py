@@ -91,15 +91,40 @@ class OwnNotifications(permissions.BasePermission):
     whole application dropped to its runtime-error screen. The bell is on every
     screen, so a tailor lost the app on their first click.
 
-    Safe without a role check: get_queryset derives the audience from the
-    signed-in user, so both the read and the update are already confined to the
-    caller's own rows. There is nothing here to escalate.
+    Safe without a role check for READS and updates: get_queryset derives the
+    audience from the signed-in user, so both are already confined to the
+    caller's own rows.
+
+    Creation is the exception, and the sentence above used to cover it by
+    mistake -- `create` never calls get_queryset, and NotificationSerializer is
+    fields='__all__' over a writable recipient_role and recipient_email. So any
+    signed-in staff member could POST a notification addressed to the OWNER,
+    with any title and body they liked, and it appeared in the owner's bell
+    indistinguishable from one the system had raised. Notifications are how this
+    product tells the owner an order needs attention or a payment has landed.
+
+    Nothing legitimately creates one over HTTP: every real notification is
+    written server-side by domains/orders/notifications.py.
     """
 
     message = "Sign in to see your notifications."
 
     def has_permission(self, request, view):
-        return resolve_user_role(request.user) is not None
+        if resolve_user_role(request.user) is None:
+            return False
+        # Refused for everyone, including the Owner -- there is no caller for
+        # it. `destroy` needs no clause here because it resolves its object
+        # through the scoped get_queryset, and `mark_all_read` is a custom
+        # action with its own name.
+        #
+        # Deliberately NOT http_method_names = [...] without 'post':
+        # APIView.dispatch tests that list before it maps the action, so
+        # dropping POST would 405 mark-all-read and take the notification bell
+        # down for every non-Owner -- which is the outage this class was
+        # written to fix in the first place.
+        if getattr(view, 'action', None) == 'create':
+            return False
+        return True
 
 
 class OwnerOnly(permissions.BasePermission):
@@ -147,8 +172,21 @@ def visible_customers(queryset, user):
     if profile is None:
         return queryset.none()
 
+    # Matched through a subquery rather than by joining, because the join is
+    # what forced distinct=True onto the aggregates in
+    # CustomerRepository.summary_queryset -- and Sum(DISTINCT col) de-duplicates
+    # by VALUE, not by row, so two orders at the same price counted once.
+    #
+    # Filtering on `orders__stages__assigned_to` multiplies each customer row by
+    # every stage of every one of their orders (fifteen stages per order), so the
+    # annotations further up the queryset saw each order fifteen times. Doing the
+    # matching inside a subquery leaves the outer queryset with no multi-valued
+    # join at all: the aggregates then see each order exactly once, distinct is
+    # unnecessary, and the trailing .distinct() that was papering over the row
+    # list goes too.
     from django.db.models import Q
-    return queryset.filter(
+    from crm_api.models import Customer
+    return queryset.filter(pk__in=Customer.objects.filter(
         Q(orders__tailor=profile) | Q(orders__master=profile)
         | Q(orders__stages__assigned_to=profile)
-    ).distinct()
+    ).values('pk'))

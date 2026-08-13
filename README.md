@@ -12,7 +12,10 @@ The project is structured as a monorepo consisting of a **Django Backend** and a
 ├── boutique_crm/         # Django project configuration & settings
 ├── crm_api/              # Django app containing main business logic & endpoints
 ├── tenants/              # Tenant management (multi-tenancy routing schema)
+├── superadmin/           # Platform console: cross-boutique monitoring & control
 ├── frontend/             # React + Vite frontend source code
+│   ├── app.html          #   the boutique workspace (one tenant)
+│   └── superadmin.html   #   the platform console (all tenants)
 ├── create_superuser.py   # Automatic superuser creator script for Render deploys
 ├── start.sh              # Local startup script for development servers
 └── requirements.txt      # Python dependencies list
@@ -58,6 +61,16 @@ All backend APIs are prefixed with `/api/` and require token-based authenticatio
 * `POST /api/customers/<id>/create-order/` — Creates custom order with breakdown.
 * `PATCH /api/orders/<id>/update-status/` — Advances order status through staging channels.
 * `GET /api/dashboard/` — Provides aggregated boutique statistics (revenue splits, order status, recent activity).
+
+### Platform console
+Public schema only, superuser only, and never tenant-scoped — see *Platform
+console (superadmin)* under deployment for the rules that enforce that.
+* `POST /api/superadmin/auth/login/` — Signs in a platform administrator. Rejects any account that is not a superuser in the public schema.
+* `GET /api/superadmin/overview/` — Platform totals, every boutique's live figures, and lead counts in one payload.
+* `GET /api/superadmin/boutiques/` — The same boutique rows on their own.
+* `POST /api/superadmin/boutiques/<schema>/suspend/` — Blocks the boutique from login and the API. Data untouched.
+* `POST /api/superadmin/boutiques/<schema>/reactivate/` — Restores it.
+* `GET/PATCH /api/superadmin/leads/` — Demo requests; `status` and `notes` writable, nothing else.
 
 ---
 
@@ -119,8 +132,43 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
   cross-region service pays that latency several times over per request. This is
   the single biggest lever left and it is pure configuration.
 * **Environment Variables:**
+  * `DJANGO_SECRET_KEY` is **required**. The service refuses to start without it
+    outside `DEBUG`, and that is deliberate: it used to fall back to a literal
+    committed to this repository, and this list never mentioned it, so a deploy
+    that followed this README exactly ran on a published key. That key signs the
+    customer tracking links (`domains/orders/tracking.py`), and `/track/<token>/`
+    accepts them with no authentication — so knowing it means minting a link to
+    any order in any boutique. Generate one with:
+    ```bash
+    python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+    ```
+    Rotating it invalidates tracking links already sent to customers. That is
+    intended, and it is the point of rotating it.
   * Configure your `DB_PASSWORD`, `SUPABASE_KEY`, and `SUPABASE_URL` under settings.
-  * Optionally set `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, and `DJANGO_SUPERUSER_PASSWORD` to create a custom administrator account automatically.
+  * `EMAIL_HOST` (plus `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, optionally
+    `EMAIL_PORT` / `EMAIL_USE_TLS`) and `PASSWORD_RESET_BASE_URL`. Without a
+    host, the mail backend falls back to the console — a password reset link is
+    then written to the service log and never reaches the person locked out.
+    `PASSWORD_RESET_BASE_URL` is the **frontend** origin including the entry
+    file, e.g. `https://boutique.scaleezy.com/app`; it is not `TRACKING_BASE_URL`,
+    which must point at Django because `/track/<token>/` is a Django route.
+  * `LOGIN_RATE` and `PASSWORD_RESET_RATE` (defaults `20/hour` and `5/hour`,
+    counted per IP) cap password guessing on the two login doors and the reset
+    form. Both count in the local-memory cache, so the effective ceiling is the
+    rate times `WEB_CONCURRENCY`.
+  * `DJANGO_SUPERUSER_PASSWORD` is **required** -- it is the platform
+    superadmin's password (see *Platform superadmin* below). `create_superuser.py`
+    exits with an error and creates nothing when it is unset, which fails the
+    build. It used to fall back to a password written in this repository.
+    `DJANGO_SUPERUSER_USERNAME` and `DJANGO_SUPERUSER_EMAIL` are optional and
+    default to `admin` / `admin@boutiquecrm.com`.
+
+    **This variable is now applied on every deploy, not only the first.**
+    `create_superuser.py` used to skip when the account already existed and exit
+    zero, so the build printed "already exists", passed green, and left whatever
+    password was there — which, for any database seeded by `seed_data.py`, was
+    the literal `admin123`, on the console that lists and suspends every
+    boutique. Setting a new value and redeploying *is* the rotation procedure.
   * `WEB_CONCURRENCY` / `GUNICORN_THREADS` tune the worker pool. Their product is
     also the cap on database connections held, which is what keeps
     `CONN_MAX_AGE` safe against Supabase's pooler.
@@ -149,14 +197,69 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
 * **Build Command:** `npm run build` (runs `vite build`, then `build-site.mjs`
   to assemble the static marketing pages)
 * **Output Directory:** `dist`
+* **Entries:** three surfaces come out of one deploy -- the static marketing site
+  at `/`, the boutique workspace at `/app`, and the platform console at
+  `/superadmin`. The last two are Vite entries (`app.html`, `superadmin.html`)
+  with a rewrite each in `vercel.json`; both are `noindex` and both are listed in
+  `public/robots.txt`.
 * **Environment Variables:**
   * `VITE_API_URL` -- the Render origin including the `/api` suffix, e.g.
     `https://crm-b-sitt.onrender.com/api`. Read by the React app
-    ([frontend/src/services/api.js](file:///Users/sanjaykumar/gemini/antigravity/scratch/django_screens/frontend/src/services/api.js#L1))
-    *and* by `build-site.mjs`, which strips the suffix to derive the demo form's
-    endpoint. One variable, so the two cannot drift apart. A local build falls
-    back to `http://localhost:8000/api`; a Vercel build with it unset fails
-    rather than shipping a form that posts nowhere.
+    ([frontend/src/services/api.js](file:///Users/sanjaykumar/gemini/antigravity/scratch/django_screens/frontend/src/services/api.js#L1)),
+    by the platform console (`frontend/src/superadmin/api.js`, which appends
+    `/superadmin`) *and* by `build-site.mjs`, which strips the suffix to derive
+    the demo form's endpoint. One variable, so they cannot drift apart. A local
+    build falls back to `http://localhost:8000/api`; a Vercel build with it unset
+    fails rather than shipping a form that posts nowhere.
+
+### Platform console (superadmin)
+The product-wide administrator's surface: **`/superadmin`** on the frontend
+origin, backed by **`/api/superadmin/`** on the API. It is the one place in the
+system that is meant to read across every boutique.
+
+**Sign in** with a superuser that lives in the **public** schema. Create or rotate
+one with `python create_superuser.py` and `DJANGO_SUPERUSER_PASSWORD` set (already
+in the Render build command); locally, `python manage.py createsuperuser` does the
+same interactively.
+
+**What it shows**
+
+* **Boutiques** -- every tenant, with its staff, customer, order and open-order
+  counts, total order value and the date of its most recent order, read live from
+  inside each boutique's own schema. *Last order* is the column to scan for a
+  boutique going quiet. A row that could not be read is flagged `Unreadable`
+  rather than shown as zeros, and is excluded from the totals with a warning.
+* **Suspend / Reactivate** -- flips `is_active` on the tenant. A suspended
+  boutique is refused at login and on every API call; nothing is deleted, so
+  reactivating restores it exactly. It takes effect in other gunicorn workers
+  within the tenant cache TTL (5 minutes), not instantly.
+* **Leads** -- demo requests from the marketing form. Status and notes are
+  writable; everything the prospect typed is read-only, and leads cannot be
+  created or deleted here.
+
+**Why it is a separate app.** `superadmin` is in `SHARED_APPS` only -- it reads
+the tenant registry and reaches into every schema on purpose, which is exactly
+what must never be installed *inside* a boutique. Two guards make that hold:
+
+* `TenantHeaderMiddleware` pins `/api/superadmin/` to the public schema before
+  any view runs, so a stale `X-Tenant-ID` cannot move the console off it.
+* `IsPlatformAdmin` requires `is_superuser` **and** the public schema.
+  `django.contrib.auth` is in both `SHARED_APPS` and `TENANT_APPS`, so
+  `is_superuser` exists as a column inside every boutique too (`seed_data.py`
+  creates one); the flag alone would have let a single boutique read all of them.
+
+The console's React bundle is its own Vite entry (`superadmin.html`) with its own
+token in `localStorage` under `superadmin_token`, so opening it in a browser that
+is signed in to a boutique does not disturb that session, and vice versa.
+
+**Django admin** at `/admin/` remains as the back door to the same tables -- it
+needs no frontend build, no `VITE_API_URL` and no CORS, which is what you want
+when the console itself is what is broken. Both read the same figures from
+`superadmin/metrics.py`.
+
+**Cost.** Building the list issues one query set per boutique, because there is
+no cross-schema join to be had. Fine at the tens; past a hundred or so, roll the
+counts into a public-schema table on a schedule and read that instead.
 
 ### Demo requests
 The marketing site's demo form posts to `/demo-request/` -- a plain Django view

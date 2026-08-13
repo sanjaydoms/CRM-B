@@ -11,32 +11,16 @@ import { Menu, Search, Bell, X, User } from 'lucide-react';
  * unreachable on a phone.
  */
 
-export function MobileHeader({ title, currentUser, notificationsCount, onOpenNotifications, onSearch, onOpenMenu }) {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState('');
-
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    if (onSearch) onSearch(query);
-  };
-
+// The search affordance is gone: `onSearch` had no caller anywhere in the
+// application, so tapping the magnifier on a phone opened a full-width field,
+// took the keyboard, accepted a query and did nothing with it -- on the header
+// that sits above every screen. Deleted rather than wired up, because there is
+// no cross-entity search endpoint to wire it to; the Orders, Customers and
+// Invoices screens each have their own working search box.
+export function MobileHeader({ title, currentUser, notificationsCount, onOpenNotifications, onOpenMenu }) {
   return (
     <header className="mobile-app-header">
-      {searchOpen ? (
-        <form onSubmit={handleSearchSubmit} className="mobile-header-search-form">
-          <input
-            type="text"
-            className="mobile-header-search-input"
-            placeholder="Search orders, customers, designs…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus
-          />
-          <button type="button" className="icon-btn-touch" onClick={() => setSearchOpen(false)}>
-            <X size={20} />
-          </button>
-        </form>
-      ) : (
+      {(
         <div className="mobile-header-bar">
           <div className="mobile-header-brand-group">
             {onOpenMenu && (
@@ -49,10 +33,6 @@ export function MobileHeader({ title, currentUser, notificationsCount, onOpenNot
           </div>
 
           <div className="mobile-header-actions">
-            <button type="button" className="icon-btn-touch" onClick={() => setSearchOpen(true)} aria-label="Search">
-              <Search size={20} />
-            </button>
-
             <button type="button" className="icon-btn-touch relative-btn" onClick={onOpenNotifications} aria-label="Notifications">
               <Bell size={20} />
               {notificationsCount > 0 && (

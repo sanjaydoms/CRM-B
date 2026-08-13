@@ -11,6 +11,59 @@ from django.contrib.auth.models import User
 NATIONAL_NUMBER_LENGTH = 10
 
 
+def _unguessable_path(directory, filename):
+    """`directory/<random>/filename` -- the filename kept, the path not guessable.
+
+    Media is served by a plain route over one MEDIA_ROOT with no permission
+    check (see boutique_crm/urls.py), and Django's default naming keeps the
+    caller's own filename -- so a customer's photograph landed at
+    /media/customer_profiles/IMG_1234.jpg and a boutique logo at
+    /media/fabrics/logo.png, both of which anyone can guess. Finished-garment
+    photographs are the sharpest case: the tracking page will not show them
+    until the owner publishes, and a guessed URL walked straight past that gate.
+
+    Django's storage only appends a suffix on COLLISION, so an unused name is
+    stored exactly as uploaded and nothing was ever randomised. A uuid4
+    directory means there is nothing left to guess, at the cost of one path
+    segment.
+
+    This is hardening, not authentication -- a leaked URL still works. Real
+    per-boutique isolation means TenantFileSystemStorage plus physically moving
+    every existing file into media/<schema>/, which breaks every stored path if
+    done without that move. That belongs with the persistent-disk work
+    (uploads do not survive a redeploy at all today), not ahead of it.
+
+    Existing rows are untouched and keep serving from their current paths.
+    """
+    return f"{directory}/{uuid.uuid4().hex}/{filename}"
+
+
+# One module-level function per directory, rather than a factory returning a
+# closure. The migration autodetector serialises an upload_to callable by its
+# import path, so a closure -- however its __name__ is set -- is written into
+# the migration as a module attribute that does not exist, and every later
+# `manage.py migrate` dies importing it. These five are the whole cost of
+# getting that right.
+def upload_to_customer_profiles(instance, filename):
+    return _unguessable_path('customer_profiles', filename)
+
+
+def upload_to_completed_garments(instance, filename):
+    return _unguessable_path('completed_garments', filename)
+
+
+def upload_to_stage_images(instance, filename):
+    return _unguessable_path('stage_images', filename)
+
+
+def upload_to_finished_garments(instance, filename):
+    return _unguessable_path('finished_garments', filename)
+
+
+def upload_to_fabrics(instance, filename):
+    return _unguessable_path('fabrics', filename)
+
+
 def whatsapp_number(raw):
     """Return ``raw`` as the digits wa.me needs, or '' if it cannot be one.
 
@@ -83,13 +136,43 @@ class Customer(models.Model):
     notes = models.TextField(blank=True, null=True)
     
     # Files
-    profile_photo = models.ImageField(upload_to='customer_profiles/', blank=True, null=True)
+    profile_photo = models.ImageField(upload_to=upload_to_customer_profiles, blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.mobile_number})"
+
+    def save(self, *args, **kwargs):
+        """Store the number in one canonical form, whatever wrote it.
+
+        This started life in CustomerSerializer, which fixed the API path and
+        left every other one alone -- and the test suite found the hole
+        immediately: a Customer created straight through the ORM kept the raw
+        string, so it no longer collided with the same person added through the
+        interface, and the duplicate the whole change exists to prevent came
+        back through a different door.
+
+        The invariant belongs here because `mobile_number` is unique=True and
+        both customer searches are literal substring matches. Anything that
+        writes an un-normalised number -- a seed script, a bulk import, Django
+        admin, code written next year -- creates a row that cannot be found by
+        the number as anyone would type it, and that can be duplicated.
+
+        The serializer keeps its own normalisation: it has to run BEFORE DRF's
+        UniqueValidator so a duplicate comes back as a clean 400 naming the
+        field, rather than as an IntegrityError from Postgres. This is the
+        backstop for everything that is not the serializer.
+
+        An unparseable number is stored as typed. Those digits are the only
+        record of how to reach that client, and a model save is the wrong place
+        to throw them away -- the serializer already refuses them at the edge,
+        where the person typing can be told why.
+        """
+        if self.mobile_number:
+            self.mobile_number = whatsapp_number(self.mobile_number) or self.mobile_number
+        super().save(*args, **kwargs)
 
 class Measurement(models.Model):
     customer = models.OneToOneField(Customer, on_delete=models.CASCADE, related_name='measurements')
@@ -273,7 +356,7 @@ class Order(models.Model):
     order_date = models.DateTimeField(auto_now_add=True, db_index=True)
     estimated_delivery = models.DateField(blank=True, null=True)
     tailor_comments = models.TextField(blank=True, null=True)
-    completed_garment_image = models.ImageField(upload_to='completed_garments/', blank=True, null=True)
+    completed_garment_image = models.ImageField(upload_to=upload_to_completed_garments, blank=True, null=True)
     master_verification = models.JSONField(default=dict, blank=True)
     
     # Whether the customer may see the finished-garment photographs on their
@@ -337,7 +420,7 @@ class OrderStageHistory(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='stage_histories')
     stage = models.CharField(max_length=100)
     comments = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to='stage_images/', blank=True, null=True)
+    image = models.ImageField(upload_to=upload_to_stage_images, blank=True, null=True)
     completed_by_name = models.CharField(max_length=255, blank=True, null=True)
     completed_at = models.DateTimeField(auto_now_add=True)
 
@@ -381,7 +464,7 @@ class GarmentImage(models.Model):
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='garment_images')
     view = models.CharField(max_length=20, choices=VIEW_CHOICES, default='FRONT')
-    image = models.ImageField(upload_to='finished_garments/')
+    image = models.ImageField(upload_to=upload_to_finished_garments)
     uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
@@ -476,11 +559,25 @@ def get_default_workflow():
     ]
 
 class BoutiqueSettings(models.Model):
-    name = models.CharField(max_length=255, default="Scaleezy Atelier")
-    address = models.TextField(default="123 Atelier Way, Fashion District")
-    phone = models.CharField(max_length=50, default="+91 9999999999")
-    email = models.EmailField(default="contact@scaleezy.com")
-    logo = models.ImageField(upload_to='fabrics/', blank=True, null=True)
+    # Blank defaults, not vendor demo strings.
+    #
+    # These four used to default to "Scaleezy Atelier", "123 Atelier Way,
+    # Fashion District", "+91 9999999999" and "contact@scaleezy.com" -- and this
+    # row is conjured by get_or_create(id=1) wherever it is first needed, so a
+    # boutique that had never opened its profile screen printed OUR contact
+    # details on ITS invoices and showed them to its customers on the public
+    # tracking page. The customer was told to collect a garment from an address
+    # that does not exist, over a phone number nobody answers.
+    #
+    # Blank is the honest default: the interface can then tell the owner what is
+    # missing, and shows the customer nothing false in the meantime. SignupView
+    # fills name, email and phone from what the owner typed, so a boutique
+    # created through the product is never wholly empty.
+    name = models.CharField(max_length=255, blank=True, default="")
+    address = models.TextField(blank=True, default="")
+    phone = models.CharField(max_length=50, blank=True, default="")
+    email = models.EmailField(blank=True, default="")
+    logo = models.ImageField(upload_to=upload_to_fabrics, blank=True, null=True)
     workflow_config = models.JSONField(default=get_default_workflow, blank=True)
     # Off by default: a small team is usually the owner and one or two
     # designers, and forcing every upload through a queue just to reach the

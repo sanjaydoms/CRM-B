@@ -196,7 +196,29 @@ function Field({ field, value, error, onChange, inventory }) {
 
 export default function TemplateForm({ template, section, values, errors = {}, onChange }) {
   const definition = getSection(template, section);
-  const fields = (definition?.fields || []).filter((f) => isVisible(f, values));
+  // File fields are not rendered, because nothing in this product can save one.
+  //
+  // The four of them -- Measurement Sheet, Reference Images, Audio Note, Final
+  // Approved Design -- stored the browser's raw File object in `values`, and
+  // saveGarmentJobs sends that through JSON.stringify, which turns a File into
+  // `{}`. core/templates.py then treats `{}` as empty and drops the key with no
+  // error; a repeatable one becomes `[{}]` and is stored verbatim, reaching the
+  // tailor's "What to make" panel as `reference images: [object Object]`.
+  // Meanwhile GarmentSummary printed "Attached".
+  //
+  // So a staff member photographed the customer's handwritten measurement
+  // sheet, the wizard advanced with no complaint, and the artefact proving what
+  // was actually measured was gone at the moment of capture.
+  //
+  // Removing the affordance rather than hardening the write path, deliberately.
+  // Rejecting the value server-side would be worse: saveGarmentJobs runs AFTER
+  // the order is created, so a hard 400 there strands an order with no garment
+  // job behind a dead wizard. Real uploads need a multipart endpoint and a
+  // FormData path, which is a feature -- see the audit's Missing Features
+  // table. Until it exists, offering the input is the bug.
+  const fields = (definition?.fields || [])
+    .filter((f) => f.field_type !== 'file')
+    .filter((f) => isVisible(f, values));
 
   const inventory = useInventoryOptions(
     fields.filter((f) => f.field_type === 'inventory_ref').map((f) => f.inventory_category)

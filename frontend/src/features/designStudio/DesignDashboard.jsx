@@ -4,11 +4,11 @@ import { Award, Clock, Image as ImageIcon, Key, UserPlus, Users } from 'lucide-r
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 
-// The server never returns this -- create-login just confirms the account
-// exists. The frontend knows the shared bootstrap password because the Owner
-// needs to be able to hand it over, the same convention the Tailor "share
-// credentials" panel already uses (see App.jsx's TailorSecure2026! constant).
-const DESIGNER_BOOTSTRAP_PASSWORD = 'DesignerSecure2026!';
+// The password now comes back from create-login, generated for that one
+// account and returned on that one response. The constant that used to live
+// here held a literal shared by every designer on the platform -- shipped in
+// this bundle, and a working credential against any boutique, because login
+// resolves an account by scanning every schema for the username.
 
 /**
  * The module's landing counters and leaderboards.
@@ -126,8 +126,9 @@ function DesignerRoster() {
     inFlight.current = true;
     setGranting(designer.id);
     try {
-      await api.createDesignerLogin(designer.id, email);
-      setIssued({ name: designer.name, email });
+      const created = await api.createDesignerLogin(designer.id, email);
+      setIssued({ name: designer.name, email,
+                  password: created && created.bootstrap_password });
       load();
     } catch (err) {
       setError(`Could not grant a login to ${designer.name} — ${err.message}`);
@@ -213,7 +214,21 @@ function DesignerRoster() {
             Login created for <strong>{issued.name}</strong>. Share these credentials with them directly --
             this is the only time the password is shown here.
           </div>
-          <div>Email: <strong>{issued.email}</strong> &nbsp;·&nbsp; Password: <strong>{DESIGNER_BOOTSTRAP_PASSWORD}</strong></div>
+          <div>
+            Email: <strong>{issued.email}</strong>
+            {issued.password ? (
+              <> &nbsp;·&nbsp; Password: <strong style={{ fontFamily: 'ui-monospace, monospace' }}>{issued.password}</strong></>
+            ) : (
+              // create-login linked an account this person already had, so
+              // their existing password still stands and there is none to give.
+              <> &nbsp;·&nbsp; They already had an account — their existing password still works.</>
+            )}
+          </div>
+          {issued.password && (
+            <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.75 }}>
+              Shown once. Copy it now — closing this panel is the last time it can be read.
+            </div>
+          )}
           <button className="btn-secondary" style={{ marginTop: '8px', padding: '4px 10px', fontSize: '11px' }}
                   onClick={() => setIssued(null)}>Close</button>
         </div>

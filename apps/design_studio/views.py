@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import uuid
 from datetime import timedelta
 
@@ -478,6 +479,9 @@ class DesignerViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
         user = User.objects.filter(email__iexact=email).first()
+        # Stays None when this call links an account the designer already had;
+        # only a freshly created account has a password worth returning.
+        bootstrap = None
 
         # Never attach a designer profile to the boutique owner or to floor
         # staff. resolve_user_role answers a Designer profile before it falls
@@ -506,13 +510,17 @@ class DesignerViewSet(viewsets.ModelViewSet):
             while User.objects.filter(username=username).exists():
                 username = f"{original}{counter}"
                 counter += 1
-            # Shared bootstrap password, the same pattern as staff accounts
-            # (see TailorViewSet._ensure_user_account): override with
-            # DESIGNER_DEFAULT_PASSWORD, or every designer shares one
-            # credential that is visible in this repository.
+            # One password, generated here, for this account only -- the same
+            # change and the same reasoning as staff accounts, see
+            # TailorViewSet._ensure_user_account. The shared literal this
+            # replaces was in the repository and in the shipped JS bundle, and
+            # login resolves an account by scanning every boutique's schema, so
+            # it was a working credential against any boutique that had a
+            # designer with a guessable username.
+            bootstrap = secrets.token_urlsafe(9)
             user = User.objects.create_user(
                 username=username, email=email,
-                password=os.environ.get('DESIGNER_DEFAULT_PASSWORD', 'DesignerSecure2026!'),
+                password=bootstrap,
                 first_name=designer.name,
             )
 
@@ -520,11 +528,17 @@ class DesignerViewSet(viewsets.ModelViewSet):
         designer.email = email
         designer.save(update_fields=['user', 'email', 'updated_at'])
 
-        return Response(
-            DesignerSerializer(
-                Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk)
-            ).data,
-            status=status.HTTP_200_OK)
+        data = DesignerSerializer(
+            Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk)
+        ).data
+        # Returned once, on this response only, and never stored -- the owner
+        # has to hand it over now or issue a reset later. `bootstrap` is unset
+        # when this call merely linked an account the designer already had, in
+        # which case their existing password still stands and there is nothing
+        # to show.
+        if bootstrap:
+            data['bootstrap_password'] = bootstrap
+        return Response(data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['GET'])
     def portfolio(self, request, pk=None):
@@ -535,8 +549,16 @@ class DesignerViewSet(viewsets.ModelViewSet):
         totals = designs.aggregate(
             views=Sum('view_count'), orders=Sum('order_count'))
         return Response({
+            # context is load-bearing, not decoration. DesignerSerializer
+            # pops `email` and `has_login` for non-Owners only when it can find
+            # a request in its context -- so constructing it bare, as this did,
+            # skipped the guard entirely and returned the designer's login
+            # address and whether that account is live. DesignStudioPermission
+            # admits any signed-in role on a safe method, so anyone in the
+            # boutique could read it.
             'designer': DesignerSerializer(
-                Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk)
+                Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk),
+                context=self.get_serializer_context(),
             ).data,
             'designs': DesignAssetSerializer(designs, many=True).data,
             'stats': {

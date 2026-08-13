@@ -1,6 +1,35 @@
 from crm_api.models import Tailor, BoutiqueFabric
 
-def seed_tenant_defaults():
+def seed_tenant_defaults(demo=True):
+    """Populate a tenant schema with demonstration content.
+
+    `demo` defaults to True because the two manual callers -- seed_data.py and
+    SeedDataView -- exist precisely to produce a populated playground. It is
+    passed False from SignupView, the one caller that creates a REAL boutique.
+
+    What this content was doing to a real one: four employees who do not exist
+    (Rohit Mehra, Master, rating 4.90; Anya Sharma; Rahul Verma; Preeti Singh),
+    five fabrics at another business's prices (Silk Dupion Rs1850/m, Banarasi
+    Silk Rs2850/m) and eleven catalogue designs at Rs45,000 and Rs38,000.
+
+    None of it is cosmetic, because the fabric prices reach money: the order
+    wizard sets fabric_price = selectedFabric.price_per_meter * 3, and that
+    prints on the invoice handed to the customer. So a day-one order could be
+    assigned to somebody who does not work there, priced at a rate the owner
+    never set, and sent out.
+
+    The opposite decision is already recorded a few screens away, on the
+    appointments panel: "An empty panel is better than an invented one." This
+    brings the roster, the fabric library and the catalogue into line with it.
+
+    Nothing a real tenant NEEDS is in here -- garment templates and the
+    inventory catalogue arrive with the schema's own migrations, not from this
+    function -- so returning early is safe. The order wizard already handles an
+    empty roster, and now offers to add the first staff member instead.
+    """
+    if not demo:
+        return
+
     # Seed Tailors
     tailors = [
         {"name": "Rohit Mehra", "specialty": "Ethnic & Bridal Cutting", "rating": 4.90, "status": "Available", "role": "Master"},

@@ -3,7 +3,9 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from core.permissions import visible_orders
 from core.templates import SpecValidationError, validate_spec
+from crm_api.models import Order
 
 from .models import (
     GarmentJob, GarmentTemplate, JobMaterial, TemplateField, TemplateSection,
@@ -89,6 +91,24 @@ class GarmentJobViewSet(viewsets.ModelViewSet):
         queryset = GarmentJob.objects.select_related('template').prefetch_related(
             'materials', 'materials__inventory_item'
         )
+        # Scoped to the orders this caller may see, exactly as the sibling
+        # routers outside crm_api already are.
+        #
+        # This viewset names no permission_classes, so it inherits
+        # RolePermission -- which grants every safe method to any non-Owner,
+        # non-Designer role -- and the only narrowing here was an OPTIONAL
+        # ?order= filter. GarmentJobSerializer emits `spec` and `measurements`
+        # in full: every body measurement, customer_notes, special_instructions
+        # and internal_notes, the last of whose help_text reads "Staff only --
+        # never shown on the customer copy".
+        #
+        # So a tailor correctly refused another tailor's order at
+        # /api/orders/<id>/ read the same order's garments here, for every
+        # client in the boutique, by calling this endpoint with no parameters.
+        # One line covers list, retrieve and both materials sub-actions,
+        # because they all resolve their object through this queryset.
+        queryset = queryset.filter(
+            order__in=visible_orders(Order.objects.all(), self.request.user))
         if order_id := self.request.query_params.get('order'):
             queryset = queryset.filter(order__order_id=order_id)
         return queryset

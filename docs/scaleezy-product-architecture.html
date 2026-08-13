@@ -1044,7 +1044,7 @@
         </p>
       </div>
       <ul>
-        <li><strong>Credentials in version history.</strong> The database password and application secret key were committed to the repository. They have been removed from the current code and the database password has been rotated, but the history remains readable — the secret key still needs rotating.</li>
+        <li><strong>Credentials in version history.</strong> The database password and application secret key were committed to the repository and the history remains readable. This entry previously said the database password "has been rotated"; that was not true — the password in git history is still the password in use, and it belongs to the <code>postgres</code> role on the single instance that hosts every boutique's schema. <strong>Both credentials still need rotating.</strong> The code no longer lets the secret key be left unset: <code>boutique_crm/settings.py</code> refuses to start outside <code>DEBUG</code> rather than falling back to the published literal. Rotating the secret key invalidates customer tracking links already sent, which is intended.</li>
         <li><strong>Shared staff password.</strong> Every tailor account is created with the same bootstrap password. It is now configurable, but there is no invite or reset flow.</li>
         <li><strong>Cross-origin policy is open.</strong> Any origin may call the API. Restricting it is a single environment variable, already supported.</li>
       </ul>

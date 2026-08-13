@@ -8,9 +8,11 @@ django.setup()
 from django.contrib.auth.models import User
 from crm_api.models import Tailor, BoutiqueFabric, BoutiqueDesign
 from tenants.models import BoutiqueTenant, Domain
+from core.utils import refuse_unless_local_database
 from django_tenants.utils import schema_context
 
 def seed():
+    refuse_unless_local_database()
     # 1. Create Public Tenant Registry
     if not BoutiqueTenant.objects.filter(schema_name='public').exists():
         public_tenant = BoutiqueTenant.objects.create(
@@ -29,9 +31,18 @@ def seed():
 
     # 2. Create Superuser in Public Schema
     with schema_context('public'):
+        # No literal password. This used to create the platform administrator
+        # -- the account that lists, browses and suspends every boutique -- as
+        # admin/admin123, and that row is in the committed SQL dump. Worse, it
+        # took the name create_superuser.py also uses, and that script used to
+        # skip when the account existed: so the deploy-time rotation reported
+        # success on every redeploy while leaving this password in place.
+        #
+        # A local seed does not need a superuser at all; create_superuser.py is
+        # what makes one, from the environment, and now rotates it every deploy.
         if not User.objects.filter(username='admin').exists():
-            User.objects.create_superuser('admin', 'admin@boutique.com', 'admin123')
-            print("Superuser created in public schema: admin / admin123")
+            print("No superuser in public schema. Create one with:")
+            print("  DJANGO_SUPERUSER_PASSWORD=... python create_superuser.py")
         else:
             print("Superuser in public schema already exists")
 
@@ -61,11 +72,12 @@ def seed():
             User.objects.create_user(
                 username=owner_email,
                 email=owner_email,
-                password='password123',
+                password=os.environ.get('SEED_OWNER_PASSWORD', 'seed-only-not-for-real-use'),
                 first_name='Aditi',
                 last_name='Mehta'
             )
-            print(f"Owner account created in tenant: {owner_email} / password123")
+            print(f"Owner account created in tenant: {owner_email} "
+                  f"(password from SEED_OWNER_PASSWORD)")
         else:
             print(f"Owner account in tenant already exists")
 

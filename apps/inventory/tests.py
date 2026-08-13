@@ -331,6 +331,52 @@ class PurchaseOrderTests(InventoryTestBase):
         self.assertEqual(po.status, PurchaseOrder.Status.PARTIALLY_RECEIVED)
         self.assertEqual(line.quantity_outstanding, Decimal('15.000'))
 
+    def test_a_rejected_line_rolls_back_the_lines_before_it(self):
+        """The multi-line receipt that used to leave half a delivery in stock.
+
+        Each InventoryService.purchase() is its own atomic block, so the earlier
+        lines committed before the later one raised. The owner was told the
+        receipt failed while the first items were already booked in -- and
+        correcting the typo and resubmitting counted them twice, permanently.
+        """
+        item_a = self.make_item(item_code='FAB-ATOM-A', name='Silk Roll A')
+        item_b = self.make_item(item_code='FAB-ATOM-B', name='Silk Roll B')
+        po = PurchaseOrder.objects.create(po_number='PO-ATOMIC', supplier=self.supplier)
+        line_a = PurchaseOrderLine.objects.create(
+            purchase_order=po, item=item_a, quantity_ordered=Decimal('10'),
+            unit_cost=Decimal('100.00'))
+        line_b = PurchaseOrderLine.objects.create(
+            purchase_order=po, item=item_b, quantity_ordered=Decimal('5'),
+            unit_cost=Decimal('100.00'))
+
+        response = self.client.post(
+            reverse('purchase-order-receive', args=[po.id]),
+            {'lines': [
+                {'line_id': str(line_a.id), 'quantity': '10'},   # fine
+                {'line_id': str(line_b.id), 'quantity': '99'},   # over-receipt
+            ]}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        item_a.refresh_from_db()
+        line_a.refresh_from_db()
+        po.refresh_from_db()
+        # Nothing of the first line survived the failure of the second.
+        self.assertEqual(item_a.current_stock, Decimal('0.000'))
+        self.assertEqual(line_a.quantity_received, Decimal('0.000'))
+        self.assertEqual(po.status, PurchaseOrder.Status.DRAFT)
+        self.assertFalse(StockMovement.objects.filter(item=item_a).exists())
+
+    def test_a_junk_quantity_is_a_400_not_a_500(self):
+        # Decimal('abc') raises InvalidOperation -- an ArithmeticError, which
+        # escaped the ValueError handler as an unhandled server error.
+        po, line, item = self._po_with_line()
+        response = self.client.post(
+            reverse('purchase-order-receive', args=[po.id]),
+            {'lines': [{'line_id': str(line.id), 'quantity': 'abc'}]}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        item.refresh_from_db()
+        self.assertEqual(item.current_stock, Decimal('0.000'))
+
     def test_cannot_receive_more_than_ordered(self):
         po, line, item = self._po_with_line(ordered=Decimal('5'))
 

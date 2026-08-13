@@ -1,5 +1,18 @@
 from crm_api.models import Order
 
+# The one definition of "off the boutique's floor", imported rather than
+# restated. This module held its own literal ('Shipped', 'Delivered') and
+# superadmin/metrics.py carried a comment claiming there was now a single
+# definition -- there were two that happened to agree. Agreeing today is the
+# whole danger: a status added to the settled set in services.py would silently
+# leave get_active_orders() below still counting it as active, and the comment
+# would still say it could not.
+#
+# No cycle: services.py reaches crm_api.models, core.roles and
+# domains.orders.{notifications,messaging,tracking}, none of which import this
+# module. crm_api/views.py already imports both.
+from domains.orders.services import _SETTLED_ORDER_STATUSES
+
 # Mirrors every relation OrderSerializer reads. 'stage_histories' was missing and
 # cost one extra query per order.
 ORDER_SELECT_RELATED = ('customer', 'tailor', 'master', 'customer__measurements')
@@ -40,4 +53,4 @@ class OrderRepository:
 
     @staticmethod
     def get_active_orders():
-        return OrderRepository.get_all().exclude(order_status__in=['Shipped', 'Delivered'])
+        return OrderRepository.get_all().exclude(order_status__in=_SETTLED_ORDER_STATUSES)

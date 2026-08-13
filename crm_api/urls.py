@@ -1,7 +1,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import CustomerViewSet, TailorViewSet, BoutiqueFabricViewSet, BoutiqueDesignViewSet, OrderViewSet, DashboardView, NotificationViewSet, BoutiqueSettingsViewSet
-from .auth_views import SignupView, LoginView, LogoutView, MeView, SeedDataView
+from .auth_views import (
+    SignupView, LoginView, LogoutView, MeView, SeedDataView,
+    PasswordResetRequestView, PasswordResetConfirmView,
+)
 
 router = DefaultRouter()
 router.register(r'customers', CustomerViewSet, basename='customer')
@@ -20,5 +23,9 @@ urlpatterns = [
     path('auth/logout/', LogoutView.as_view(), name='auth-logout'),
     path('auth/me/', MeView.as_view(), name='auth-me'),
     path('auth/seed-data/', SeedDataView.as_view(), name='auth-seed-data'),
+    path('auth/password-reset/', PasswordResetRequestView.as_view(),
+         name='auth-password-reset'),
+    path('auth/password-reset/confirm/', PasswordResetConfirmView.as_view(),
+         name='auth-password-reset-confirm'),
 ]
 

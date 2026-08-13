@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import uuid
 from decimal import Decimal
 
@@ -15,6 +16,7 @@ from core.permissions import (
 from core.roles import OWNER, resolve_user_role
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.db.models import Q, Sum, Count
 
 from .models import (
@@ -36,7 +38,7 @@ from domains.orders.messaging import send_customer_message
 from domains.orders.notifications import create_order_notifications
 from domains.orders.tracking import tracking_url
 from domains.orders.repositories import OrderRepository
-from domains.orders.services import OrderService
+from domains.orders.services import OrderService, refresh_staff_availability
 
 class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
@@ -263,15 +265,40 @@ class TailorViewSet(viewsets.ModelViewSet):
 
             user = User.objects.filter(email__iexact=tailor.email).first()
             if not user:
-                # Shared bootstrap password for staff accounts. Override with
-                # TAILOR_DEFAULT_PASSWORD; every tailor otherwise shares one
-                # credential that is visible in this repository.
+                # One password, generated here, for this account only.
+                #
+                # This used to be os.environ.get('TAILOR_DEFAULT_PASSWORD',
+                # 'TailorSecure2026!'), and the fallback is the whole problem:
+                # it is written in this repository AND shipped in the JavaScript
+                # bundle, the username is the email's local part, and
+                # find_tenant_for_account searches every boutique's schema for a
+                # matching username. So one unauthenticated POST to
+                # /api/auth/login/ with a first-name-shaped guess landed inside
+                # whichever boutique had such an account -- any boutique, not
+                # only the one the guesser belonged to. Staff who left kept a
+                # working credential everywhere.
+                #
+                # The same constant had an opposite failure too: an operator who
+                # took the comment's advice and set TAILOR_DEFAULT_PASSWORD
+                # broke onboarding, because the "share credentials" modal went
+                # on printing the literal. Generating the value and returning it
+                # is what makes the screen and the database agree.
+                #
+                # Stashed on the instance rather than returned: the caller here
+                # is perform_create/perform_update, which cannot alter the
+                # response. TailorSerializer.to_representation picks it up and
+                # emits it exactly once, on the response to the request that
+                # created the account -- it is never stored and never readable
+                # again, which is the same contract every other product uses for
+                # a generated credential.
+                bootstrap = secrets.token_urlsafe(9)
                 user = User.objects.create_user(
                     username=self._unique_username(tailor.email.split('@')[0]),
                     email=tailor.email,
-                    password=os.environ.get('TAILOR_DEFAULT_PASSWORD', 'TailorSecure2026!'),
+                    password=bootstrap,
                     first_name=tailor.name
                 )
+                tailor._bootstrap_password = bootstrap
             # Link to tailor
             if tailor.user != user:
                 tailor.user = user
@@ -307,11 +334,67 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         old_status = serializer.instance.order_status
+        # Captured before save(), because after it the instance carries the new
+        # values and there is nothing left to compare against.
+        old_tailor_id = serializer.instance.tailor_id
+        old_master_id = serializer.instance.master_id
+        old_tailor = serializer.instance.tailor
+        old_master = serializer.instance.master
+
         order = serializer.save()
         self._reconcile_payment(order, serializer.validated_data)
 
         if old_status != order.order_status:
             create_order_notifications(order, created=False)
+
+        # Reassignment used to change one column and nothing else.
+        #
+        # This method did only save(), _reconcile_payment and a status
+        # notification, so moving an order to a different tailor left three
+        # things pointing at the person who no longer has it:
+        #
+        #   * Tailor.status -- the departing tailor still read Busy with nothing
+        #     on their table, the new one still read Available with a dress to
+        #     sew. Those two badges are what the owner picks staff by, so the
+        #     next order went to the wrong person for the stated reason.
+        #   * ProductionTask.assigned_to -- /api/production/tasks/ went on
+        #     naming the old tailor for work they no longer had.
+        #   * Nobody was told. assign_stage writes a notification when it hands
+        #     over a single stage; handing over the whole order wrote none.
+        #
+        # refresh_staff_availability derives the flag from live orders, which is
+        # exactly why its docstring says to call it at every write site.
+        if old_tailor_id != order.tailor_id or old_master_id != order.master_id:
+            refresh_staff_availability(old_tailor, old_master,
+                                       order.tailor, order.master)
+
+            if old_tailor_id != order.tailor_id:
+                from apps.production.models import ProductionTask
+                ProductionTask.objects.filter(
+                    order=order, assigned_to_id=old_tailor_id,
+                ).update(assigned_to=order.tailor)
+
+                if order.tailor:
+                    Notification.objects.create(
+                        title=f"New Stitching Task: {order.order_id}",
+                        message=(f"Order {order.order_id} has been reassigned to "
+                                 f"you for stitching."),
+                        # The person's own role, not the literal "Tailor" --
+                        # see the banner in domains/orders/notifications.py.
+                        recipient_role=order.tailor.role,
+                        recipient_email=(order.tailor.user.email
+                                         if order.tailor.user else None),
+                    )
+
+            if old_master_id != order.master_id and order.master:
+                Notification.objects.create(
+                    title=f"New Assignment: {order.order_id}",
+                    message=(f"Order {order.order_id} has been reassigned to you "
+                             f"as Supervising Master."),
+                    recipient_role=order.master.role,
+                    recipient_email=(order.master.user.email
+                                     if order.master.user else None),
+                )
 
     @staticmethod
     def _reconcile_payment(order, changed):
@@ -428,8 +511,25 @@ class OrderViewSet(viewsets.ModelViewSet):
         if not isinstance(checks, dict):
             return Response({'error': 'master_verification must be an object.'},
                             status=status.HTTP_400_BAD_REQUEST)
+        # Merged into what is already stored, not substituted for it.
+        #
+        # Both screens that render this checklist build their payload by
+        # spreading the order out of the dashboard's `ordersList`, which only
+        # refreshes on a full fetchDashboardAndConfig. So ticking a second box
+        # posts a copy of the object as it was when the list was last loaded --
+        # without the first tick. A replacing write then erased it, and the
+        # Master watched earlier ticks come undone as they worked. What was
+        # stored afterwards was not what anyone had verified, which for a
+        # quality checklist is worse than losing it.
+        #
+        # Fixed here rather than in the two React call sites because this is the
+        # single endpoint both post to: one edit, and a third screen added later
+        # inherits the correct behaviour. Unticking still works -- the frontend
+        # sends the key with False, and False overwrites True.
+        merged = dict(order.master_verification or {})
+        merged.update({str(k): bool(v) for k, v in checks.items()})
         # Booleans only: this is a checklist, not a free-form store on the order.
-        order.master_verification = {str(k): bool(v) for k, v in checks.items()}
+        order.master_verification = merged
         order.save(update_fields=['master_verification'])
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
 
@@ -689,24 +789,48 @@ class OrderViewSet(viewsets.ModelViewSet):
         stage = request.data.get('stage')
         comments = request.data.get('comments')
         image = request.FILES.get('image')
-        completed_by = request.data.get('completed_by', 'Boutique Staff')
-        
+
         if not stage:
-            return Response({'error': 'stage is required'}, status=status.HTTP_400_BAD_REQUEST)
-            
-        # Delete duplicate history for same stage if any exists
-        OrderStageHistory.objects.filter(order=order, stage=stage).delete()
-        
-        history = OrderStageHistory.objects.create(
-            order=order,
-            stage=stage,
-            comments=comments,
-            image=image,
-            completed_by_name=completed_by
-        )
-        
-        serializer = OrderSerializer(order)
-        return Response(serializer.data)
+            return Response({'error': 'stage is required'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # The stage must be one this order actually has.
+        #
+        # `stage` was free text written straight into the row -- unlike
+        # assign_stage immediately below, which checks. A typo silently created
+        # a history entry for a stage that does not exist, invisible on every
+        # screen that reads stages by key, and this action is in
+        # STAFF_ORDER_ACTIONS so any production account could do it.
+        if not order.stages.filter(stage_key=stage).exists():
+            return Response({'error': f"This order has no stage '{stage}'."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        # Who did it comes from the signed-in user, not the request body.
+        # `completed_by` defaulted to the literal 'Boutique Staff' and was
+        # otherwise whatever the caller typed, so the one field recording
+        # accountability for a quality review was self-declared.
+        performer = (request.user.get_full_name() or request.user.username
+                     or 'Boutique Staff')
+
+        # Atomic, because the delete comes first.
+        #
+        # This replaces the previous review for the stage, and the delete used
+        # to commit on its own: if the create then failed -- a rejected upload,
+        # a column overflow -- the earlier review's comments and evidence
+        # photograph were gone with nothing written in their place. That is the
+        # record of what was inspected, on the stage whose whole purpose is
+        # inspection.
+        with transaction.atomic():
+            OrderStageHistory.objects.filter(order=order, stage=stage).delete()
+            OrderStageHistory.objects.create(
+                order=order,
+                stage=stage,
+                comments=comments,
+                image=image,
+                completed_by_name=performer,
+            )
+
+        return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=['POST'], url_path='assign-stage')
     def assign_stage(self, request, pk=None):

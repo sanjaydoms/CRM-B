@@ -17,12 +17,36 @@ from .models import InventoryItem, LocationStock, StockLocation, StockMovement
 
 
 def _as_quantity(value, field='quantity'):
+    """A positive, finite, storable quantity -- or a ValueError callers expect.
+
+    Two values got past the old version, and both are reachable from a JSON
+    body:
+
+      * 'NaN' -- Decimal('NaN') is a perfectly valid Decimal, so the parse
+        succeeded. The `quantity <= 0` comparison then raised InvalidOperation,
+        which is an ArithmeticError rather than a ValueError, so it escaped the
+        handler every caller wraps this in and surfaced as an unhandled 500.
+      * 'Infinity' -- parses, and `Infinity <= 0` is simply False, so it passed
+        validation entirely and went on to a DecimalField write that cannot
+        store it.
+
+    The comparison moves inside the try for the first, and is_finite() plus an
+    upper bound close the second. The bound matches what the columns can hold
+    (max_digits=12, decimal_places=3), so a quantity that would die in the
+    driver is refused here with a sentence instead.
+    """
     try:
         quantity = Decimal(str(value))
+        if not quantity.is_finite():
+            raise ValueError(f'{field} must be a number.')
+        if quantity <= 0:
+            raise ValueError(f'{field} must be greater than zero.')
+        if quantity >= 10 ** 9:
+            raise ValueError(f'{field} is too large.')
+    except ValueError:
+        raise
     except Exception:
         raise ValueError(f'{field} must be a number.')
-    if quantity <= 0:
-        raise ValueError(f'{field} must be greater than zero.')
     return quantity
 
 
