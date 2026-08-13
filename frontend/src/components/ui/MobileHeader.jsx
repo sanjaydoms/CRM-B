@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { Menu, Search, Bell, X, User } from 'lucide-react';
+import { Menu, Bell } from 'lucide-react';
 
 /**
  * The phone header.
@@ -20,8 +19,7 @@ import { Menu, Search, Bell, X, User } from 'lucide-react';
 export function MobileHeader({ title, currentUser, notificationsCount, onOpenNotifications, onOpenMenu }) {
   return (
     <header className="mobile-app-header">
-      {(
-        <div className="mobile-header-bar">
+      <div className="mobile-header-bar">
           <div className="mobile-header-brand-group">
             {onOpenMenu && (
               <button type="button" className="icon-btn-touch mobile-header-menu-btn"
@@ -47,8 +45,7 @@ export function MobileHeader({ title, currentUser, notificationsCount, onOpenNot
               />
             </div>
           </div>
-        </div>
-      )}
+      </div>
     </header>
   );
 }
