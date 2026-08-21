@@ -40,7 +40,7 @@ function useInventoryOptions(categories) {
   return byCategory;
 }
 
-function Field({ field, value, error, onChange, inventory }) {
+function Field({ field, value, error, onChange, inventory, quantity, quantityError, onQuantityChange }) {
   const common = {
     className: 'form-control',
     id: `tf-${field.key}`,
@@ -137,20 +137,56 @@ function Field({ field, value, error, onChange, inventory }) {
 
     case 'inventory_ref': {
       const items = inventory[field.inventory_category] || [];
+      const selected = items.find((item) => String(item.id) === String(value ?? ''));
+      // Picking the roll is half the answer. Without "how much", the order can
+      // name a material but the inventory ledger can never reserve or consume
+      // it -- which is exactly how a delivered order used to leave stock
+      // untouched. So the quantity is asked for here, at the moment the choice
+      // is made, rather than defaulted to a number nobody decided.
       control = (
-        <select {...common}>
-          <option value="">
-            {items.length ? 'Select from stock' : 'Nothing in stock for this category'}
-          </option>
-          {items.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-              {item.available_stock !== undefined
-                ? ` — ${item.available_stock} ${item.unit || ''} available`
-                : ''}
+        <>
+          <select {...common}>
+            <option value="">
+              {items.length ? 'Select from stock' : 'Nothing in stock for this category'}
             </option>
-          ))}
-        </select>
+            {items.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+                {item.available_stock !== undefined
+                  ? ` — ${item.available_stock} ${item.unit_display || item.unit || ''} available`
+                  : ''}
+              </option>
+            ))}
+          </select>
+          {selected && (
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  className="form-control"
+                  id={`tf-${field.key}-qty`}
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  style={{ maxWidth: '120px' }}
+                  placeholder="Quantity"
+                  aria-label={`Quantity of ${selected.name} for ${field.label}`}
+                  value={quantity ?? ''}
+                  onChange={(e) => onQuantityChange(field.key, e.target.value)}
+                />
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {selected.unit_display || selected.unit || 'units'}
+                  {selected.available_stock !== undefined
+                    && ` · ${selected.available_stock} available`}
+                </span>
+              </div>
+              {quantityError && (
+                <div style={{ fontSize: '12px', color: '#c0392b', marginTop: '4px' }}>
+                  {quantityError}
+                </div>
+              )}
+            </div>
+          )}
+        </>
       );
       break;
     }
@@ -194,7 +230,14 @@ function Field({ field, value, error, onChange, inventory }) {
   );
 }
 
-export default function TemplateForm({ template, section, values, errors = {}, onChange }) {
+export default function TemplateForm({
+  template, section, values, errors = {}, onChange,
+  // How much of each selected material this garment needs, keyed by field key.
+  // Kept beside `values` rather than inside it because `spec` is validated
+  // against the template's own field list, and a quantity is not one of its
+  // fields -- it belongs to the material line, not to the garment's spec.
+  quantities = {}, quantityErrors = {}, onQuantityChange = () => {},
+}) {
   const definition = getSection(template, section);
   // File fields are not rendered, because nothing in this product can save one.
   //
@@ -250,6 +293,9 @@ export default function TemplateForm({ template, section, values, errors = {}, o
           error={errors[field.key]}
           onChange={handleChange}
           inventory={inventory}
+          quantity={quantities[field.key]}
+          quantityError={quantityErrors[field.key]}
+          onQuantityChange={onQuantityChange}
         />
       ))}
     </div>

@@ -85,7 +85,8 @@
     <h2>Your order</h2>
     <dl>
       <dt>Customer</dt><dd>{{ customer.first_name }} {{ customer.last_name }}</dd>
-      <dt>Garment</dt><dd>{{ customer.garment_type|default:"—" }}</dd>
+      <dt>{{ garment_heading }}</dt>
+      <dd>{% for garment in garments %}{{ garment }}{% if not forloop.last %}<br>{% endif %}{% empty %}—{% endfor %}</dd>
       <dt>Order date</dt><dd>{{ order.order_date|date:"d M Y" }}</dd>
       <dt>Expected delivery</dt><dd>{{ order.estimated_delivery|date:"d M Y"|default:"To be confirmed" }}</dd>
       <dt>Status</dt><dd><span class="status-pill">{{ order.order_status }}</span></dd>

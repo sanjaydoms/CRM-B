@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CustomerViewSet, TailorViewSet, BoutiqueFabricViewSet, BoutiqueDesignViewSet, OrderViewSet, DashboardView, NotificationViewSet, BoutiqueSettingsViewSet
+from .views import CustomerViewSet, TailorViewSet, BoutiqueFabricViewSet, BoutiqueDesignViewSet, OrderViewSet, OrderDraftViewSet, DashboardView, NotificationViewSet, BoutiqueSettingsViewSet
 from .auth_views import (
     SignupView, LoginView, LogoutView, MeView, SeedDataView,
     PasswordResetRequestView, PasswordResetConfirmView,
@@ -12,6 +12,10 @@ router.register(r'tailors', TailorViewSet, basename='tailor')
 router.register(r'fabrics', BoutiqueFabricViewSet, basename='fabric')
 router.register(r'boutique-designs', BoutiqueDesignViewSet, basename='boutique-design')
 router.register(r'orders', OrderViewSet, basename='order')
+# Registered apart from orders on purpose: a draft is not an order, and
+# nothing that reads orders should be able to reach one. See
+# domains/orders/drafts.py.
+router.register(r'order-drafts', OrderDraftViewSet, basename='order-draft')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 router.register(r'boutique-settings', BoutiqueSettingsViewSet, basename='boutique-settings')
 

@@ -591,3 +591,57 @@ class BoutiqueSettings(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class OrderDraft(models.Model):
+    """An order being written, kept apart from the orders that exist.
+
+    The wizard used to hold six steps of work in browser memory and nowhere
+    else. Refreshing lost it. Browser back lost it. So did the empty-state
+    "Add fabrics" button on step four, which is the product's own advice to a
+    boutique with no fabric library yet -- a fully filled two-garment order,
+    destroyed by following the instruction on the screen. And because the
+    customer was POSTed at step one, what survived was an orphan customer with
+    no order and no way back to the work.
+
+    Deliberately its own model rather than a flag on Order. There are
+    thirty-odd order querysets across crm_api, domains, superadmin, inventory,
+    production, design studio and catalog; a draft flag would need excluding
+    from every one of them, and the cost of missing a single filter is a draft
+    appearing on a tailor's dashboard, in the revenue figures, on the
+    customer's tracking page, or -- now that materials follow production --
+    reserving real cloth off a real shelf. Nothing downstream knows this model
+    exists, so none of that can happen. The price is one conversion at confirm,
+    in one place, which is a thing a test can hold.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    #: Who is writing it. A draft is personal until it becomes an order.
+    created_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='order_drafts')
+    #: Set when the wizard was started from an existing client. Null while the
+    #: customer is still being typed -- that data lives in `payload` until
+    #: confirmation, so an abandoned draft leaves no half-made customer behind.
+    customer = models.ForeignKey(
+        Customer, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='order_drafts')
+    #: Everything the wizard holds: customer fields, garments, per-garment
+    #: quantities, design notes, fabric choice, staff and prices. Opaque here on
+    #: purpose -- the wizard owns its own shape, and pinning it into columns
+    #: would mean a migration every time a step gains a field.
+    payload = models.JSONField(default=dict, blank=True)
+    #: Where to reopen it.
+    current_step = models.PositiveSmallIntegerField(default=1)
+    #: Bumped on every save. A second tab holding an older copy sends the
+    #: version it last read; a mismatch is refused rather than allowed to
+    #: overwrite work the newer tab did.
+    version = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        who = self.customer or self.payload.get('first_name') or 'unnamed'
+        return f"Draft for {who} (step {self.current_step})"

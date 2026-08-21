@@ -33,10 +33,25 @@ from django.utils import timezone
 
 from . import bom as bom_service
 from .models import (
-    BomLine, CustomerMaterial, CustomerMaterialMovement, OrderMaterialLine,
-    OrderMaterialPlan,
+    BomLine, Category, CustomerMaterial, CustomerMaterialMovement,
+    OrderMaterialLine, OrderMaterialPlan,
 )
 from .services import InventoryService
+
+#: An inventory category answers "what shelf is this on"; a BOM role answers
+#: "what part does it play in the garment". The plan is keyed on the second, so
+#: a wizard selection has to be translated. Anything unmapped is OTHER rather
+#: than a guess.
+_ROLE_BY_CATEGORY = {
+    Category.FABRIC: BomLine.Role.FABRIC,
+    Category.BORDER: BomLine.Role.ACCESSORY,
+    Category.LINING: BomLine.Role.LINING,
+    Category.EMBELLISHMENT: BomLine.Role.ACCESSORY,
+    Category.STITCHING: BomLine.Role.THREAD,
+    Category.PACKAGING: BomLine.Role.PACKAGING,
+    Category.MAGGAM: BomLine.Role.EMBROIDERY,
+    Category.OTHER: BomLine.Role.OTHER,
+}
 
 #: Roles deducted at dispatch rather than during production -- the box and the
 #: labels are used when the garment goes out, not while it is being made.
@@ -130,6 +145,83 @@ def plan_materials(order, bom, variables=None, *, user=None, include_optional=Fa
     return plan
 
 
+@transaction.atomic
+def plan_from_garment_jobs(order, *, user=None):
+    """Turn what the wizard selected for each garment into this order's plan.
+
+    The other origin for a plan. plan_materials() resolves a BOM -- a recipe for
+    a garment type. This resolves the boutique's actual choices for one order:
+    the owner picked this brocade off this rack for the lehenga and said how
+    much. Both produce OrderMaterialLine rows, so reserve(), confirm_consumption(),
+    release_unused() and reconcile() work on either without knowing which.
+
+    A JobMaterial with no quantity is not planned. That is deliberate: the wizard
+    is what captures quantity, and a line with a required quantity of zero would
+    reserve nothing, consume nothing and still report itself reconciled -- a
+    material silently absent from the order's account rather than visibly
+    missing from it. Returns the skipped lines so the caller can say so.
+
+    Returns (plan, skipped). `plan` is None when there was nothing to plan.
+    """
+    if OrderMaterialPlan.objects.select_for_update().filter(
+            order=order, status__in=[OrderMaterialPlan.Status.DRAFT,
+                                     OrderMaterialPlan.Status.RESERVED,
+                                     OrderMaterialPlan.Status.IN_PRODUCTION]).exists():
+        raise MaterialPlanError(
+            f'Order {order.order_id} already has a live material plan. '
+            f'Cancel it before planning again.')
+
+    from apps.catalog.models import JobMaterial
+
+    selections = (
+        JobMaterial.objects
+        .filter(job__order=order)
+        .select_related('inventory_item', 'job', 'job__template')
+        .order_by('job__sequence', 'field_key')
+    )
+
+    rows, skipped = [], []
+    for selection in selections:
+        item = selection.inventory_item
+        is_customer = selection.source == JobMaterial.Source.CUSTOMER
+        name = item.name if item else (selection.free_text or selection.field_key)
+
+        quantity = _quantity(selection.quantity, 'quantity')
+        if quantity <= 0:
+            skipped.append({
+                'garment': selection.job.template.name if selection.job.template_id else 'Garment',
+                'field_key': selection.field_key,
+                'material': name,
+                'reason': 'no quantity was recorded on the order',
+            })
+            continue
+
+        rows.append(OrderMaterialLine(
+            plan=None,  # set below, once the plan row exists
+            garment_job=selection.job,
+            job_material=selection,
+            item=item,
+            role=(_ROLE_BY_CATEGORY.get(item.category, BomLine.Role.OTHER)
+                  if item else BomLine.Role.OTHER),
+            material_name=name,
+            unit=selection.unit or (item.unit if item else ''),
+            required_quantity=quantity,
+            is_customer_supplied=is_customer,
+            sequence=len(rows),
+        ))
+
+    if not rows:
+        return None, skipped
+
+    plan = OrderMaterialPlan.objects.create(
+        order=order, bom=None, bom_version=None, variables={}, created_by=user,
+    )
+    for row in rows:
+        row.plan = plan
+    OrderMaterialLine.objects.bulk_create(rows)
+    return plan, skipped
+
+
 # --- 2. check ------------------------------------------------------------
 
 def check_availability(plan):
@@ -182,7 +274,7 @@ def check_availability(plan):
 # --- 3 and 4. reserve, once -----------------------------------------------
 
 @transaction.atomic
-def reserve(plan, *, user=None, allow_partial=False):
+def reserve(plan, *, user=None, allow_partial=False, stage_key=None):
     """Reserve everything this plan needs.
 
     Refuses outright if anything is short, unless allow_partial says otherwise:
@@ -221,6 +313,7 @@ def reserve(plan, *, user=None, allow_partial=False):
             continue
         InventoryService.reserve(
             line.item, quantity, user=user, order=locked.order,
+            garment_job=line.garment_job, stage_key=stage_key,
             remarks=f'Reserved for {locked.order.order_id}')
         line.reserved_quantity += quantity
         line.save(update_fields=['reserved_quantity'])
@@ -234,7 +327,8 @@ def reserve(plan, *, user=None, allow_partial=False):
 # --- 5, 6 and 7. consume, and record waste --------------------------------
 
 @transaction.atomic
-def confirm_consumption(line, used, *, wasted=0, user=None, from_location=None):
+def confirm_consumption(line, used, *, wasted=0, user=None, from_location=None,
+                        stage_key=None):
     """Production confirms what it actually used, and what it spoiled.
 
     This is the only place boutique stock leaves for an order. Reserving does
@@ -279,6 +373,7 @@ def confirm_consumption(line, used, *, wasted=0, user=None, from_location=None):
         backed = max(Decimal('0'), min(used, held))
         InventoryService.consume(
             locked.item, used, reserved_backed=backed, user=user, order=plan.order,
+            garment_job=locked.garment_job, stage_key=stage_key,
             from_location=from_location,
             remarks=f'Consumed on {plan.order.order_id}')
         locked.consumed_quantity += used
@@ -287,6 +382,7 @@ def confirm_consumption(line, used, *, wasted=0, user=None, from_location=None):
         backed = max(Decimal('0'), min(wasted, held))
         InventoryService.waste(
             locked.item, wasted, reserved_backed=backed, user=user, order=plan.order,
+            garment_job=locked.garment_job, stage_key=stage_key,
             from_location=from_location,
             remarks=f'Waste on {plan.order.order_id}')
         locked.wasted_quantity += wasted
@@ -302,7 +398,7 @@ def confirm_consumption(line, used, *, wasted=0, user=None, from_location=None):
 # --- 8. give back what was not used ---------------------------------------
 
 @transaction.atomic
-def release_unused(plan, *, user=None):
+def release_unused(plan, *, user=None, stage_key=None):
     """Release every reservation this plan is still holding but no longer needs.
 
     Called when production is finished. Whatever was reserved and neither
@@ -321,6 +417,7 @@ def release_unused(plan, *, user=None):
             continue
         InventoryService.release(
             line.item, outstanding, user=user, order=locked.order,
+            garment_job=line.garment_job, stage_key=stage_key,
             remarks=f'Unused reservation returned from {locked.order.order_id}')
         line.returned_quantity += outstanding
         line.save(update_fields=['returned_quantity'])
@@ -331,7 +428,7 @@ def release_unused(plan, *, user=None):
 # --- 9. packaging, at dispatch --------------------------------------------
 
 @transaction.atomic
-def deduct_packaging(plan, *, user=None, from_location=None):
+def deduct_packaging(plan, *, user=None, from_location=None, stage_key=None):
     """Consume the packaging and labelling when the order goes out.
 
     Separate from production consumption because it happens at a different
@@ -365,6 +462,7 @@ def deduct_packaging(plan, *, user=None, from_location=None):
         backed = max(Decimal('0'), min(outstanding, line.outstanding_reservation))
         InventoryService.consume(
             line.item, outstanding, reserved_backed=backed, user=user, order=locked.order,
+            garment_job=line.garment_job, stage_key=stage_key,
             from_location=from_location,
             remarks=f'Packaging for {locked.order.order_id}')
         line.consumed_quantity += outstanding
@@ -374,6 +472,129 @@ def deduct_packaging(plan, *, user=None, from_location=None):
     locked.packaging_deducted_at = timezone.now()
     locked.save(update_fields=['packaging_deducted_at', 'updated_at'])
     return deducted
+
+
+# --- the workflow's side of it --------------------------------------------
+
+LIVE_STATUSES = (OrderMaterialPlan.Status.DRAFT,
+                 OrderMaterialPlan.Status.RESERVED,
+                 OrderMaterialPlan.Status.IN_PRODUCTION)
+
+
+def live_plan(order):
+    """This order's open material plan, or None."""
+    return OrderMaterialPlan.objects.filter(order=order, status__in=LIVE_STATUSES).first()
+
+
+@transaction.atomic
+def ensure_plan(order, *, user=None):
+    """The order's live plan, built from its garment jobs if it has none.
+
+    Idempotent, because two things want to be sure a plan exists: the wizard,
+    as soon as it has written the garments, and the workflow, when production
+    reaches the stage that needs material. Whichever gets there first does the
+    work and the other finds it already done.
+    """
+    existing = live_plan(order)
+    if existing is not None:
+        return existing, []
+    return plan_from_garment_jobs(order, user=user)
+
+
+@transaction.atomic
+def sync_order_materials(order, stage_key, new_status, *, user=None):
+    """Move this order's materials to match where production has reached.
+
+    The join the product was missing. Materials were chosen on the order form
+    and then nothing ever reserved, issued or consumed them, so an order could
+    be delivered with the store room's figures untouched.
+
+    Three moments, chosen because they are the ones that mean something to a
+    boutique rather than because they are convenient:
+
+      fabric confirmed     the cloth is committed to this order  -> reserve
+      stitching completed  the cloth is now in the garment       -> consume
+      delivered            nothing more will be taken            -> release,
+                                                                    then close
+
+    Returns a report, or None when this stage does not move materials. Never
+    raises for a shortfall: a boutique routinely takes an order for cloth it has
+    not bought yet, and refusing the transition would stop the work rather than
+    the mistake. What it cannot fulfil it reports.
+    """
+    if new_status != 'COMPLETED':
+        return None
+    if stage_key not in ('fabric_confirmed', 'stitching_completed', 'delivered'):
+        return None
+
+    if stage_key == 'fabric_confirmed':
+        plan, skipped = ensure_plan(order, user=user)
+        if plan is None:
+            return {'stage': stage_key, 'planned': 0, 'skipped': skipped}
+        result = reserve(plan, user=user, allow_partial=True, stage_key=stage_key)
+        return {'stage': stage_key, 'plan': str(plan.id),
+                'reserved': result['reserved'], 'shortfalls': result['shortfalls'],
+                'skipped': skipped}
+
+    plan = live_plan(order)
+
+    if stage_key == 'stitching_completed':
+        # Fabric Confirmed can be skipped -- every stage has a Skip button --
+        # and an order that skipped it would otherwise reach Delivered having
+        # moved no stock at all, which is the exact failure this whole change
+        # exists to end. Plan and reserve here if nobody has yet, so material is
+        # accounted for however production was driven.
+        if plan is None:
+            plan, _ = ensure_plan(order, user=user)
+            if plan is None:
+                return None
+            reserve(plan, user=user, allow_partial=True, stage_key=stage_key)
+    if plan is None:
+        return None
+
+    if stage_key == 'stitching_completed':
+        consumed, short = [], []
+        for line in plan.lines.select_related('item', 'garment_job'):
+            if line.is_customer_supplied or line.item is None:
+                continue
+            outstanding = (line.required_quantity - line.consumed_quantity
+                           - line.wasted_quantity - line.returned_quantity)
+            if outstanding <= 0:
+                continue
+            line.item.refresh_from_db(fields=['current_stock', 'reserved_stock'])
+            # Consume what is physically there. Over-consuming is impossible --
+            # the ledger refuses to drive stock negative -- and refusing the
+            # whole transition would block a tailor reporting work that has
+            # already happened. The gap is reported instead of hidden.
+            #
+            # ponytail: consumes the planned quantity. Staff can correct the
+            # actual and record waste through the plan's consume endpoint; wire
+            # a per-line entry into the stitching screen when the floor asks
+            # for it.
+            usable = min(outstanding, line.item.current_stock)
+            if usable <= 0:
+                short.append({'material': line.material_name,
+                              'still_needed': outstanding, 'unit': line.unit})
+                continue
+            confirm_consumption(line, usable, user=user, stage_key=stage_key)
+            consumed.append({'material': line.material_name, 'quantity': usable,
+                             'unit': line.unit,
+                             'garment': (line.garment_job.template.name
+                                         if line.garment_job and line.garment_job.template_id
+                                         else None)})
+            if usable < outstanding:
+                short.append({'material': line.material_name,
+                              'still_needed': outstanding - usable, 'unit': line.unit})
+        return {'stage': stage_key, 'plan': str(plan.id),
+                'consumed': consumed, 'shortfalls': short}
+
+    # delivered
+    released = release_unused(plan, user=user, stage_key=stage_key)
+    report = reconcile(plan)
+    plan.status = OrderMaterialPlan.Status.COMPLETED
+    plan.save(update_fields=['status', 'updated_at'])
+    return {'stage': stage_key, 'plan': str(plan.id),
+            'released': released, 'reconciliation': report}
 
 
 # --- 10. reconcile before closing ------------------------------------------

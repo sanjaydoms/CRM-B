@@ -78,7 +78,11 @@ class JobMaterialSerializer(serializers.ModelSerializer):
 
 
 class GarmentJobSerializer(serializers.ModelSerializer):
-    materials = JobMaterialSerializer(many=True, read_only=True)
+    # Writable on create so the wizard sends a dress and its materials in one
+    # request. It used to be read-only, and the only way to add a material was a
+    # per-material POST that nothing called -- so every material selection lived
+    # on as a bare id inside `spec`, invisible to the inventory ledger.
+    materials = JobMaterialSerializer(many=True, required=False)
     template_key = serializers.CharField(source='template.key', read_only=True)
     template_name = serializers.CharField(source='template.name', read_only=True)
 
@@ -125,3 +129,20 @@ class GarmentJobSerializer(serializers.ModelSerializer):
         }
         attrs['spec'] = {k: v for k, v in cleaned.items() if k not in measurement_keys}
         return attrs
+
+    def create(self, validated_data):
+        """Create the dress and its material lines together.
+
+        The unit is taken from the inventory item rather than trusted from the
+        request: a line that says three of something the boutique stocks by the
+        metre is not a line anyone can act on, and the item already knows.
+        """
+        materials = validated_data.pop('materials', [])
+        job = super().create(validated_data)
+        for line in materials:
+            item = line.get('inventory_item')
+            JobMaterial.objects.create(
+                job=job,
+                **{**line, 'unit': (item.unit if item else line.get('unit')) or ''},
+            )
+        return job
