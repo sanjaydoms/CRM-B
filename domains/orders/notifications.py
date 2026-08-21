@@ -5,6 +5,7 @@ import it without pulling the whole view layer in (which created an import cycle
 """
 
 from crm_api.models import Notification
+from domains.orders.garments import garment_label, garment_names
 from domains.orders.messaging import send_customer_message
 from domains.orders.tracking import tracking_url
 
@@ -56,7 +57,10 @@ def create_order_notifications(order, created=False, status_changed=True):
             order,
             'order_confirmation',
             f"{confirmation}\n"
-            f"Garment: {order.customer.garment_type}\n"
+            # Every garment on the order, not the customer's single garment_type
+            # field -- which named one dress out of however many she ordered.
+            f"{'Garments' if len(garment_names(order)) > 1 else 'Garment'}: "
+            f"{garment_label(order)}\n"
             f"Expected delivery: {due}\n"
             f"Track your order: {tracking_url(order)}",
         )

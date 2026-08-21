@@ -34,6 +34,7 @@ from .serializers import (
 )
 from apps.design_studio.models import DesignAsset
 from domains.customers.repositories import CustomerRepository
+from domains.orders import drafts
 from domains.orders.messaging import send_customer_message
 from domains.orders.notifications import create_order_notifications
 from domains.orders.tracking import tracking_url
@@ -581,16 +582,61 @@ class OrderViewSet(viewsets.ModelViewSet):
                 create_order_notifications(order, created=False)
             return Response({'status': 'status updated', 'order_status': order.order_status})
 
+        # A client-facing status spans several production stages -- 'Design &
+        # Creation' covers cutting, assignment and both stitching stages -- and
+        # it maps to the one that says that band is finished. So reaching it
+        # means completing everything up to it, not landing on it.
+        #
+        # Each hop goes through the workflow engine, so the ordering rules, the
+        # role checks, the inventory side effects and the audit trail all apply
+        # to every stage rather than only to the last one. That keeps the stage
+        # history truthful: the owner moving an order to Quality Check really
+        # did assert that the stitching is done.
+        #
+        # The whole walk is one transaction. Without it a hop refused halfway --
+        # a tailor who may complete stitching but not the Master's cutting --
+        # would leave the order advanced part of the way with an error on the
+        # screen, which is precisely the half-applied state the state machine
+        # exists to prevent.
+        # Crucially, the walk covers only the band this status names -- the
+        # stages after the previous status's landing stage. It does NOT complete
+        # everything from the beginning.
+        #
+        # That distinction is the whole guarantee. A walk from wherever the
+        # order happens to be would let an owner choose 'Delivered' on a fresh
+        # order and have the entire production record completed in one click,
+        # quality check included: the original bug again, now with the stages
+        # marked done rather than left blank, which is worse because the record
+        # then *claims* the garment was inspected. Anything earlier that is
+        # still outstanding is refused by the workflow engine, naming it.
+        config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
+        keys = [s['key'] for s in config]
+        target_index = keys.index(stage_key)
+        previous_landing = -1
+        for other_status, other_key in self.STATUS_TO_STAGE.items():
+            other_index = keys.index(other_key) if other_key in keys else -1
+            if other_index < target_index:
+                previous_landing = max(previous_landing, other_index)
+
         try:
-            updated = OrderService.transition_order_stage(
-                order=order,
-                stage_key=stage_key,
-                new_status='COMPLETED',
-                user=request.user,
-            )
+            with transaction.atomic():
+                updated = order
+                for key in keys[previous_landing + 1:target_index + 1]:
+                    stage = order.stages.filter(stage_key=key).first()
+                    if stage is None or stage.status in ('COMPLETED', 'SKIPPED'):
+                        continue
+                    optional = next(
+                        (s.get('optional') for s in config if s['key'] == key), False)
+                    updated = OrderService.transition_order_stage(
+                        order=order,
+                        stage_key=key,
+                        new_status='SKIPPED' if optional else 'COMPLETED',
+                        user=request.user,
+                    )
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({'status': 'status updated', 'order_status': updated.order_status})
+        order.refresh_from_db()
+        return Response({'status': 'status updated', 'order_status': order.order_status})
 
     @action(detail=True, methods=['POST'], url_path='garment-images')
     def upload_garment_image(self, request, pk=None):
@@ -766,17 +812,34 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.completed_garment_image = image
         order.save()
 
-        # Completing stitching goes through the workflow engine rather than
-        # writing the stage row by hand, so the role check, the timing fields
-        # and the derived order status all behave as they do everywhere else.
+        # One business action, two truthful transitions.
+        #
+        # This posted stitching_completed directly, so stitching_in_progress sat
+        # at NOT_STARTED forever on every order that used the button -- which is
+        # every order. The stage history then could not answer when stitching
+        # started, how long it took, or who began it, and the state machine now
+        # rejects the jump outright rather than recording a sequence that never
+        # happened. Whether the tailor sees one button or two is a UI question;
+        # the history underneath has to be true either way.
+        # Starting before completing matters even when both happen in the same
+        # request: a tailor who pressed "Start In-Progress" earlier already has
+        # a real started_at, and re-entering IN_PROGRESS leaves it alone, so
+        # the recorded duration stays true. A tailor who never pressed it gets
+        # a start stamped now, which is the moment the system actually learned
+        # of the work -- honest, if less precise.
         try:
-            OrderService.transition_order_stage(
-                order=order,
-                stage_key='stitching_completed',
-                new_status='COMPLETED',
-                comments=comments or '',
-                user=request.user,
-            )
+            for stage_key, stage_status in (
+                ('stitching_in_progress', 'IN_PROGRESS'),
+                ('stitching_in_progress', 'COMPLETED'),
+                ('stitching_completed', 'COMPLETED'),
+            ):
+                OrderService.transition_order_stage(
+                    order=order,
+                    stage_key=stage_key,
+                    new_status=stage_status,
+                    comments=comments or '',
+                    user=request.user,
+                )
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1085,3 +1148,195 @@ class BoutiqueSettingsViewSet(viewsets.ViewSet):
         config.save()
         serializer = BoutiqueSettingsSerializer(config, context={'request': request})
         return Response(serializer.data)
+
+
+class OrderDraftViewSet(viewsets.ViewSet):
+    """Orders being written. Scoped to the person writing them.
+
+    Not a ModelViewSet, and not registered anywhere near OrderViewSet, because
+    a draft is not an order: it has no stages, no material plan, no invoice and
+    no tracking link, and nothing that reads orders can reach it. See
+    domains/orders/drafts.py.
+    """
+
+    def _serialise(self, draft):
+        return {
+            'id': str(draft.id),
+            'customer': str(draft.customer_id) if draft.customer_id else None,
+            'customer_name': (f"{draft.customer.first_name} {draft.customer.last_name}"
+                              if draft.customer_id else
+                              (draft.payload.get('first_name') or '').strip() or None),
+            'payload': draft.payload,
+            'current_step': draft.current_step,
+            'version': draft.version,
+            'updated_at': draft.updated_at,
+        }
+
+    def list(self, request):
+        return Response([self._serialise(d) for d in drafts.open_drafts(request.user)])
+
+    def retrieve(self, request, pk=None):
+        draft = drafts.open_drafts(request.user).filter(pk=pk).first()
+        if draft is None:
+            return Response({'error': 'No such draft.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self._serialise(draft))
+
+    def create(self, request):
+        customer = None
+        if customer_id := request.data.get('customer'):
+            customer = Customer.objects.filter(pk=customer_id).first()
+        draft = drafts.save_draft(
+            request.user, request.data.get('payload') or {},
+            customer=customer,
+            current_step=int(request.data.get('current_step') or 1))
+        return Response(self._serialise(draft), status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, pk=None):
+        customer = None
+        if customer_id := request.data.get('customer'):
+            customer = Customer.objects.filter(pk=customer_id).first()
+        try:
+            draft = drafts.save_draft(
+                request.user, request.data.get('payload'),
+                draft_id=pk, customer=customer,
+                current_step=int(request.data.get('current_step') or 0),
+                version=request.data.get('version'))
+        except drafts.DraftConflict as conflict:
+            # 409, not 400: the request is well formed, it is simply based on a
+            # copy of the order that has since moved on. The interface needs to
+            # tell the person in the older tab to reload rather than to correct
+            # a field.
+            return Response({'error': str(conflict)}, status=status.HTTP_409_CONFLICT)
+        if draft is None:
+            return Response({'error': 'No such draft.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self._serialise(draft))
+
+    def destroy(self, request, pk=None):
+        """Abandon it, explicitly. The customer, if any, is left alone."""
+        removed = drafts.abandon(request.user, pk)
+        if not removed:
+            return Response({'error': 'No such draft.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['POST'], url_path='confirm')
+    def confirm(self, request, pk=None):
+        """Turn this draft into a real order, atomically, once.
+
+        Everything happens inside one transaction: the client, the order, its
+        production stages, its garments and their material lines, and the
+        deletion of the draft. Either the boutique has an order and no draft, or
+        it has its draft back and nothing else changed. There is no state in
+        between to clean up.
+
+        Retrying is safe because the draft is the token. A double-click, a
+        network retry or a refresh that re-fires the request finds the draft
+        already spent and is told so, rather than booking the same garments a
+        second time.
+        """
+        from apps.catalog.models import GarmentTemplate
+        from apps.catalog.serializers import GarmentJobSerializer
+
+        def build(draft):
+            payload = draft.payload or {}
+            customer = drafts.customer_for(draft, payload)
+
+            # Blank boxes are not zeroes. The wizard sends every measurement
+            # field it renders, most of them empty, and a DecimalField refuses
+            # '' outright -- which took the whole confirmation down with a 500
+            # rather than skipping a number nobody typed.
+            measurements = {
+                key: value for key, value in (payload.get('measurements') or {}).items()
+                if value not in (None, '')
+            }
+            if measurements:
+                Measurement.objects.update_or_create(
+                    customer=customer, defaults=measurements)
+
+            # The wizard's own shape, mapped here rather than in the browser:
+            # the draft stores what the form holds, and this is the one place
+            # that knows what an Order needs. Keeping the translation server-side
+            # means a stale tab cannot post a differently-shaped order.
+            prices = payload.get('prices') or {}
+            staff = payload.get('staff') or {}
+            delivery = payload.get('delivery') or {}
+            payment = payload.get('payment') or {}
+
+            def money(value):
+                try:
+                    return float(value or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            subtotal = sum(money(prices.get(k)) for k in (
+                'base', 'fabric', 'embroidery', 'customization', 'tailoring',
+                'packaging'))
+            taxes = round(subtotal * 0.05, 2)
+            total = round(subtotal + taxes, 2)
+            full_payment = payment.get('option') == 'full'
+
+            # The earliest date any dress on this order is due: an order is only
+            # as early as its slowest-promised garment is late.
+            due = sorted(
+                d for d in ((g.get('values') or {}).get('delivery_date')
+                            for g in (payload.get('garments') or []))
+                if d)
+
+            order = OrderService.create_order_for_customer(customer, {
+                'tailor_id': staff.get('tailor_id'),
+                'master_id': staff.get('master_id'),
+                'base_price': money(prices.get('base')),
+                'fabric_price': money(prices.get('fabric')),
+                'embroidery_price': money(prices.get('embroidery')),
+                'customization_price': money(prices.get('customization')),
+                'tailoring_charges': money(prices.get('tailoring')),
+                'packaging_handling': money(prices.get('packaging')),
+                'taxes': taxes,
+                'total_amount': total,
+                'payment_status': 'Paid' if full_payment else 'Partially Paid',
+                'advance_paid': total if full_payment else money(payment.get('advance')),
+                'custom_requirements': payload.get('special_instructions')
+                                       or payload.get('custom_requirements') or '',
+                'estimated_delivery': due[0] if due else None,
+                'delivery_method': delivery.get('method') or 'Direct Pickup',
+                'courier_service': delivery.get('courier'),
+                'tracking_number': delivery.get('tracking'),
+                'delivery_address': delivery.get('address'),
+                # Held back until the garments exist -- see below.
+            }, user=request.user, notify=False)
+
+            for index, garment in enumerate(payload.get('garments') or []):
+                template = GarmentTemplate.objects.filter(
+                    pk=garment.get('template')).first()
+                if template is None:
+                    continue
+                serializer = GarmentJobSerializer(data={
+                    'order': order.id,
+                    'template': str(template.id),
+                    'spec': garment.get('spec') or {},
+                    'measurements': garment.get('measurements') or {},
+                    'materials': garment.get('materials') or [],
+                })
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+
+            # Only now. The confirmation names every garment on the order, so it
+            # cannot be sent until every garment is on it. Still inside the same
+            # transaction, and send_customer_message defers actual delivery to
+            # on_commit -- so the customer hears about an order that exists, is
+            # complete, and was not rolled back.
+            create_order_notifications(order, created=True)
+            return order
+
+        try:
+            order = drafts.confirm(request.user, pk, create_order=build)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if order is None:
+            # Already confirmed, or never this user's. Either way there is no
+            # order to make from it now, and saying so is better than making a
+            # second one.
+            return Response(
+                {'error': 'This draft has already been placed, or no longer exists.'},
+                status=status.HTTP_409_CONFLICT)
+        return Response(OrderSerializer(OrderRepository.get_by_id(order.pk)).data,
+                        status=status.HTTP_201_CREATED)

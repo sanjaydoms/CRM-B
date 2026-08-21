@@ -11,6 +11,31 @@ import datetime
 from apps.design_studio.models import DesignAsset
 from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, OrderStage, Notification
 
+def settle_stages_before(order, stage_key):
+    """Mark every stage before `stage_key` settled, straight on the rows.
+
+    The workflow engine now refuses to enter a stage while earlier mandatory
+    ones are outstanding, so a test that starts at quality check has to say how
+    the order got there. These tests are about role gating, assignment and
+    skipping -- not about the sequence -- so the precondition is written
+    directly rather than driven through fifteen transitions as five different
+    roles, which would be a different test wearing this one's name.
+    """
+    from crm_api.models import BoutiqueSettings, OrderStage
+    config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
+    keys = [s['key'] for s in config]
+    if stage_key not in keys:
+        return
+    earlier = keys[:keys.index(stage_key)]
+    for key in earlier:
+        OrderStage.objects.update_or_create(
+            order=order, stage_key=key,
+            defaults={'stage_name': key.replace('_', ' ').title(),
+                      'status': 'COMPLETED',
+                      'sequence': keys.index(key)},
+        )
+
+
 class BoutiqueCRMTests(TenantTestCase):
     @classmethod
     def setup_tenant(cls, tenant):
@@ -391,6 +416,7 @@ class BoutiqueCRMTests(TenantTestCase):
         qc_user = User.objects.create_user(username="qc", email="qc@test.com", password="x")
         qc.user = qc_user
         qc.save()
+        settle_stages_before(order, 'master_quality_check')
 
         from domains.orders.services import OrderService
         OrderService.transition_order_stage(
@@ -435,6 +461,7 @@ class BoutiqueCRMTests(TenantTestCase):
         master_user = User.objects.create_user(username="gen", email="gen@test.com", password="x")
         master.user = master_user
         master.save()
+        settle_stages_before(order, 'master_quality_check')
 
         from domains.orders.services import OrderService
         OrderService.transition_order_stage(
@@ -459,6 +486,7 @@ class BoutiqueCRMTests(TenantTestCase):
         order = Order.objects.get(customer=customer)
         stage = OrderStage.objects.create(order=order, stage_key='maggam_work',
                                           stage_name='Maggam Work', sequence=4)
+        settle_stages_before(order, 'maggam_work')
 
         from domains.orders.services import OrderService
         OrderService.transition_order_stage(
@@ -485,6 +513,7 @@ class BoutiqueCRMTests(TenantTestCase):
                                             password="x")
             staff.user = user
             staff.save()
+            settle_stages_before(order, key)
 
             OrderService.transition_order_stage(
                 order=order, stage_key=key, new_status='COMPLETED', user=user,
@@ -593,6 +622,7 @@ class BoutiqueCRMTests(TenantTestCase):
                                           stage_name='Measurements Completed', sequence=1)
         planned = Tailor.objects.create(name="Meena", specialty="Measuring", role="Measurement Master")
         actual = Tailor.objects.create(name="Stand-in", specialty="Measuring", role="Master")
+        settle_stages_before(order, 'measurements_completed')
 
         self.client.post(reverse('order-assign-stage', args=[order.id]),
                          {'stage_key': 'measurements_completed', 'tailor_id': planned.id}, format='json')

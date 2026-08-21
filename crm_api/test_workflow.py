@@ -79,10 +79,64 @@ class WorkflowTestBase(TenantTestCase):
     def stage(self, order, key):
         return order.stages.get(stage_key=key)
 
-    def complete(self, order, key, user=None):
+    def step(self, order, key, status="COMPLETED", user=None):
+        """Attempt exactly one transition, and nothing else.
+
+        For tests that assert a transition is refused: they need the order left
+        where it is, not helpfully walked into a state where the thing they
+        expect to be rejected would succeed.
+        """
         return OrderService.transition_order_stage(
-            order=order, stage_key=key, new_status="COMPLETED", user=user or self.owner,
+            order=order, stage_key=key, new_status=status, user=user or self.owner,
         )
+
+    def reach(self, order, key):
+        """Complete everything BEFORE `key`, leaving `key` itself untouched.
+
+        For tests that want to drive the target transition themselves -- to
+        check a role, a timestamp or an error -- but now have to get the order
+        legitimately to its doorstep first.
+        """
+        config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
+        keys = [s["key"] for s in config]
+        if key not in keys:
+            return
+        for earlier in keys[:keys.index(key)]:
+            stage = order.stages.filter(stage_key=earlier).first()
+            if stage is None or stage.status in ("COMPLETED", "SKIPPED"):
+                continue
+            optional = next(
+                (s.get("optional") for s in config if s["key"] == earlier), False)
+            OrderService.transition_order_stage(
+                order=order, stage_key=earlier,
+                new_status="SKIPPED" if optional else "COMPLETED", user=self.owner,
+            )
+
+    def complete(self, order, key, user=None):
+        """Get this order to `key`, completed -- walking there properly.
+
+        The backend refuses jumps now, so a test that wants an order at quality
+        check has to take it through stitching the way the boutique does. This
+        used to be a single hop, which was only ever possible because the engine
+        permitted a sequence no real order follows. Stages before `key` are
+        completed as the owner; the stage itself is attempted as `user`, so role
+        gating on the target still bites.
+        """
+        config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
+        keys = [s["key"] for s in config]
+        if key in keys:
+            for earlier in keys[:keys.index(key)]:
+                stage = order.stages.filter(stage_key=earlier).first()
+                if stage is None or stage.status in ("COMPLETED", "SKIPPED"):
+                    continue
+                optional = next(
+                    (s.get("optional") for s in config if s["key"] == earlier), False)
+                OrderService.transition_order_stage(
+                    order=order, stage_key=earlier,
+                    new_status="SKIPPED" if optional else "COMPLETED",
+                    user=self.owner,
+                )
+        return self.step(order, key, user=user)
 
 
 class RoleGatingTests(WorkflowTestBase):
@@ -104,6 +158,7 @@ class RoleGatingTests(WorkflowTestBase):
 
     def test_tailor_can_advance_a_tailor_stage(self):
         order = self.make_order()
+        self.reach(order, "stitching_in_progress")
         OrderService.transition_order_stage(
             order=order, stage_key="stitching_in_progress",
             new_status="IN_PROGRESS", user=self.tailor_user,
@@ -113,6 +168,7 @@ class RoleGatingTests(WorkflowTestBase):
     def test_master_can_run_quality_check(self):
         order = self.make_order()
         self.complete(order, "stitching_completed", user=self.tailor_user)
+        self.reach(order, "master_quality_check")
         OrderService.transition_order_stage(
             order=order, stage_key="master_quality_check",
             new_status="COMPLETED", user=self.master_user,
@@ -134,7 +190,7 @@ class SequencingGuardTests(WorkflowTestBase):
     def test_cannot_deliver_before_quality_check(self):
         order = self.make_order()
         with self.assertRaises(ValueError) as ctx:
-            self.complete(order, "delivered")
+            self.step(order, "delivered")
         self.assertIn("quality check", str(ctx.exception).lower())
 
     def test_can_deliver_once_quality_check_is_complete(self):
@@ -156,20 +212,23 @@ class SequencingGuardTests(WorkflowTestBase):
     def test_cannot_assign_tailor_without_measurements(self):
         customer = self.make_customer(mobile="9800000009", with_measurements=False)
         order = self.make_order(customer=customer)
+        # Walk up to it, so the refusal is about the missing measurements
+        # rather than about the stages in between.
+        self.reach(order, "assigned_to_tailor")
         with self.assertRaises(ValueError) as ctx:
-            self.complete(order, "assigned_to_tailor")
+            self.step(order, "assigned_to_tailor")
         self.assertIn("measurements", str(ctx.exception).lower())
 
     def test_cannot_schedule_trial_before_stitching_completes(self):
         order = self.make_order()
         with self.assertRaises(ValueError) as ctx:
-            self.complete(order, "trial_scheduled")
+            self.step(order, "trial_scheduled")
         self.assertIn("stitching", str(ctx.exception).lower())
 
     def test_rejects_an_unknown_stage(self):
         order = self.make_order()
         with self.assertRaises(ValueError) as ctx:
-            self.complete(order, "not_a_real_stage")
+            self.step(order, "not_a_real_stage")
         self.assertIn("unknown stage", str(ctx.exception).lower())
 
     def test_rejects_an_invalid_status(self):
@@ -187,6 +246,7 @@ class StageBookkeepingTests(WorkflowTestBase):
 
     def test_starting_a_stage_records_a_start_time(self):
         order = self.make_order()
+        self.reach(order, "stitching_in_progress")
         OrderService.transition_order_stage(
             order=order, stage_key="stitching_in_progress",
             new_status="IN_PROGRESS", user=self.tailor_user,
@@ -294,6 +354,7 @@ class StageBookkeepingTests(WorkflowTestBase):
 class StaffAvailabilityTests(WorkflowTestBase):
     def test_tailor_is_busy_while_stitching_and_free_afterwards(self):
         order = self.make_order()
+        self.reach(order, "stitching_in_progress")
         OrderService.transition_order_stage(
             order=order, stage_key="stitching_in_progress",
             new_status="IN_PROGRESS", user=self.tailor_user,
@@ -779,6 +840,9 @@ class StatusDropdownTests(WorkflowTestBase):
         refused the final rung naming a step it had never offered.
         """
         order = self.make_order()
+        # One client-facing status at a time, which is what the control is.
+        self._set(order, "Received")
+        self._set(order, "Confirmed")
         self._set(order, "Design & Creation")
 
         response = self._set(order, "Quality Check")
@@ -980,8 +1044,13 @@ class BackendCorrectnessTests(WorkflowTestBase):
         passed inspection regardless.
         """
         order = self.make_order()
-        self.complete(order, "stitching_completed")
-        self.complete(order, "trial_scheduled")
+        # The state machine now makes this unreachable rather than merely
+        # unwise: Ready for Dispatch cannot be entered until quality check is
+        # completed, so there is no longer a route to the claim at all. Pinned
+        # both ways -- the route is refused, and no such message exists.
+        with self.assertRaises(ValueError) as ctx:
+            self.step(order, "ready_for_delivery")
+        self.assertIn("master quality check", str(ctx.exception).lower())
 
         messages = " ".join(
             n.message for n in Notification.objects.filter(recipient_role="Customer"))
@@ -1060,7 +1129,7 @@ class MasterJourneyTests(WorkflowTestBase):
         order = self.make_order()
 
         with self.assertRaises(ValueError) as ctx:
-            self.complete(order, "master_quality_check", user=self.master_user)
+            self.step(order, "master_quality_check", user=self.master_user)
 
         self.assertIn("stitching", str(ctx.exception).lower())
 
@@ -1249,6 +1318,7 @@ class AssignStageTests(WorkflowTestBase):
         so a Master's assignment was accepted and then dead-ended.
         """
         order = self.make_order(tailor=False)
+        self.reach(order, "stitching_in_progress")
         self._client_for(self.master_user).post(
             reverse("order-assign-stage", args=[order.id]),
             {'stage_key': 'stitching_in_progress', 'tailor_id': self.tailor.id},
@@ -1363,6 +1433,9 @@ class UpdateStatusAuthorityTests(WorkflowTestBase):
         """The gate must not cost a tailor the thing update_status is in
         STAFF_ORDER_ACTIONS for."""
         order = self.make_order()
+        # The bands before this one are the owner's and the master's work;
+        # the tailor picks the garment up from there.
+        self.reach(order, "stitching_in_progress")
 
         response = self._set(self.tailor_user, order, "Design & Creation")
 
@@ -1531,9 +1604,7 @@ class DeliveryGateTests(WorkflowTestBase):
         # Picking the parcel up is not the same as the customer having it. The
         # status must not move until the stage is COMPLETED.
         order = self._order_at_delivery()
-        for key in ('finishing', 'pressing', 'master_quality_check'):
-            if order.stages.filter(stage_key=key).exists():
-                self.complete(order, key)
+        self.reach(order, 'delivered')
         before = Order.objects.get(pk=order.pk).order_status
         OrderService.transition_order_stage(
             order=order, stage_key='delivered', new_status='IN_PROGRESS',
@@ -1632,9 +1703,9 @@ class SareeMeasurementTests(WorkflowTestBase):
         # The guard must not have been removed, only widened.
         customer = self.make_customer(mobile="9800000078", with_measurements=False)
         order = self.make_order(customer=customer)
-        self.complete(order, 'created')
+        self.reach(order, 'assigned_to_tailor')
         with self.assertRaises(ValueError):
-            self.complete(order, 'assigned_to_tailor')
+            self.step(order, 'assigned_to_tailor')
 
 
 class CustomerSpendAggregateTests(WorkflowTestBase):

@@ -4,6 +4,7 @@ from django.db import models, transaction
 from core.roles import OWNER, resolve_user_role
 from crm_api.models import Order, OrderStage, OrderActivity, Tailor, BoutiqueSettings
 from domains.orders.notifications import create_order_notifications
+from domains.orders import workflow
 
 
 def _generate_order_id():
@@ -23,6 +24,24 @@ def _generate_order_id():
 
 # Orders that no longer occupy the person working on them.
 _SETTLED_ORDER_STATUSES = ('Shipped', 'Delivered')
+
+
+def _jsonable(value):
+    """Make a material report safe to store in a JSONField.
+
+    Quantities are Decimals all the way through the inventory module, on
+    purpose -- floats cannot hold 0.001 of a metre exactly and stock has to
+    reconcile. json.dumps refuses them, so they become strings here rather than
+    floats, which would reintroduce the very rounding the Decimals avoid.
+    """
+    from decimal import Decimal
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
 
 
 def refresh_staff_availability(*staff):
@@ -102,7 +121,20 @@ def customer_has_measurements(customer):
 class OrderService:
     @staticmethod
     @transaction.atomic
-    def create_order_for_customer(customer, data, user=None):
+    def create_order_for_customer(customer, data, user=None, notify=True):
+        """Book an order for this customer.
+
+        `notify=False` defers the customer's confirmation message to the caller.
+        It exists for one reason: the message names the garments, and the
+        garments are rows on the order that some callers create *after* it. The
+        draft-confirm path does exactly that, so telling the customer here sent
+        them a confirmation for an order that had no garments yet -- and the
+        garment helper, correctly finding none, fell back to the customer's
+        single garment_type. A two-garment order was announced as one garment.
+
+        The fix is the ordering, not the message: whoever builds the rest of
+        the order is the one who knows when it is whole enough to describe.
+        """
         # A tailor_id that resolves to nobody used to be dropped in silence and
         # the order booked unstaffed, which surfaces days later as a garment
         # with no one assigned to stitch it. Not supplying one at all is still
@@ -309,7 +341,8 @@ class OrderService:
             new_value={"order_id": order.order_id, "total_amount": float(order.total_amount)}
         )
 
-        create_order_notifications(order, created=True)
+        if notify:
+            create_order_notifications(order, created=True)
 
         refresh_staff_availability(tailor, master)
 
@@ -328,90 +361,33 @@ class OrderService:
         except OrderStage.DoesNotExist:
             raise ValueError(f'Unknown stage "{stage_key}" for order {order.order_id}')
 
-        # PAUSED belongs here: the stage modal renders a 'Pause Stage' button
-        # that posts it, Order.production_status documents it, and the dashboard
-        # already has a colour and label for it. Leaving it out made all of that
-        # dead code and the button an unavoidable error.
-        valid_statuses = {'NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'PAUSED'}
-        if new_status not in valid_statuses:
-            raise ValueError(f'Invalid stage status "{new_status}"')
-
+        # One state machine, asked one question: may this order go here, now,
+        # at the hands of this user, with the data it currently holds?
+        #
+        # This replaced five ad-hoc `if stage_key ==` guards, each added after
+        # someone was burned by one particular stage. Everything nobody had
+        # been burned by yet was permitted -- which is how an order in pattern
+        # cutting could be moved straight to Ready for Dispatch with a 200.
+        # See domains/orders/workflow.py for the rules and why each exists.
         config, _ = BoutiqueSettings.objects.get_or_create(id=1)
         workflow_stages = config.workflow_config
-        stage_conf = next((s for s in workflow_stages if s['key'] == stage_key), {})
 
         user_role = resolve_user_role(user)
         if user_role is None:
             raise ValueError('Sign in to update this order.')
 
-        # The owner can always act; the role list gates staff.
-        allowed_roles = stage_conf.get('roles', [])
-        if user_role != OWNER and allowed_roles and user_role not in allowed_roles:
-            raise ValueError(f'Role {user_role} is not authorized to update {order_stage.stage_name}')
+        workflow.check_transition(
+            order, order_stage, new_status,
+            config=workflow_stages,
+            role=user_role,
+            owner_role=OWNER,
+        )
 
-        # Any move on the delivered stage, not only COMPLETED.
-        #
-        # This used to be gated on `new_status == 'COMPLETED'`, which read as
-        # the tight interpretation and was the loose one, because status_map
-        # below wrote 'Delivered' for EVERY new_status on this stage. The
-        # frontend offers "Start In-Progress" on any NOT_STARTED or PAUSED
-        # stage and "Skip Stage" on any non-COMPLETED one, both posting through
-        # here -- so either button on the delivered row flipped an uninspected
-        # garment to Delivered on the public tracking page and drafted the
-        # customer the "successfully Delivered! Please complete your remaining
-        # balance" message. The one hard invariant of the workflow, bypassed by
-        # the two most obvious buttons on the row.
-        if stage_key == 'delivered':
-            qc_stage = order.stages.filter(stage_key='master_quality_check').first()
-            if qc_stage and qc_stage.status != 'COMPLETED':
-                raise ValueError('Cannot deliver order before Master Quality Check is completed.')
-
-        if stage_key == 'stitching_in_progress' and new_status == 'IN_PROGRESS':
-            # Two fields answer "who is stitching this": order.tailor, set when
-            # the order is taken, and stage.assigned_to, set by assign_stage --
-            # which is the ONLY assignment write a Master is permitted, since
-            # setting order.tailor needs a PATCH of the order and that is
-            # Owner-only. Reading just order.tailor meant a Master could hand
-            # the stitching to a tailor, see the assignment recorded correctly,
-            # and have that tailor refused when they tried to start: the order
-            # was stuck until the Owner intervened.
-            if not order.tailor and not order_stage.assigned_to:
-                raise ValueError('Cannot start stitching. No tailor is assigned to this order.')
-
-        if stage_key == 'assigned_to_tailor' and new_status == 'COMPLETED':
-            meas_stage = order.stages.filter(stage_key='measurements_completed').first()
-            if meas_stage and meas_stage.status != 'COMPLETED':
-                if not customer_has_measurements(order.customer):
-                    raise ValueError('Cannot assign tailor. Measurements are not completed for this customer.')
-
-        if stage_key == 'trial_scheduled' and new_status == 'COMPLETED':
-            stitch_stage = order.stages.filter(stage_key='stitching_completed').first()
-            if stitch_stage and stitch_stage.status != 'COMPLETED':
-                raise ValueError('Cannot schedule trial before stitching is completed.')
-
-        if stage_key == 'master_quality_check' and new_status == 'COMPLETED':
-            # You cannot inspect a garment nobody has sewn. trial_scheduled
-            # already refused to run ahead of stitching, but quality check --
-            # the one stage the delivery gate depends on -- did not, so a
-            # Master could pass QC and deliver an order whose stitching stages
-            # were both still NOT_STARTED. The customer's tracking page then
-            # read "Delivered" over a garment the record says was never made.
-            #
-            # Guarding here rather than at 'delivered' is the choke point:
-            # delivery already requires QC, so requiring stitching for QC makes
-            # stitching transitively required for delivery, and it stops the
-            # false "passed quality checks" claim at the same time.
-            stitch_stage = order.stages.filter(stage_key='stitching_completed').first()
-            if stitch_stage and stitch_stage.status not in ('COMPLETED', 'SKIPPED'):
-                raise ValueError(
-                    'Cannot pass quality check before stitching is completed.')
-
-        # Re-completing a stage that is already COMPLETED walks the order
-        # BACKWARDS: status_map below rewrites order_status unconditionally, so
-        # a tailor touching the status dropdown on a Delivered order dropped it
-        # to 'Quality Check', flipped the customer's own tracking page, and sent
-        # them a fresh message saying so. Nothing needs re-completing; if a
-        # stage genuinely has to be reopened, that is a move to IN_PROGRESS.
+        # Re-completing a stage that is already COMPLETED is a no-op, not an
+        # error: a double-click, a retried POST or a stale browser tab must not
+        # consume material twice, write a second activity event or send the
+        # customer a second message. Returning before any side effect runs is
+        # what makes the transition idempotent under retry.
         if order_stage.status == 'COMPLETED' and new_status == 'COMPLETED':
             return order
 
@@ -465,6 +441,18 @@ class OrderService:
             order_stage.attachments = image_urls
 
         order_stage.save()
+
+        # Materials follow production. Reserved when the fabric is confirmed,
+        # consumed when the garment is stitched, released and reconciled when it
+        # goes out. Without this the order form's material choices never reached
+        # the stock ledger at all, and a delivered order left the store room's
+        # figures exactly as they were before it was taken.
+        #
+        # Imported here rather than at module level: apps.inventory imports
+        # crm_api.models, and this module is reached from there.
+        from apps.inventory import order_materials
+        material_report = order_materials.sync_order_materials(
+            order, stage_key, new_status, user=user)
 
         order.current_stage_key = stage_key
         # Ask the database, not order.stages.all(). OrderRepository.base_queryset
@@ -552,7 +540,13 @@ class OrderService:
                 "stage_name": order_stage.stage_name,
                 "old_status": old_status,
                 "new_status": new_status,
-                "comments": comments
+                "comments": comments,
+                # What this transition did to stock, per garment, recorded with
+                # the transition that caused it. "Why did six metres leave?" is
+                # answerable from the ledger via StockMovement.garment_job; this
+                # is the same fact from the order's side, so the story reads
+                # from either end. Omitted when the stage moves no material.
+                **({"materials": _jsonable(material_report)} if material_report else {}),
             }
         )
 

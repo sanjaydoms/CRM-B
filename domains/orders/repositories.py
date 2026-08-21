@@ -37,6 +37,10 @@ class OrderRepository:
         """Rows for OrderSummarySerializer -- stages only, no activity log."""
         return Order.objects.select_related('customer', 'tailor', 'master').prefetch_related(
             'stages', 'stages__performed_by', 'stages__assigned_to',
+            # OrderSummarySerializer names the garments now, and it reads them
+            # off the jobs. Without these that is two queries per order on a
+            # dashboard that lists every open one.
+            'garment_jobs', 'garment_jobs__template',
         ).order_by('-order_date')
 
     @staticmethod

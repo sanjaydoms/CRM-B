@@ -16,6 +16,7 @@ from django.views.decorators.http import require_GET
 from django_tenants.utils import get_public_schema_name, get_tenant_model, schema_context
 
 from crm_api.models import BoutiqueSettings, Order
+from domains.orders.garments import garment_names
 from domains.orders.tracking import read_token
 
 
@@ -44,7 +45,7 @@ def order_tracking(request, token):
         order = (
             Order.objects
             .select_related('customer')
-            .prefetch_related('stages')
+            .prefetch_related('stages', 'garment_jobs', 'garment_jobs__template')
             .filter(order_id=order_id)
             .first()
         )
@@ -87,10 +88,17 @@ def order_tracking(request, token):
             list(order.garment_images.all()) if order.garment_images_published else []
         )
 
+        # Every garment on the order. The page used to print
+        # customer.garment_type, so a customer who ordered a blouse and a
+        # lehenga was shown one of them and left to wonder about the other.
+        garments = garment_names(order)
+
         context = {
             'boutique': boutique,
             'order': order,
             'customer': order.customer,
+            'garments': garments,
+            'garment_heading': 'Garments' if len(garments) > 1 else 'Garment',
             'stages': stages,
             'garment_images': garment_images,
             'trial': trial,

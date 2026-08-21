@@ -475,10 +475,18 @@ class StockMovement(models.Model):
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     user_name_snapshot = models.CharField(max_length=150, blank=True, null=True)
 
-    # Where the movement came from. Once an order can hold several garments these
-    # point at the individual production job instead.
+    # Where the movement came from.
     order = models.ForeignKey(
         Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_movements'
+    )
+    #: Which garment this movement was for. An order holds several, and "6m of
+    #: brocade left stock for order X" is not an answer anyone can act on when X
+    #: is a blouse and a lehenga -- the question is always which one, and how
+    #: much each took. String reference because apps.catalog imports this module,
+    #: so importing it back here at module level would close the cycle.
+    garment_job = models.ForeignKey(
+        'catalog.GarmentJob', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='stock_movements',
     )
     stage_key = models.CharField(max_length=100, blank=True, null=True, db_index=True)
     #: Where the material came from and went to. A transfer sets both; a receipt
@@ -742,10 +750,17 @@ class OrderMaterialPlan(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='material_plans')
+    #: Nullable because a plan now has two possible origins. A BOM is a recipe
+    #: for a garment type; the order wizard is the boutique choosing actual rolls
+    #: off actual racks for this one order. Both produce the same lines and move
+    #: stock the same way, so everything downstream of planning is unchanged --
+    #: but a wizard-built plan has no BOM behind it and must not invent one.
     bom = models.ForeignKey(
-        BillOfMaterials, on_delete=models.PROTECT, related_name='plans')
+        BillOfMaterials, on_delete=models.PROTECT, related_name='plans',
+        null=True, blank=True)
     #: The BOM version this was generated from, frozen. The BOM may move on.
-    bom_version = models.PositiveIntegerField()
+    #: Null for a plan built from the order's garment jobs.
+    bom_version = models.PositiveIntegerField(null=True, blank=True)
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.DRAFT, db_index=True)
     #: The measurements the formulas were evaluated against, kept so a plan can
@@ -788,6 +803,20 @@ class OrderMaterialLine(models.Model):
     plan = models.ForeignKey(OrderMaterialPlan, on_delete=models.CASCADE, related_name='lines')
     bom_line = models.ForeignKey(
         BomLine, on_delete=models.SET_NULL, null=True, blank=True, related_name='order_lines')
+    #: The garment this material is for. Null on a BOM-planned line that applies
+    #: to the order as a whole -- packaging, say -- and set on every line the
+    #: wizard produced, because the wizard chooses materials per dress. This is
+    #: what makes consumption attributable: without it the ledger can say six
+    #: metres left stock but not that four went to the lehenga and two to the
+    #: blouse.
+    garment_job = models.ForeignKey(
+        'catalog.GarmentJob', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='material_lines')
+    #: The wizard selection this line came from, so a plan can be traced back to
+    #: the choice the owner actually made on the order form.
+    job_material = models.ForeignKey(
+        'catalog.JobMaterial', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='material_lines')
     item = models.ForeignKey(
         'InventoryItem', on_delete=models.PROTECT, null=True, blank=True,
         related_name='order_material_lines')

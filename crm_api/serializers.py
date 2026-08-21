@@ -203,11 +203,19 @@ class OrderSerializer(serializers.ModelSerializer):
     # Nesting it here rather than wiring a fetch is the choke point: every
     # screen that shows an order already reads this serializer.
     garment_jobs = serializers.SerializerMethodField()
+    # What this order is actually for, derived from the garment jobs rather than
+    # from the customer's single garment_type field. `garments` is the list every
+    # screen iterates; `garment_label` is the same thing as one line of prose for
+    # invoice headers and messages. customer_garment_type stays in the payload
+    # for now because older clients still read it, but nothing new should.
+    garments = serializers.SerializerMethodField()
+    garment_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
             'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type', 'customer_measurements',
+            'garments', 'garment_label',
             'customer_mobile', 'customer_email', 'customer_address', 'customer_type', 'customer_occasion',
             'customer_neckline_style', 'customer_sleeve_style', 'customer_back_style',
             'tailor', 'tailor_name', 'master', 'master_name',
@@ -232,6 +240,14 @@ class OrderSerializer(serializers.ModelSerializer):
         # module, so a module-level import would be circular.
         from apps.catalog.serializers import GarmentJobSerializer
         return GarmentJobSerializer(obj.garment_jobs.all(), many=True).data
+
+    def get_garments(self, obj):
+        from domains.orders.garments import garment_names
+        return garment_names(obj)
+
+    def get_garment_label(self, obj):
+        from domains.orders.garments import garment_label
+        return garment_label(obj)
 
 
 def build_style_dna(obj, avg_price=None, last_order_date=None):
@@ -515,12 +531,17 @@ class OrderSummarySerializer(serializers.ModelSerializer):
     master_name = serializers.CharField(source='master.name', read_only=True)
     customer_name = serializers.SerializerMethodField()
     customer_garment_type = serializers.CharField(source='customer.garment_type', read_only=True)
+    # Same canonical list as OrderSerializer -- see domains/orders/garments.py.
+    # The dashboard panels name the garment too, and named the wrong one.
+    garments = serializers.SerializerMethodField()
+    garment_label = serializers.SerializerMethodField()
     stages = OrderStageSerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
         fields = [
             'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type',
+            'garments', 'garment_label',
             'tailor', 'tailor_name', 'master', 'master_name',
             'payment_status', 'order_status', 'total_amount', 'advance_paid', 'amount_paid',
             'order_date', 'estimated_delivery', 'delivery_method', 'courier_service',
@@ -532,6 +553,14 @@ class OrderSummarySerializer(serializers.ModelSerializer):
         if obj.customer:
             return f"{obj.customer.first_name} {obj.customer.last_name}"
         return 'Unknown Customer'
+
+    def get_garments(self, obj):
+        from domains.orders.garments import garment_names
+        return garment_names(obj)
+
+    def get_garment_label(self, obj):
+        from domains.orders.garments import garment_label
+        return garment_label(obj)
 
 
 class CustomerSummarySerializer(serializers.ModelSerializer):

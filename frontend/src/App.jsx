@@ -177,6 +177,44 @@ const getColorCircleStyle = (colorName) => {
   return '#fbeedb';
 };
 
+// A garment template key as a person reads it: blouse_length -> "Blouse length".
+// Shared by the staff blueprint panel and the stage-detail "What to make" block,
+// which were about to grow two different versions of the same line.
+const humaniseSpecKey = (key) => {
+  const words = String(key).replace(/_/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+// A stored spec value as a person reads it. Stored values are the template's own
+// option keys -- 'a_line', 'hr2', 'hand_made' -- and booleans, both of which
+// reached the shop floor raw.
+const humaniseSpecValue = (value) => {
+  if (value === true) return 'Yes';
+  if (value === false) return 'No';
+  if (Array.isArray(value)) return value.map(humaniseSpecValue).join(', ');
+  return humaniseSpecKey(value);
+};
+
+// Every garment on an order, for screens that only need to name them.
+// Prefers the order's garment jobs -- the record of what was actually ordered --
+// and falls back to the customer's single garment_type only for orders written
+// before garment jobs existed. Mirrors domains/orders/garments.py; the API sends
+// `garments` already, so this is the client-side guard for older payloads.
+const orderGarmentNames = (order) => {
+  if (!order) return [];
+  if (Array.isArray(order.garments) && order.garments.length) return order.garments;
+  const jobs = order.garment_jobs || [];
+  if (jobs.length) return jobs.map(j => j.template_name || j.template_key || 'Custom garment');
+  return order.customer_garment_type ? [order.customer_garment_type] : [];
+};
+
+const orderGarmentLabel = (order) => {
+  const names = orderGarmentNames(order);
+  if (!names.length) return 'Custom garment';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+};
+
 const getVisibleMeasurementFields = (stitchParts) => {
   const allFields = ['bust', 'waist', 'hips', 'shoulder', 'arm_length', 'neck', 'length'];
   if (!stitchParts || stitchParts.length === 0) return allFields;
@@ -640,6 +678,22 @@ function App() {
   // lehenga, its blouse and a dupatta, so this is a list, not a single value.
   const [garmentTemplates, setGarmentTemplates] = useState([]);
   const [garmentJobs, setGarmentJobs] = useState([]);
+  // The order being written lives on the server as an OrderDraft; this is a
+  // cache of it. Refreshing, following the step-4 empty-state button, or
+  // opening a second tab must not be able to destroy work already done --
+  // which is exactly what happened while the wizard's only copy was here.
+  const [draftId, setDraftId] = useState(null);
+  const [draftVersion, setDraftVersion] = useState(null);
+  // idle | saving | saved | failed | conflict
+  const [draftSaveState, setDraftSaveState] = useState('idle');
+  const [resumableDrafts, setResumableDrafts] = useState([]);
+  // Which draft is asking to be confirmed for discard. An in-app step
+  // rather than window.confirm: a destructive action should not depend on
+  // a browser dialog, which can be suppressed by the browser, by an
+  // extension, or by the automation that is supposed to be testing it --
+  // and a control nobody can test is a control nobody should trust.
+  const [discardingDraftId, setDiscardingDraftId] = useState(null);
+  const [garmentQuantityErrors, setGarmentQuantityErrors] = useState({});
   const [garmentErrors, setGarmentErrors] = useState({});
   const [garmentTemplatesError, setGarmentTemplatesError] = useState(null);
   // Bumped after any design write so the library refetches its counts and grid.
@@ -769,7 +823,7 @@ function App() {
     if (garmentJobs.some(job => job.key === key)) return;
     try {
       const template = await api.getGarmentTemplate(key);
-      setGarmentJobs(prev => [...prev, { key, template, values: {} }]);
+      setGarmentJobs(prev => [...prev, { key, template, values: {}, quantities: {} }]);
     } catch (err) {
       console.error(err);
       alert('Could not load that garment form.');
@@ -804,27 +858,223 @@ function App() {
     setGarmentJobs(prev => prev.map(job => (job.key === key ? { ...job, values } : job)));
   };
 
+  /** How much of a chosen material this dress needs, keyed by template field. */
+  const updateGarmentQuantity = (key, fieldKey, quantity) => {
+    setGarmentJobs(prev => prev.map(job => (
+      job.key === key
+        ? { ...job, quantities: { ...(job.quantities || {}), [fieldKey]: quantity } }
+        : job
+    )));
+  };
+
+  /** The material fields on a template, with the item chosen for each.
+   *
+   *  Read off the template rather than off a hardcoded list, so a garment that
+   *  gains a material field gains a material line with it. */
+  const garmentMaterialFields = (job) => (
+    (job.template?.sections || [])
+      .flatMap(section => section.fields || [])
+      .filter(field => field.field_type === 'inventory_ref')
+      .map(field => ({ field, itemId: job.values?.[field.key] }))
+      .filter(entry => entry.itemId)
+  );
+
   /** Validate every dress on the order; returns true when all of them pass. */
   const validateGarments = ({ partial = false } = {}) => {
     const errors = {};
+    const quantityErrors = {};
     garmentJobs.forEach(job => {
       const jobErrors = validateSpec(job.template, job.values, { partial });
       if (Object.keys(jobErrors).length) errors[job.key] = jobErrors;
+
+      // A material chosen with no quantity cannot be reserved or consumed, so
+      // it would reach production as a name with no effect on stock. Ask for
+      // the number now rather than defaulting to one nobody decided. Skipped
+      // while saving a draft, which is expected to be half-filled.
+      if (partial) return;
+      const jobQuantityErrors = {};
+      garmentMaterialFields(job).forEach(({ field }) => {
+        const raw = job.quantities?.[field.key];
+        const quantity = Number(raw);
+        if (raw === undefined || raw === '' || Number.isNaN(quantity) || quantity <= 0) {
+          jobQuantityErrors[field.key] = 'Enter how much of this material this garment needs.';
+        }
+      });
+      if (Object.keys(jobQuantityErrors).length) quantityErrors[job.key] = jobQuantityErrors;
     });
     setGarmentErrors(errors);
-    return Object.keys(errors).length === 0;
+    setGarmentQuantityErrors(quantityErrors);
+    return Object.keys(errors).length === 0 && Object.keys(quantityErrors).length === 0;
   };
 
-  /** Persist one GarmentJob per dress once the order exists to hang them on. */
+  /** Every dress on the order being written, as one line.
+   *
+   *  The wizard's counterpart to orderGarmentLabel, which answers the same
+   *  question for an order that already exists. Derived from garmentJobs --
+   *  the actual garments chosen -- and never from customerForm.garment_type,
+   *  which holds one value and follows whichever dress was picked first.
+   *
+   *  A single definition because the expression had already been copied to two
+   *  sidebars and a third read the customer field instead: the step-5 summary
+   *  showed "Women - Blouse" for a blouse-and-lehenga order, on the screen
+   *  where the owner assigns staff and reads the price. Copies drift; this is
+   *  the fix for the drift as well as for the symptom.
+   */
+  const wizardGarmentLabel = garmentJobs.length
+    ? garmentJobs.map(job => job.template?.name).filter(Boolean).join(', ')
+    : (customerForm.garment_type || '');
+
+  /** Everything the wizard is holding, in a shape the draft can store.
+   *
+   *  Garment templates are stored by key rather than as the whole fetched
+   *  object: the template is boutique configuration that can be re-read, and
+   *  storing a copy of it would mean resuming a draft against a stale one.
+   */
+  const serialiseWizard = () => ({
+    ...customerForm,
+    measurements: customerForm.measurements || {},
+    garments: garmentJobs.map(job => ({
+      key: job.key,
+      template: job.template?.id,
+      template_key: job.template?.key || job.key,
+      spec: splitSpec(job.template, job.values).spec,
+      measurements: splitSpec(job.template, job.values).measurements,
+      values: job.values,
+      quantities: job.quantities || {},
+      materials: garmentMaterialFields(job).map(({ field, itemId }) => ({
+        field_key: field.key,
+        inventory_item: itemId,
+        quantity: job.quantities?.[field.key],
+        source: 'STORE',
+      })),
+    })),
+    design: {
+      notes: designNotes, links: designLinks, source: designSource,
+      templates: selectedDesignTemplates,
+    },
+    fabric: {
+      tab: fabricTab,
+      selected_id: selectedFabric?.id || null,
+      selected_name: selectedFabric?.name || null,
+    },
+    staff: { tailor_id: selectedTailor?.id || null, master_id: selectedMaster?.id || null },
+    prices: quotePrices,
+    delivery: { method: deliveryMethod, courier: courierService,
+                tracking: trackingNumber, address: deliveryAddress },
+    payment: { option: paymentOption, advance: advancePaymentAmount },
+    special_instructions: specialInstructions,
+  });
+
+  /** Put a saved draft back on screen, exactly where it was left. */
+  const hydrateWizard = async (draft) => {
+    const payload = draft.payload || {};
+    setDraftId(draft.id);
+    setDraftVersion(draft.version);
+    setCustomerId(draft.customer || null);
+
+    const { garments = [], design = {}, fabric = {}, staff = {}, prices,
+            delivery = {}, payment = {}, ...customer } = payload;
+    setCustomerForm(prev => ({ ...prev, ...customer }));
+
+    // Templates are re-fetched rather than restored from the draft, so a
+    // resumed order is always built against the boutique's current garment
+    // definitions.
+    const rebuilt = [];
+    for (const garment of garments) {
+      try {
+        const template = await api.getGarmentTemplate(garment.template_key);
+        rebuilt.push({
+          key: garment.key || garment.template_key,
+          template,
+          values: garment.values || {},
+          quantities: garment.quantities || {},
+        });
+      } catch (err) {
+        console.error('Could not reload the garment template', garment.template_key, err);
+      }
+    }
+    setGarmentJobs(rebuilt);
+
+    setDesignNotes(design.notes || '');
+    setDesignLinks(design.links || '');
+    if (design.source) setDesignSource(design.source);
+    setSelectedDesignTemplates(design.templates || []);
+    if (fabric.tab) setFabricTab(fabric.tab);
+    if (prices) setQuotePrices(prices);
+    if (delivery.method) setDeliveryMethod(delivery.method);
+    if (payment.option) setPaymentOption(payment.option);
+    if (payment.advance !== undefined) setAdvancePaymentAmount(payment.advance);
+    setSpecialInstructions(payload.special_instructions || '');
+    setCurrentStep(draft.current_step || 1);
+    setView('wizard');
+  };
+
+  /** Write the wizard to its draft, creating one on first save.
+   *
+   *  Returns the draft id, so callers that are about to navigate away can be
+   *  sure the work is on the server before they go.
+   */
+  const persistDraft = async ({ step } = {}) => {
+    const payload = serialiseWizard();
+    const current_step = step || currentStep;
+    setDraftSaveState('saving');
+    try {
+      if (!draftId) {
+        const created = await api.createOrderDraft({
+          payload, current_step, customer: customerId || null,
+        });
+        setDraftId(created.id);
+        setDraftVersion(created.version);
+        setDraftSaveState('saved');
+        return created.id;
+      }
+      const saved = await api.updateOrderDraft(draftId, {
+        payload, current_step, customer: customerId || null, version: draftVersion,
+      });
+      setDraftVersion(saved.version);
+      setDraftSaveState('saved');
+      return saved.id;
+    } catch (err) {
+      // A conflict is not a failure to save -- it is this tab holding an older
+      // copy than the server. Overwriting would throw away whatever the other
+      // tab did, so the tab is marked stale and the person is told to reload.
+      setDraftSaveState(err.isConflict ? 'conflict' : 'failed');
+      if (!err.isConflict) console.error('Could not save the draft', err);
+      throw err;
+    }
+  };
+
+  /** Persist one GarmentJob per dress once the order exists to hang them on.
+   *
+   *  Materials go with the job rather than after it. A material selection used
+   *  to survive only as a bare item id inside `spec`, which no part of the
+   *  inventory system reads -- so an order could name six materials, reach
+   *  Delivered, and leave stock untouched. As JobMaterial rows with a quantity
+   *  they become a material plan, and the plan is what reserves and consumes.
+   */
   const saveGarmentJobs = async (orderId) => {
     for (const job of garmentJobs) {
       const { spec, measurements } = splitSpec(job.template, job.values);
+      const materials = garmentMaterialFields(job).map(({ field, itemId }) => ({
+        field_key: field.key,
+        inventory_item: itemId,
+        quantity: job.quantities?.[field.key],
+        // Always STORE: these lines exist only because an inventory item was
+        // picked off the boutique's own racks. A garment marked "customer
+        // provided fabric" is the common case where the client brings the cloth
+        // and the boutique still supplies the lining, hooks and thread -- those
+        // trims are boutique stock and must be deducted. The customer's own
+        // material is not a line here at all; it lives in CustomerMaterial,
+        // which is a separate ledger and never touches boutique stock.
+        source: 'STORE',
+      }));
       try {
         await api.createGarmentJob({
           order: orderId,
           template: job.template.id,
           spec,
           measurements,
+          materials,
         });
       } catch (err) {
         console.error(`Could not save the ${job.template.name} on this order`, err);
@@ -1424,36 +1674,23 @@ function App() {
       throw new Error("Validation failed");
     }
     
-    try {
-      if (customerId) {
-        const res = await api.updateCustomer(customerId, customerForm);
-        return res;
-      } else {
-        const res = await api.createCustomer(customerForm, profilePhoto);
-        setCustomerId(res.id);
-        return res;
-      }
-    } catch (err) {
-      let errMsg = err.message;
-      try {
-        const parsed = JSON.parse(err.message);
-        if (parsed.mobile_number) {
-          errMsg = `Mobile Number: ${parsed.mobile_number.join(', ')}`;
-        } else if (parsed.email_address) {
-          errMsg = `Email: ${parsed.email_address.join(', ')}`;
-        } else {
-          errMsg = Object.keys(parsed).map(k => `${k}: ${parsed[k]}`).join('\n');
-        }
-      } catch (e) {
-        // Use default errMsg
-      }
-      alert("Failed to save customer: " + errMsg);
-      throw err;
-    }
+    // No customer is written here any more.
+    //
+    // This used to POST the client at step one, so abandoning at step four --
+    // which the step-four empty state actively invited, by offering "Add
+    // fabrics" as its only way forward -- left a customer nobody had asked
+    // for, with no order attached and no route back to the work. The details
+    // live in the draft until Confirm, which creates the client and the order
+    // together or neither.
+    return persistDraft({ step: 2 });
   };
 
   const saveStep2 = async () => {
-    if (!customerId) return;
+    // No customerId guard. There is deliberately no customer yet for a new
+    // client -- one is created at Confirm -- and returning early here meant
+    // step two never wrote to the draft at all, so every measurement and
+    // garment detail a new customer's order collected was still living only in
+    // this tab. The draft persisted at step one and then silently stopped.
     // The customer record keeps the body measurements, which is what the
     // directory, the measurement history and the design studio read. Per-dress
     // numbers live on the garment job; these are the ones that describe the
@@ -1469,147 +1706,70 @@ function App() {
         }
       });
     });
-    const res = await api.updateCustomer(customerId, { measurements: body });
-    return res;
+    // Held on the draft; written to the customer at Confirm, along with
+    // everything else, in one transaction.
+    setCustomerForm(prev => ({ ...prev, measurements: body }));
+    return persistDraft({ step: 3 });
   };
 
   const saveStep3 = async () => {
-    if (!customerId) return;
-    const links = designLinks
-      .split(/[\n,]/)
-      .map(l => l.trim())
-      .filter(Boolean);
-    const res = await api.saveDesignPreferences(
-      customerId, designNotes, designFiles, selectedDesignTemplates, designSource, links
-    );
-    return res;
+    // Design choices ride on the draft. There is no customer to hang them on
+    // yet, and inventing one is the bug this replaced.
+    return persistDraft({ step: 4 });
   };
 
   const saveStep4 = async () => {
-    if (!customerId) return;
-    
-    let fabricPayload = {
-      is_boutique_fabric: fabricTab === 'boutique',
-      fabric_name: fabricTab === 'boutique' && selectedFabric ? selectedFabric.name : 'Customer Uploaded Fabric',
-      fabric_price: fabricTab === 'boutique' && selectedFabric ? selectedFabric.price_per_meter * 3 : 0.00
-    };
-
-    const res = await api.saveFabricSelection(customerId, fabricPayload, fabricFiles);
-    return res;
+    return persistDraft({ step: 5 });
   };
 
   const submitOrderAndConfirm = async () => {
-    if (!customerId) return;
     setWizardError(null);
-    
-    const base = parseFloat(quotePrices.base || 0);
-    const fabricPrice = parseFloat(quotePrices.fabric || 0);
-    const embroidery = parseFloat(quotePrices.embroidery || 0);
-    const customization = parseFloat(quotePrices.customization || 0);
-    const tailoring = parseFloat(quotePrices.tailoring || 0);
-    const packaging = parseFloat(quotePrices.packaging || 0);
 
-    const payload = {
-      tailor_id: selectedTailor ? selectedTailor.id : null,
-      master_id: selectedMaster ? selectedMaster.id : null,
-      base_price: base,
-      fabric_price: fabricPrice,
-      embroidery_price: embroidery,
-      customization_price: customization,
-      tailoring_charges: tailoring,
-      packaging_handling: packaging,
-      payment_status: paymentOption === 'full' ? 'Paid' : 'Partially Paid',
-      // `|| getTotalPrice() / 2` here was the other half of the same bug: the
-      // box starts at 0 and clears to 0, and both are falsy, so leaving it
-      // empty booked half the order as received. Number(...) rather than
-      // `parseFloat(...) || 0` because a deliberate 0 must survive.
-      advance_paid: paymentOption === 'full' ? getTotalPrice() : (Number(advancePaymentAmount) || 0),
-      custom_requirements: specialInstructions || customerForm.custom_requirements,
-      // The earliest date any dress on this order is due -- an order is only as
-      // early as its slowest-promised garment is late, so the soonest date is
-      // the one the customer must not be told wrong. Omitted when no garment
-      // carries a date, and the server falls back to its own estimate.
-      estimated_delivery: garmentJobs
-        .map(j => j.values?.delivery_date)
-        .filter(Boolean)
-        .sort()[0] || null,
-      delivery_method: deliveryMethod,
-      courier_service: deliveryMethod === 'Courier' ? courierService : null,
-      tracking_number: deliveryMethod === 'Courier' ? trackingNumber : null,
-      delivery_address: deliveryMethod === 'Courier' ? deliveryAddress : null
-    };
-
-    // Creating the order is its own step, and the only one whose failure means
-    // nothing was written. Everything after it runs against an order that
-    // already exists, so it must not be able to send the owner back to press
-    // Confirm again -- that press wrote a SECOND Order with the same
-    // total_amount and advance_paid, and create_order_for_customer has no
-    // idempotency check to catch it. Two invoices and doubled revenue in
-    // Analytics, from one failed sub-step and one reasonable retry.
-    let order;
+    // One request. The server creates the client, the order, its production
+    // stages, its garments and their material lines inside a single
+    // transaction, then spends the draft.
+    //
+    // What this replaces: create the order, then save the garments, then
+    // attach the design, apologising after each step if it failed and pressing
+    // on regardless -- because going back to press Confirm again booked a
+    // SECOND order at the same price. Two invoices and doubled revenue from
+    // one failed sub-step and one reasonable retry. Now a failure leaves no
+    // order at all and the draft still on the server, so retrying is the right
+    // thing to do rather than the dangerous one.
+    let id = draftId;
     try {
-      order = await api.createOrder(customerId, payload);
+      id = await persistDraft({ step: 6 });
     } catch (err) {
-      console.error(err);
-      setWizardError(err.message || 'Could not create the order. Nothing was saved — please try again.');
+      setWizardError(
+        err.isConflict
+          ? 'This order was changed in another tab. Reload it before placing it.'
+          : 'Could not save the order before placing it. Nothing has been booked — please try again.');
       return;
     }
 
     try {
-      // Every dress on the order, with its own spec and measurement snapshot.
-      try {
-        await saveGarmentJobs(order.id);
-      } catch (err) {
-        // The order is committed. Say what is missing and carry on to the
-        // confirmation screen -- the same shape as the design-board branch
-        // below, and for the same reason: going back is what bills twice.
-        console.error("Could not save the garment details", err);
-        alert(
-          `Order ${order.order_id} was created, but its garment details could not be `
-          + `saved (${err.message}). Open the order and add them before it goes to `
-          + `the tailor.`);
-      }
-      // The design board is built in step 3, before an order exists to hold
-      // it. Attach it now so the approved reference travels into production.
-      if (designBoard.boardId && designBoard.approved) {
-        try {
-          await api.saveDesignBoardToOrder(designBoard.boardId, order.order_id);
-        } catch (err) {
-          // Say so. This used to console.error only, so an order whose design
-          // failed to attach still produced the green confirmation screen and
-          // went to the floor carrying no design at all. The order itself is
-          // already saved and is not worth rolling back for this, so tell the
-          // owner what is missing and let them re-attach.
-          console.error("Could not attach the design board to the order", err);
-          alert(
-            `Order ${order.order_id} was created, but the approved design could not be `
-            + `attached to it (${err.message}). Open the order and set the design before `
-            + `it goes to the tailor.`);
-        }
-      }
+      const order = await api.confirmOrderDraft(id);
+      setDraftId(null);
+      setDraftVersion(null);
+      setDraftSaveState('idle');
       setConfirmedOrder(order);
       setView('confirmed');
+      fetchDashboardAndConfig();
     } catch (err) {
-      // Anything unexpected after the order exists. Still lands on the
-      // confirmation screen naming the order, because the one thing that must
-      // not happen here is the owner pressing Confirm a second time.
+      if (err.alreadyPlaced) {
+        // A double-click, a retried request, or a refresh that re-fired it.
+        // The order exists; the one thing that must not happen is booking a
+        // second one, and the server has already refused to.
+        setWizardError(
+          'This order has already been placed. Check Manage Orders — do not place it again.');
+        return;
+      }
       console.error(err);
-      alert(
-        `Order ${order.order_id} was created, but something went wrong finishing it `
-        + `(${err.message}). Open the order and check its details — do not place it again.`);
-      setConfirmedOrder(order);
-      setView('confirmed');
+      setWizardError(
+        (err.message || 'Could not place the order.')
+        + ' Nothing was booked, and your order is still saved — you can try again.');
     }
   };
-
-  // One click, one call.
-  //
-  // Every wizard CTA is an async handler that talks to the API, and none of them
-  // guarded against being entered twice. A double-click on Next ran saveStep1
-  // twice, which is two createCustomer POSTs and two customer records for one
-  // person. The ref is what does the work: a second click in the same tick sees
-  // it synchronously, where a state flag would not have re-rendered yet. The
-  // state is only so the button can show it is busy.
   const actionInFlight = useRef(false);
   const [ctaBusy, setCtaBusy] = useState(false);
 
@@ -1624,6 +1784,23 @@ function App() {
       setCtaBusy(false);
     }
   }, []);
+
+  // Orders already in progress, fetched when the owner arrives at the order
+  // screen. Not on mount: a draft is only relevant at the point of starting or
+  // resuming one, and asking for them on every dashboard load is a request
+  // nobody reads.
+  useEffect(() => {
+    if (view !== 'order-selector') return;
+    let cancelled = false;
+    api.listOrderDrafts()
+      .then(list => { if (!cancelled) setResumableDrafts(list || []); })
+      .catch(err => {
+        // A failure here costs the resume prompt, not the session.
+        console.error('Could not load saved orders', err);
+        if (!cancelled) setResumableDrafts([]);
+      });
+    return () => { cancelled = true; };
+  }, [view]);
 
   const performNext = async () => {
     try {
@@ -2671,24 +2848,67 @@ function App() {
                             
                             {/* Price / Scope */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-color)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                              <div className="assignment-card-sub-info" style={{ borderBottom: (!isProductionStaff(currentUser.role) || order.customer_measurements) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px', fontSize: '13px' }}>
+                              <div className="assignment-card-sub-info" style={{ borderBottom: (!isProductionStaff(currentUser.role) || order.customer_measurements || (order.garment_jobs || []).length > 0) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px', fontSize: '13px' }}>
                                 {!isProductionStaff(currentUser.role) && <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>}
                                 <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</span></div>
                                 <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
                               </div>
 
-                              {/* Client specifications and measurements passed to Tailor flow */}
-                              {order.customer_measurements && (
+                              {/* What this order is for, per garment.
+                                  This panel used to print order.customer_garment_type and the
+                                  customer-level Measurement row. Both are single-valued and the
+                                  order is not: a blouse-and-lehenga order named one garment, and
+                                  the roll-up that fed the numbers keeps whichever dress was
+                                  entered last -- so the tailor was shown the lehenga's waist for
+                                  the blouse, and blouse length, upper chest, armhole and floor
+                                  length were absent entirely because they are not rolled up.
+                                  Read the garment jobs, which hold exactly what was ordered. */}
+                              {(order.garment_jobs || []).length > 0 ? (
+                                <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                  <div className="assignment-card-blueprint-header" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                    <span>
+                                      {order.garment_jobs.length > 1 ? 'Garments' : 'Garment'}:{' '}
+                                      <span style={{ color: 'var(--accent-text, #b07c40)' }}>{orderGarmentLabel(order)}</span>
+                                    </span>
+                                    <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>📏 Measurements as ordered</span>
+                                  </div>
+                                  {order.garment_jobs.map(job => {
+                                    const entries = Object.entries(job.measurements || {})
+                                      .filter(([, v]) => v !== '' && v !== null && v !== undefined);
+                                    return (
+                                      <div key={job.id}>
+                                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                                          {job.template_name || job.template_key}
+                                        </div>
+                                        {entries.length > 0 ? (
+                                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '8px', background: 'rgba(0,0,0,0.015)', padding: '8px', borderRadius: '6px' }}>
+                                            {entries.map(([k, v]) => (
+                                              <div key={k}>{humaniseSpecKey(k)}: <strong>{String(v)} in</strong></div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <div style={{ padding: '8px', background: 'rgba(0,0,0,0.015)', borderRadius: '6px' }}>
+                                            No measurements were captured for this garment.
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : order.customer_measurements && (
+                                /* Orders written before garment jobs existed. Nine of the ten
+                                   orders already in the database are in this state, so the old
+                                   panel stays reachable rather than showing them nothing. */
                                 <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                                   <div className="assignment-card-blueprint-header" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                                     <span>
-                                      Dress / Garment Type: <span style={{ color: 'var(--accent-text, #b07c40)' }}>{order.customer_garment_type || 'Custom Item'}</span>
+                                      Dress / Garment Type: <span style={{ color: 'var(--accent-text, #b07c40)' }}>{orderGarmentLabel(order)}</span>
                                       {(() => {
                                         const parts = order.customer_measurements.additional_measurements?.stitch_parts || [];
                                         return parts.length > 0 && ` (${parts.join(', ')})`;
                                       })()}
                                     </span>
-                                    <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>📍 Sizing Blueprint Passed From Master</span>
+                                    <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>📍 Customer measurements on file</span>
                                   </div>
                                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px', background: 'rgba(0,0,0,0.015)', padding: '8px', borderRadius: '6px' }}>
                                     {(() => {
@@ -2772,7 +2992,9 @@ function App() {
                                     { key: 'dress_cutting', label: 'Dress & Pattern Cutting' },
                                     { key: 'thread', label: 'Matching Thread & Accents' },
                                     { key: 'hemming', label: 'Hemming & Seam Finishes' },
-                                    ...(order.customer_garment_type === 'Saree' ? [{ key: 'fall_pico', label: 'Fall & Pico / Peack' }] : []),
+                                    // Any saree on the order needs fall & pico, not just an
+                                    // order whose customer record happens to say 'Saree'.
+                                    ...(orderGarmentNames(order).includes('Saree') ? [{ key: 'fall_pico', label: 'Fall & Pico / Peack' }] : []),
                                     { key: 'hook_buttons', label: 'Hook or Buttons Closure' },
                                     { key: 'pressing', label: 'Garment Steam Pressing' },
                                     { key: 'dispatch_trial', label: 'Dispatch or Fit Trial Ready' }
@@ -3908,7 +4130,7 @@ function App() {
                               </div>
                               {(() => {
                                 const v = order.master_verification || {};
-                                const total = 6 + (order.customer_garment_type === 'Saree' ? 1 : 0);
+                                const total = 6 + (orderGarmentNames(order).includes('Saree') ? 1 : 0);
                                 const checked = Object.values(v).filter(Boolean).length;
                                 if (checked > 0) {
                                   return (
@@ -5239,16 +5461,34 @@ function App() {
               const pendingBill = Math.max(0, totalBilling - paidRevenue);
               const aov = ordersList.length > 0 ? (totalBilling / ordersList.length) : 0;
 
+              // Counted per garment ordered, not per customer.
+              //
+              // These three panels read Customer.garment_type, neckline_style and
+              // sleeve_style -- one value per person, set by whichever dress was
+              // entered last. So a customer who ordered a blouse and a lehenga
+              // counted once, and the neckline and sleeve panels were permanently
+              // empty because the order wizard writes those onto the garment job
+              // and never onto the customer. Read the garment jobs, and take the
+              // percentage against the number of garments rather than the number
+              // of clients.
               const garmentDist = {};
-              customersList.forEach(c => {
-                if (c.garment_type) garmentDist[c.garment_type] = (garmentDist[c.garment_type] || 0) + 1;
-              });
-
               const necklineDist = {};
               const sleeveDist = {};
-              customersList.forEach(c => {
-                if (c.neckline_style) necklineDist[c.neckline_style] = (necklineDist[c.neckline_style] || 0) + 1;
-                if (c.sleeve_style) sleeveDist[c.sleeve_style] = (sleeveDist[c.sleeve_style] || 0) + 1;
+              let garmentTotal = 0;
+              const tally = (dist, value) => {
+                if (value === undefined || value === null || value === '') return;
+                const label = humaniseSpecKey(value);
+                dist[label] = (dist[label] || 0) + 1;
+              };
+              ordersList.forEach(o => {
+                orderGarmentNames(o).forEach(name => {
+                  garmentDist[name] = (garmentDist[name] || 0) + 1;
+                  garmentTotal += 1;
+                });
+                (o.garment_jobs || []).forEach(job => {
+                  tally(necklineDist, job.spec?.front_neck);
+                  tally(sleeveDist, job.spec?.sleeve_length);
+                });
               });
 
               const topGarmentsList = Object.entries(garmentDist).sort((a, b) => b[1] - a[1]).slice(0, 4);
@@ -5368,7 +5608,7 @@ function App() {
                         <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Popular Garment Types</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {topGarmentsList.map(([garment, count], idx) => {
-                            const pct = Math.round((count / customersList.length) * 100) || 0;
+                            const pct = Math.round((count / garmentTotal) * 100) || 0;
                             return (
                               <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
@@ -6258,6 +6498,76 @@ function App() {
                 <p className="selector-subtitle" style={{ color: 'var(--text-secondary)' }}>Choose how you would like to initiate this bespoke order creation.</p>
               </div>
 
+              {/* Orders already being written. Offered, never resumed
+                  silently: picking one up is a decision, and so is throwing it
+                  away. Shows enough to tell two apart -- who it is for, what is
+                  on it, how far it got and when it was last touched. */}
+              {resumableDrafts.length > 0 && (
+                <div className="content-card" style={{ marginBottom: '20px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '4px' }}>
+                    You have {resumableDrafts.length === 1 ? 'an order' : `${resumableDrafts.length} orders`} in progress
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                    Saved automatically. Pick one up where you left it, or discard it.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {resumableDrafts.map(draft => {
+                      const garments = (draft.payload?.garments || [])
+                        .map(g => g.template_key).filter(Boolean);
+                      return (
+                        <div key={draft.id} style={{ display: 'flex', alignItems: 'center', gap: '12px',
+                                                     flexWrap: 'wrap', borderTop: '1px solid var(--border-color)',
+                                                     paddingTop: '10px' }}>
+                          <div style={{ flex: '1 1 260px' }}>
+                            <div style={{ fontWeight: 600 }}>
+                              {draft.customer_name || 'Unnamed customer'}
+                            </div>
+                            <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                              {garments.length ? garments.join(', ') : 'No garment chosen yet'}
+                              {' · '}Step {draft.current_step} of 6
+                              {' · '}last saved {new Date(draft.updated_at).toLocaleString()}
+                            </div>
+                          </div>
+                          <button type="button" className="btn-primary" onClick={() => hydrateWizard(draft)}>
+                            Resume
+                          </button>
+                          {discardingDraftId === draft.id ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                                Discard this order? Nothing has been booked, but everything
+                                entered on it will be lost.
+                              </span>
+                              <button type="button" className="btn-secondary"
+                                      onClick={() => setDiscardingDraftId(null)}>
+                                Keep it
+                              </button>
+                              <button type="button" className="btn-primary" onClick={async () => {
+                                try {
+                                  await api.deleteOrderDraft(draft.id);
+                                  setResumableDrafts(prev => prev.filter(d => d.id !== draft.id));
+                                } catch (err) {
+                                  console.error('Could not discard the draft', err);
+                                  alert('Could not discard that order — it is still saved.');
+                                } finally {
+                                  setDiscardingDraftId(null);
+                                }
+                              }}>
+                                Discard permanently
+                              </button>
+                            </div>
+                          ) : (
+                            <button type="button" className="btn-secondary"
+                                    onClick={() => setDiscardingDraftId(draft.id)}>
+                              Discard
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="selector-cards-grid">
                 {/* Option 1: Existing Customer */}
                 <div className="selector-option-card" onClick={openExistingCustomerModal}>
@@ -6448,7 +6758,21 @@ function App() {
                 {/* "Need help?" carried cursor:pointer and no handler --
                     the wizard's own header inviting a click that does nothing.
                     There is no help surface to point it at. */}
-                <span />
+                {/* Whether the work is safe. The wizard writes to a draft on
+                    the server as the owner moves through it, and they need to
+                    know that without being told to trust it. A conflict is
+                    called out separately because it needs a different action:
+                    not "try again" but "reload, someone else moved this on". */}
+                {draftSaveState !== 'idle' && (
+                  <span style={{ fontSize: '12.5px',
+                                 color: draftSaveState === 'conflict' || draftSaveState === 'failed'
+                                        ? '#c0392b' : 'var(--text-secondary)' }}>
+                    {draftSaveState === 'saving' && 'Saving…'}
+                    {draftSaveState === 'saved' && '✓ Saved'}
+                    {draftSaveState === 'failed' && 'Could not save — your last change is not stored'}
+                    {draftSaveState === 'conflict' && 'Changed in another tab — reload before continuing'}
+                  </span>
+                )}
                 <span style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} onClick={() => setView('dashboard')}>
                   <X size={20} />
                 </span>
@@ -6858,6 +7182,10 @@ function App() {
                             values={job.values}
                             errors={garmentErrors[job.key] || {}}
                             onChange={values => updateGarmentValues(job.key, values)}
+                            quantities={job.quantities || {}}
+                            quantityErrors={garmentQuantityErrors[job.key] || {}}
+                            onQuantityChange={(fieldKey, quantity) =>
+                              updateGarmentQuantity(job.key, fieldKey, quantity)}
                           />
                         </div>
                       );
@@ -7077,8 +7405,25 @@ function App() {
                             Add the rolls you stock to pick from them here — or switch to
                             <strong> Customer's Own Fabric</strong> above if the client is bringing their own.
                           </div>
-                          <button type="button" className="btn-secondary" onClick={() => { setView('dashboard'); setDashboardTab('fabrics'); }}>
-                            Add fabrics
+                          {/* Save first, then go. This button is the product's
+                              own advice to a boutique with no fabric library --
+                              and following it used to destroy the order being
+                              written, because the wizard's only copy was in
+                              this component's state. The draft is on the server
+                              before we navigate, so the work is waiting when
+                              they come back. */}
+                          <button type="button" className="btn-secondary" onClick={async () => {
+                            try {
+                              await persistDraft({ step: 4 });
+                            } catch (err) {
+                              alert('Could not save this order before opening the fabric library. '
+                                    + 'Nothing has been lost — try again.');
+                              return;
+                            }
+                            setView('dashboard');
+                            setDashboardTab('fabrics');
+                          }}>
+                            Save &amp; add fabrics
                           </button>
                         </div>
                       )}
@@ -7414,7 +7759,7 @@ function App() {
                                 a lehenga with its blouse and dupatta is three. */}
                             <span style={{ fontSize: '13px', fontWeight: 600 }}>
                               {customerForm.customer_type} • {garmentJobs.length
-                                ? garmentJobs.map(job => job.template.name).join(', ')
+                                ? wizardGarmentLabel
                                 : customerForm.garment_type}
                             </span>
                           </div>
@@ -7938,7 +8283,7 @@ function App() {
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600 }}>{customerForm.customer_type} • {customerForm.garment_type}</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>{customerForm.customer_type} • {wizardGarmentLabel}</div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                     Fabric: {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer fabric'}
                   </div>
@@ -7996,9 +8341,7 @@ function App() {
                     {/* Name every dress. The breakdown below still prices the
                         first one only -- see the base-price row. */}
                     <div style={{ fontSize: '14px', fontWeight: 600 }}>
-                      {customerForm.customer_type} • {garmentJobs.length
-                        ? garmentJobs.map(job => job.template.name).join(', ')
-                        : customerForm.garment_type}
+                      {customerForm.customer_type} • {wizardGarmentLabel}
                     </div>
                     <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                       Fabric: {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer fabric'}
@@ -8459,8 +8802,10 @@ function App() {
                 <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 12px 0', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Design & Specifications</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '11px' }}>
                   <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Garment Type</span>
-                    <strong style={{ fontSize: '12px' }}>{confirmedOrder.customer_type} • {confirmedOrder.customer_garment_type}</strong>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>
+                      {orderGarmentNames(confirmedOrder).length > 1 ? 'Garments' : 'Garment Type'}
+                    </span>
+                    <strong style={{ fontSize: '12px' }}>{confirmedOrder.customer_type} • {orderGarmentLabel(confirmedOrder)}</strong>
                   </div>
                   <div>
                     <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Fabric</span>
@@ -8507,9 +8852,21 @@ function App() {
                 <tbody style={{ fontSize: '12px' }}>
                   <tr style={{ borderBottom: '2px solid #eaecef' }}>
                     <td style={{ padding: '16px 8px' }}>
-                      <strong style={{ fontSize: '14px', color: '#0f291e' }}>Bespoke Handcrafted {confirmedOrder.customer_garment_type}</strong>
+                      {/* Every garment on the order. This printed
+                          customer_garment_type, so a two-garment order was
+                          invoiced as one garment at the full price of both --
+                          a bill the customer could reasonably dispute.
+                          ponytail: one priced line listing all garments, because
+                          pricing is still per-order. Split into a line per
+                          garment once each garment type carries its own
+                          configured price. */}
+                      <strong style={{ fontSize: '14px', color: '#0f291e' }}>
+                        Bespoke Handcrafted {orderGarmentLabel(confirmedOrder)}
+                      </strong>
                       <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        Custom garment design tailored to individual measurement specifications.
+                        {orderGarmentNames(confirmedOrder).length > 1
+                          ? `${orderGarmentNames(confirmedOrder).length} custom garments, each tailored to its own measurement specifications.`
+                          : 'Custom garment design tailored to individual measurement specifications.'}
                       </span>
                       <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                         Fabric: {Number(confirmedOrder.fabric_price) > 0 ? `Boutique fabric — ₹${confirmedOrder.fabric_price}` : 'Customer Supplied Fabric'}
@@ -8748,25 +9105,52 @@ function App() {
             {(activeReviewOrder.garment_jobs || []).length > 0 && (
               <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
                 <div style={{ fontWeight: 700, marginBottom: '8px' }}>What to make</div>
-                {activeReviewOrder.garment_jobs.map(job => (
-                  <div key={job.id} style={{ marginBottom: '10px' }}>
-                    <div style={{ fontWeight: 600, marginBottom: '4px' }}>{job.template_name || job.template_key}</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '4px 12px' }}>
-                      {Object.entries(job.measurements || {}).map(([k, v]) => (
-                        <span key={k} style={{ color: 'var(--text-secondary)' }}>
-                          {k.replace(/_/g, ' ')}: <strong style={{ color: 'var(--text-primary)' }}>{String(v)}</strong>
-                        </span>
-                      ))}
-                      {Object.entries(job.spec || {})
-                        .filter(([, v]) => v !== '' && v !== null && v !== undefined)
-                        .map(([k, v]) => (
+                {activeReviewOrder.garment_jobs.map(job => {
+                  // Material fields are rendered from job.materials, which
+                  // carries the item's name, quantity and unit. Left in the spec
+                  // dump they printed as bare database UUIDs -- "main fabric:
+                  // a1222bee-8dea-442d-9858-524141b109c4" -- on the one screen
+                  // a cutter opens to find out which roll to pull.
+                  const materials = job.materials || [];
+                  const materialKeys = new Set(materials.map(m => m.field_key));
+                  const specEntries = Object.entries(job.spec || {})
+                    .filter(([k, v]) => v !== '' && v !== null && v !== undefined
+                                        && !materialKeys.has(k));
+                  return (
+                    <div key={job.id} style={{ marginBottom: '10px' }}>
+                      <div style={{ fontWeight: 600, marginBottom: '4px' }}>{job.template_name || job.template_key}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '4px 12px' }}>
+                        {Object.entries(job.measurements || {}).map(([k, v]) => (
                           <span key={k} style={{ color: 'var(--text-secondary)' }}>
-                            {k.replace(/_/g, ' ')}: <strong style={{ color: 'var(--text-primary)' }}>{String(v)}</strong>
+                            {humaniseSpecKey(k)}: <strong style={{ color: 'var(--text-primary)' }}>{String(v)} in</strong>
                           </span>
                         ))}
+                        {specEntries.map(([k, v]) => (
+                          <span key={k} style={{ color: 'var(--text-secondary)' }}>
+                            {humaniseSpecKey(k)}: <strong style={{ color: 'var(--text-primary)' }}>{humaniseSpecValue(v)}</strong>
+                          </span>
+                        ))}
+                      </div>
+                      {materials.length > 0 && (
+                        <div style={{ marginTop: '6px' }}>
+                          <div style={{ fontWeight: 600, marginBottom: '2px' }}>Materials</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '4px 12px' }}>
+                            {materials.map(material => (
+                              <span key={material.id} style={{ color: 'var(--text-secondary)' }}>
+                                {humaniseSpecKey(material.field_key)}:{' '}
+                                <strong style={{ color: 'var(--text-primary)' }}>
+                                  {material.item_name || material.free_text || '—'}
+                                </strong>
+                                {Number(material.quantity) > 0
+                                  && ` · ${Number(material.quantity)} ${material.unit || ''}`.trimEnd()}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {activeReviewOrder.special_instructions && (
                   <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
                     <span style={{ color: 'var(--text-secondary)' }}>Special instructions: </span>

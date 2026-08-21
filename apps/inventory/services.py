@@ -83,7 +83,7 @@ class InventoryService:
     @transaction.atomic
     def record_movement(item, movement_type, quantity, *, stock_delta, reserved_delta,
                         clamp_reserved=False, reserved_backed=None, user=None, order=None,
-                        stage_key=None, performed_by=None, remarks='',
+                        garment_job=None, stage_key=None, performed_by=None, remarks='',
                         from_location=None, to_location=None):
         """Apply a stock change and write its ledger line.
 
@@ -183,6 +183,9 @@ class InventoryService:
                 if (user and user.is_authenticated) else 'System'
             ),
             order=order,
+            # Which dress this was for. An order holds several, so "left stock
+            # for order X" is not on its own an answer anyone can act on.
+            garment_job=garment_job,
             stage_key=stage_key,
             performed_by=performed_by,
             remarks=remarks,
