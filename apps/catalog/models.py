@@ -171,6 +171,20 @@ class GarmentJob(models.Model):
 
     # Categorical answers keyed by TemplateField.key.
     spec = models.JSONField(default=dict, blank=True)
+
+    # What THIS dress costs, component by component. Money used to live only on
+    # the Order as one flat set, so a Blouse + Lehenga order was priced as
+    # whichever garment the customer's profile named. The order's columns still
+    # exist -- as the SUM of these, written by domains.orders.pricing, which is
+    # the only arithmetic path. Names deliberately mirror Order's columns so
+    # the rollup is a loop, not a mapping. All-zero components on an old job
+    # mean "priced before this existed"; such orders keep their entered totals
+    # and are never recomputed. Packaging is not here: one parcel per order.
+    base_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fabric_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    embroidery_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    customization_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tailoring_charges = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     # Numeric dimensions, kept apart from `spec` because they are versioned,
     # printed on the cutting sheet and compared across a customer's orders.
     measurements = models.JSONField(default=dict, blank=True)

@@ -6,6 +6,24 @@ class BoutiqueTenant(TenantMixin):
     name = models.CharField(max_length=100)
     created_on = models.DateField(auto_now_add=True)
 
+    # What "3 PM" means to this boutique and its customers.
+    #
+    # Datetimes are stored in UTC and stay that way -- this is a PRESENTATION
+    # setting, read when output is rendered and never written into the data.
+    # The alternative, moving settings.TIME_ZONE off UTC, would have been one
+    # line and correct only until a boutique outside India opened: every tenant
+    # would then share one clock and one of them would be wrong, with no way to
+    # tell which timestamps had been rendered under which assumption.
+    #
+    # A plain CharField rather than a choices list: the zoneinfo database is
+    # the authority on what a timezone is, it changes without Django, and
+    # pinning a copy of it here would go stale. Validated on save instead.
+    timezone = models.CharField(
+        max_length=64, default='Asia/Kolkata',
+        help_text="IANA name, e.g. Asia/Kolkata. Used to show this boutique "
+                  "and its customers their own local time. Storage stays UTC.",
+    )
+
     # The platform administrator's off switch: a boutique that has stopped
     # paying, or is being abused, is turned off here rather than deleted. The
     # schema and every row in it survive, so switching it back on restores the

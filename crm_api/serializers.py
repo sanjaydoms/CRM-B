@@ -11,9 +11,24 @@ from .models import (
 )
 
 class BoutiqueSettingsSerializer(serializers.ModelSerializer):
+    # Read-only, and sourced from the TENANT rather than this row: the zone is
+    # a property of the boutique itself (tenants.BoutiqueTenant), while this
+    # model lives inside the boutique's own schema. The browser needs it so its
+    # formatter renders the same instant as the server's -- otherwise a staff
+    # screen and the customer's tracking page disagree about what time a stage
+    # finished, which is the whole defect.
+    timezone = serializers.SerializerMethodField()
+
     class Meta:
         model = BoutiqueSettings
         fields = '__all__'
+
+    def get_timezone(self, obj):
+        from django.db import connection
+
+        from core.formatting import DEFAULT_TIMEZONE
+        return (getattr(getattr(connection, 'tenant', None), 'timezone', '')
+                or DEFAULT_TIMEZONE)
 
 class TailorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -221,7 +236,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'tailor', 'tailor_name', 'master', 'master_name',
             'payment_status', 'order_status', 'base_price', 'fabric_price',
             'embroidery_price', 'customization_price', 'tailoring_charges',
-            'packaging_handling', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
+            'packaging_handling', 'discount', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
             'delivery_method', 'courier_service', 'tracking_number', 'delivery_address',
             'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image',
             'special_instructions',

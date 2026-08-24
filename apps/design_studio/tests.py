@@ -19,7 +19,7 @@ from rest_framework.test import APIClient
 
 from crm_api.models import Customer, FabricSelection, Measurement, Order, Tailor
 
-from .context import build_context
+from .context import build_context, subject_from_customer
 from .intelligence.rules import RuleBasedIntelligence
 from .models import Collection, Designer, DesignAsset, DesignBoard, DesignBoardItem
 from .providers.base import DesignCandidate
@@ -85,7 +85,7 @@ class StudioTestCase(TenantTestCase):
 
 class ContextEngineTests(StudioTestCase):
     def test_context_pulls_profile_measurements_and_history(self):
-        context = build_context(self.customer, {'budget': '40000'})
+        context = build_context(subject_from_customer(self.customer), {'budget': '40000'})
 
         self.assertEqual(context.garment_type, "Lehenga")
         self.assertEqual(context.gender, "Women")
@@ -98,14 +98,14 @@ class ContextEngineTests(StudioTestCase):
     def test_in_flight_order_input_overrides_stored_defaults(self):
         # The wizard's current selection describes the order being placed now,
         # so it has to win over what the customer bought last time.
-        context = build_context(self.customer, {'garment_type': 'Gown', 'occasion': 'Reception'})
+        context = build_context(subject_from_customer(self.customer), {'garment_type': 'Gown', 'occasion': 'Reception'})
         self.assertEqual(context.garment_type, "Gown")
         self.assertEqual(context.occasion, "Reception")
 
     def test_customer_without_measurements_still_builds(self):
         bare = Customer.objects.create(
             first_name="New", last_name="Client", mobile_number="9600002222")
-        context = build_context(bare)
+        context = build_context(subject_from_customer(bare))
         self.assertEqual(context.measurements, {})
         self.assertEqual(context.body_type, "")
 
@@ -114,7 +114,7 @@ class IntelligenceTests(StudioTestCase):
     def setUp(self):
         super().setUp()
         self.engine = RuleBasedIntelligence()
-        self.context = build_context(self.customer, {'budget': '40000'})
+        self.context = build_context(subject_from_customer(self.customer), {'budget': '40000'})
 
     def test_generated_queries_reflect_occasion_colour_and_garment(self):
         queries = self.engine.generate_queries(self.context)
@@ -219,7 +219,7 @@ class IntelligenceTests(StudioTestCase):
 
 class DiscoveryTests(StudioTestCase):
     def test_discovery_returns_ranked_catalogue_results(self):
-        outcome = services.discover(self.customer, {'budget': '40000'})
+        outcome = services.discover(subject_from_customer(self.customer), {'budget': '40000'})
 
         self.assertTrue(outcome['queries'])
         self.assertTrue(outcome['results'])
@@ -236,7 +236,7 @@ class DiscoveryTests(StudioTestCase):
         self.design.status = DesignAsset.Status.ARCHIVED
         self.design.save(update_fields=['status'])
 
-        outcome = services.discover(self.customer, {'budget': '40000'})
+        outcome = services.discover(subject_from_customer(self.customer), {'budget': '40000'})
 
         self.assertNotIn("Maroon Bridal Lehenga", [c.title for c in outcome['results']])
 
@@ -247,7 +247,7 @@ class DiscoveryTests(StudioTestCase):
         self.design.status = DesignAsset.Status.PENDING
         self.design.save(update_fields=['status'])
 
-        outcome = services.discover(self.customer, {'budget': '40000'})
+        outcome = services.discover(subject_from_customer(self.customer), {'budget': '40000'})
 
         self.assertNotIn("Maroon Bridal Lehenga", [c.title for c in outcome['results']])
 
@@ -266,7 +266,7 @@ class DiscoveryTests(StudioTestCase):
         original = registry._PROVIDERS
         registry._PROVIDERS = [Broken(), *original]
         try:
-            outcome = services.discover(self.customer)
+            outcome = services.discover(subject_from_customer(self.customer))
         finally:
             registry._PROVIDERS = original
 

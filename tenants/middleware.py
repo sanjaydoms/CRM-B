@@ -1,6 +1,7 @@
 import time
 
 from django.db import connection
+from django.utils import timezone
 from django.http import JsonResponse
 from django_tenants.middleware.main import TenantMainMiddleware
 from django_tenants.utils import get_tenant_model, get_public_schema_name, get_tenant_domain_model, schema_context
@@ -106,6 +107,17 @@ def _maintenance_mode():
     # and leaving it uncached would mean the query per request this exists to avoid.
     _platform_cache['maintenance_mode'] = (value, now + _TENANT_CACHE_TTL)
     return value
+
+
+def _activate_tenant_timezone(tenant):
+    """Render this request's datetimes in the boutique's own timezone.
+
+    A boutique in Chennai and one in Dubai read different clocks off the same
+    stored instant, so the zone is a property of the tenant rather than of the
+    deployment. settings.TIME_ZONE stays UTC and the database is untouched.
+    """
+    from core.formatting import tenant_timezone
+    timezone.activate(tenant_timezone(tenant))
 
 
 class TenantHeaderMiddleware(TenantMainMiddleware):
@@ -260,6 +272,12 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
             tenant.domain_url = request.get_host()
             request.tenant = tenant
             connection.set_tenant(request.tenant)
+            # Presentation only. Storage stays UTC -- activate() changes how a
+            # datetime is RENDERED for the rest of this request, never how it is
+            # written. Bound here because this is the one place every request
+            # already resolves its boutique, so no view has to remember to.
+            _activate_tenant_timezone(tenant)
             self.setup_url_routing(request)
         else:
             connection.set_schema_to_public()
+            timezone.deactivate()

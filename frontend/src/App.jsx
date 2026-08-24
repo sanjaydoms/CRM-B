@@ -5,10 +5,15 @@ import {
   MessageSquare, Star, Copy, ShieldCheck, Compass, BarChart2,
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
-  FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu
+  FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu,
+  PenTool
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
+import {
+  formatMoney, formatDate as fmtDate, formatDateTime as fmtDateTime,
+  formatTime as fmtTime, setBoutiqueTimeZone,
+} from './services/format';
 // The inventory panel and the design studio are whole screens behind their own
 // tabs, and together they are a sixth of the bundle. Loading them eagerly made
 // every first paint -- including the login screen -- wait on code most sessions
@@ -19,6 +24,7 @@ const DesignStudio = lazy(() => import('./features/designStudio/DesignStudio'));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
 const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
+const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 import { MobileHeader } from './components/ui/MobileHeader';
@@ -729,14 +735,11 @@ function App() {
   const [fabricFilter, setFabricFilter] = useState('All');
   const [selectedTailor, setSelectedTailor] = useState(null);
   const [selectedMaster, setSelectedMaster] = useState(null);
-  const [quotePrices, setQuotePrices] = useState({
-    base: 0,
-    fabric: 0,
-    embroidery: 7500,
-    customization: 2500,
-    tailoring: 5000,
-    packaging: 500
-  });
+  // Order-level money only. Everything garment-shaped -- base, fabric,
+  // embroidery, customization, tailoring -- lives on each entry in
+  // garmentJobs.pricing now, because one flat set is exactly how a Blouse +
+  // Lehenga order came to be priced as whichever garment the profile named.
+  const [quotePrices, setQuotePrices] = useState({ packaging: 500, discount: 0 });
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
   // Fabrics CRUD State
@@ -784,16 +787,11 @@ function App() {
     description: ''
   });
 
-  // Sync quote prices dynamically based on Garment and Fabric selections
-  useEffect(() => {
-    const base = GARMENT_PRICES[customerForm.garment_type] || 15000;
-    const fabric = fabricTab === 'boutique' && selectedFabric ? parseFloat(selectedFabric.price_per_meter) * 3 : 0.00;
-    setQuotePrices(prev => ({
-      ...prev,
-      base,
-      fabric
-    }));
-  }, [customerForm.garment_type, selectedFabric, fabricTab]);
+  // The old effect that synced a single base/fabric price from
+  // customerForm.garment_type is gone: money is seeded per garment in
+  // addGarment and edited per garment on the review step. A boutique fabric's
+  // suggested charge is applied to a garment when the owner types it, not
+  // guessed at three metres against whichever dress came first.
 
   // The garment list drives the whole order form, and comes from the catalogue
   // rather than a hardcoded array.
@@ -823,7 +821,15 @@ function App() {
     if (garmentJobs.some(job => job.key === key)) return;
     try {
       const template = await api.getGarmentTemplate(key);
-      setGarmentJobs(prev => [...prev, { key, template, values: {}, quantities: {} }]);
+      setGarmentJobs(prev => [...prev, {
+        key, template, values: {}, quantities: {},
+        // A starting quote, not a price list: the owner edits these on the
+        // review step and the server persists what was confirmed. Add-ons
+        // start at zero -- pre-filling ₹7,500 of embroidery on every dress was
+        // the flat model's habit, and it billed work nobody had asked for.
+        pricing: { base: GARMENT_PRICES[template.name] || 15000, fabric: 0,
+                   embroidery: 0, customization: 0, tailoring: 0 },
+      }]);
     } catch (err) {
       console.error(err);
       alert('Could not load that garment form.');
@@ -941,6 +947,8 @@ function App() {
       measurements: splitSpec(job.template, job.values).measurements,
       values: job.values,
       quantities: job.quantities || {},
+      pricing: job.pricing || {},
+      design: job.design || {},
       materials: garmentMaterialFields(job).map(({ field, itemId }) => ({
         field_key: field.key,
         inventory_item: itemId,
@@ -988,10 +996,26 @@ function App() {
           template,
           values: garment.values || {},
           quantities: garment.quantities || {},
+          pricing: garment.pricing || {},
+          design: garment.design || {},
         });
       } catch (err) {
         console.error('Could not reload the garment template', garment.template_key, err);
       }
+    }
+    // A draft written before pricing moved per-garment holds one flat price
+    // set. Put it on the first garment -- which is exactly what the flat model
+    // meant by it -- so the owner sees the same money and the next save writes
+    // the draft forward in the new shape.
+    const hasJobPricing = rebuilt.some(job =>
+      Object.values(job.pricing || {}).some(v => parseFloat(v || 0)));
+    if (!hasJobPricing && rebuilt.length && prices) {
+      rebuilt[0] = { ...rebuilt[0], pricing: {
+        base: prices.base || 0, fabric: prices.fabric || 0,
+        embroidery: prices.embroidery || 0,
+        customization: prices.customization || 0,
+        tailoring: prices.tailoring || 0,
+      } };
     }
     setGarmentJobs(rebuilt);
 
@@ -1000,7 +1024,8 @@ function App() {
     if (design.source) setDesignSource(design.source);
     setSelectedDesignTemplates(design.templates || []);
     if (fabric.tab) setFabricTab(fabric.tab);
-    if (prices) setQuotePrices(prices);
+    if (prices) setQuotePrices({ packaging: prices.packaging ?? 500,
+                                 discount: prices.discount ?? 0 });
     if (delivery.method) setDeliveryMethod(delivery.method);
     if (payment.option) setPaymentOption(payment.option);
     if (payment.advance !== undefined) setAdvancePaymentAmount(payment.advance);
@@ -1260,7 +1285,9 @@ function App() {
           // containment step 7 actually has, and it is enforced by simply
           // never requesting the data rather than by trusting a permission
           // check that does not exist server-side.
-          setDashboardTab('designs');
+          // The queue, not the upload folder: what a designer signs in for is
+          // what has been asked of them.
+          setDashboardTab('designWork');
           return;
         }
         if (isProductionStaff(user.role)) {
@@ -1332,7 +1359,12 @@ function App() {
       load('appointments', api.getAppointments, setAppointments),
       load('fabrics', api.getFabrics, setFabrics),
       load('designs', api.getAllBoutiqueDesigns, setAllDesigns),
-      load('settings', api.getBoutiqueSettings, setBoutiqueSettings),
+      load('settings', api.getBoutiqueSettings, (data) => {
+        setBoutiqueSettings(data);
+        // Every date and time this session renders now uses the boutique's own
+        // clock, matching what the server prints on the customer's page.
+        setBoutiqueTimeZone(data?.timezone);
+      }),
       load('notifications', () => fetchNotifications(user), () => {})
     ];
 
@@ -1514,7 +1546,7 @@ function App() {
       if (res.user.role === 'Designer') {
         // See the matching branch in checkAuthSession for why this skips
         // fetchDashboardAndConfig entirely rather than fetching and hiding.
-        setDashboardTab('designs');
+        setDashboardTab('designWork');
         return;
       }
       if (isProductionStaff(res.user.role)) {
@@ -1926,14 +1958,26 @@ function App() {
     }
   };
 
+  // Preview arithmetic only. The server recomputes all of this at confirm
+  // through domains/orders/pricing.py and stores ITS answer; these exist so
+  // the sidebar can show the owner the same number the server will reach.
+  const PRICING_FIELDS = [
+    ['base', 'Base price'], ['fabric', 'Fabric'], ['embroidery', 'Embroidery & work'],
+    ['customization', 'Customization'], ['tailoring', 'Tailoring'],
+  ];
+  const jobSubtotal = (job) =>
+    PRICING_FIELDS.reduce((sum, [key]) => sum + parseFloat(job.pricing?.[key] || 0), 0);
+  const setJobPrice = (jobKey, field, value) => {
+    setGarmentJobs(prev => prev.map(job => job.key === jobKey
+      ? { ...job, pricing: { ...(job.pricing || {}), [field]: value } }
+      : job));
+  };
+
   const getSubtotal = () => {
-    const base = parseFloat(quotePrices.base || 0);
-    const fabricPrice = parseFloat(quotePrices.fabric || 0);
-    const embroidery = parseFloat(quotePrices.embroidery || 0);
-    const customization = parseFloat(quotePrices.customization || 0);
-    const tailoring = parseFloat(quotePrices.tailoring || 0);
+    const garments = garmentJobs.reduce((sum, job) => sum + jobSubtotal(job), 0);
     const packaging = parseFloat(quotePrices.packaging || 0);
-    return base + fabricPrice + embroidery + customization + tailoring + packaging;
+    const discount = parseFloat(quotePrices.discount || 0);
+    return garments + packaging - discount;
   };
 
   const getTaxes = () => {
@@ -1969,12 +2013,58 @@ function App() {
   // this screen, which is the only screen a tailor has, threw it away and told
   // them "No active orders are assigned to you at the moment." Work was handed
   // out and the person was never told.
+  /** A garment's shortlist changed.
+   *
+   *  Before Confirm this is the only home the selection has, so it goes on the
+   *  garment in the draft payload -- the same place its spec, materials and
+   *  price already live. After Confirm the board is real and this just tracks
+   *  which board the order carries.
+   */
+  const handleGarmentBoardChange = (garmentKey, state) => {
+    if (state?.items !== undefined) {
+      setGarmentJobs(prev => prev.map(job => job.key === garmentKey
+        ? { ...job, design: { items: state.items, selected: state.selected || null } }
+        : job));
+    }
+    setDesignBoard(state);
+  };
+
+  /** The stage this order is actually sitting on: the first one nobody has
+   *  finished with, in the workflow's own declared order. */
+  const liveStage = (order) => {
+    const config = boutiqueSettings?.workflow_config || [];
+    const status = Object.fromEntries(
+      (order.stages || []).map(s => [s.stage_key, s.status]));
+    return config.find(
+      s => !['COMPLETED', 'SKIPPED'].includes(status[s.key] || 'NOT_STARTED')) || null;
+  };
+
   const isMyAssignment = (order) => {
     const me = currentUser?.tailor_id;
     if (!me) return false;
-    return order.master === me
-      || order.tailor === me
-      || (order.stages || []).some(s => s.assigned_to === me);
+    if (order.master === me
+        || order.tailor === me
+        || (order.stages || []).some(s => s.assigned_to === me)) return true;
+
+    // Work that has reached a stage this role performs, which nobody had to
+    // hand over first. The three clauses above are all personal attachment: a
+    // QC Master is never order.tailor (the stitcher) or order.master (the
+    // supervisor), so before this the dashboard re-filtered the server's queue
+    // straight back out and showed them nothing.
+    //
+    // Reads the stage's own `roles` -- the same list the server checks in
+    // visible_orders and check_transition, and the same one
+    // eligibleStaffForStage already reads here. One declaration, so this
+    // cannot drift from what the API will actually allow.
+    //
+    // Owner and Master are excluded deliberately: every stage names them, so
+    // including them would put the entire boutique under "My Assignments".
+    // They see the floor through the order list, and their assignments stay
+    // the work that is personally theirs -- which mirrors the server, where
+    // supervisors return early and never consult the queue at all.
+    if (currentUser?.role === 'Owner' || currentUser?.role === 'Master') return false;
+    const live = liveStage(order);
+    return !!live && (live.roles || []).includes(currentUser?.role);
   };
 
   // Opens the stage review panel for a given order and stage.
@@ -2713,12 +2803,14 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> Inventory</a>
                   <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> Manage Tailors</a>
                   <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Manage Designs</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
                 </>
               ) : currentUser.role === 'Master' ? (
                 <>
                   <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
                   <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
                   <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
                 </>
               ) : currentUser.role === 'Designer' ? (
                 // A designer's account exists for exactly one thing: their own
@@ -2726,7 +2818,14 @@ function App() {
                 // item is offered, matching the module's permission matrix --
                 // see docs/design-management.md section 4 for the caveat that
                 // this is a UI restriction, not an API-level one.
-                <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Design Studio</a>
+                <>
+                  {/* The work queue leads: a designer signs in to find what has
+                      been asked of them, not to browse their own upload folder.
+                      It carries no customer or financial data -- the API sends a
+                      designer a narrower payload than it sends the owner. */}
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> My Work</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Design Studio</a>
+                </>
               ) : (
                 <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
               )}
@@ -2817,7 +2916,7 @@ function App() {
                               <div>
                                 <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</span>
                                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                  Client: {order.customer_name} | Est. Delivery: {order.estimated_delivery ? new Date(order.estimated_delivery).toLocaleDateString() : 'TBD'}
+                                  Client: {order.customer_name} | Est. Delivery: {order.estimated_delivery ? fmtDate(order.estimated_delivery) : 'TBD'}
                                 </div>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -3599,7 +3698,7 @@ function App() {
                             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Material: {fabric.material}</span>
                             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Color: {fabric.color}</span>
                             <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--accent-color, #d4af37)', marginTop: '4px' }}>
-                              ₹{parseFloat(fabric.price_per_meter).toLocaleString('en-IN')}/mtr
+                              {formatMoney(fabric.price_per_meter)}/mtr
                             </span>
                           </div>
                         </div>
@@ -3887,6 +3986,32 @@ function App() {
               </>
             )}
 
+            {/* 4b. DESIGN WORK TAB -- assign, submit, review. One component for
+                 both ends of the loop; see features/designStudio/DesignWork. */}
+            {dashboardTab === 'designWork' && (
+              <>
+                <header className="portal-header">
+                  <div className="portal-header-left">
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                        Design Work
+                      </h1>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        {currentUser?.role === 'Designer'
+                          ? 'The garments you have been asked to design.'
+                          : 'Assign a garment to a designer, and review what comes back.'}
+                      </p>
+                    </div>
+                  </div>
+                </header>
+                <div className="portal-content">
+                  <Suspense fallback={<ScreenLoading />}>
+                    <DesignWork currentUser={currentUser} />
+                  </Suspense>
+                </div>
+              </>
+            )}
+
             {/* 4. MANAGE DESIGNS TAB */}
             {dashboardTab === 'designs' && (
               <>
@@ -4126,7 +4251,7 @@ function App() {
                                 </span>
                               </div>
                               <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                Client: <strong>{order.customer_name}</strong> | Created: {new Date(order.order_date).toLocaleDateString()}
+                                Client: <strong>{order.customer_name}</strong> | Created: {fmtDate(order.order_date)}
                               </div>
                               {(() => {
                                 const v = order.master_verification || {};
@@ -4215,7 +4340,7 @@ function App() {
                             )}
                             <div>
                               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Est. Delivery</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? new Date(order.estimated_delivery).toLocaleDateString() : 'TBD'}</div>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : 'TBD'}</div>
                             </div>
                           </div>
 
@@ -4468,7 +4593,7 @@ function App() {
                             <div>📞 {formatMobile(cust.mobile_number)}</div>
                             {cust.email_address && <div>✉️ {cust.email_address}</div>}
                             {cust.address && <div>📍 {cust.address}, {cust.city_region}</div>}
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Registered: {new Date(cust.created_at).toLocaleDateString()}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Registered: {fmtDate(cust.created_at)}</div>
                           </div>
                         </div>
 
@@ -4910,7 +5035,7 @@ function App() {
                                 <div>
                                   <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</div>
                                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                    Date: {new Date(order.order_date).toLocaleDateString()} | Tailor: {order.tailor_name || 'Not assigned'}
+                                    Date: {fmtDate(order.order_date)} | Tailor: {order.tailor_name || 'Not assigned'}
                                   </div>
                                   {stages.length > 0 && (
                                     <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
@@ -4965,7 +5090,7 @@ function App() {
                                           </div>
                                           {stage.completed_at && (
                                             <div style={{ color: 'var(--text-muted)' }}>
-                                              {new Date(stage.completed_at).toLocaleDateString()}
+                                              {fmtDate(stage.completed_at)}
                                             </div>
                                           )}
                                         </div>
@@ -4977,7 +5102,7 @@ function App() {
                                     <span>Payment: <strong style={{ color: 'var(--text-primary)' }}>{order.payment_status}</strong></span>
                                     <span>Delivery: <strong style={{ color: 'var(--text-primary)' }}>{order.delivery_method}</strong></span>
                                     {order.estimated_delivery && (
-                                      <span>Expected: <strong style={{ color: 'var(--text-primary)' }}>{new Date(order.estimated_delivery).toLocaleDateString()}</strong></span>
+                                      <span>Expected: <strong style={{ color: 'var(--text-primary)' }}>{fmtDate(order.estimated_delivery)}</strong></span>
                                     )}
                                   </div>
 
@@ -4990,13 +5115,13 @@ function App() {
                                         ...selectedDirectoryCustomer,
                                         measurements: selectedDirectoryCustomer.measurements || DEFAULT_CUSTOMER_DATA.measurements
                                       });
+                                      // Garment prices are per garment now and
+                                      // the dresses are re-added on step 3, so
+                                      // they re-quote there; only the order-level
+                                      // money carries over.
                                       setQuotePrices({
-                                        base: order.base_price,
-                                        fabric: order.fabric_price,
-                                        embroidery: order.embroidery_price,
-                                        customization: order.customization_price,
-                                        tailoring: order.tailoring_charges,
-                                        packaging: order.packaging_handling
+                                        packaging: order.packaging_handling,
+                                        discount: order.discount || 0,
                                       });
                                       setCurrentStep(3);
                                       setView('wizard');
@@ -5242,15 +5367,15 @@ function App() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginTop: '24px' }}>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Collected Revenue</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#107c41', marginTop: '8px' }}>₹{paidTotal.toLocaleString('en-IN')}</div>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#107c41', marginTop: '8px' }}>{formatMoney(paidTotal)}</div>
                       </div>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Outstanding Balance</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#d4af37', marginTop: '8px' }}>₹{pendingTotal.toLocaleString('en-IN')}</div>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#d4af37', marginTop: '8px' }}>{formatMoney(pendingTotal)}</div>
                       </div>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Invoiced Volume</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>₹{grandTotal.toLocaleString('en-IN')}</div>
+                        <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>{formatMoney(grandTotal)}</div>
                       </div>
                     </div>
                   );
@@ -5347,9 +5472,9 @@ function App() {
                           <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
                             <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 600 }}>{order.order_id}</td>
                             <td style={{ padding: '16px' }}>{order.customer_name}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{new Date(order.order_date).toLocaleDateString()}</td>
-                            <td style={{ padding: '16px', fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString('en-IN')}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>₹{parseFloat(order.advance_paid || 0).toLocaleString('en-IN')}</td>
+                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{fmtDate(order.order_date)}</td>
+                            <td style={{ padding: '16px', fontWeight: 600 }}>{formatMoney(order.total_amount)}</td>
+                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatMoney(order.advance_paid)}</td>
                             {/* Editable, because until now there was no screen
                                 anywhere that could record a part payment. The
                                 only control was the status dropdown beside it,
@@ -5398,7 +5523,7 @@ function App() {
                                 style={{ width: '110px', padding: '4px 6px', fontSize: '13px', fontWeight: 600, color: '#107c41', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'transparent' }}
                               />
                             </td>
-                            <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>₹{Math.max(0, parseFloat(order.total_amount) - parseFloat(order.amount_paid || 0)).toLocaleString('en-IN')}</td>
+                            <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>{formatMoney(Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)))}</td>
                             <td style={{ padding: '16px' }}>
                               <select 
                                 value={order.payment_status}
@@ -7223,17 +7348,44 @@ function App() {
 
                   {designSourceTab === 'studio' && (
                     <Suspense fallback={<ScreenLoading />}>
-                      <DesignStudio
-                        customerId={customerId}
-                        orderInput={{
-                          garment_type: customerForm.garment_type,
-                          occasion: customerForm.occasion,
-                          budget: quotePrices.base
-                        }}
-                        notes={designNotes}
-                        onNotesChange={setDesignNotes}
-                        onBoardChange={setDesignBoard}
-                      />
+                      {/* One studio per dress. The order-level
+                          customerForm.garment_type used to drive this, so a
+                          Blouse + Lehenga order searched twice for whichever
+                          garment the profile happened to name and both dresses
+                          got the same suggestions. Each garment now carries its
+                          own context, keyed on its own spec.
+
+                          `customerId` is null for a new customer and that is
+                          correct: the studio personalises from the draft until
+                          Confirm mints the customer. Nothing here creates one. */}
+                      {garmentJobs.length === 0 ? (
+                        <p style={{ color: 'var(--text-secondary)', padding: '20px 0' }}>
+                          Choose a garment on step one to see designs matched to it.
+                        </p>
+                      ) : garmentJobs.map(job => (
+                        <div key={job.key} style={{ marginBottom: '28px' }}>
+                          {garmentJobs.length > 1 && (
+                            <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '10px' }}>
+                              {job.template?.name || job.key}
+                            </h3>
+                          )}
+                          <DesignStudio
+                            customerId={customerId}
+                            draftId={customerId ? null : draftId}
+                            garmentKey={job.key}
+                            garmentName={job.template?.name || job.key}
+                            initialItems={job.design?.items}
+                            orderInput={{
+                              garment_type: job.template?.key || job.key,
+                              occasion: customerForm.occasion,
+                              budget: jobSubtotal(job),
+                            }}
+                            notes={designNotes}
+                            onNotesChange={setDesignNotes}
+                            onBoardChange={(state) => handleGarmentBoardChange(job.key, state)}
+                          />
+                        </div>
+                      ))}
                     </Suspense>
                   )}
 
@@ -7465,7 +7617,7 @@ function App() {
                                 </div>
                                 <div className="fabric-details">
                                   <span className="fabric-title">{f.name} - {f.color}</span>
-                                  <span className="fabric-price">₹{f.price_per_meter.toLocaleString('en-IN')} / mtr</span>
+                                  <span className="fabric-price">{formatMoney(f.price_per_meter)} / mtr</span>
                                 </div>
                               </div>
                             );
@@ -8115,7 +8267,7 @@ function App() {
                           </div>
                           
                           <span style={{ fontSize: '20px', fontWeight: 800, display: 'block', color: 'var(--text-primary)', marginBottom: '16px' }}>
-                            ₹{getTotalPrice().toLocaleString('en-IN')}
+                            {formatMoney(getTotalPrice())}
                           </span>
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -8183,7 +8335,7 @@ function App() {
                                   showing the half here while sending zero would
                                   be worse, because the preview is the number
                                   the owner reads back to the customer. */}
-                              <span style={{ fontSize: '16px', fontWeight: 700 }}>₹{Math.max(0, getTotalPrice() - (Number(advancePaymentAmount) || 0)).toLocaleString('en-IN')}</span>
+                              <span style={{ fontSize: '16px', fontWeight: 700 }}>{formatMoney(Math.max(0, getTotalPrice() - (Number(advancePaymentAmount) || 0)))}</span>
                             </div>
                             <span style={{ fontSize: '8px', backgroundColor: '#e2f5ec', color: '#107c41', padding: '2px 4px', borderRadius: '2px', fontWeight: 600 }}>DUE AT DELIVERY</span>
                           </div>
@@ -8290,41 +8442,35 @@ function App() {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div className="summary-item-row">
-                    <span>Base Price ({customerForm.garment_type})</span>
-                    <span className="price-display">₹{parseFloat(quotePrices.base || 0).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="summary-item-row">
-                    <span>Fabric Charges (3 mtr)</span>
-                    <span className="price-display">₹{parseFloat(quotePrices.fabric || 0).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="summary-item-row">
-                    <span>Embroidery & Artisan Work</span>
-                    <span className="price-display">₹{parseFloat(quotePrices.embroidery || 0).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="summary-item-row">
-                    <span>Customization Charge</span>
-                    <span className="price-display">₹{parseFloat(quotePrices.customization || 0).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="summary-item-row">
-                    <span>Tailoring Charges</span>
-                    <span className="price-display">₹{parseFloat(quotePrices.tailoring || 0).toLocaleString('en-IN')}</span>
-                  </div>
+                  {/* One line per dress: each garment's own subtotal, because
+                      each garment carries its own price now. */}
+                  {garmentJobs.map(job => (
+                    <div className="summary-item-row" key={job.key}>
+                      <span>{job.template?.name || job.key}</span>
+                      <span className="price-display">{formatMoney(jobSubtotal(job))}</span>
+                    </div>
+                  ))}
                   <div className="summary-item-row">
                     <span>Packaging & Handling</span>
-                    <span className="price-display">₹{parseFloat(quotePrices.packaging || 0).toLocaleString('en-IN')}</span>
+                    <span className="price-display">{formatMoney(quotePrices.packaging)}</span>
                   </div>
+                  {parseFloat(quotePrices.discount || 0) > 0 && (
+                    <div className="summary-item-row">
+                      <span>Discount</span>
+                      <span className="price-display">−{formatMoney(quotePrices.discount)}</span>
+                    </div>
+                  )}
                   <div className="summary-item-row" style={{ borderTop: '1px solid #f1f3f5', paddingTop: '10px' }}>
                     <span>Subtotal</span>
-                    <span className="price-display">₹{getSubtotal().toLocaleString('en-IN')}</span>
+                    <span className="price-display">{formatMoney(getSubtotal())}</span>
                   </div>
                   <div className="summary-item-row">
                     <span>Taxes (GST 5%)</span>
-                    <span className="price-display">₹{getTaxes().toLocaleString('en-IN')}</span>
+                    <span className="price-display">{formatMoney(getTaxes())}</span>
                   </div>
                   <div className="summary-item-row total">
                     <span>Total Amount</span>
-                    <span className="price-display total">₹{getTotalPrice().toLocaleString('en-IN')}</span>
+                    <span className="price-display total">{formatMoney(getTotalPrice())}</span>
                   </div>
                 </div>
               </div>
@@ -8349,97 +8495,62 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginTop: '16px' }}>
-                    <div className="summary-item-row" style={{ alignItems: 'center' }}>
-                      <span>Base Price ({customerForm.garment_type})</span>
-                      {paymentPhase ? (
-                        <span className="price-display">₹{parseFloat(quotePrices.base || 0).toLocaleString('en-IN')}</span>
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>₹</span>
-                          <input 
-                            type="number" 
-                            value={quotePrices.base} 
-                            onChange={(e) => setQuotePrices({...quotePrices, base: e.target.value})} 
-                            style={{ width: '85px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '12px', textAlign: 'right', fontWeight: 600 }}
-                          />
+                    {/* Each dress prices itself. Editable until the payment
+                        phase, per garment, because "which dress is this money
+                        for" is the question the flat model could not answer. */}
+                    {garmentJobs.map(job => (
+                      <div key={job.key} style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '10px', borderBottom: '1px dashed var(--border-color)' }}>
+                        <div className="summary-item-row" style={{ fontWeight: 600 }}>
+                          <span>{job.template?.name || job.key}</span>
+                          <span className="price-display">{formatMoney(jobSubtotal(job))}</span>
                         </div>
-                      )}
-                    </div>
-                    <div className="summary-item-row" style={{ alignItems: 'center' }}>
-                      <span>Fabric ({selectedFabric ? selectedFabric.name : (fabricPreviews.length > 0 ? 'Uploaded Fabric' : 'Customer Fabric')})</span>
-                      {paymentPhase ? (
-                        <span className="price-display">₹{parseFloat(quotePrices.fabric || 0).toLocaleString('en-IN')}</span>
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>₹</span>
-                          <input 
-                            type="number" 
-                            value={quotePrices.fabric} 
-                            onChange={(e) => setQuotePrices({...quotePrices, fabric: e.target.value})} 
-                            style={{ width: '85px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '12px', textAlign: 'right', fontWeight: 600 }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <div className="summary-item-row" style={{ alignItems: 'center' }}>
-                      <span>Embroidery & Work</span>
-                      {paymentPhase ? (
-                        <span className="price-display">₹{parseFloat(quotePrices.embroidery || 0).toLocaleString('en-IN')}</span>
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>₹</span>
-                          <input 
-                            type="number" 
-                            value={quotePrices.embroidery} 
-                            onChange={(e) => setQuotePrices({...quotePrices, embroidery: e.target.value})} 
-                            style={{ width: '85px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '12px', textAlign: 'right', fontWeight: 600 }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <div className="summary-item-row" style={{ alignItems: 'center' }}>
-                      <span>Customization</span>
-                      {paymentPhase ? (
-                        <span className="price-display">₹{parseFloat(quotePrices.customization || 0).toLocaleString('en-IN')}</span>
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>₹</span>
-                          <input 
-                            type="number" 
-                            value={quotePrices.customization} 
-                            onChange={(e) => setQuotePrices({...quotePrices, customization: e.target.value})} 
-                            style={{ width: '85px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '12px', textAlign: 'right', fontWeight: 600 }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <div className="summary-item-row" style={{ alignItems: 'center' }}>
-                      <span>Tailoring Charges</span>
-                      {paymentPhase ? (
-                        <span className="price-display">₹{parseFloat(quotePrices.tailoring || 0).toLocaleString('en-IN')}</span>
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>₹</span>
-                          <input 
-                            type="number" 
-                            value={quotePrices.tailoring} 
-                            onChange={(e) => setQuotePrices({...quotePrices, tailoring: e.target.value})} 
-                            style={{ width: '85px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '12px', textAlign: 'right', fontWeight: 600 }}
-                          />
-                        </div>
-                      )}
-                    </div>
+                        {PRICING_FIELDS.map(([field, label]) => (
+                          <div className="summary-item-row" style={{ alignItems: 'center', paddingLeft: '10px' }} key={field}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{label}</span>
+                            {paymentPhase ? (
+                              <span className="price-display">{formatMoney(job.pricing?.[field])}</span>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>₹</span>
+                                <input
+                                  type="number"
+                                  value={job.pricing?.[field] ?? 0}
+                                  onChange={(e) => setJobPrice(job.key, field, e.target.value)}
+                                  style={{ width: '85px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '12px', textAlign: 'right', fontWeight: 600 }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
                     <div className="summary-item-row" style={{ alignItems: 'center' }}>
                       <span>Packaging & Handling</span>
                       {paymentPhase ? (
-                        <span className="price-display">₹{parseFloat(quotePrices.packaging || 0).toLocaleString('en-IN')}</span>
+                        <span className="price-display">{formatMoney(quotePrices.packaging)}</span>
                       ) : (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>₹</span>
-                          <input 
-                            type="number" 
-                            value={quotePrices.packaging} 
-                            onChange={(e) => setQuotePrices({...quotePrices, packaging: e.target.value})} 
+                          <input
+                            type="number"
+                            value={quotePrices.packaging}
+                            onChange={(e) => setQuotePrices({...quotePrices, packaging: e.target.value})}
+                            style={{ width: '85px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '12px', textAlign: 'right', fontWeight: 600 }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <div className="summary-item-row" style={{ alignItems: 'center' }}>
+                      <span>Discount (whole order)</span>
+                      {paymentPhase ? (
+                        <span className="price-display">−{formatMoney(quotePrices.discount)}</span>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>₹</span>
+                          <input
+                            type="number"
+                            value={quotePrices.discount}
+                            onChange={(e) => setQuotePrices({...quotePrices, discount: e.target.value})}
                             style={{ width: '85px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '12px', textAlign: 'right', fontWeight: 600 }}
                           />
                         </div>
@@ -8450,18 +8561,18 @@ function App() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
                     <div className="summary-item-row" style={{ fontWeight: 600 }}>
                       <span>Subtotal</span>
-                      <span className="price-display">₹{getSubtotal().toLocaleString('en-IN')}</span>
+                      <span className="price-display">{formatMoney(getSubtotal())}</span>
                     </div>
                     <div className="summary-item-row">
                       <span>Taxes (GST 5%)</span>
-                      <span className="price-display">₹{getTaxes().toLocaleString('en-IN')}</span>
+                      <span className="price-display">{formatMoney(getTaxes())}</span>
                     </div>
                     <div className="summary-item-row total" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         Total Amount <HelpCircle size={12} style={{ color: 'var(--text-secondary)' }} />
                       </span>
                       <span className="price-display total" style={{ color: '#107c41', fontSize: '20px', fontWeight: 700 }}>
-                        ₹{getTotalPrice().toLocaleString('en-IN')}
+                        {formatMoney(getTotalPrice())}
                       </span>
                     </div>
                   </div>
@@ -8565,7 +8676,7 @@ function App() {
             <div className="meta-info-block">
               <span className="meta-info-label">Order Date</span>
               <span className="meta-info-val">
-                {new Date(confirmedOrder.order_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                {fmtDate(confirmedOrder.order_date)}
               </span>
             </div>
             <div className="meta-info-block">
@@ -8579,10 +8690,10 @@ function App() {
                   does no grouping, so it printed ₹51502.50 rather than
                   ₹51,502.50. parseFloat fixes the second half. */}
               <span className="meta-info-val" style={{ color: confirmedOrder.payment_status === 'Paid' ? 'var(--success-color)' : 'var(--text-primary)' }}>
-                {confirmedOrder.payment_status} • ₹{parseFloat(confirmedOrder.amount_paid || 0).toLocaleString('en-IN')}
+                {confirmedOrder.payment_status} • {formatMoney(confirmedOrder.amount_paid)}
                 {confirmedOrder.payment_status !== 'Paid' && (
                   <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>
-                    {' '}of ₹{parseFloat(confirmedOrder.total_amount || 0).toLocaleString('en-IN')}
+                    {' '}of {formatMoney(confirmedOrder.total_amount)}
                   </span>
                 )}
               </span>
@@ -8590,7 +8701,7 @@ function App() {
             <div className="meta-info-block">
               <span className="meta-info-label">Estimated Delivery</span>
               <span className="meta-info-val">
-                {new Date(confirmedOrder.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                {fmtDate(confirmedOrder.estimated_delivery)}
               </span>
             </div>
           </div>
@@ -8745,7 +8856,7 @@ function App() {
                   <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>INVOICE</h2>
                   <span style={{ fontSize: '12px', display: 'block', marginTop: '4px' }}>Invoice ID: <strong>{confirmedOrder.order_id}</strong></span>
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                    Date: {new Date(confirmedOrder.order_date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                    Date: {fmtDate(confirmedOrder.order_date)}
                   </span>
                 </div>
               </div>
@@ -8793,7 +8904,7 @@ function App() {
                       Assigned Tailor: <strong>{confirmedOrder.tailor_name}</strong>
                     </span>
                   )}
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>Estimated Delivery: {new Date(confirmedOrder.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>Estimated Delivery: {fmtDate(confirmedOrder.estimated_delivery)}</span>
                 </div>
               </div>
 
@@ -8850,39 +8961,79 @@ function App() {
                   </tr>
                 </thead>
                 <tbody style={{ fontSize: '12px' }}>
-                  <tr style={{ borderBottom: '2px solid #eaecef' }}>
-                    <td style={{ padding: '16px 8px' }}>
-                      {/* Every garment on the order. This printed
-                          customer_garment_type, so a two-garment order was
-                          invoiced as one garment at the full price of both --
-                          a bill the customer could reasonably dispute.
-                          ponytail: one priced line listing all garments, because
-                          pricing is still per-order. Split into a line per
-                          garment once each garment type carries its own
-                          configured price. */}
-                      <strong style={{ fontSize: '14px', color: '#0f291e' }}>
-                        Bespoke Handcrafted {orderGarmentLabel(confirmedOrder)}
-                      </strong>
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        {orderGarmentNames(confirmedOrder).length > 1
-                          ? `${orderGarmentNames(confirmedOrder).length} custom garments, each tailored to its own measurement specifications.`
-                          : 'Custom garment design tailored to individual measurement specifications.'}
-                      </span>
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                        Fabric: {Number(confirmedOrder.fabric_price) > 0 ? `Boutique fabric — ₹${confirmedOrder.fabric_price}` : 'Customer Supplied Fabric'}
-                      </span>
-                    </td>
-                    {/* The line item is the amount BEFORE tax -- the same
-                        expression the Subtotal row below uses. It printed
-                        total_amount, which already includes the 5%, so the
-                        invoice read: line item Rs33,075, Subtotal Rs31,500,
-                        Tax Rs1,575, Total Rs33,075. The one column a customer
-                        adds up did not add up, on the document they are asked
-                        to pay against. */}
-                    <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>
-                      ₹{(parseFloat(confirmedOrder.total_amount || 0) - parseFloat(confirmedOrder.taxes || 0)).toLocaleString('en-IN')}
-                    </td>
-                  </tr>
+                  {/* One priced line per garment -- the day the old ponytail
+                      note here waited for. Each row is that job's own
+                      components summed; orders from before per-garment pricing
+                      have all-zero jobs and keep the single combined line, so
+                      an old invoice reprints exactly as it was issued. */}
+                  {(() => {
+                    const jobs = confirmedOrder.garment_jobs || [];
+                    const jobTotal = (job) =>
+                      ['base_price', 'fabric_price', 'embroidery_price',
+                       'customization_price', 'tailoring_charges']
+                        .reduce((sum, key) => sum + parseFloat(job[key] || 0), 0);
+                    const priced = jobs.filter(job => jobTotal(job) > 0);
+                    if (!priced.length) {
+                      return (
+                        <tr style={{ borderBottom: '2px solid #eaecef' }}>
+                          <td style={{ padding: '16px 8px' }}>
+                            <strong style={{ fontSize: '14px', color: '#0f291e' }}>
+                              Bespoke Handcrafted {orderGarmentLabel(confirmedOrder)}
+                            </strong>
+                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                              {orderGarmentNames(confirmedOrder).length > 1
+                                ? `${orderGarmentNames(confirmedOrder).length} custom garments, each tailored to its own measurement specifications.`
+                                : 'Custom garment design tailored to individual measurement specifications.'}
+                            </span>
+                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                              Fabric: {Number(confirmedOrder.fabric_price) > 0 ? `Boutique fabric — ₹${confirmedOrder.fabric_price}` : 'Customer Supplied Fabric'}
+                            </span>
+                          </td>
+                          {/* Before tax, matching the Subtotal row below. */}
+                          <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>
+                            {formatMoney(Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.taxes || 0))}
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <>
+                        {priced.map(job => (
+                          <tr key={job.id} style={{ borderBottom: '1px solid #eaecef' }}>
+                            <td style={{ padding: '12px 8px' }}>
+                              <strong style={{ fontSize: '13px', color: '#0f291e' }}>
+                                Bespoke Handcrafted {job.template_name || 'Garment'}
+                              </strong>
+                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                {parseFloat(job.fabric_price || 0) > 0
+                                  ? `Includes boutique fabric — ${formatMoney(job.fabric_price)}`
+                                  : 'Customer supplied fabric'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, fontSize: '13px' }}>
+                              {formatMoney(jobTotal(job))}
+                            </td>
+                          </tr>
+                        ))}
+                        {parseFloat(confirmedOrder.packaging_handling || 0) > 0 && (
+                          <tr style={{ borderBottom: '1px solid #eaecef' }}>
+                            <td style={{ padding: '12px 8px', fontSize: '12px' }}>Packaging & Handling</td>
+                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600, fontSize: '12px' }}>
+                              {formatMoney(confirmedOrder.packaging_handling)}
+                            </td>
+                          </tr>
+                        )}
+                        {parseFloat(confirmedOrder.discount || 0) > 0 && (
+                          <tr style={{ borderBottom: '2px solid #eaecef' }}>
+                            <td style={{ padding: '12px 8px', fontSize: '12px' }}>Discount</td>
+                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600, fontSize: '12px', color: '#107c41' }}>
+                              −{formatMoney(confirmedOrder.discount)}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })()}
                 </tbody>
               </table>
 
@@ -8896,16 +9047,16 @@ function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
                     <span>Subtotal</span>
                     <strong style={{ fontWeight: 600 }}>
-                      ₹{(parseFloat(confirmedOrder.total_amount || 0) - parseFloat(confirmedOrder.taxes || 0)).toLocaleString('en-IN')}
+                      {formatMoney(Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.taxes || 0))}
                     </strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
                     <span>Taxes (GST 5%)</span>
-                    <strong style={{ fontWeight: 600 }}>₹{parseFloat(confirmedOrder.taxes || 0).toLocaleString('en-IN')}</strong>
+                    <strong style={{ fontWeight: 600 }}>{formatMoney(confirmedOrder.taxes)}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 6px 0', borderTop: '2px solid #0f291e', fontSize: '16px' }}>
                     <span style={{ fontWeight: 700, color: '#0f291e' }}>Total Amount</span>
-                    <strong style={{ fontWeight: 800, color: '#107c41' }}>₹{parseFloat(confirmedOrder.total_amount || 0).toLocaleString('en-IN')}</strong>
+                    <strong style={{ fontWeight: 800, color: '#107c41' }}>{formatMoney(confirmedOrder.total_amount)}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)', borderTop: '1px solid #eaecef', marginTop: '6px' }}>
                     <span>Payment Status</span>
@@ -8927,11 +9078,11 @@ function App() {
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
                         <span>Paid</span>
-                        <strong style={{ fontWeight: 600 }}>₹{parseFloat(confirmedOrder.amount_paid || 0).toLocaleString('en-IN')}</strong>
+                        <strong style={{ fontWeight: 600 }}>{formatMoney(confirmedOrder.amount_paid)}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
                         <span>Balance Due</span>
-                        <strong style={{ fontWeight: 600 }}>₹{Math.max(0, parseFloat(confirmedOrder.total_amount || 0) - parseFloat(confirmedOrder.amount_paid || 0)).toLocaleString('en-IN')}</strong>
+                        <strong style={{ fontWeight: 600 }}>{formatMoney(Math.max(0, Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.amount_paid || 0)))}</strong>
                       </div>
                     </>
                   )}

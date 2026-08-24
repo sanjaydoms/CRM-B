@@ -91,6 +91,8 @@ class GarmentJobSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'order', 'template', 'template_key', 'template_name',
             'template_version', 'spec', 'measurements', 'sequence', 'materials',
+            'base_price', 'fabric_price', 'embroidery_price',
+            'customization_price', 'tailoring_charges',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['template_version', 'created_at', 'updated_at']
@@ -102,6 +104,15 @@ class GarmentJobSerializer(serializers.ModelSerializer):
         the form would have rejected, so this is not a duplicate check -- it is
         the authoritative one.
         """
+        # Money first, spec second: a negative component is a typo whatever
+        # the garment is. DecimalField already rejects non-numbers; the sign is
+        # the check it does not make.
+        from domains.orders.pricing import JOB_COMPONENTS
+        for field in JOB_COMPONENTS:
+            value = attrs.get(field)
+            if value is not None and value < 0:
+                raise serializers.ValidationError({field: 'cannot be negative.'})
+
         template = attrs.get('template') or getattr(self.instance, 'template', None)
         if template is None:
             return attrs

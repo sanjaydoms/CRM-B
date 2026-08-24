@@ -38,7 +38,14 @@ def order_tracking(request, token):
     # it can be stale, if the boutique was deleted since the link was sent.
     # Checking it against the tenant table keeps a dead schema out of
     # search_path instead of surfacing as a 500.
-    if not get_tenant_model().objects.filter(schema_name=schema_name).exists():
+    # Fetched, not merely existence-checked: this page renders times for the
+    # customer, and the boutique's timezone lives on this row. schema_context
+    # binds a FakeTenant carrying only a schema name, so nothing inside the
+    # block below can recover the real one -- the timezone has to be carried in
+    # from here or every boutique silently renders in the platform default,
+    # which is the India-shaped assumption this design exists to avoid.
+    tenant = get_tenant_model().objects.filter(schema_name=schema_name).first()
+    if tenant is None:
         raise Http404
 
     with schema_context(schema_name):
@@ -95,6 +102,9 @@ def order_tracking(request, token):
 
         context = {
             'boutique': boutique,
+            # Read by the boutique_format filters, which cannot find it on the
+            # connection here for the reason given above.
+            'tenant': tenant,
             'order': order,
             'customer': order.customer,
             'garments': garments,

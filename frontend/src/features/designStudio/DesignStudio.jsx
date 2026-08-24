@@ -130,7 +130,25 @@ function AttributePanel({ attributes }) {
  * wizard can attach it once the order actually exists — the board is built
  * before there is an order to attach it to.
  */
-export default function DesignStudio({ customerId, orderInput = {}, onBoardChange, notes, onNotesChange }) {
+export default function DesignStudio({
+  customerId, draftId, garmentKey, garmentName,
+  initialItems, orderInput = {}, onBoardChange, notes, onNotesChange,
+}) {
+  // One of the two identifies who this is for. Before Confirm there is no
+  // Customer row -- deliberately, so an abandoned order leaves nothing behind
+  // -- and the draft is the whole of what is known. The server resolves either
+  // into the same context, so nothing below this line asks which it was.
+  const source = customerId
+    ? { customer_id: customerId }
+    : (draftId ? { draft_id: draftId } : null);
+  const sourceKey = customerId || draftId || '';
+  // Before Confirm there is no customer to own a board, so a shortlist lives in
+  // the draft and is reported upward for the wizard to persist. It becomes a
+  // real board at Confirm, against the real customer, attached to this garment.
+  // Declared here with the other source derivations because the effect that
+  // reports selections upward reads it, and that effect is defined above
+  // ensureBoard -- a `const` further down is in its temporal dead zone.
+  const draftMode = !customerId;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [context, setContext] = useState(null);
@@ -151,12 +169,13 @@ export default function DesignStudio({ customerId, orderInput = {}, onBoardChang
   const selectedItem = items.find((item) => item.is_selected) || null;
 
   const runSearch = useCallback(async (extraKeywords = keywords, sourceKeys = activeSources) => {
-    if (!customerId) return;
+    if (!source) return;
     setLoading(true);
     setError('');
     try {
       const data = await api.discoverDesigns({
-        customer_id: customerId,
+        ...source,
+        ...(garmentKey ? { garment_key: garmentKey } : {}),
         garment_type: orderInput.garment_type || '',
         occasion: orderInput.occasion || '',
         budget: orderInput.budget || undefined,
@@ -173,7 +192,7 @@ export default function DesignStudio({ customerId, orderInput = {}, onBoardChang
     } finally {
       setLoading(false);
     }
-  }, [customerId, orderInput.garment_type, orderInput.occasion, orderInput.budget, orderInput.delivery_timeline, keywords, activeSources]);
+  }, [sourceKey, garmentKey, orderInput.garment_type, orderInput.occasion, orderInput.budget, orderInput.delivery_timeline, keywords, activeSources]);
 
   useEffect(() => {
     // Deferred by a tick so the search is kicked off after the commit rather
@@ -183,7 +202,7 @@ export default function DesignStudio({ customerId, orderInput = {}, onBoardChang
     const timer = setTimeout(() => { if (!cancelled) runSearch(); }, 0);
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId, orderInput.garment_type, orderInput.occasion]);
+  }, [sourceKey, garmentKey, orderInput.garment_type, orderInput.occasion]);
 
   // Recover the customer's existing board before reporting anything upward.
   //
@@ -207,7 +226,16 @@ export default function DesignStudio({ customerId, orderInput = {}, onBoardChang
   const [boardLoaded, setBoardLoaded] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    if (!customerId) { setBoardLoaded(true); return; }
+    // A board is a persisted shortlist and belongs to a real customer, so
+    // there is none to load before Confirm. The draft holds the selection in
+    // its own payload until then -- see the wizard's serialiseWizard.
+    if (!customerId) {
+      // Re-hydrate whatever this garment had shortlisted in the draft, so a
+      // refresh or a resume comes back to the same board.
+      if (initialItems && initialItems.length) setItems(initialItems);
+      setBoardLoaded(true);
+      return;
+    }
     api.getDesignBoards({ customer_id: customerId })
       .then((boards) => {
         if (cancelled) return;
@@ -227,10 +255,18 @@ export default function DesignStudio({ customerId, orderInput = {}, onBoardChang
     // "no board" and undoes the very state it is about to load.
     if (!boardLoaded) return;
     if (onBoardChange) {
-      onBoardChange({ boardId: board?.id || null, selected: selectedItem, approved: board?.status === 'APPROVED' });
+      onBoardChange({
+        boardId: board?.id || null,
+        selected: selectedItem,
+        approved: board?.status === 'APPROVED',
+        // Draft mode has no board to re-read, so the whole shortlist travels
+        // up for the wizard to store on this garment in the draft payload.
+        items: draftMode ? items : undefined,
+        garmentKey,
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardLoaded, board?.id, board?.status, selectedItem?.id]);
+  }, [boardLoaded, board?.id, board?.status, selectedItem?.id, items.length, draftMode]);
 
   const ensureBoard = async () => {
     if (board) return board;
@@ -239,7 +275,31 @@ export default function DesignStudio({ customerId, orderInput = {}, onBoardChang
     return created;
   };
 
+  /** Draft-time shortlist: state here, persistence in the draft payload. */
+  const draftToggle = (design) => {
+    setItems((prev) => {
+      const key = `${design.source}:${design.source_ref}`;
+      const existing = prev.find((i) => `${i.source}:${i.source_ref}` === key);
+      if (existing) return prev.filter((i) => i !== existing);
+      return [...prev, {
+        id: key, source: design.source, source_ref: design.source_ref,
+        title: design.title, image_url: design.image_url,
+        source_url: design.source_url || '', attributes: design.attributes || {},
+        colour_palette: design.colour_palette || [],
+        match_score: design.match_score || 0,
+        match_reasons: design.match_reasons || [],
+        is_selected: false,
+      }];
+    });
+  };
+
+  const draftSelect = (item) => {
+    setItems((prev) => prev.map(
+      (i) => ({ ...i, is_selected: i.id === item.id ? !i.is_selected : false })));
+  };
+
   const handleShortlist = async (design) => {
+    if (draftMode) { draftToggle(design); return; }
     try {
       const target = await ensureBoard();
       const existing = items.find((i) => i.source === design.source && i.source_ref === design.source_ref);
@@ -256,6 +316,7 @@ export default function DesignStudio({ customerId, orderInput = {}, onBoardChang
   };
 
   const handleSelect = async (item) => {
+    if (draftMode) { draftSelect(item); return; }
     try {
       const updated = await api.selectBoardDesign(board.id, item.id);
       setBoard(updated);

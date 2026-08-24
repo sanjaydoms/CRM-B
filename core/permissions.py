@@ -140,13 +140,86 @@ class OwnerOnly(permissions.BasePermission):
         return resolve_user_role(request.user) == OWNER
 
 
+#: A stage nobody has finished with. The inverse of workflow.SETTLED_STATUSES,
+#: spelled here so this module does not import the engine just for a constant.
+UNSETTLED_STATUSES = ('NOT_STARTED', 'IN_PROGRESS', 'PAUSED')
+
+
+def stages_for_role(config, role):
+    """The stage keys this role is declared able to perform.
+
+    Reads workflow_config's own `roles` list -- the SAME declaration
+    workflow.check_transition enforces on the way in. That shared source is the
+    point: a role is shown exactly the work it is permitted to do, so
+    "what I can see" and "what I may touch" cannot drift apart. Two lists would.
+    """
+    return [s['key'] for s in (config or [])
+            if s.get('key') and role in (s.get('roles') or [])]
+
+
+def queue_order_ids(queryset, user, role):
+    """Orders sitting on this role's desk right now.
+
+    Work "has reached" a role when a stage they may perform is still open AND
+    everything required before it is settled -- which is precisely the condition
+    workflow.check_transition would accept, asked ahead of time instead of at
+    the moment of the click.
+
+    This is what makes a specialist role discoverable at all. A QC Master is
+    never order.tailor (that is the stitcher) nor order.master (that is the
+    supervisor), so before this they saw an order only if a human remembered to
+    run assign-stage against them. Orders reached quality check and sat there
+    invisible, and the inspection got completed by whoever could see it.
+
+    Readiness is what keeps it honest in the other direction: without it, every
+    order ever taken would carry a NOT_STARTED quality-check stage and the whole
+    order book would land in the QC Master's lap on day one. They see the ones
+    actually waiting for them, and nothing else.
+
+    ponytail: one small query per stage the role owns. Specialists own one stage
+    each and Masters short-circuit above, so this is 1-2 queries in practice.
+    Fold into a single window function if a boutique ever declares a role onto
+    many stages.
+    """
+    from crm_api.models import BoutiqueSettings, OrderStage
+    from domains.orders.workflow import prerequisites
+
+    config = BoutiqueSettings.objects.values_list(
+        'workflow_config', flat=True).filter(id=1).first() or []
+
+    ids = set()
+    for stage_key in stages_for_role(config, role):
+        earlier = [s['key'] for s in prerequisites(config, stage_key)]
+        ready = queryset.filter(
+            stages__stage_key=stage_key, stages__status__in=UNSETTLED_STATUSES)
+        if earlier:
+            # An explicit subquery, NOT exclude(stages__a=..., stages__b=...).
+            # Across a multi-valued relation Django compiles that pair into two
+            # INDEPENDENT EXISTS clauses -- "has some earlier stage" AND "has
+            # some unsettled stage" -- which are satisfied by different rows.
+            # Every order sitting at quality check still has unsettled stages
+            # after it (trial, delivery), so that form excluded every order in
+            # the boutique and the queue came back empty. Both conditions have
+            # to describe ONE stage row, which is what this says.
+            blocked = OrderStage.objects.filter(
+                stage_key__in=earlier, status__in=UNSETTLED_STATUSES
+            ).values('order_id')
+            ready = ready.exclude(pk__in=blocked)
+        ids.update(ready.values_list('id', flat=True))
+    return ids
+
+
 def visible_orders(queryset, user):
     """Narrow `queryset` to the orders this user is allowed to see.
 
     Owners and Masters see the floor. Everyone else sees the orders they are on
-    -- as the assigned tailor, as the master, or through a stage assigned to
-    them -- because a tailor reading the whole order book is how a customer
-    list walks out of the building.
+    -- as the assigned tailor, as the master, through a stage assigned to them,
+    or because the order has reached a stage their role performs -- because a
+    tailor reading the whole order book is how a customer list walks out of the
+    building.
+
+    That last clause is the work queue. The three before it are all personal
+    attachment, which a specialist never has until somebody grants it by hand.
     """
     role = resolve_user_role(user)
     if role == OWNER or role in SUPERVISOR_ROLES:
@@ -157,9 +230,12 @@ def visible_orders(queryset, user):
         return queryset.none()
 
     from django.db.models import Q
-    return queryset.filter(
-        Q(tailor=profile) | Q(master=profile) | Q(stages__assigned_to=profile)
-    ).distinct()
+    match = (Q(tailor=profile) | Q(master=profile)
+             | Q(stages__assigned_to=profile))
+    queued = queue_order_ids(queryset, user, role)
+    if queued:
+        match |= Q(pk__in=queued)
+    return queryset.filter(match).distinct()
 
 
 def visible_customers(queryset, user):
@@ -185,8 +261,13 @@ def visible_customers(queryset, user):
     # unnecessary, and the trailing .distinct() that was papering over the row
     # list goes too.
     from django.db.models import Q
-    from crm_api.models import Customer
-    return queryset.filter(pk__in=Customer.objects.filter(
-        Q(orders__tailor=profile) | Q(orders__master=profile)
-        | Q(orders__stages__assigned_to=profile)
-    ).values('pk'))
+    from crm_api.models import Customer, Order
+    match = (Q(orders__tailor=profile) | Q(orders__master=profile)
+             | Q(orders__stages__assigned_to=profile))
+    # Kept deliberately in step with visible_orders: a role that can see an
+    # order must be able to resolve whose it is, or the queue renders rows with
+    # no customer on them.
+    queued = queue_order_ids(Order.objects.all(), user, role)
+    if queued:
+        match |= Q(orders__id__in=queued)
+    return queryset.filter(pk__in=Customer.objects.filter(match).values('pk'))

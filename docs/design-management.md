@@ -396,6 +396,64 @@ security surface, and the one honest gap above is what is left of it.
 
 ---
 
+## 9b. Assignment workflow (P1.1)
+
+Steps 1–7 built the library: who *drew* a design, uploads, approval, logins.
+None of it could say who had been *asked* to draw one, for which garment, or
+whether the work ever came back — a designer signing in saw their own upload
+folder and no work at all. `DesignAssignment` closes that loop.
+
+**Keyed on `GarmentJob`, not `Order`.** A `DesignBoard` is per-order (OneToOne),
+which was fine when an order meant one dress. A two-garment order needs the
+lehenga's design and the blouse's design to be structurally distinct rows —
+there is no field in which one garment's design could be recorded against the
+other. OneToOne per job: a garment has one design owner at a time; reassignment
+replaces the designer on the row (refused with 409 once approved) and the
+activity log carries the history.
+
+**The loop:** Owner or Master `POST /assignments/` (garment_job + designer +
+brief + due date) → the Designer's queue (`GET /assignments/?open=1`, scoped to
+their own rows by `visible_assignments`) → `POST /assignments/{id}/submit/`
+with one of their own designs (owner-or-credit checked; an uncredited upload is
+credited to them on submit) → `POST /assignments/{id}/review/` with
+`approve`/`changes`. `changes` reopens the work with the review note attached;
+`open` means everything short of APPROVED, because a SUBMITTED design is open
+on the *reviewer's* desk.
+
+**Two serializers, one boundary.** The Owner/Master shape carries the customer
+name; `DesignerAssignmentSerializer` carries the garment spec, measurements and
+brief — everything needed to do the work — and no customer identity or pricing.
+This is the first order-shaped payload a Designer can fetch at all, so §4.2's
+"no customer information" line is drawn in the payload, not just the nav.
+Roles: Owner/Master assign and review; Designer lists/retrieves/submits own
+rows only; every other role (Tailor, QC Master, the rest of the split floor)
+is refused outright — the design brief still reaches the floor through the
+approved board, not through the assignment queue.
+
+Every transition writes a `UniversalActivity` row (`DESIGN_ASSIGNED`,
+`DESIGN_REASSIGNED`, `DESIGN_SUBMITTED`, `DESIGN_APPROVED`,
+`DESIGN_CHANGES_REQUESTED`), which is what the owner scrolls back through to
+answer "when did this go to her, and when did it come back".
+
+Frontend: one `DesignWork` component for both ends of the loop (supervisors get
+the assign form and review buttons, designers get the submit panel), mounted as
+the `designWork` tab. A Designer now lands on their work queue at login, not
+their upload folder.
+
+Tests: `apps/design_studio/test_assignments.py` (38: assignment, attribution
+across two garments/two designers, queue scoping, submission ownership, review
+cycle, role boundaries, activity, refresh/resume) plus two cross-tenant
+isolation tests in `tenants/tests.py` — TransactionTestCase flushes clash with
+TenantTestCase siblings under `--parallel`, which is why they live there.
+Fixing that flush exposed a real bug: the middleware's per-process tenant cache
+was never invalidated on tenant creation, so every `TenantTestCase` (all
+sharing schema `'test'`) could serve a *previous* class's tenant — including
+its `owner_email` — to the next class's requests. `tenants/apps.py` now clears
+the cache on `BoutiqueTenant` post_save/post_delete, replacing the four
+call-sites that each had to remember to do it by hand.
+
+---
+
 ## 10. Open questions
 
 - **Do designers need accounts now, or is attribution enough?** A `Designer` row

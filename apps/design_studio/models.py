@@ -23,7 +23,7 @@ from django.contrib.auth.models import User
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
-from apps.catalog.models import GarmentTemplate
+from apps.catalog.models import GarmentJob, GarmentTemplate
 from crm_api.models import Customer, Order, Tailor
 
 
@@ -342,6 +342,19 @@ class DesignBoardItem(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     board = models.ForeignKey(DesignBoard, on_delete=models.CASCADE, related_name='items')
+    # Which dress on the order this reference is for. Null for a board built
+    # before garments were priced and designed individually, and for an
+    # order-level reference that genuinely applies to the whole order.
+    #
+    # Deliberately on the ITEM and not the board: the board stays one per
+    # order, owned by one customer, with one lifecycle -- a second, draft-owned
+    # kind of board would have to be handled correctly by every query that
+    # reads boards, and missing one is how a shortlist shows up on a tailor's
+    # screen. A two-garment order is one board carrying items that each know
+    # their garment.
+    garment_job = models.ForeignKey(
+        'catalog.GarmentJob', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='design_items', db_index=True)
 
     source = models.CharField(max_length=32, db_index=True)
     source_ref = models.CharField(max_length=255, blank=True, default='')
@@ -369,12 +382,99 @@ class DesignBoardItem(models.Model):
     class Meta:
         ordering = ['position', '-match_score', 'created_at']
         constraints = [
+            # One selection per garment, not per board. The old rule was one
+            # per board, which was right while an order meant one dress and
+            # became wrong the moment it meant two: choosing the lehenga's
+            # design would have unselected the blouse's. Items with no garment
+            # keep the original one-per-board rule between them.
+            models.UniqueConstraint(
+                fields=['board', 'garment_job'],
+                condition=models.Q(is_selected=True),
+                name='design_board_single_selection_per_garment',
+            ),
             models.UniqueConstraint(
                 fields=['board'],
-                condition=models.Q(is_selected=True),
+                condition=models.Q(is_selected=True, garment_job__isnull=True),
                 name='design_board_single_selection',
             ),
         ]
 
     def __str__(self):
         return f"{self.title or self.source_ref} on {self.board_id}"
+
+
+class DesignAssignment(models.Model):
+    """One garment's design work, given to one designer.
+
+    Keyed on GarmentJob, not Order. A DesignBoard is per-order (OneToOne), which
+    was fine when an order meant one dress: the board *was* the design. It stops
+    being fine the moment an order carries a lehenga and its blouse, because one
+    board cannot say which of the two a design belongs to -- and a design that
+    cannot name its garment is a design that can be stitched onto the wrong one.
+    A job-keyed row makes that structural rather than a convention: there is no
+    field here in which a lehenga's design could be recorded against the blouse.
+
+    OneToOne rather than a list, because a garment has one design owner at a
+    time. Reassigning replaces the designer on the existing row and the activity
+    log carries the history -- see DesignApproval for the case where the history
+    is load-bearing enough to need its own table. It is not here: an assignment
+    has one live answer ("whose desk is this on?"), and the review verdict that
+    would need a log is the design's own, which DesignApproval already keeps.
+    """
+
+    class Status(models.TextChoices):
+        ASSIGNED = 'ASSIGNED', 'Assigned'
+        SUBMITTED = 'SUBMITTED', 'Submitted for review'
+        APPROVED = 'APPROVED', 'Approved'
+        CHANGES_REQUESTED = 'CHANGES_REQUESTED', 'Changes requested'
+
+    # Everything short of approved. Work is "open" while it is on ANYONE's
+    # desk: the designer's (assigned, or sent back for changes) or the
+    # reviewer's (submitted). Leaving SUBMITTED out hid a design from the
+    # owner's default queue at the exact moment it was waiting on them.
+    OPEN_STATUSES = (Status.ASSIGNED, Status.SUBMITTED, Status.CHANGES_REQUESTED)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    garment_job = models.OneToOneField(
+        GarmentJob, on_delete=models.CASCADE, related_name='design_assignment')
+    designer = models.ForeignKey(
+        Designer, on_delete=models.PROTECT, related_name='assignments', db_index=True)
+
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.ASSIGNED, db_index=True)
+    brief = models.TextField(
+        blank=True, default='',
+        help_text='What the owner is asking for, beyond what the spec already says.')
+    due_date = models.DateField(null=True, blank=True)
+
+    # The submitted work. Null until the designer submits; a library asset
+    # rather than a loose upload, so the design a garment carries is the same
+    # row the portfolio, the approval queue and the gallery already count.
+    design = models.ForeignKey(
+        DesignAsset, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='assignments')
+    submission_note = models.TextField(blank=True, default='')
+    review_note = models.TextField(blank=True, default='')
+
+    assigned_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='design_assignments_made')
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='design_assignments_reviewed')
+
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-assigned_at']
+        indexes = [
+            # The designer's work queue: their own rows, open ones first. This
+            # is the one query the module runs on every designer page load.
+            models.Index(fields=['designer', 'status'], name='design_assignment_queue'),
+        ]
+
+    def __str__(self):
+        return f"{self.garment_job} -> {self.designer.name} ({self.status})"

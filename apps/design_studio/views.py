@@ -15,39 +15,139 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.activities.models import UniversalActivity
-from core.roles import OWNER, resolve_user_role
+from core.roles import DESIGNER, OWNER, resolve_user_role
 from crm_api.models import Customer, Order
 
 from . import services
+from . import context as context_module
 from .context import build_context
 from .intelligence.registry import get_intelligence
 from apps.catalog.models import GarmentTemplate
 
-from .models import Collection, Designer, DesignApproval, DesignAsset, DesignBoard, DesignBoardItem
+from .models import (
+    Collection, Designer, DesignApproval, DesignAsset, DesignAssignment, DesignBoard,
+    DesignBoardItem,
+)
 from .permissions import (
-    MASTER, DesignLibraryPermission, DesignStudioPermission, OwnerOnly, visible_boards,
+    MASTER, DesignAssignmentPermission, DesignLibraryPermission, DesignStudioPermission,
+    OwnerOnly, visible_assignments, visible_boards,
 )
 from .providers.registry import source_status
 from .serializers import (
     DesignAssetSerializer, DesignBoardItemSerializer, DesignBoardSerializer,
     DesignerSerializer, CollectionSerializer, DesignApprovalSerializer,
+    DesignAssignmentSerializer, DesignerAssignmentSerializer,
     DiscoverRequestSerializer, TailorBriefSerializer,
 )
 
 
-def _log(request, board, action_name, title, description, new_value=None):
+def _log(request, entity, action_name, title, description, new_value=None,
+         entity_type="DesignBoard"):
+    """Write one studio activity row.
+
+    `entity` was named `board` and the type was hardcoded, which was accurate
+    while a board was the only thing in the module worth recording. An
+    assignment is the second, and it is the row an owner scrolls back through to
+    answer "when did this go to her, and when did it come back" -- so it logs
+    through here rather than growing a parallel logger that the activity feed
+    would not know to read.
+    """
     user = request.user if request.user.is_authenticated else None
     UniversalActivity.objects.create(
         user=user,
         user_name_snapshot=(user.get_full_name() or user.username) if user else "System",
         module="design_studio",
-        entity_type="DesignBoard",
-        entity_id=str(board.id),
+        entity_type=entity_type,
+        entity_id=str(entity.id),
         action=action_name,
         title=title,
         description=description,
         new_value=new_value or {},
     )
+
+
+def _resolve_subject(request, *, customer_id=None, draft_id=None, garment_key=None):
+    """Turn whatever the caller named into (subject, order_input).
+
+    The single place the two personalisation sources meet. A saved customer
+    resolves to their real profile and purchase history; an unconfirmed draft
+    resolves to what has been typed so far and no history. Everything past this
+    point sees one Subject and never asks which it was -- see context.Subject.
+
+    `garment_key` picks WHICH dress on the order is being designed. A
+    two-garment order has one customer and therefore one set of stored
+    preferences, so the garment's own spec is the only thing that tells its
+    context from its neighbour's; without this both would personalise
+    identically off customer.garment_type.
+    """
+    from crm_api.models import OrderDraft
+
+    order_input = {}
+    subject = None
+
+    if draft_id:
+        # The caller's own draft only. Drafts are personal until they become
+        # orders -- domains/orders/drafts.py enforces the same rule on every
+        # write -- so this must not become a way to read someone else's.
+        draft = OrderDraft.objects.filter(
+            pk=draft_id, created_by=request.user).first()
+        if draft is None:
+            return None, None, 'That draft does not exist, or is not yours.'
+        payload = draft.payload or {}
+
+        # A draft for a RETURNING customer still has a saved profile behind it,
+        # and that profile is where the history lives. Preferring it is what
+        # stops a returning customer being personalised as a stranger.
+        if draft.customer_id:
+            customer = (Customer.objects.select_related('measurements')
+                        .filter(pk=draft.customer_id).first())
+            if customer is not None:
+                subject = context_module.subject_from_customer(customer)
+        if subject is None:
+            subject = context_module.subject_from_draft(payload)
+
+        garments = payload.get('garments') or []
+        garment = None
+        if garment_key:
+            garment = next(
+                (g for g in garments
+                 if str(g.get('key')) == str(garment_key)
+                 or str(g.get('template_key')) == str(garment_key)), None)
+        elif len(garments) == 1:
+            # Unambiguous: one dress on the order is the one being designed.
+            garment = garments[0]
+        if garment is not None:
+            order_input = {
+                'garment_type': garment.get('template_key') or garment.get('key') or '',
+                'spec': garment.get('spec') or garment.get('values') or {},
+                'measurements': garment.get('measurements') or {},
+            }
+        elif garment_key:
+            return None, None, f'No garment "{garment_key}" on this draft.'
+        return subject, order_input, None
+
+    if not customer_id:
+        return None, None, 'customer_id or draft_id is required'
+
+    customer = get_object_or_404(
+        Customer.objects.select_related('measurements'), pk=customer_id)
+    subject = context_module.subject_from_customer(customer)
+
+    # A confirmed order's garment job is the post-Confirm equivalent of the
+    # draft garment above: after Confirm the persisted job is canonical and the
+    # draft is gone, so the same per-garment context has to come from here.
+    if garment_key:
+        from apps.catalog.models import GarmentJob
+        job = (GarmentJob.objects.select_related('template')
+               .filter(pk=garment_key, order__customer=customer).first())
+        if job is None:
+            return None, None, 'No such garment on this customer\'s orders.'
+        order_input = {
+            'garment_type': job.template.key,
+            'spec': job.spec or {},
+            'measurements': job.measurements or {},
+        }
+    return subject, order_input, None
 
 
 class DesignContextView(views.APIView):
@@ -56,16 +156,22 @@ class DesignContextView(views.APIView):
     permission_classes = [OwnerOnly]
 
     def get(self, request):
-        customer_id = request.query_params.get('customer_id')
-        if not customer_id:
-            return Response({'detail': 'customer_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        customer = get_object_or_404(Customer.objects.select_related('measurements'), pk=customer_id)
-        order_input = {
+        subject, order_input, error = _resolve_subject(
+            request,
+            customer_id=request.query_params.get('customer_id'),
+            draft_id=request.query_params.get('draft_id'),
+            garment_key=request.query_params.get('garment_key'))
+        if error:
+            return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+        # Explicit query params still win -- they are what the wizard is
+        # holding right now, ahead of both the draft and the saved profile.
+        order_input = dict(order_input or {})
+        order_input.update({
             key: request.query_params[key]
             for key in ('garment_type', 'occasion', 'budget', 'delivery_timeline')
             if request.query_params.get(key)
-        }
-        context = build_context(customer, order_input)
+        })
+        context = build_context(subject, order_input)
         return Response({
             'context': context.to_dict(),
             'suggested_queries': get_intelligence().generate_queries(context),
@@ -83,17 +189,27 @@ class DesignDiscoveryView(views.APIView):
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
 
-        customer = get_object_or_404(
-            Customer.objects.select_related('measurements'), pk=data['customer_id'])
+        subject, order_input, error = _resolve_subject(
+            request,
+            customer_id=data.get('customer_id'),
+            draft_id=data.get('draft_id'),
+            garment_key=data.get('garment_key'))
+        if error:
+            return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+
+        order_input = dict(order_input or {})
+        order_input.update({
+            key: value for key, value in (
+                ('garment_type', data.get('garment_type', '')),
+                ('occasion', data.get('occasion', '')),
+                ('budget', data.get('budget')),
+                ('delivery_timeline', data.get('delivery_timeline', '')),
+            ) if value not in (None, '')
+        })
 
         outcome = services.discover(
-            customer,
-            order_input={
-                'garment_type': data.get('garment_type', ''),
-                'occasion': data.get('occasion', ''),
-                'budget': data.get('budget'),
-                'delivery_timeline': data.get('delivery_timeline', ''),
-            },
+            subject,
+            order_input=order_input,
             extra_keywords=data.get('keywords'),
             sources=data.get('sources'),
             limit=data.get('limit', 40),
@@ -706,3 +822,189 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
         _log(request, board, "DESIGN_SAVED_TO_ORDER", f"Design saved to {order.order_id}",
              f"The approved design is now attached to order {order.order_id}.")
         return Response(self.get_serializer(board).data)
+
+
+class DesignAssignmentViewSet(viewsets.ModelViewSet):
+    """Design work as a job on someone's desk, rather than a credit on a file.
+
+    The module could already say who *drew* a design. It could not say who has
+    been *asked* to draw one, for which garment, or whether it came back -- so a
+    designer signing in saw their own upload folder and no work at all. These
+    four endpoints are that missing loop: assign, queue, submit, review.
+    """
+
+    permission_classes = [DesignAssignmentPermission]
+
+    def get_queryset(self):
+        queryset = (DesignAssignment.objects
+                    .select_related('designer', 'design', 'garment_job',
+                                    'garment_job__template', 'garment_job__order',
+                                    'garment_job__order__customer'))
+        queryset = visible_assignments(queryset, self.request.user)
+
+        # `open` is the work queue: what is still on a designer's desk. Kept as
+        # a filter on the list rather than its own endpoint so the Owner's
+        # "who owes me a design" and the Designer's "what do I owe" are one
+        # query with one permission rule behind it.
+        if self.request.query_params.get('open') in ('1', 'true', 'True'):
+            queryset = queryset.filter(status__in=DesignAssignment.OPEN_STATUSES)
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+        designer_id = self.request.query_params.get('designer_id')
+        if designer_id:
+            queryset = queryset.filter(designer_id=designer_id)
+        order_id = self.request.query_params.get('order_id')
+        if order_id:
+            queryset = queryset.filter(garment_job__order__order_id=order_id)
+        return queryset
+
+    def get_serializer_class(self):
+        if resolve_user_role(self.request.user) == DESIGNER:
+            return DesignerAssignmentSerializer
+        return DesignAssignmentSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Assign a garment's design work, or move it to a different designer.
+
+        A garment job holds one assignment, so a second POST for the same
+        garment is a reassignment rather than an error -- an owner correcting a
+        mistaken pick should not have to find and delete a row first. What it
+        must not do is quietly discard finished work: reassigning an assignment
+        that has already been approved would strip an approved design off the
+        garment with nothing recording that it was ever there.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        job = serializer.validated_data['garment_job']
+        designer = serializer.validated_data['designer']
+
+        # ponytail: read-then-write; two simultaneous first-assigns race to the
+        # OneToOne constraint and the loser 500s. A double-click lands here
+        # sequentially and takes the reassign path, which is the case that
+        # matters; take select_for_update if real concurrent assignment appears.
+        existing = DesignAssignment.objects.filter(garment_job=job).first()
+        if existing is not None:
+            if existing.status == DesignAssignment.Status.APPROVED:
+                return Response(
+                    {'detail': "This garment's design is already approved. "
+                               "Request changes on it before reassigning."},
+                    status=status.HTTP_409_CONFLICT)
+            previous = existing.designer
+            existing.designer = designer
+            existing.brief = serializer.validated_data.get('brief', existing.brief)
+            existing.due_date = serializer.validated_data.get('due_date', existing.due_date)
+            # Back to square one for the new designer: the previous designer's
+            # submission is not their work to have submitted.
+            existing.status = DesignAssignment.Status.ASSIGNED
+            existing.design = None
+            existing.submission_note = ''
+            existing.assigned_by = request.user if request.user.is_authenticated else None
+            existing.save()
+            _log(request, existing, "DESIGN_REASSIGNED",
+                 f"Design work reassigned: {job.template.name}",
+                 f"{job.template.name} on {job.order.order_id} moved from "
+                 f"{previous.name} to {designer.name}.",
+                 {"garment_job": str(job.id), "from": previous.name, "to": designer.name},
+                 entity_type="DesignAssignment")
+            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
+
+        assignment = serializer.save(
+            assigned_by=request.user if request.user.is_authenticated else None)
+        _log(request, assignment, "DESIGN_ASSIGNED",
+             f"Design work assigned: {job.template.name}",
+             f"{job.template.name} on {job.order.order_id} assigned to {designer.name}.",
+             {"garment_job": str(job.id), "designer": designer.name,
+              "due_date": str(assignment.due_date or '')},
+             entity_type="DesignAssignment")
+        return Response(self.get_serializer(assignment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['POST'])
+    def submit(self, request, pk=None):
+        """The designer hands the finished design back.
+
+        The design must be one the designer actually owns. Without that check
+        the endpoint would take any design id in the library -- so a designer
+        could satisfy their assignment with the boutique's own catalogue row,
+        or with a colleague's upload, and the garment would carry a design its
+        credited author never agreed to put on it.
+        """
+        assignment = self.get_object()
+        role = resolve_user_role(request.user)
+        if role == DESIGNER:
+            profile = getattr(request.user, 'designer_profile', None)
+            if profile is None or assignment.designer_id != profile.id:
+                return Response({'detail': 'This assignment is not yours to submit.'},
+                                status=status.HTTP_403_FORBIDDEN)
+        if assignment.status == DesignAssignment.Status.APPROVED:
+            return Response({'detail': 'This design has already been approved.'},
+                            status=status.HTTP_409_CONFLICT)
+
+        design_id = request.data.get('design')
+        if not design_id:
+            return Response({'detail': 'A design is required to submit.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        design = DesignAsset.objects.filter(pk=design_id).first()
+        if design is None:
+            return Response({'detail': 'That design does not exist.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if role == DESIGNER and not (
+                design.created_by_id == request.user.id
+                or design.designer_ref_id == assignment.designer_id):
+            return Response(
+                {'detail': 'You can only submit a design you uploaded or are credited on.'},
+                status=status.HTTP_403_FORBIDDEN)
+
+        assignment.design = design
+        assignment.submission_note = request.data.get('note', '')
+        assignment.status = DesignAssignment.Status.SUBMITTED
+        assignment.submitted_at = timezone.now()
+        assignment.save()
+        # Credit the design to the designer who was asked for it, if the upload
+        # never named anyone. This is what makes the portfolio count commissioned
+        # work rather than only self-initiated uploads.
+        if design.designer_ref_id is None:
+            design.designer_ref_id = assignment.designer_id
+            design.save(update_fields=['designer_ref'])
+
+        job = assignment.garment_job
+        _log(request, assignment, "DESIGN_SUBMITTED",
+             f"Design submitted: {job.template.name}",
+             f"{assignment.designer.name} submitted \"{design.title}\" for "
+             f"{job.template.name} on {job.order.order_id}.",
+             {"garment_job": str(job.id), "design": str(design.id), "title": design.title},
+             entity_type="DesignAssignment")
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=True, methods=['POST'])
+    def review(self, request, pk=None):
+        """Owner or Master approves the submitted design, or sends it back."""
+        assignment = self.get_object()
+        if assignment.design_id is None:
+            return Response({'detail': 'There is no submitted design to review.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        decision = (request.data.get('decision') or '').upper()
+        if decision not in ('APPROVE', 'CHANGES'):
+            return Response({'detail': "decision must be 'approve' or 'changes'."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        assignment.status = (DesignAssignment.Status.APPROVED if decision == 'APPROVE'
+                             else DesignAssignment.Status.CHANGES_REQUESTED)
+        assignment.review_note = request.data.get('note', '')
+        assignment.reviewed_by = request.user if request.user.is_authenticated else None
+        assignment.reviewed_at = timezone.now()
+        assignment.save()
+
+        job = assignment.garment_job
+        approved = assignment.status == DesignAssignment.Status.APPROVED
+        _log(request, assignment,
+             "DESIGN_APPROVED" if approved else "DESIGN_CHANGES_REQUESTED",
+             f"Design {'approved' if approved else 'sent back'}: {job.template.name}",
+             f"{assignment.design.title} for {job.template.name} on "
+             f"{job.order.order_id} was "
+             f"{'approved' if approved else 'returned for changes'}.",
+             {"garment_job": str(job.id), "design": str(assignment.design_id),
+              "note": assignment.review_note},
+             entity_type="DesignAssignment")
+        return Response(self.get_serializer(assignment).data)

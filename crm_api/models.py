@@ -348,6 +348,10 @@ class Order(models.Model):
     customization_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     tailoring_charges = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     packaging_handling = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    # Order-level: one discount against the whole bill, applied after the
+    # garment subtotals and packaging, before tax. Per-garment haggling is not
+    # a thing the counter does; the bill gets one concession.
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     taxes = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     advance_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)

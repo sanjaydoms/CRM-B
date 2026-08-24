@@ -3,6 +3,7 @@ import secrets
 from django.db import models, transaction
 from core.roles import OWNER, resolve_user_role
 from crm_api.models import Order, OrderStage, OrderActivity, Tailor, BoutiqueSettings
+from core.formatting import format_money
 from domains.orders.notifications import create_order_notifications
 from domains.orders import workflow
 
@@ -169,28 +170,33 @@ class OrderService:
         # dashboard's revenue below zero, and total_amount is
         # DecimalField(max_digits=10), so anything from 10^8 up died as an
         # unhandled psycopg DataError behind a generic "Failed to submit order".
+        discount = safe_float(data.get('discount', 0.0))
+
         components = {
             'base_price': base_price, 'fabric_price': fabric_price,
             'embroidery_price': embroidery_price,
             'customization_price': customization_price,
             'tailoring_charges': tailoring_charges,
             'packaging_handling': packaging_handling,
+            'discount': discount,
         }
         for field, value in components.items():
             if value < 0:
                 raise ValueError(f'{field} cannot be negative.')
+        del components['discount'], components['packaging_handling']
 
-        subtotal = sum(components.values())
-        taxes = subtotal * 0.05
-        total_amount = subtotal + taxes
-
-        # max_digits=10, decimal_places=2 -> 99,999,999.99 is the ceiling the
-        # column can actually hold. Refuse it here with a message rather than
-        # letting the driver raise one nobody can act on.
-        if total_amount > 99_999_999:
-            raise ValueError(
-                'Order total exceeds the maximum this system can record '
-                '(99,999,999). Check the prices entered.')
+        # The arithmetic itself -- tax rate, discount ordering, the column
+        # ceiling -- lives in domains.orders.pricing and ONLY there. Whatever
+        # the client sent for taxes or total_amount is ignored: this recompute
+        # is what gets stored, so a manipulated payload can change nothing but
+        # its own component inputs, which the caller legitimately owns anyway.
+        from . import pricing
+        _, taxes_dec, total_dec = pricing.totals_from_amounts(
+            {k: pricing.to_money(v) for k, v in components.items()},
+            pricing.to_money(packaging_handling),
+            pricing.to_money(discount))
+        taxes = float(taxes_dec)
+        total_amount = float(total_dec)
 
         order_id = _generate_order_id()
         # The wizard asks for a delivery date per garment, and that date is what
@@ -256,6 +262,7 @@ class OrderService:
             customization_price=customization_price,
             tailoring_charges=tailoring_charges,
             packaging_handling=packaging_handling,
+            discount=discount,
             taxes=taxes,
             total_amount=total_amount,
             estimated_delivery=est_delivery,
@@ -337,7 +344,8 @@ class OrderService:
             entity_id=order.order_id,
             action="ORDER_CREATED",
             title=f"New Order {order.order_id}",
-            description=f"Order created for client {customer.first_name} {customer.last_name} (Total: ₹{order.total_amount:.2f})",
+            description=(f"Order created for client {customer.first_name} "
+                         f"{customer.last_name} (Total: {format_money(order.total_amount)})"),
             new_value={"order_id": order.order_id, "total_amount": float(order.total_amount)}
         )
 
@@ -561,4 +569,10 @@ class OrderService:
             created=False,
             status_changed=order.order_status != previous_order_status,
         )
+        # Only when this transition actually finished something. Starting or
+        # pausing a stage does not move the order on, and announcing a queue
+        # arrival on every keystroke is how a notification list stops being read.
+        if new_status in ('COMPLETED', 'SKIPPED'):
+            from domains.orders.notifications import notify_next_stage_owners
+            notify_next_stage_owners(order)
         return order

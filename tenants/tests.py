@@ -1,12 +1,17 @@
 from contextlib import contextmanager
 from pathlib import Path
 
+from django.contrib.auth.models import User
 from django.db import connection
 from django.test import Client, TransactionTestCase
 from django_tenants.utils import schema_context
+from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
-from crm_api.models import Customer
+from apps.catalog.models import GarmentJob, GarmentTemplate
+from apps.catalog.services import sync_global_templates
+from apps.design_studio.models import Designer, DesignAssignment
+from crm_api.models import Customer, Order
 from tenants.middleware import clear_platform_cache, clear_tenant_cache
 from tenants.models import BoutiqueTenant, DemoRequest, Domain
 from tenants.views import HONEYPOT_FIELD
@@ -760,3 +765,238 @@ class MultiBoutiqueLoginTests(TransactionTestCase):
                 tenant_a.is_active = True
                 tenant_a.save(update_fields=['is_active'])
             clear_tenant_cache()
+
+
+class DesignAssignmentIsolationTests(TransactionTestCase):
+    """One boutique's design workload must not be reachable from another's.
+
+    Schema separation is what django-tenants gives for free, but "for free"
+    is exactly the kind of claim that stops being true the first time a
+    queryset is built outside the tenant connection. The assignment queue is
+    worth pinning specifically: it is the one designer-facing endpoint that
+    reaches through a garment job into an order and a customer, so a leak here
+    is a leak of another boutique's client list, not just its workload.
+
+    Lives here rather than beside the rest of the assignment tests in
+    apps/design_studio/. TransactionTestCase flushes the database between tests,
+    and a flush inside a module whose other classes are TenantTestCase leaves a
+    sibling class reading a tenant that is no longer the one it set up -- under
+    --parallel that surfaced as design_studio's own owner-address guard passing
+    an address it should have refused. This module has no TenantTestCase in it,
+    which is the same reason every other cross-tenant test here does.
+    """
+
+    def _seed(self, schema, designer_email, order_id, designer_name):
+        """Give a tenant one order, one garment and one assigned designer."""
+        with schema_context(schema):
+            sync_global_templates()
+            customer = Customer.objects.create(
+                first_name="Client", last_name=schema, mobile_number="9600003333")
+            order = Order.objects.create(order_id=order_id, customer=customer)
+            job = GarmentJob.objects.create(
+                order=order, template=GarmentTemplate.objects.filter(key='lehenga').first(),
+                sequence=0)
+            user = User.objects.create_user(
+                username=designer_email, email=designer_email, password="pass12345")
+            designer = Designer.objects.create(
+                name=designer_name, email=designer_email, user=user)
+            DesignAssignment.objects.create(garment_job=job, designer=designer)
+            token, _ = Token.objects.get_or_create(user=user)
+            return token.key
+
+    def _list_assignments(self, token_key, tenant_header):
+        client = APIClient()
+        # The token and the header travel together: APIClient.credentials()
+        # replaces per-request headers, so a header set on the call is lost.
+        client.credentials(HTTP_AUTHORIZATION='Token ' + token_key,
+                           HTTP_X_TENANT_ID=tenant_header)
+        return client.get('/api/design-studio/assignments/')
+
+    def test_a_designer_cannot_read_another_boutiques_assignments(self):
+        with temporary_tenant('asn_test_a', 'a@asn.test', 'Atelier A'), \
+                temporary_tenant('asn_test_b', 'b@asn.test', 'Atelier B'):
+            key_a = self._seed('asn_test_a', 'meera@asn-a.test', 'T2B-A-0001', 'Meera')
+            self._seed('asn_test_b', 'kavya@asn-b.test', 'T2B-B-0001', 'Kavya')
+
+            # Tenant A's designer, holding a live token, addressing tenant B.
+            response = self._list_assignments(key_a, 'asn_test_b')
+            rows = response.data if response.status_code == 200 else []
+            rows = rows['results'] if isinstance(rows, dict) else rows
+            # Either the credential is refused outright or it resolves to no
+            # designer profile in B's schema. What must never happen is B's
+            # assignment coming back.
+            self.assertNotIn('T2B-B-0001', str(rows))
+            self.assertNotIn('Kavya', str(rows))
+
+    def test_each_boutique_sees_exactly_its_own_row(self):
+        with temporary_tenant('asn_test_c', 'c@asn.test', 'Atelier C'), \
+                temporary_tenant('asn_test_d', 'd@asn.test', 'Atelier D'):
+            key_c = self._seed('asn_test_c', 'meera@asn-c.test', 'T2B-C-0001', 'Meera')
+            key_d = self._seed('asn_test_d', 'kavya@asn-d.test', 'T2B-D-0001', 'Kavya')
+
+            # Alternate, so a stale search_path shows up as a wrong result
+            # rather than as a consistently-right one.
+            for _ in range(2):
+                rows_c = self._list_assignments(key_c, 'asn_test_c').data
+                rows_c = rows_c['results'] if isinstance(rows_c, dict) else rows_c
+                self.assertEqual([r['order_ref'] for r in rows_c], ['T2B-C-0001'])
+
+                rows_d = self._list_assignments(key_d, 'asn_test_d').data
+                rows_d = rows_d['results'] if isinstance(rows_d, dict) else rows_d
+                self.assertEqual([r['order_ref'] for r in rows_d], ['T2B-D-0001'])
+
+
+class TenantCacheInvalidationTests(TransactionTestCase):
+    """The middleware's per-process tenant cache clears when a tenant is written.
+
+    This is the infrastructure behind a test-suite failure that only parallel
+    execution exposed: every TenantTestCase shares the schema name 'test', and
+    with nothing invalidating the cache, class B's requests were served class
+    A's tenant row -- owner_email included -- for up to the TTL. In production
+    the same staleness window applied to sign-up and rename. tenants/apps.py
+    now clears on BoutiqueTenant post_save/post_delete; these pin that signal
+    directly, so the fix cannot be quietly dropped without a named failure.
+    """
+
+    def test_saving_a_tenant_clears_the_cache(self):
+        from tenants.middleware import _get_tenant_by_schema, _tenant_cache
+        with temporary_tenant('cache_test_a', 'first@cache.test', 'Atelier A') as tenant:
+            cached = _get_tenant_by_schema(BoutiqueTenant, 'cache_test_a')
+            self.assertEqual(cached.owner_email, 'first@cache.test')
+            self.assertIn('cache_test_a', _tenant_cache)
+
+            tenant.owner_email = 'second@cache.test'
+            tenant.save()
+
+            self.assertNotIn('cache_test_a', _tenant_cache)
+            refreshed = _get_tenant_by_schema(BoutiqueTenant, 'cache_test_a')
+            self.assertEqual(refreshed.owner_email, 'second@cache.test')
+
+    def test_deleting_a_tenant_clears_the_cache(self):
+        from tenants.middleware import _get_tenant_by_schema, _tenant_cache
+        with temporary_tenant('cache_test_b', 'gone@cache.test', 'Atelier B'):
+            _get_tenant_by_schema(BoutiqueTenant, 'cache_test_b')
+            self.assertIn('cache_test_b', _tenant_cache)
+        # temporary_tenant's exit deletes the row; the signal must have fired.
+        self.assertNotIn('cache_test_b', _tenant_cache)
+        # And a fresh lookup answers None rather than the deleted tenant.
+        self.assertIsNone(_get_tenant_by_schema(BoutiqueTenant, 'cache_test_b'))
+
+
+class PricingIsolationTests(TransactionTestCase):
+    """One boutique's money must not appear in another's books.
+
+    Order totals are now the rollup of garment-job pricing, and the dashboard
+    sums them into revenue. Schema isolation should make cross-tenant leakage
+    impossible; this pins it AT the money surface, because revenue is the number
+    a leak would be noticed in last and matter in most.
+    """
+
+    def _priced_order(self, schema, order_id, base):
+        from decimal import Decimal
+        from crm_api.models import BoutiqueSettings
+        with schema_context(schema):
+            BoutiqueSettings.objects.get_or_create(id=1)
+            customer = Customer.objects.create(
+                first_name='Client', last_name=schema, mobile_number='9600004444')
+            total = (Decimal(base) * Decimal('1.05')).quantize(Decimal('0.01'))
+            Order.objects.create(
+                order_id=order_id, customer=customer,
+                base_price=Decimal(base), taxes=total - Decimal(base),
+                total_amount=total, amount_paid=total, payment_status='Paid')
+            return total
+
+    def test_each_boutiques_revenue_is_its_own(self):
+        with temporary_tenant('price_test_a', 'a@price.test', 'Atelier A'), \
+                temporary_tenant('price_test_b', 'b@price.test', 'Atelier B'):
+            total_a = self._priced_order('price_test_a', 'T2B-PA-1', '10000')
+            total_b = self._priced_order('price_test_b', 'T2B-PB-1', '70000')
+            self.assertNotEqual(total_a, total_b)
+
+            for schema, expected in (('price_test_a', total_a),
+                                     ('price_test_b', total_b)):
+                response = tenant_client(schema).get('/api/dashboard/')
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    str(response.data['stats']['revenue']), str(float(expected)),
+                    f'{schema} revenue must be exactly its own order')
+
+
+class QCQueueIsolationTests(TransactionTestCase):
+    """A specialist's queue stops at the boutique boundary.
+
+    The queue is derived rather than stored -- it is a query over stages and the
+    workflow config, run per request -- so it is worth pinning at the schema
+    line specifically. A stored assignment would be obviously tenant-local; a
+    computed one is only as isolated as the queryset it starts from.
+    """
+
+    def _boutique_at_qc(self, schema, order_id, qc_email):
+        """One boutique with an order sitting at quality check, and an inspector."""
+        from crm_api.models import BoutiqueSettings, Measurement, Tailor
+        from domains.orders.services import OrderService
+        with schema_context(schema):
+            BoutiqueSettings.objects.get_or_create(id=1)
+            qc_user = User.objects.create_user(
+                username=qc_email, email=qc_email, password='qcpass12345')
+            Tailor.objects.create(name=f'Inspector {schema}', specialty='Bridal',
+                                  role='QC Master', status='Available', user=qc_user)
+            tailor = Tailor.objects.create(name='Stitcher', specialty='Bridal',
+                                           role='Tailor', status='Available')
+            customer = Customer.objects.create(
+                first_name='Client', last_name=schema, mobile_number='9600005555')
+            Measurement.objects.create(customer=customer, bust=36, waist=30, hips=38)
+            owner = User.objects.create_user(
+                username=f'owner@{schema}', email=f'owner@{schema}',
+                password='ownerpass12345', is_superuser=True)
+            order = OrderService.create_order_for_customer(
+                customer, {'base_price': 10000, 'tailor_id': tailor.id}, user=owner)
+
+            config = BoutiqueSettings.objects.get(id=1).workflow_config
+            keys = [s['key'] for s in config]
+            for earlier in keys[:keys.index('master_quality_check')]:
+                stage = order.stages.filter(stage_key=earlier).first()
+                if stage is None or stage.status in ('COMPLETED', 'SKIPPED'):
+                    continue
+                optional = next(
+                    (s.get('optional') for s in config if s['key'] == earlier), False)
+                OrderService.transition_order_stage(
+                    order=order, stage_key=earlier,
+                    new_status='SKIPPED' if optional else 'COMPLETED', user=owner)
+            Order.objects.filter(pk=order.pk).update(order_id=order_id)
+            token, _ = Token.objects.get_or_create(user=qc_user)
+            return token.key
+
+    def _queue(self, token_key, tenant_header):
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION='Token ' + token_key,
+                           HTTP_X_TENANT_ID=tenant_header)
+        return client.get('/api/orders/')
+
+    def test_a_qc_master_queue_holds_only_their_own_boutiques_work(self):
+        with temporary_tenant('qc_test_a', 'a@qc.test', 'Atelier A'), \
+                temporary_tenant('qc_test_b', 'b@qc.test', 'Atelier B'):
+            key_a = self._boutique_at_qc('qc_test_a', 'T2B-QA-1', 'qc@qc-a.test')
+            key_b = self._boutique_at_qc('qc_test_b', 'T2B-QB-1', 'qc@qc-b.test')
+
+            # Alternated, so a stale search_path shows up as a wrong answer
+            # rather than a consistently right one.
+            for _ in range(2):
+                rows_a = self._queue(key_a, 'qc_test_a').data
+                rows_a = rows_a['results'] if isinstance(rows_a, dict) else rows_a
+                self.assertEqual([r['order_id'] for r in rows_a], ['T2B-QA-1'])
+
+                rows_b = self._queue(key_b, 'qc_test_b').data
+                rows_b = rows_b['results'] if isinstance(rows_b, dict) else rows_b
+                self.assertEqual([r['order_id'] for r in rows_b], ['T2B-QB-1'])
+
+    def test_a_token_from_one_boutique_does_not_open_anothers_queue(self):
+        with temporary_tenant('qc_test_c', 'c@qc.test', 'Atelier C'), \
+                temporary_tenant('qc_test_d', 'd@qc.test', 'Atelier D'):
+            key_c = self._boutique_at_qc('qc_test_c', 'T2B-QC-1', 'qc@qc-c.test')
+            self._boutique_at_qc('qc_test_d', 'T2B-QD-1', 'qc@qc-d.test')
+
+            response = self._queue(key_c, 'qc_test_d')
+            rows = response.data if response.status_code == 200 else []
+            rows = rows['results'] if isinstance(rows, dict) else rows
+            self.assertNotIn('T2B-QD-1', str(rows))

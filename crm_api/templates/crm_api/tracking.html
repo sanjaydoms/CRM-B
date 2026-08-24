@@ -1,3 +1,4 @@
+{% load boutique_format %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -87,8 +88,8 @@
       <dt>Customer</dt><dd>{{ customer.first_name }} {{ customer.last_name }}</dd>
       <dt>{{ garment_heading }}</dt>
       <dd>{% for garment in garments %}{{ garment }}{% if not forloop.last %}<br>{% endif %}{% empty %}—{% endfor %}</dd>
-      <dt>Order date</dt><dd>{{ order.order_date|date:"d M Y" }}</dd>
-      <dt>Expected delivery</dt><dd>{{ order.estimated_delivery|date:"d M Y"|default:"To be confirmed" }}</dd>
+      <dt>Order date</dt><dd>{% boutique_date order.order_date %}</dd>
+      <dt>Expected delivery</dt><dd>{% if order.estimated_delivery %}{% boutique_date order.estimated_delivery %}{% else %}To be confirmed{% endif %}</dd>
       <dt>Status</dt><dd><span class="status-pill">{{ order.order_status }}</span></dd>
     </dl>
   </section>
@@ -104,7 +105,7 @@
           <div>
             <div class="step-name">{{ stage.stage_name }}</div>
             {% if stage.status == 'COMPLETED' and stage.completed_at %}
-              <div class="step-meta">{{ stage.completed_at|date:"d M Y, g:i A" }}</div>
+              <div class="step-meta">{% boutique_datetime stage.completed_at %}</div>
             {% elif stage.status == 'IN_PROGRESS' %}
               <div class="step-meta">In progress</div>
             {% endif %}
@@ -132,8 +133,8 @@
   <section class="card">
     <h2>Trial appointment</h2>
     <dl>
-      <dt>Date</dt><dd>{{ trial.scheduled_time|date:"d M Y" }}</dd>
-      <dt>Time</dt><dd>{{ trial.scheduled_time|date:"g:i A" }}</dd>
+      <dt>Date</dt><dd>{% boutique_date trial.scheduled_time %}</dd>
+      <dt>Time</dt><dd>{% boutique_time trial.scheduled_time %}</dd>
       <dt>Address</dt><dd>{{ boutique.address }}</dd>
       <dt>Contact</dt><dd>{{ boutique.phone }}</dd>
     </dl>
@@ -143,12 +144,12 @@
   <section class="card">
     <h2>Payment</h2>
     <dl>
-      <dt>Total</dt><dd>&#8377;{{ total|floatformat:2 }}</dd>
-      <dt>Paid</dt><dd>&#8377;{{ paid|floatformat:2 }}</dd>
+      <dt>Total</dt><dd>{{ total|inr }}</dd>
+      <dt>Paid</dt><dd>{{ paid|inr }}</dd>
       <dt>Status</dt><dd>{{ payment_status }}</dd>
     </dl>
     <dl class="total-row">
-      <dt>Balance due</dt><dd>&#8377;{{ balance|floatformat:2 }}</dd>
+      <dt>Balance due</dt><dd>{{ balance|inr }}</dd>
     </dl>
   </section>
 

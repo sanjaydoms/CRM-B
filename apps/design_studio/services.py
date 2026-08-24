@@ -19,9 +19,14 @@ logger = logging.getLogger(__name__)
 PER_SOURCE_LIMIT = 24
 
 
-def discover(customer, order_input=None, extra_keywords=None, sources=None, limit=40):
-    """Run a full studio search and return ranked designs with their context."""
-    context = build_context(customer, order_input)
+def discover(subject, order_input=None, extra_keywords=None, sources=None, limit=40):
+    """Run a full studio search and return ranked designs with their context.
+
+    `subject` is a context.Subject -- a saved customer or an unconfirmed draft,
+    already resolved. This function has never needed to know which, and now
+    cannot: that is what keeps one search path serving both.
+    """
+    context = build_context(subject, order_input)
     intelligence = get_intelligence()
     queries = intelligence.generate_queries(context, extra_keywords)
 
@@ -55,12 +60,20 @@ def discover(customer, order_input=None, extra_keywords=None, sources=None, limi
 
 @transaction.atomic
 def select_item(board, item):
-    """Make ``item`` the board's single selected design."""
+    """Make ``item`` the selected design for its garment.
+
+    Scoped to the item's own garment. Clearing every selection on the board was
+    right while an order meant one dress; on a two-garment order it means
+    choosing the lehenga's design silently unpicks the blouse's.
+    """
     if item.board_id != board.id:
         raise ValueError("Item does not belong to this board")
-    # The DB enforces one selection per board, so the old one has to be cleared
-    # before the new one is written.
-    board.items.filter(is_selected=True).exclude(pk=item.pk).update(is_selected=False)
+    # The DB enforces one selection per garment, so the previous one for THIS
+    # garment has to be cleared before the new one is written.
+    (board.items
+     .filter(is_selected=True, garment_job_id=item.garment_job_id)
+     .exclude(pk=item.pk)
+     .update(is_selected=False))
     item.is_selected = True
     item.save(update_fields=['is_selected'])
     if board.status == DesignBoard.STATUS_DRAFT:

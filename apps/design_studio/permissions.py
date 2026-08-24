@@ -110,3 +110,61 @@ def visible_boards(queryset, user):
     if getattr(user, 'tailor_profile', None) is not None:
         return queryset.filter(status=queryset.model.STATUS_APPROVED)
     return queryset.none()
+
+
+class DesignAssignmentPermission(permissions.BasePermission):
+    """Who may hand out design work, and who may hand it back.
+
+    Assigning and reviewing are supervisory: Owner and Master, the same two
+    roles core.permissions.SUPERVISOR_ROLES already lets run the floor.
+    Submitting is the Designer's, and only for their own row -- enforced on the
+    object in the view, because the queryset is already narrowed to their own
+    assignments and a Designer therefore cannot even name someone else's.
+
+    Nobody else is here at all, not even read-only. A Tailor's window onto the
+    design is the approved board brief they already get; the assignment queue is
+    a management view of who is late, and hands every cutter the boutique's
+    whole design workload for no purpose their job requires.
+    """
+
+    message = "Your role does not permit this action on design assignments."
+
+    SUPERVISOR_ACTIONS = {'create', 'update', 'partial_update', 'destroy', 'review'}
+    DESIGNER_ACTIONS = {'list', 'retrieve', 'submit'}
+
+    def has_permission(self, request, view):
+        role = resolve_user_role(request.user)
+        if role is None:
+            return False
+        if role in (OWNER, MASTER):
+            # A Master runs production and hands out the work on it. Reviewing a
+            # design is the same call as approving a stage.
+            return True
+        if role == DESIGNER:
+            return getattr(view, 'action', None) in self.DESIGNER_ACTIONS
+        return False
+
+
+def visible_assignments(queryset, user):
+    """Narrow an assignment queryset to what the caller's role may see.
+
+    A Designer sees their own desk and no one else's -- not the boutique's
+    workload, not another designer's queue. That is the whole containment: the
+    row carries a customer's garment and measurements, so "which rows" is the
+    same question as "whose customer data".
+
+    Everyone who is not Owner, Master or a Designer gets nothing, matching
+    DesignAssignmentPermission above. The two are kept in step deliberately: the
+    permission decides whether the request is allowed at all, this decides what
+    it is allowed to see, and a role that slips past one must still be stopped
+    by the other.
+    """
+    role = resolve_user_role(user)
+    if role in (OWNER, MASTER):
+        return queryset
+    if role == DESIGNER:
+        profile = getattr(user, 'designer_profile', None)
+        if profile is None:
+            return queryset.none()
+        return queryset.filter(designer_id=profile.id)
+    return queryset.none()

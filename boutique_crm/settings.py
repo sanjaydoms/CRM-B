@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import getpass
 import os
 import sys
 from pathlib import Path
@@ -187,10 +188,15 @@ WSGI_APPLICATION = 'boutique_crm.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django_tenants.postgresql_backend',
-        'NAME': os.environ.get('DB_NAME', 'postgres'),
-        'USER': os.environ.get('DB_USER', 'postgres.gbdabwahffdgdykbujpx'),
+        # No defaults. These used to fall back to a specific Supabase project's
+        # user and host, committed in this file -- so a deploy that forgot its
+        # environment silently connected to THAT database instead of failing,
+        # and the identity of a production instance lived in version control.
+        # Absent configuration is now refused below rather than guessed at.
+        'NAME': os.environ.get('DB_NAME', ''),
+        'USER': os.environ.get('DB_USER', ''),
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', 'aws-1-ap-southeast-1.pooler.supabase.com'),
+        'HOST': os.environ.get('DB_HOST', ''),
         # Port 5432 on the pooler host is Supabase's *session* pooler, and this
         # application cannot use the transaction pooler on 6543.
         #
@@ -250,18 +256,74 @@ DATABASES = {
 # password is not in the environment it simply fails to connect, so every test
 # errors before it runs. Neither outcome is what "run the tests" should mean.
 # Set USE_LOCAL_DB=False explicitly to test against the remote database anyway.
-_use_local_db = os.environ.get('USE_LOCAL_DB')
-if _use_local_db is None and 'test' in sys.argv:
-    _use_local_db = 'True'
+def _os_account():
+    """The account this process really runs as, ignoring the environment."""
+    try:
+        import pwd
+        return pwd.getpwuid(os.getuid()).pw_name
+    except Exception:
+        # Not POSIX, or no matching passwd entry. getuser() is the fallback
+        # rather than the default, for the reason given at the call site.
+        return getpass.getuser()
 
-if _use_local_db == 'True':
+
+_running_tests = 'test' in sys.argv
+_use_local_db = os.environ.get('USE_LOCAL_DB')
+if _use_local_db is None and _running_tests:
+    _use_local_db = 'True'
+_local_db = (_use_local_db == 'True')
+
+# The convenience path must never reach a deployment. Without this guard a
+# stray USE_LOCAL_DB=True in a production environment would quietly aim the
+# whole service at a local database that either does not exist or, worse, does.
+if _local_db and not (DEBUG or _running_tests):
+    raise ImproperlyConfigured(
+        "USE_LOCAL_DB=True with DEBUG=False. Refusing to point a production "
+        "process at a development database. Unset USE_LOCAL_DB and set "
+        "DB_NAME, DB_USER, DB_PASSWORD and DB_HOST."
+    )
+
+if _local_db:
+    # A SEPARATE namespace from the deployment's DB_* variables, and that is the
+    # whole point of it.
+    #
+    # .env in a working copy holds the hosted database's real credentials under
+    # DB_NAME/DB_USER/DB_PASSWORD/DB_HOST. If this block read those names, then
+    # `USE_LOCAL_DB=True` -- and every `manage.py test` run, which turns it on
+    # implicitly -- would resolve to the PRODUCTION database and create and drop
+    # test schemas there. The previous hardcoded values were wrong for anyone
+    # not called sanjaykumar, but they were at least local; replacing them with
+    # DB_* lookups quietly removed that protection. Hence LOCAL_DB_*.
+    #
+    # The OS account rather than a committed name: on a Homebrew or Postgres.app
+    # install the superuser role is named after it, so this is right on any
+    # developer's machine rather than on exactly one.
+    #
+    # getpwuid(), NOT getpass.getuser(). getuser() answers from LOGNAME/USER/
+    # LNAME/USERNAME and only falls back to the password database -- so a
+    # launcher that exports USER=root hands back "root" from a process actually
+    # running as somebody else, and the server dies on `role "root" does not
+    # exist` while the same call from a shell returns the right name. That is
+    # not hypothetical: it is how this line was found. getpwuid reads the uid.
     DATABASES['default'].update({
-        'NAME': 'boutique_crm',
-        'USER': 'sanjaykumar',
-        'PASSWORD': '',
-        'HOST': '127.0.0.1',
-        'PORT': '5432',
+        'NAME': os.environ.get('LOCAL_DB_NAME', 'boutique_crm'),
+        'USER': os.environ.get('LOCAL_DB_USER', _os_account()),
+        'PASSWORD': os.environ.get('LOCAL_DB_PASSWORD', ''),
+        'HOST': os.environ.get('LOCAL_DB_HOST', '127.0.0.1'),
+        'PORT': os.environ.get('LOCAL_DB_PORT', '5432'),
     })
+else:
+    # A deployment states where its database is. Failing here is the point:
+    # the alternative is booting against whatever the defaults happened to be
+    # and discovering it from the data.
+    _missing = [name for name in ('DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST')
+                if not os.environ.get(name)]
+    if _missing and not DEBUG:
+        raise ImproperlyConfigured(
+            "Database configuration is incomplete: "
+            + ', '.join(_missing) + " must be set. "
+            "For local development use USE_LOCAL_DB=True instead."
+        )
 
 DATABASE_ROUTERS = (
     'django_tenants.routers.TenantSyncRouter',

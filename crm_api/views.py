@@ -1050,7 +1050,16 @@ class NotificationViewSet(viewsets.ModelViewSet):
             return qs.filter(recipient_role='Owner').order_by('-created_at')
         qs = qs.filter(recipient_role=role)
         if email:
-            qs = qs.filter(recipient_email=email)
+            # A blank recipient_email means "the whole role", not "nobody".
+            # Queue arrivals are addressed that way on purpose -- picking one
+            # QC Master in a boutique with two is the manual assignment the
+            # queue exists to replace -- and every staff member has an email,
+            # so an equality filter alone hid every role-addressed notice from
+            # all of them. Personally-addressed ones still reach only their
+            # person.
+            from django.db.models import Q
+            qs = qs.filter(Q(recipient_email=email) | Q(recipient_email='')
+                           | Q(recipient_email__isnull=True))
         return qs.order_by('-created_at')
 
     @action(detail=False, methods=['POST'], url_path='mark-all-read')
@@ -1148,6 +1157,38 @@ class BoutiqueSettingsViewSet(viewsets.ViewSet):
         config.save()
         serializer = BoutiqueSettingsSerializer(config, context={'request': request})
         return Response(serializer.data)
+
+
+def _board_item_from_draft(order, customer, job, item, position, user):
+    """Carry one draft-time shortlist entry onto the confirmed order's board.
+
+    The board is created lazily and once per order -- it stays the single,
+    order-level, customer-owned board it has always been. What is new is that
+    each item records the garment it was chosen for, so a two-garment order's
+    two shortlists cannot merge into one undifferentiated pile.
+    """
+    from apps.design_studio.models import DesignBoard, DesignBoardItem
+
+    board, _ = DesignBoard.objects.get_or_create(
+        order=order,
+        defaults={'customer': customer, 'created_by': user if user.is_authenticated else None,
+                  'status': DesignBoard.STATUS_SHORTLISTED},
+    )
+    DesignBoardItem.objects.create(
+        board=board,
+        garment_job=job,
+        source=item.get('source') or 'upload',
+        source_ref=item.get('source_ref') or '',
+        title=item.get('title') or '',
+        image_url=item.get('image_url') or '',
+        source_url=item.get('source_url') or '',
+        attributes=item.get('attributes') or {},
+        colour_palette=item.get('colour_palette') or [],
+        match_score=item.get('match_score') or 0,
+        match_reasons=item.get('match_reasons') or [],
+        is_selected=bool(item.get('is_selected')),
+        position=position,
+    )
 
 
 class OrderDraftViewSet(viewsets.ViewSet):
@@ -1260,6 +1301,7 @@ class OrderDraftViewSet(viewsets.ViewSet):
             staff = payload.get('staff') or {}
             delivery = payload.get('delivery') or {}
             payment = payload.get('payment') or {}
+            garments = payload.get('garments') or []
 
             def money(value):
                 try:
@@ -1267,11 +1309,23 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 except (TypeError, ValueError):
                     return 0.0
 
-            subtotal = sum(money(prices.get(k)) for k in (
-                'base', 'fabric', 'embroidery', 'customization', 'tailoring',
-                'packaging'))
-            taxes = round(subtotal * 0.05, 2)
-            total = round(subtotal + taxes, 2)
+            # Per-garment pricing, when the wizard sent it. Each garment carries
+            # its own components and the ORDER's components become their sums --
+            # this is what stops a Blouse + Lehenga order being priced as
+            # whichever garment came first. Drafts written before pricing moved
+            # per-garment have no `pricing` key on any garment and fall back to
+            # the flat `prices` block exactly as before, so an in-flight draft
+            # still confirms at the numbers its owner saw.
+            per_garment = [g.get('pricing') or {} for g in garments]
+            has_job_pricing = any(any(money(v) for v in p.values()) for p in per_garment)
+            component_keys = ('base', 'fabric', 'embroidery', 'customization', 'tailoring')
+            if has_job_pricing:
+                component_totals = {
+                    key: sum(money(p.get(key)) for p in per_garment)
+                    for key in component_keys
+                }
+            else:
+                component_totals = {key: money(prices.get(key)) for key in component_keys}
             full_payment = payment.get('option') == 'full'
 
             # The earliest date any dress on this order is due: an order is only
@@ -1281,19 +1335,24 @@ class OrderDraftViewSet(viewsets.ViewSet):
                             for g in (payload.get('garments') or []))
                 if d)
 
+            # taxes/total are NOT passed: the service recomputes them through
+            # domains.orders.pricing from these components, and what the client
+            # believed the total was has no bearing on what is stored.
             order = OrderService.create_order_for_customer(customer, {
                 'tailor_id': staff.get('tailor_id'),
                 'master_id': staff.get('master_id'),
-                'base_price': money(prices.get('base')),
-                'fabric_price': money(prices.get('fabric')),
-                'embroidery_price': money(prices.get('embroidery')),
-                'customization_price': money(prices.get('customization')),
-                'tailoring_charges': money(prices.get('tailoring')),
+                'base_price': component_totals['base'],
+                'fabric_price': component_totals['fabric'],
+                'embroidery_price': component_totals['embroidery'],
+                'customization_price': component_totals['customization'],
+                'tailoring_charges': component_totals['tailoring'],
                 'packaging_handling': money(prices.get('packaging')),
-                'taxes': taxes,
-                'total_amount': total,
+                'discount': money(prices.get('discount')),
                 'payment_status': 'Paid' if full_payment else 'Partially Paid',
-                'advance_paid': total if full_payment else money(payment.get('advance')),
+                # On 'Paid' the service sets advance = the total IT computed;
+                # nothing the client sends matters. Only a partial advance is
+                # client data, and the service clamps it to the final total.
+                'advance_paid': 0 if full_payment else money(payment.get('advance')),
                 'custom_requirements': payload.get('special_instructions')
                                        or payload.get('custom_requirements') or '',
                 'estimated_delivery': due[0] if due else None,
@@ -1304,20 +1363,56 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 # Held back until the garments exist -- see below.
             }, user=request.user, notify=False)
 
-            for index, garment in enumerate(payload.get('garments') or []):
+            for index, garment in enumerate(garments):
                 template = GarmentTemplate.objects.filter(
                     pk=garment.get('template')).first()
                 if template is None:
+                    # Skipping used to be silent. Tolerable when a job was only
+                    # a spec; not now that it is a line on the bill -- dropping
+                    # a PRICED garment would charge the customer for fewer
+                    # dresses than the order totals were computed from. A
+                    # corrupt draft is refused, not partially billed.
+                    if any(money(v) for v in (garment.get('pricing') or {}).values()):
+                        raise ValueError(
+                            'This draft references a garment that no longer '
+                            'exists in the catalogue. Re-open the draft and '
+                            'review its garments before confirming.')
                     continue
+                job_pricing = garment.get('pricing') or {}
                 serializer = GarmentJobSerializer(data={
                     'order': order.id,
                     'template': str(template.id),
                     'spec': garment.get('spec') or {},
                     'measurements': garment.get('measurements') or {},
                     'materials': garment.get('materials') or [],
+                    'base_price': money(job_pricing.get('base')),
+                    'fabric_price': money(job_pricing.get('fabric')),
+                    'embroidery_price': money(job_pricing.get('embroidery')),
+                    'customization_price': money(job_pricing.get('customization')),
+                    'tailoring_charges': money(job_pricing.get('tailoring')),
                 })
                 serializer.is_valid(raise_exception=True)
-                serializer.save()
+                job = serializer.save()
+
+                # The garment's shortlist, chosen before this customer existed.
+                # It becomes a real board item here, against the real customer,
+                # attached to the job it was chosen for -- which is what makes
+                # the personalisation survive Confirm on the correct garment.
+                design = garment.get('design') or {}
+                for position, item in enumerate(design.get('items') or []):
+                    _board_item_from_draft(order, customer, job, item, position,
+                                           request.user)
+
+            if has_job_pricing:
+                # The consistency step, and the precedent: order totals ARE the
+                # garment jobs' sums, written by the one pricing path. Numerically
+                # a no-op here (the components above came from the same payload),
+                # but any future edit to a job's price goes through this same
+                # function, so the bill can never drift from the dresses on it.
+                # Skipped for flat-priced drafts: their jobs are all-zero, and
+                # recomputing would zero a legitimately priced order.
+                from domains.orders.pricing import recompute_order_totals
+                recompute_order_totals(order)
 
             # Only now. The confirmation names every garment on the order, so it
             # cannot be sent until every garment is on it. Still inside the same

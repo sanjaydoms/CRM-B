@@ -189,7 +189,11 @@ class TrackingPageTests(TrackingTestBase):
         response = self.tenant_client_get(f"/track/{build_token(self.order)}/")
 
         body = response.content.decode()
-        self.assertIn("6000.00", body)
+        # Compared against the shared formatter rather than a literal: the page
+        # prints Rs6,000 now, and pinning the string here would just re-record
+        # whichever convention this screen happened to use.
+        from core.formatting import format_money
+        self.assertIn(format_money(6000), body)
         self.assertIn("Partially Paid", body)
 
 

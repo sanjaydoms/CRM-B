@@ -856,9 +856,16 @@ export const api = {
   },
 
   // --- AI Design Studio ---------------------------------------------
-  async getDesignContext(customerId, orderInput = {}) {
+  // Either source: a saved customer, or the draft an order is still being
+  // written in. Pass `{ customer_id }` or `{ draft_id }` plus `garment_key`
+  // for which dress -- the server resolves both to one context shape, so
+  // nothing here branches on which it was.
+  async getDesignContext(source, orderInput = {}) {
     const url = new URL(`${BASE_URL}/design-studio/context/`);
-    url.searchParams.append('customer_id', customerId);
+    const params = typeof source === 'string' ? { customer_id: source } : (source || {});
+    Object.entries(params).forEach(([key, value]) => {
+      if (value) url.searchParams.append(key, value);
+    });
     Object.entries(orderInput).forEach(([key, value]) => {
       if (value) url.searchParams.append(key, value);
     });
@@ -1088,6 +1095,56 @@ export const api = {
       data = null;
     }
 
+    if (!res.ok) throw new Error(describeApiError(res, data));
+    return data;
+  },
+
+  // --- Design assignments -------------------------------------------
+  // The work loop: an Owner or Master assigns a garment's design to a
+  // designer, the designer submits, the supervisor reviews. Scoped
+  // server-side by DesignAssignmentPermission -- a designer's list comes
+  // back as their own desk and nobody else's, so there is no client-side
+  // filtering to get wrong here.
+  async getDesignAssignments(params = {}) {
+    const url = new URL(`${BASE_URL}/design-studio/assignments/`);
+    Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to load design assignments');
+    return res.json();
+  },
+
+  // Posting for a garment that already has an assignment reassigns it, and
+  // comes back 200 rather than 201. An approved garment is refused with 409.
+  async assignDesignWork(payload) {
+    const res = await fetch(`${BASE_URL}/design-studio/assignments/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(describeApiError(res, data));
+    return data;
+  },
+
+  async submitDesignAssignment(id, designId, note = '') {
+    const res = await fetch(`${BASE_URL}/design-studio/assignments/${id}/submit/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ design: designId, note })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(describeApiError(res, data));
+    return data;
+  },
+
+  // decision: 'approve' | 'changes'.
+  async reviewDesignAssignment(id, decision, note = '') {
+    const res = await fetch(`${BASE_URL}/design-studio/assignments/${id}/review/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ decision, note })
+    });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(describeApiError(res, data));
     return data;
   },

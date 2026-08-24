@@ -1,6 +1,9 @@
 from rest_framework import serializers
 
-from .models import Collection, Designer, DesignApproval, DesignAsset, DesignBoard, DesignBoardItem
+from .models import (
+    Collection, Designer, DesignApproval, DesignAsset, DesignAssignment, DesignBoard,
+    DesignBoardItem,
+)
 
 
 class DesignerSerializer(serializers.ModelSerializer):
@@ -164,7 +167,15 @@ class TailorBriefSerializer(serializers.ModelSerializer):
 
 
 class DiscoverRequestSerializer(serializers.Serializer):
-    customer_id = serializers.UUIDField()
+    # Either source. A saved customer, or the draft an order is still being
+    # written in -- which is the whole of what exists before Confirm, and must
+    # not require minting a Customer row just to personalise. Validated as a
+    # pair below rather than field-by-field, because exactly one is required.
+    customer_id = serializers.UUIDField(required=False)
+    draft_id = serializers.UUIDField(required=False)
+    #: Which dress on the order. A draft garment's key, or a confirmed
+    #: GarmentJob id once the order exists.
+    garment_key = serializers.CharField(required=False, allow_blank=True)
     garment_type = serializers.CharField(required=False, allow_blank=True)
     occasion = serializers.CharField(required=False, allow_blank=True)
     budget = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
@@ -172,3 +183,102 @@ class DiscoverRequestSerializer(serializers.Serializer):
     keywords = serializers.ListField(child=serializers.CharField(), required=False)
     sources = serializers.ListField(child=serializers.CharField(), required=False)
     limit = serializers.IntegerField(required=False, min_value=1, max_value=100)
+
+    def validate(self, attrs):
+        if not attrs.get('customer_id') and not attrs.get('draft_id'):
+            raise serializers.ValidationError(
+                'Either customer_id or draft_id is required.')
+        return attrs
+
+
+class _AssignmentDesignMixin:
+    """The submitted design, flattened. Shared so both audiences see one shape."""
+
+    def get_design_detail(self, obj):
+        if obj.design_id is None:
+            return None
+        design = obj.design
+        return {
+            'id': str(design.id),
+            'title': design.title,
+            'image_url': design.image_url,
+            'source': design.source,
+            'status': design.status,
+            'description': design.description,
+            'gallery': design.gallery,
+            'spec_tags': design.spec_tags,
+        }
+
+
+class DesignAssignmentSerializer(_AssignmentDesignMixin, serializers.ModelSerializer):
+    """The Owner/Master view: who is doing what, on which garment, for whom."""
+
+    designer_name = serializers.CharField(source='designer.name', read_only=True)
+    garment_name = serializers.CharField(source='garment_job.template.name', read_only=True)
+    order_id = serializers.CharField(source='garment_job.order.order_id', read_only=True)
+    customer_name = serializers.SerializerMethodField()
+    design_detail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DesignAssignment
+        fields = [
+            'id', 'garment_job', 'garment_name', 'order_id', 'customer_name',
+            'designer', 'designer_name', 'status', 'brief', 'due_date',
+            'design', 'design_detail', 'submission_note', 'review_note',
+            'assigned_at', 'submitted_at', 'reviewed_at', 'updated_at',
+        ]
+        # Status moves through the submit/review endpoints, which log and stamp
+        # it. A writable status here would let the same PATCH that edits a brief
+        # mark the work approved, with no reviewer and no timestamp.
+        read_only_fields = [
+            'status', 'design', 'submission_note', 'review_note',
+            'assigned_at', 'submitted_at', 'reviewed_at', 'updated_at',
+        ]
+        extra_kwargs = {
+            # The OneToOne's implicit UniqueValidator rejects a second POST for
+            # the same garment with a 400 before the view is ever reached, and a
+            # second POST is how an owner moves the work to a different
+            # designer. DesignAssignmentViewSet.create owns that decision --
+            # it reassigns an open row and refuses an approved one with a 409 --
+            # so the uniqueness check has to be there, where the two cases can
+            # be told apart, rather than here where they cannot.
+            'garment_job': {'validators': []},
+        }
+
+    def get_customer_name(self, obj):
+        customer = obj.garment_job.order.customer
+        return f"{customer.first_name} {customer.last_name}".strip()
+
+
+class DesignerAssignmentSerializer(_AssignmentDesignMixin, serializers.ModelSerializer):
+    """The Designer's own view of a job on their desk.
+
+    Deliberately narrower than the serializer above, and narrower in one
+    specific direction: it carries everything needed to *do* the work -- the
+    garment, its spec, its measurements, the brief -- and nothing that
+    identifies the customer or prices the order. §4.2 of docs/design-management
+    lists "view customer information" and "view revenue / margin" as Owner-only,
+    and until now that was a frontend courtesy because a designer had no
+    order-shaped endpoint at all. This is that endpoint, so the line is drawn
+    here in the payload rather than left to the client to respect.
+
+    `order_ref` is the order id and not the customer, because a designer has to
+    be able to say which job they mean when they ask the owner a question.
+    """
+
+    designer_name = serializers.CharField(source='designer.name', read_only=True)
+    garment_name = serializers.CharField(source='garment_job.template.name', read_only=True)
+    order_ref = serializers.CharField(source='garment_job.order.order_id', read_only=True)
+    spec = serializers.JSONField(source='garment_job.spec', read_only=True)
+    measurements = serializers.JSONField(source='garment_job.measurements', read_only=True)
+    design_detail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DesignAssignment
+        fields = [
+            'id', 'garment_job', 'garment_name', 'order_ref', 'spec', 'measurements',
+            'designer', 'designer_name', 'status', 'brief', 'due_date',
+            'design', 'design_detail', 'submission_note', 'review_note',
+            'assigned_at', 'submitted_at', 'reviewed_at',
+        ]
+        read_only_fields = fields

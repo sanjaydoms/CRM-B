@@ -4,6 +4,8 @@ Lives in the orders domain rather than in crm_api.views so that services can
 import it without pulling the whole view layer in (which created an import cycle).
 """
 
+from decimal import Decimal
+
 from crm_api.models import Notification
 from domains.orders.garments import garment_label, garment_names
 from domains.orders.messaging import send_customer_message
@@ -107,9 +109,14 @@ def create_order_notifications(order, created=False, status_changed=True):
             else:
                 cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been dispatched for direct pickup!"
         elif status == 'Delivered':
-            balance = float(order.total_amount) - float(order.amount_paid or 0)
+            # Same formatter the tracking page and the invoice use. This said
+            # "Rs35675.00" while the invoice for the same order said
+            # "Rs35,675" -- one debt, written two ways, in the two places a
+            # customer is most likely to compare.
+            from core.formatting import format_money
+            balance = Decimal(str(order.total_amount or 0)) - Decimal(str(order.amount_paid or 0))
             if balance > 0:
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered! Please complete your remaining balance of ₹{balance:.2f}."
+                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered! Please complete your remaining balance of {format_money(balance)}."
             else:
                 cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered. We hope you love your bespoke garment!"
 
@@ -149,3 +156,56 @@ def create_order_notifications(order, created=False, status_changed=True):
                     recipient_role=order.master.role,
                     recipient_email=order.master.user.email if order.master.user else None
                 )
+
+
+def notify_next_stage_owners(order):
+    """Tell whoever performs the stage this order has just arrived at.
+
+    Staff notifications go to the Owner, order.master and order.tailor -- the
+    three people an order is personally attached to. A specialist is none of
+    them: a QC Master is not the stitcher and not the supervising Master, so
+    nothing in the system ever told them a garment was waiting for inspection.
+    Combined with a queue they also could not see, quality check was a stage
+    that only got done when somebody else noticed it.
+
+    Addressed by ROLE rather than to a named person, deliberately. Picking one
+    QC Master means picking wrong in a boutique with two, and re-inventing the
+    manual assignment this exists to replace. NotificationViewSet already
+    filters by the reader's own role, so every holder of the role sees it and
+    whoever gets there first does the work. Nothing is assigned; the stage's
+    assigned_to stays free for a Master who does want to name a person.
+
+    Silent for Owner and Master, who are notified through the existing paths and
+    would otherwise get a second message for every stage of every order.
+    """
+    from crm_api.models import BoutiqueSettings, Tailor
+    from core.permissions import UNSETTLED_STATUSES
+
+    config, _ = BoutiqueSettings.objects.get_or_create(id=1)
+    settled = dict(order.stages.values_list('stage_key', 'status'))
+
+    live = next(
+        (s for s in (config.workflow_config or [])
+         if s.get('key') and settled.get(s['key'], 'NOT_STARTED') in UNSETTLED_STATUSES),
+        None)
+    if live is None:
+        return
+
+    roles = [r for r in (live.get('roles') or []) if r not in ('Owner', 'Master')]
+    if not roles:
+        return
+
+    # One row per role, not per person: the queue is role-addressed, and a
+    # boutique with three finishing staff should not get three copies each.
+    for role in roles:
+        if not Tailor.objects.filter(role=role).exists():
+            # Nobody holds this role here. A notification addressed to a role
+            # with no holder is unreadable by anyone -- the Owner already hears
+            # about every transition through the path above.
+            continue
+        Notification.objects.create(
+            title=f"Ready for {live.get('name', live['key'])}: {order.order_id}",
+            message=(f"Order {order.order_id} has reached "
+                     f"{live.get('name', live['key'])} and is waiting in your queue."),
+            recipient_role=role,
+        )
