@@ -18,6 +18,7 @@ still writes to the database it is pointed at, so it prints that target and
 refuses to move without --confirm. Point it at staging, not at production.
 """
 
+import os
 import uuid
 from decimal import Decimal
 
@@ -83,6 +84,7 @@ class Command(BaseCommand):
 
         j = Journey(self.stdout, self.style)
         try:
+            self._environment(j, db)
             self._run(j)
         finally:
             if options['keep']:
@@ -99,6 +101,64 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f"  - {f}"))
             raise CommandError("Smoke journey failed against " + target)
         self.stdout.write(self.style.SUCCESS(f"{len(j.passed)}/{total} passed against {target}"))
+
+    def _environment(self, j, db):
+        """What we are actually connected to, recorded as release evidence.
+
+        Three facts a deployment needs in writing: the server version (so a
+        hosted instance can be compared against the version development ran
+        on), whether this connection is genuinely encrypted, and what timezone
+        the server keeps. Asked of the live connection rather than inferred
+        from settings -- DB_SSLMODE says what was *requested*, pg_stat_ssl says
+        what was negotiated, and only the second one is evidence.
+        """
+        j.phase("[0] Environment")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT version()")
+            version = cursor.fetchone()[0]
+            # reset_val, not SHOW timezone: SHOW reports the SESSION, which
+            # Django has already pinned to UTC, so it can never disagree and
+            # tells you nothing about how the server is configured.
+            cursor.execute(
+                "SELECT reset_val FROM pg_settings WHERE name = 'TimeZone'")
+            row = cursor.fetchone()
+            server_tz = row[0] if row else 'unknown'
+            try:
+                cursor.execute(
+                    "SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
+                row = cursor.fetchone()
+                ssl_on, ssl_version = (bool(row[0]), row[1]) if row else (False, None)
+            except Exception:
+                ssl_on, ssl_version = False, None
+            cursor.execute("SELECT current_setting('TimeZone')")
+            session_tz = cursor.fetchone()[0]
+
+        # The whole banner: version, build and platform, which is what a
+        # hosted-vs-local parity question actually needs answering.
+        j.note(version)
+        j.note(f"server default timezone {server_tz}; this session {session_tz}")
+
+        host = (db.get('HOST') or '').strip()
+        local = host in ('', 'localhost', '127.0.0.1', '::1')
+        requested = os.environ.get('DB_SSLMODE', '(unset -- libpq default `prefer`)')
+        j.note(f"DB_SSLMODE={requested}")
+        if ssl_on:
+            j.check(f'connection is encrypted ({ssl_version})', True)
+        else:
+            # Not a failure on a loopback connection, where there is no network
+            # to protect and no local Postgres ships with TLS configured. Over a
+            # real host it is: credentials and customer data in clear text.
+            j.check('connection is encrypted', local,
+                    f'host={host} is remote and TLS was not negotiated -- '
+                    f'set DB_SSLMODE=require')
+            if local:
+                j.note('TLS not negotiated, and not required over loopback')
+
+        # Django pins its own session to UTC when USE_TZ is on, whatever the
+        # server keeps. Storage semantics must not depend on the server's clock.
+        j.check('session runs in UTC regardless of the server clock',
+                session_tz.upper() == 'UTC', session_tz)
+
 
     # -- the journey ----------------------------------------------------
 

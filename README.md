@@ -132,6 +132,13 @@ the same middleware and permission layer a browser uses. It answers the
 question a passing test suite cannot: whether *this* build works against *this*
 database, configured *this* way.
 
+It opens by recording the environment itself — PostgreSQL version and build,
+the server's default timezone against the session's, and whether the connection
+is *actually* encrypted (`pg_stat_ssl`, not what `DB_SSLMODE` asked for). Those
+lines are the release evidence for a hosted database: version parity, and TLS
+proven rather than assumed. An unencrypted connection is a failure over a real
+host and correctly ignored over loopback.
+
 It prints the database it is aimed at and refuses to move without `--confirm`,
 because it writes. It deletes the tenants it creates on the way out (`--keep`
 to leave them for inspection) and exits non-zero on any failure. **Point it at
