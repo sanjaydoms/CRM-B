@@ -36,7 +36,11 @@ The backend uses **schema-based multi-tenancy**. Each boutique has its own isola
 ### 2. Database Integration (Supabase PostgreSQL)
 * **Configuration Location:** `boutique_crm/settings.py`
 * **Default Connection:** Connected to Supabase's transaction pooler on port `6543`.
-* **Local Fallback:** By setting `USE_LOCAL_DB=True` in your environment, Django will automatically fall back to your local PostgreSQL instance on port `5432`.
+* **Local Fallback:** Setting `USE_LOCAL_DB=True` points Django at a local
+  PostgreSQL on port `5432`, using the `LOCAL_DB_*` variables (see *Environment
+  Variables* under deployment). It is permitted only with `DEBUG=True`; the test
+  runner enables it implicitly, so `manage.py test` never touches a hosted
+  database.
 
 ### 3. File Storage Integration (Supabase Storage)
 Instead of local media folders, the application uploads files (such as customer profiles, fabric snaps, and design uploads) directly to Supabase Storage:
@@ -144,7 +148,37 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
     ```
     Rotating it invalidates tracking links already sent to customers. That is
     intended, and it is the point of rotating it.
-  * Configure your `DB_PASSWORD`, `SUPABASE_KEY`, and `SUPABASE_URL` under settings.
+  * **Database: `DB_NAME`, `DB_USER`, `DB_PASSWORD` and `DB_HOST` are all
+    required.** The service refuses to start when any of them is missing, and
+    that is deliberate — for the same reason `DJANGO_SECRET_KEY` above is. They
+    used to fall back to a specific Supabase project's user and host, written
+    into `settings.py`: a deploy that set only `DB_PASSWORD` — which is all this
+    README used to ask for — connected to *that* database rather than failing,
+    and the identity of a production instance lived in version control. Nothing
+    about the database is embedded in settings any more.
+
+    Optional: `DB_PORT` (default `5432` — must be the **session** pooler, not
+    the transaction pooler on 6543; see the comment in `settings.py` for the
+    tenant-isolation reason), `DB_CONN_MAX_AGE`, `DB_CONNECT_TIMEOUT`.
+
+    `DB_SSLMODE` is unset by default, which leaves libpq's `prefer`: TLS is used
+    if the server offers it and silently skipped if not. **A managed database
+    should set `DB_SSLMODE=require`**, or `verify-full` together with
+    `DB_SSLROOTCERT` to also pin the certificate. It is not defaulted here
+    because that would break every local install without TLS, the test suite
+    included.
+
+    `USE_LOCAL_DB=True` is a development convenience and is **refused when
+    `DEBUG` is off**, so it cannot aim a deployed process at a developer
+    database. It reads its own `LOCAL_DB_NAME` / `LOCAL_DB_USER` /
+    `LOCAL_DB_PASSWORD` / `LOCAL_DB_HOST` / `LOCAL_DB_PORT` — a separate
+    namespace on purpose, because a working copy's `.env` holds the hosted
+    database's real credentials under the `DB_*` names, and sharing them would
+    point local runs (and `manage.py test`, which enables the local path
+    implicitly) at production. Unset, `LOCAL_DB_USER` is the OS account this
+    process runs as.
+  * `SUPABASE_URL` and `SUPABASE_KEY` are used by the Supabase client, separately
+    from the database connection above.
   * `EMAIL_HOST` (plus `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, optionally
     `EMAIL_PORT` / `EMAIL_USE_TLS`) and `PASSWORD_RESET_BASE_URL`. Without a
     host, the mail backend falls back to the console — a password reset link is

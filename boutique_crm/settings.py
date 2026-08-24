@@ -244,6 +244,23 @@ DATABASES = {
         'OPTIONS': {
             # Never let a request hang on the network; fail fast and visibly.
             'connect_timeout': int(os.environ.get('DB_CONNECT_TIMEOUT', '10')),
+            # TLS to the database, when the deployment asks for it.
+            #
+            # Unset by default, which leaves libpq's own `prefer`: TLS is used
+            # if the server offers it and silently skipped if it does not. That
+            # is right for a local Postgres with no certificate and wrong for a
+            # hosted one, where "silently skipped" means credentials and
+            # customer data crossing a network in clear text. A managed
+            # database should set DB_SSLMODE=require (or verify-full, with
+            # DB_SSLROOTCERT, to also pin who it is talking to).
+            #
+            # Left as a knob rather than defaulted to `require`, because
+            # flipping it here would break every local install that has no TLS
+            # configured -- including the test suite.
+            **({'sslmode': os.environ['DB_SSLMODE']}
+               if os.environ.get('DB_SSLMODE') else {}),
+            **({'sslrootcert': os.environ['DB_SSLROOTCERT']}
+               if os.environ.get('DB_SSLROOTCERT') else {}),
         },
     }
 }
