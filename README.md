@@ -116,6 +116,29 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
 
 ## Production Deployment Guide
 
+### Verifying an environment before you trust it
+
+```bash
+python manage.py migrate_schemas --noinput
+python manage.py smoke_journey --confirm
+```
+
+`smoke_journey` provisions a throwaway boutique through the real signup
+endpoint and takes a two-garment order from there to Delivered — staff
+onboarding, per-garment pricing, designer assignment, the production floor,
+inventory reservation and consumption, quality check, then the money and
+timestamps read back off the customer's own tracking page — over HTTP, through
+the same middleware and permission layer a browser uses. It answers the
+question a passing test suite cannot: whether *this* build works against *this*
+database, configured *this* way.
+
+It prints the database it is aimed at and refuses to move without `--confirm`,
+because it writes. It deletes the tenants it creates on the way out (`--keep`
+to leave them for inspection) and exits non-zero on any failure. **Point it at
+staging.** Migrations touch the shared `public` schema, which dropping a tenant
+afterwards does not undo.
+
+
 ### Django Backend (Render)
 * **Build Command:**
   ```bash
