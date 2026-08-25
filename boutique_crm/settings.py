@@ -188,15 +188,19 @@ WSGI_APPLICATION = 'boutique_crm.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django_tenants.postgresql_backend',
-        # No defaults. These used to fall back to a specific Supabase project's
-        # user and host, committed in this file -- so a deploy that forgot its
-        # environment silently connected to THAT database instead of failing,
-        # and the identity of a production instance lived in version control.
-        # Absent configuration is now refused below rather than guessed at.
-        'NAME': os.environ.get('DB_NAME', ''),
-        'USER': os.environ.get('DB_USER', ''),
+        # Defaults kept so a deploy that sets only DB_PASSWORD still connects.
+        #
+        # These were removed once, and the reasoning still stands: a project's
+        # identity in version control is poor hygiene, and a deploy that guesses
+        # is worse than one that refuses. What made it the wrong trade *here* is
+        # that the deployed environments already work, and tightening this turns
+        # each of them into a startup failure until someone adds three variables.
+        # The safe order is to set DB_NAME/DB_USER/DB_HOST explicitly in every
+        # environment first, and drop these afterwards -- not the reverse.
+        'NAME': os.environ.get('DB_NAME', 'postgres'),
+        'USER': os.environ.get('DB_USER', 'postgres.gbdabwahffdgdykbujpx'),
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', ''),
+        'HOST': os.environ.get('DB_HOST', 'aws-1-ap-southeast-1.pooler.supabase.com'),
         # Port 5432 on the pooler host is Supabase's *session* pooler, and this
         # application cannot use the transaction pooler on 6543.
         #
@@ -329,18 +333,9 @@ if _local_db:
         'HOST': os.environ.get('LOCAL_DB_HOST', '127.0.0.1'),
         'PORT': os.environ.get('LOCAL_DB_PORT', '5432'),
     })
-else:
-    # A deployment states where its database is. Failing here is the point:
-    # the alternative is booting against whatever the defaults happened to be
-    # and discovering it from the data.
-    _missing = [name for name in ('DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST')
-                if not os.environ.get(name)]
-    if _missing and not DEBUG:
-        raise ImproperlyConfigured(
-            "Database configuration is incomplete: "
-            + ', '.join(_missing) + " must be set. "
-            "For local development use USE_LOCAL_DB=True instead."
-        )
+# No completeness check on the deployed path: the defaults above answer for
+# whatever the environment leaves unset, which is the contract every existing
+# deployment was built against.
 
 DATABASE_ROUTERS = (
     'django_tenants.routers.TenantSyncRouter',
