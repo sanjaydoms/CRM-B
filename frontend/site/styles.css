@@ -34,6 +34,7 @@ section{padding:clamp(64px,8vw,116px) 0}
 .logo b{color:var(--lime);font-weight:700}
 .nav.solid .logo{color:var(--forest)}
 .nav-links{display:flex;gap:26px;list-style:none;font-size:14px;font-weight:500}
+.nav-only-mobile{display:none}
 .nav-links a{color:rgba(245,242,236,.82);transition:color .2s;padding:4px 0;border-bottom:2px solid transparent}
 .nav-links a:hover{color:var(--lime)}
 .nav-links a[aria-current="page"]{color:var(--lime);border-bottom-color:var(--lime)}
@@ -115,9 +116,13 @@ input[aria-invalid="true"],textarea[aria-invalid="true"]{border-color:#B4453A;ba
 .sec-head{max-width:760px;margin-bottom:clamp(36px,4.5vw,62px)}
 .sec-head h2{margin:16px 0 18px}
 .sec-head.center{margin-left:auto;margin-right:auto;text-align:center}
+/* `minmax(320px, 1fr)` cannot shrink below 320px, so on a 272px-wide 320px
+   phone every one of these grids pushed the page sideways. `min(320px, 100%)`
+   keeps the intended track size wherever there is room and collapses to the
+   container when there is not. */
 .grid{display:grid;gap:20px}
-.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
-.g3{grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(min(290px,100%),1fr))}
 .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:30px;transition:transform .2s,box-shadow .2s,border-color .2s}
 .card:hover{transform:translateY(-3px);box-shadow:0 14px 40px rgba(15,61,46,.09);border-color:#CFC6B4}
 .card .num{font-family:var(--serif);font-size:13px;font-weight:600;color:var(--lime-dark);letter-spacing:.14em}
@@ -164,7 +169,7 @@ input[aria-invalid="true"],textarea[aria-invalid="true"]{border-color:#B4453A;ba
 .role b{display:block;font-size:14.5px;font-weight:600;color:var(--cream)}
 .role span{font-size:12.5px;color:rgba(245,242,236,.58)}
 
-.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:clamp(30px,4.5vw,68px);align-items:center}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:clamp(30px,4.5vw,68px);align-items:center}
 .panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:0 18px 50px rgba(15,61,46,.07)}
 .panel-row{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid var(--cream-warm);font-size:14px}
 .panel-row:last-child{border-bottom:0}
@@ -198,7 +203,7 @@ details p{padding:0 44px 24px 0;color:var(--muted);font-size:15.5px}
 details p+p{padding-top:0;margin-top:-10px;padding-bottom:24px}
 
 /* ---------- blog ---------- */
-.post-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:22px}
+.post-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(310px,100%),1fr));gap:22px}
 .post-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:28px;display:flex;flex-direction:column;gap:10px;transition:transform .2s,box-shadow .2s,border-color .2s}
 .post-card:hover{transform:translateY(-3px);box-shadow:0 14px 40px rgba(15,61,46,.09);border-color:#CFC6B4}
 .post-meta{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--lime-dark)}
@@ -241,10 +246,40 @@ footer{background:var(--forest-deep);color:rgba(245,242,236,.6);padding:70px 0 3
 @media(max-width:1040px){.nav-links{gap:18px;font-size:13.5px}}
 @media(max-width:920px){
   .nav-links,.nav-cta .btn-ghost{display:none}
-  .nav-toggle{display:block}
+  /* The toggle was an 8px-padded 22px icon: a 16x38 tap target, and the only
+     way into the menu on a phone. */
+  .nav-toggle{display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0}
   .nav-links.open{display:grid;position:absolute;top:72px;left:0;right:0;background:var(--cream);border-bottom:1px solid var(--line);padding:20px 24px;gap:18px}
   .nav-links.open a{color:var(--forest)}
-  .fgrid{grid-template-columns:1fr 1fr}
+  .nav-links.open a{display:block;padding:10px 0}
+  .nav-links.open .nav-only-mobile{display:block}
+  /* `1fr` tracks cannot shrink under their own content, so the four footer
+     columns pushed the page 53px wider than the viewport and the whole site
+     scrolled sideways. */
+  .fgrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px 20px}
+  .fgrid a{display:inline-block;padding:5px 0}
   .step{border-right:0}
   .stage{grid-template-columns:1fr;gap:12px}
+}
+
+@media(max-width:560px){
+  /* Logo + hamburger + "Book a demo" do not fit one 390px row at full size,
+     and `white-space: nowrap` on the logo meant the CTA hung off the right
+     edge rather than the row reflowing. Shrink the row instead of dropping
+     the CTA -- it is the point of the page. */
+  .nav-in{padding:0 16px;gap:10px}
+  .logo{font-size:14px;letter-spacing:.05em}
+  .nav-cta{flex-shrink:0}
+  .nav-cta .btn-sm{padding:10px 14px;font-size:12.5px}
+  .fgrid{grid-template-columns:1fr;gap:26px}
+}
+
+@media(max-width:400px){
+  /* 320px leaves 288px between the nav padding, and logo + CTA + hamburger
+     wanted 336. Letting the wordmark wrap to two lines inside the 72px header
+     costs ~80px instead of ~162 and keeps both words -- the alternative was
+     dropping "BOUTIQUE" or letting the page scroll sideways. */
+  .nav-in .logo{white-space:normal;line-height:1.15;font-size:13px;letter-spacing:.04em}
+  .nav-cta{gap:8px}
+  .nav-cta .btn-sm{padding:10px 12px;font-size:12px}
 }

@@ -348,7 +348,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
               }}
             >
               <div style={{ fontSize: '14px', fontWeight: 600 }}>{category.name}</div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-color, #d4af37)' }}>
+              <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-text, #b07c40)' }}>
                 {category.count}
               </div>
             </button>
@@ -422,7 +422,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
                     <ShoppingBag size={11} /> {design.order_count}
                   </span>
                   {design.estimated_price > 0 && (
-                    <span style={{ marginLeft: 'auto', fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>
+                    <span style={{ marginLeft: 'auto', fontWeight: 600, color: 'var(--accent-text, #b07c40)' }}>
                       ₹{Number(design.estimated_price).toLocaleString('en-IN')}
                     </span>
                   )}

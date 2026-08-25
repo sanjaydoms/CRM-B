@@ -520,6 +520,30 @@ function GarmentGallery({ order, onChanged }) {
 }
 
 function StageTimeline({ stages, onSelectStage }) {
+  // Fifteen stages in a strip about three-and-a-half stages wide: opening an
+  // order on a phone put "Created" on screen and whatever actually needs doing
+  // several swipes away. Centre the live stage (or the last one finished) so
+  // the strip opens where the work is.
+  const activeRef = React.useRef(null);
+  const scrollerRef = React.useRef(null);
+  React.useEffect(() => {
+    const el = activeRef.current, box = scrollerRef.current;
+    if (!el || !box) return;
+    // Not scrollIntoView: it would also scroll the page vertically to reach a
+    // strip the user may not have scrolled to yet.
+    box.scrollLeft = el.offsetLeft - (box.clientWidth - el.offsetWidth) / 2;
+  }, [stages]);
+
+  const activeIndex = (() => {
+    if (!stages || !stages.length) return -1;
+    const running = stages.findIndex(
+      (s) => s.status === 'IN_PROGRESS' || s.status === 'PAUSED');
+    if (running !== -1) return running;
+    let last = -1;
+    stages.forEach((s, i) => { if (s.status === 'COMPLETED') last = i; });
+    return last;
+  })();
+
   if (!stages || stages.length === 0) {
     return (
       <div style={{
@@ -533,7 +557,7 @@ function StageTimeline({ stages, onSelectStage }) {
   }
 
   return (
-    <div style={{
+    <div ref={scrollerRef} style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       margin: '8px 0', padding: '12px 16px', background: 'var(--surface-color)',
       borderRadius: '8px', border: '1px solid var(--border-color)',
@@ -554,14 +578,15 @@ function StageTimeline({ stages, onSelectStage }) {
         return (
           <div
             key={stage.id || stage.stage_key}
+            ref={idx === activeIndex ? activeRef : null}
             role="button"
             tabIndex={0}
             title={`${stage.stage_name} — ${stage.status.replace('_', ' ').toLowerCase()}`}
-            style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '95px', cursor: 'pointer' }}
+            style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: '108px', cursor: 'pointer', padding: '4px 0' }}
             onClick={() => onSelectStage(stage)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectStage(stage); } }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: '0 0 88px', width: '88px' }}>
               <div style={{
                 width: '10px', height: '10px', borderRadius: '50%',
                 backgroundColor: statusColor,
@@ -569,10 +594,15 @@ function StageTimeline({ stages, onSelectStage }) {
                 boxShadow: isInProgress ? '0 0 0 2px #3b82f6' : 'none'
               }} />
               <span style={{
-                fontSize: '9px',
+                fontSize: '10px',
+                lineHeight: 1.25,
                 fontWeight: isInProgress ? 700 : 500,
                 color: isCompleted ? '#10b981' : isInProgress ? '#3b82f6' : 'var(--text-muted)',
-                textAlign: 'center', whiteSpace: 'nowrap'
+                // Was nowrap: a label wider than its slot overflowed both sides
+                // and printed on top of the neighbouring stage's label. The
+                // strip already scrolls horizontally, so wrapping inside a
+                // fixed slot is what keeps every stage name readable.
+                textAlign: 'center', overflowWrap: 'anywhere', width: '100%'
               }}>
                 {stage.stage_name}
               </span>
@@ -581,7 +611,7 @@ function StageTimeline({ stages, onSelectStage }) {
               <div style={{
                 height: '2px', flex: 1,
                 backgroundColor: isCompleted ? '#10b981' : 'var(--border-color)',
-                minWidth: '10px', marginTop: '-14px'
+                minWidth: '10px', alignSelf: 'flex-start', marginTop: '9px'
               }} />
             )}
           </div>
@@ -1539,6 +1569,7 @@ function App() {
       alert("Please fill in all credentials.");
       return;
     }
+    setAuthError(null);
     try {
       const res = await api.login(loginEmail, loginPassword);
       setCurrentUser(res.user);
@@ -1556,7 +1587,12 @@ function App() {
       }
       fetchDashboardAndConfig(res.user);
     } catch (err) {
-      alert(err.message || "Invalid credentials.");
+      // Inline, not alert(): the comment on `authError` says these screens
+      // deliberately do not put a modal dialog on top of a sign-in form, and
+      // the forgot/reset views already follow that. Sign-in was the one that
+      // still did -- worst on a phone, where the alert covers the form and
+      // takes a second tap to clear before the password can be retyped.
+      setAuthError(err.message || 'Invalid credentials.');
     }
   };
 
@@ -2216,7 +2252,7 @@ function App() {
 
       {/* 2. SIGN IN SCREEN (Image 2) */}
       {view === 'login' && (
-        <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
+        <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '88px 16px 40px' }}>
           
           {/* Back to Home Button */}
           <button 
@@ -2249,7 +2285,7 @@ function App() {
           <div className="auth-logo" style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', color: '#0f291e', fontWeight: 700, letterSpacing: '2px', marginBottom: '4px' }}>SCALEEZY</div>
           <div className="auth-logo-sub" style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '32px' }}>YOUR VISION. OUR CRAFT.</div>
 
-          <div className="auth-card" style={{ maxWidth: '420px', width: '100%', background: '#fff', border: '1px solid #eaecef', borderRadius: '16px', padding: '40px', boxShadow: '0 8px 30px rgba(0,0,0,0.02)' }}>
+          <div className="auth-card" style={{ maxWidth: '420px', width: '100%', background: '#fff', border: '1px solid #eaecef', borderRadius: '16px', padding: 'clamp(20px, 6vw, 40px)', boxShadow: '0 8px 30px rgba(0,0,0,0.02)' }}>
             <h2 className="auth-title" style={{ fontSize: '24px', color: '#0f291e', fontWeight: 600, margin: '0 0 8px 0' }}>Welcome back 👋</h2>
             <p className="auth-subtitle" style={{ fontSize: '13.5px', color: 'var(--text-secondary)', margin: '0 0 32px 0' }}>Login to continue your custom creation journey.</p>
             
@@ -2310,6 +2346,12 @@ function App() {
                 </button>
               </div>
 
+              {authError && (
+                <div role="alert" style={{ background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '10px 12px', fontSize: '13px' }}>
+                  {authError}
+                </div>
+              )}
+
               <button type="submit" className="btn-primary" style={{ justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600, fontSize: '14px' }}>
                 Login to Workspace
               </button>
@@ -2334,8 +2376,8 @@ function App() {
       {/* Ask for a reset link. Reached from the login screen; leaves back to
           it. Nothing here reveals whether the address is one we know. */}
       {view === 'forgot' && (
-        <div className="auth-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
-          <div className="auth-card" style={{ background: '#fff', border: '1px solid #eaecef', borderRadius: '14px', padding: '36px', width: '100%', maxWidth: '420px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+        <div className="auth-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '88px 16px 40px' }}>
+          <div className="auth-card" style={{ background: '#fff', border: '1px solid #eaecef', borderRadius: '14px', padding: 'clamp(20px, 6vw, 36px)', width: '100%', maxWidth: '420px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
             <h2 style={{ margin: '0 0 8px 0', fontSize: '22px' }}>Reset your password</h2>
 
             {resetSent ? (
@@ -2383,8 +2425,8 @@ function App() {
       {/* Choose the new password. Only reachable by following the emailed
           link, which is what put resetToken in state. */}
       {view === 'reset' && (
-        <div className="auth-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
-          <div className="auth-card" style={{ background: '#fff', border: '1px solid #eaecef', borderRadius: '14px', padding: '36px', width: '100%', maxWidth: '420px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+        <div className="auth-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '88px 16px 40px' }}>
+          <div className="auth-card" style={{ background: '#fff', border: '1px solid #eaecef', borderRadius: '14px', padding: 'clamp(20px, 6vw, 36px)', width: '100%', maxWidth: '420px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
             <h2 style={{ margin: '0 0 8px 0', fontSize: '22px' }}>Choose a new password</h2>
 
             {resetDone ? (
@@ -2432,7 +2474,7 @@ function App() {
       )}
 
       {view === 'signup' && (
-        <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '40px 20px' }}>
+        <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '88px 16px 40px' }}>
           
           {/* Back to Home Button */}
           <button 
@@ -2949,7 +2991,7 @@ function App() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-color)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                               <div className="assignment-card-sub-info" style={{ borderBottom: (!isProductionStaff(currentUser.role) || order.customer_measurements || (order.garment_jobs || []).length > 0) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px', fontSize: '13px' }}>
                                 {!isProductionStaff(currentUser.role) && <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>}
-                                <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</span></div>
+                                <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-text, #b07c40)' }}>{order.master_name || 'Unassigned'}</span></div>
                                 <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
                               </div>
 
@@ -3166,7 +3208,7 @@ function App() {
                                     {order.completed_garment_image && (
                                       <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span style={{ fontSize: '11px', color: '#107c41', fontWeight: 600 }}>✓ Picture Uploaded</span>
-                                        <a href={order.completed_garment_image} target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--accent-color, #d4af37)', textDecoration: 'underline' }}>View Image</a>
+                                        <a href={order.completed_garment_image} target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', textDecoration: 'underline' }}>View Image</a>
                                       </div>
                                     )}
                                   </div>
@@ -3475,7 +3517,7 @@ function App() {
                             fontSize: '12px'
                           }}>
                             <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <Scissors size={12} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                              <Scissors size={12} style={{ color: 'var(--accent-text, #b07c40)' }} />
                               <span>Tailor Completion Notes</span>
                             </div>
                             {selectedDashboardOrder.tailor_comments && (
@@ -3697,7 +3739,7 @@ function App() {
                             <h4 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>{fabric.name}</h4>
                             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Material: {fabric.material}</span>
                             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Color: {fabric.color}</span>
-                            <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--accent-color, #d4af37)', marginTop: '4px' }}>
+                            <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--accent-text, #b07c40)', marginTop: '4px' }}>
                               {formatMoney(fabric.price_per_meter)}/mtr
                             </span>
                           </div>
@@ -3776,7 +3818,7 @@ function App() {
                       padding: '24px'
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                        <Scissors size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                        <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
                         <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Master Tailors (Cutting & Supervision)</h3>
                       </div>
                       
@@ -3912,7 +3954,7 @@ function App() {
                     padding: '24px'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                      <Sparkles size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                      <Sparkles size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
                       <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Workflow Assignment & Supervision Control</h3>
                     </div>
                     
@@ -4148,8 +4190,9 @@ function App() {
                     borderRadius: '12px',
                     padding: '16px'
                   }}>
-                    {/* Filter Tabs */}
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    {/* Filter Tabs. Wrapping, not nowrap: four pills do not fit
+                        one 320px row and "Delivered" was clipped off the end. */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                       {['All', 'Active', 'Shipped', 'Delivered'].map(statusTab => (
                         <button 
                           key={statusTab}
@@ -4163,7 +4206,7 @@ function App() {
                     </div>
 
                     {/* Search Input */}
-                    <div className="search-bar-container" style={{ width: '300px', margin: 0 }}>
+                    <div className="search-bar-container" style={{ width: '100%', maxWidth: '300px', margin: 0 }}>
                       <Search className="search-icon" size={16} />
                       <input 
                         type="text" 
@@ -4316,7 +4359,7 @@ function App() {
                           }}>
                             <div>
                               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Supervising Master</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-color, #d4af37)' }}>{order.master_name || 'Unassigned'}</div>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-text, #b07c40)' }}>{order.master_name || 'Unassigned'}</div>
                             </div>
                             <div>
                               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Stitching Tailor</span>
@@ -4432,7 +4475,7 @@ function App() {
                               gap: '10px'
                             }}>
                               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Scissors size={14} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                                <Scissors size={14} style={{ color: 'var(--accent-text, #b07c40)' }} />
                                 <span>Stitching Completion Report (Tailor Feedback)</span>
                               </div>
                               {order.tailor_comments && (
@@ -4644,7 +4687,7 @@ function App() {
                         {/* Style DNA Expand Button */}
                         <div style={{ gridColumn: 'span 3', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Sparkles size={16} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                            <Sparkles size={16} style={{ color: 'var(--accent-text, #b07c40)' }} />
                             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI Customer Intelligence has analyzed {cust.order_count ?? cust.orders?.length ?? 0} order(s) and preferences.</span>
                           </div>
                           <button 
@@ -4757,7 +4800,7 @@ function App() {
                                     </tr>
                                     <tr>
                                       <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>NEXT ACTION</td>
-                                      <td style={{ padding: '12px 0', color: 'var(--accent-color, #d4af37)', fontWeight: 600 }}>"{cust.style_dna?.next_action}"</td>
+                                      <td style={{ padding: '12px 0', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>"{cust.style_dna?.next_action}"</td>
                                     </tr>
                                   </tbody>
                                 </table>
@@ -4794,7 +4837,7 @@ function App() {
                     style={{
                       background: 'none',
                       border: 'none',
-                      color: 'var(--accent-color, #d4af37)',
+                      color: 'var(--accent-text, #b07c40)',
                       fontSize: '14px',
                       cursor: 'pointer',
                       display: 'flex',
@@ -4842,8 +4885,8 @@ function App() {
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px',
-                        borderColor: 'var(--accent-color, #d4af37)',
-                        color: 'var(--accent-color, #d4af37)',
+                        borderColor: 'var(--accent-text, #b07c40)',
+                        color: 'var(--accent-text, #b07c40)',
                         cursor: 'pointer',
                         borderRadius: '6px',
                         background: 'transparent'
@@ -5024,7 +5067,7 @@ function App() {
                             return (
                             <div key={order.id} style={{
                               background: 'rgba(0,0,0,0.015)',
-                              border: `1px solid ${isOpen ? 'var(--accent-color, #d4af37)' : 'var(--border-color)'}`,
+                              border: `1px solid ${isOpen ? 'var(--accent-text, #b07c40)' : 'var(--border-color)'}`,
                               borderRadius: '8px',
                               padding: '16px'
                             }}>
@@ -5046,7 +5089,7 @@ function App() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                                   <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontWeight: 700, color: 'var(--accent-color, #d4af37)', fontSize: '14px' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
+                                    <div style={{ fontWeight: 700, color: 'var(--accent-text, #b07c40)', fontSize: '14px' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
                                     <span style={{
                                       display: 'inline-block',
                                       padding: '2px 8px',
@@ -5129,7 +5172,7 @@ function App() {
                                     style={{
                                       background: 'rgba(212, 175, 55, 0.1)',
                                       border: '1px solid rgba(212, 175, 55, 0.3)',
-                                      color: 'var(--accent-color, #d4af37)',
+                                      color: 'var(--accent-text, #b07c40)',
                                       borderRadius: '6px',
                                       padding: '6px 12px',
                                       fontSize: '11px',
@@ -5407,7 +5450,7 @@ function App() {
                     ))}
                   </div>
 
-                  <div className="search-bar-container" style={{ width: '300px', margin: 0 }}>
+                  <div className="search-bar-container" style={{ width: '100%', maxWidth: '300px', margin: 0 }}>
                     <Search className="search-icon" size={16} />
                     <input 
                       type="text" 
@@ -5661,7 +5704,7 @@ function App() {
                       gap: '8px'
                     }}>
                       <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Collected Revenue</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: 'var(--accent-color, #d4af37)' }}>
+                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: 'var(--accent-text, #b07c40)' }}>
                         ₹{paidRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                       </span>
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>From paid customer orders</span>
@@ -5741,7 +5784,7 @@ function App() {
                                   <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
                                 </div>
                                 <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent-color, #d4af37)', borderRadius: '3px' }}></div>
+                                  <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent-text, #b07c40)', borderRadius: '3px' }}></div>
                                 </div>
                               </div>
                             );
@@ -5910,7 +5953,7 @@ function App() {
                       height: '120px',
                       borderRadius: '50%',
                       overflow: 'hidden',
-                      border: '3px solid var(--accent-color, #d4af37)'
+                      border: '3px solid var(--accent-text, #b07c40)'
                     }}>
                       <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200" alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </div>
@@ -5928,7 +5971,7 @@ function App() {
                     <div style={{ alignSelf: 'stretch', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
                       <div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Tenant Domain</div>
-                        <div style={{ fontWeight: 600, color: 'var(--accent-color, #d4af37)' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent-text, #b07c40)' }}>
                           {localStorage.getItem('tenant_id') || '--'}
                         </div>
                       </div>
@@ -6161,7 +6204,7 @@ function App() {
                     <label htmlFor="fabricAvailable" style={{ fontSize: '13px', cursor: 'pointer' }}>Available in Inventory</label>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>Cancel</button>
                     <button type="submit" className="btn-primary">Save Fabric</button>
                   </div>
@@ -6225,7 +6268,7 @@ function App() {
                               value={appointmentForm.notes}
                               onChange={(e) => setAppointmentForm({ ...appointmentForm, notes: e.target.value })} />
                   </div>
-                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowAppointmentModal(false)}>Cancel</button>
                     <button type="submit" className="btn-primary" disabled={savingAppointment}>
                       {savingAppointment ? 'Booking…' : 'Book appointment'}
@@ -6328,7 +6371,7 @@ function App() {
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>Cancel</button>
                     <button type="submit" className="btn-primary">Save Tailor</button>
                   </div>
@@ -6384,7 +6427,7 @@ function App() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShareCredsTailor(null)}>Close</button>
                     
                     {/* Copy to Clipboard */}
@@ -6535,7 +6578,7 @@ function App() {
                     />
                   </div>
 
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>Cancel</button>
                     <button type="submit" className="btn-primary">Save Design</button>
                   </div>
@@ -7640,7 +7683,7 @@ function App() {
                     alignItems: 'center'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <Sparkles size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                      <Sparkles size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
                       <div style={{ textAlign: 'left' }}>
                         <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff', display: 'block' }}>Scaleezy Live Visualizer Available</span>
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Drape the selected {selectedFabric.name} fabric onto the chosen style sketch to preview it.</span>
@@ -7671,7 +7714,7 @@ function App() {
                   {/* Master Assignment Card */}
                   <div className="content-card" style={{ margin: 0 }}>
                     <div className="card-title">
-                      <Scissors size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                      <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
                       1. Assign Master Tailor (Cutting & Supervision)
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -7702,7 +7745,7 @@ function App() {
                               alignItems: 'center',
                               padding: '12px',
                               borderRadius: '8px',
-                              border: selectedMaster?.id === t.id ? '2px solid var(--accent-color, #d4af37)' : '1px solid var(--border-color)',
+                              border: selectedMaster?.id === t.id ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)',
                               background: selectedMaster?.id === t.id ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
                               cursor: 'pointer'
                             }}
@@ -7786,7 +7829,7 @@ function App() {
                 {/* Delivery Method Configuration Card */}
                 <div className="content-card" style={{ margin: '24px 0 0 0' }}>
                   <div className="card-title">
-                    <Compass size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+                    <Compass size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
                     3. Delivery Method Configuration
                   </div>
                   
@@ -8048,11 +8091,11 @@ function App() {
                       </div>
 
                       {selectedTailor ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '20px', rowGap: '12px', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                           <div style={{ width: '48px', height: '48px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
                             <img src={getTailorAvatarUrl(selectedTailor.name)} alt={selectedTailor.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           </div>
-                          <div style={{ flex: 1 }}>
+                          <div style={{ flex: 1, minWidth: '150px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <span style={{ fontSize: '15px', fontWeight: 600 }}>{selectedTailor.name}</span>
                               <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#107c41', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '8px' }}><Check size={8} /></span>
@@ -8200,7 +8243,12 @@ function App() {
                           <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
                             <div>
                               <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Garment</span>
-                              <span style={{ fontSize: '12px', fontWeight: 600 }}>{customerForm.customer_type} • {customerForm.garment_type}</span>
+                              {/* wizardGarmentLabel, not customerForm.garment_type: the customer
+                                  field holds one value and follows whichever dress was picked
+                                  first, so a blouse-and-lehenga order named a single garment on
+                                  the one screen where the money is taken. The two sidebars below
+                                  already read the helper; this was the call site it missed. */}
+                              <span style={{ fontSize: '12px', fontWeight: 600 }}>{customerForm.customer_type} • {wizardGarmentLabel}</span>
                             </div>
                             <div>
                               <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Fabric</span>
@@ -8661,13 +8709,15 @@ function App() {
             <div className="order-id-badge">
               <span>Order ID: <strong>{confirmedOrder.order_id}</strong></span>
               <button 
-                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', color: 'var(--text-secondary)' }}
+                aria-label="Copy order ID"
+                title="Copy order ID"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', minWidth: '44px', minHeight: '44px', margin: '-12px' }}
                 onClick={() => {
                   navigator.clipboard.writeText(confirmedOrder.order_id);
                   alert("Copied!");
                 }}
               >
-                <Copy size={14} />
+                <Copy size={16} />
               </button>
             </div>
           </div>
@@ -8738,11 +8788,15 @@ function App() {
             </button>
           </div>
 
-          <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', width: '100%', maxWidth: '450px' }}>
-            <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setView('dashboard'); fetchDashboardAndConfig(); }}>
+          {/* `flex: 1` alone does not shrink a button below its own text, so at
+              390px these two ran off both edges of the screen -- the last two
+              controls of the whole order flow, on a screen that then scrolled
+              sideways. Wrapping, with a width floor, stacks them instead. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'center', width: '100%', maxWidth: '450px' }}>
+            <button className="btn-secondary" style={{ flex: '1 1 180px', justifyContent: 'center' }} onClick={() => { setView('dashboard'); fetchDashboardAndConfig(); }}>
               Back to Dashboard
             </button>
-            <button className="btn-primary" style={{ flex: 1, justifyContent: 'center', backgroundColor: '#0f291e' }} onClick={() => setShowInvoiceModal(true)}>
+            <button className="btn-primary" style={{ flex: '1 1 180px', justifyContent: 'center', backgroundColor: '#0f291e' }} onClick={() => setShowInvoiceModal(true)}>
               <FileText size={18} /> View & Print Invoice
             </button>
           </div>
@@ -8808,6 +8862,7 @@ function App() {
             }} className="no-print">
               <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Customer Invoice</h3>
               <button 
+                aria-label="Close invoice"
                 onClick={() => setShowInvoiceModal(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
               >
@@ -9149,7 +9204,7 @@ function App() {
             alignItems: 'center'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Bell size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
+              <Bell size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
               <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0, fontFamily: 'var(--font-serif)' }}>Atelier Alerts</h3>
             </div>
             <button 
@@ -9676,22 +9731,29 @@ function App() {
             `}</style>
             
             {/* Modal Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Sparkles size={20} style={{ color: 'var(--accent-color, #d4af37)' }} />
-                <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, letterSpacing: '0.5px' }}>Scaleezy Live Visualizer: Interactive Fabric Draping</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                <Sparkles size={20} style={{ color: 'var(--accent-text, #b07c40)', flexShrink: 0 }} />
+                <h3 style={{ fontSize: 'clamp(14px, 4.2vw, 18px)', fontWeight: 700, margin: 0, letterSpacing: '0.5px' }}>Scaleezy Live Visualizer: Interactive Fabric Draping</h3>
               </div>
               <button 
                 type="button"
+                aria-label="Close visualizer"
                 onClick={() => { setShowDrapingModal(false); }}
-                style={{ background: 'none', border: 'none', color: '#888', fontSize: '20px', cursor: 'pointer', outline: 'none' }}
+                style={{ background: 'none', border: 'none', color: '#888', fontSize: '20px', cursor: 'pointer', outline: 'none', flexShrink: 0, minWidth: '44px', minHeight: '44px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
               >
                 &times;
               </button>
             </div>
 
             {/* Modal Content Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1.6fr', gap: '20px', alignItems: 'stretch' }}>
+            {/* `repeat(auto-fit, minmax(min(190px, 100%), 1fr))`, not a fixed
+                `1.2fr 1.2fr 1.6fr`: three fixed columns put the third panel --
+                the one carrying the Try On explanation -- 70px past the right
+                edge of a 320px screen, where it was clipped and unreadable.
+                auto-fit keeps all three side by side wherever they fit and
+                stacks them when they do not. */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(190px, 100%), 1fr))', gap: '20px', alignItems: 'stretch' }}>
               {/* Left Column: Style Sketch */}
               <div style={{ background: '#141414', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Selected Style Sketch</span>
@@ -9724,7 +9786,7 @@ function App() {
               <div style={{ background: '#181818', border: '1px solid rgba(212, 175, 55, 0.15)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: '260px' }}>
                 {!drapingCompleted && !drapingLoading ? (
                   <div style={{ textAlign: 'center', padding: '20px' }}>
-                    <div style={{ color: 'var(--accent-color, #d4af37)', marginBottom: '12px' }}><Sparkles size={36} /></div>
+                    <div style={{ color: 'var(--accent-text, #b07c40)', marginBottom: '12px' }}><Sparkles size={36} /></div>
                     <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '8px' }}>Ready to Drape</h4>
                     <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px', maxWidth: '220px', margin: '0 auto 16px' }}>
                       Click "Start Try On" to simulate draping this fabric onto the mannequin.
@@ -9732,13 +9794,13 @@ function App() {
                   </div>
                 ) : drapingLoading ? (
                   <div style={{ textAlign: 'center', padding: '20px' }}>
-                    <div className="spinner" style={{ border: '3px solid rgba(255,255,255,0.1)', borderTop: '3px solid var(--accent-color, #d4af37)', borderRadius: '50%', width: '40px', height: '40px', animation: 'modalSpin 1s linear infinite', margin: '0 auto 16px' }} />
+                    <div className="spinner" style={{ border: '3px solid rgba(255,255,255,0.1)', borderTop: '3px solid var(--accent-text, #b07c40)', borderRadius: '50%', width: '40px', height: '40px', animation: 'modalSpin 1s linear infinite', margin: '0 auto 16px' }} />
                     <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '4px' }}>Simulating Try On...</h4>
                     <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Mapping coordinates onto sketch layers</p>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', width: '100%' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--accent-color, #d4af37)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>✨ 3D Mannequin Draped View</span>
+                    <span style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>✨ 3D Mannequin Draped View</span>
                     <div style={{ width: '100%', height: '200px', overflow: 'hidden', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' }}>
                       <img src={drapedImage} alt="Draped Mannequin Mockup" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </div>
@@ -9753,7 +9815,7 @@ function App() {
             </div>
 
             {/* Modal Actions Footer */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
               <button 
                 type="button" 
                 className="btn-secondary" 

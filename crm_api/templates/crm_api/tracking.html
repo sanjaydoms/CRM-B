@@ -65,7 +65,14 @@
   .total-row { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
   .total-row dd { font-size: 16px; font-weight: 700; }
   footer { text-align: center; color: var(--muted); font-size: 13px; padding-top: 8px; }
-  footer a { color: inherit; }
+  /* The only thing on this page a customer taps. As plain inline text it was a
+     15px-tall target; give it a thumb-sized box of its own. */
+  footer a {
+    color: inherit;
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 44px; padding: 0 12px;
+    font-weight: 600; text-decoration-thickness: 1px;
+  }
 </style>
 </head>
 <body>

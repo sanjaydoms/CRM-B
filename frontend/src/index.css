@@ -336,6 +336,34 @@ textarea.form-control {
   resize: vertical;
 }
 
+/* `.form-input` is what the Design Studio's assignment forms use (designer,
+   due date, brief, review notes) and it was never defined, so those seven
+   controls rendered as bare browser widgets -- 25px tall on a phone. Same
+   shape as `.form-control`; sharing the rule rather than the class name
+   because the call sites are in a separate feature folder. */
+.form-input {
+  width: 100%;
+  padding: 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-primary);
+  background-color: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.form-input:focus {
+  border-color: var(--border-focus);
+}
+
+textarea.form-input {
+  min-height: 72px;
+  resize: vertical;
+}
+
 /* Profile Photo Upload Widget */
 .profile-upload-widget {
   display: flex;
@@ -1195,6 +1223,42 @@ textarea.form-control {
   color: var(--text-secondary);
 }
 
+/* `.search-bar-container` / `.search-icon` / `.search-input` were used in the
+   orders and customers registries but never defined anywhere, so the icon sat
+   inline in front of an unstyled browser input and the two shared one row.
+   On a phone that left a 143px-wide input with the magnifier printed over it. */
+.search-bar-container {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.search-bar-container .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.search-bar-container .search-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px 10px 38px;
+  font-size: 16px; /* < 16px makes iOS Safari zoom the page on focus */
+  color: var(--text-primary);
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+.search-bar-container .search-input:focus {
+  outline: none;
+  border-color: var(--accent-text, #b07c40);
+}
+
 table.data-table {
   width: 100%;
   border-collapse: collapse;
@@ -1601,7 +1665,12 @@ table.data-table tbody tr:hover {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 20px;
+  position: relative;
+  /* Top padding reserves the band the absolutely-positioned "Back to Home"
+     pill occupies (top:30px, ~40px tall). Without it the centred logo rises
+     under the pill on any viewport short enough to matter -- which is every
+     phone. */
+  padding: 88px 16px 40px;
 }
 
 .auth-logo {
@@ -1626,7 +1695,7 @@ table.data-table tbody tr:hover {
   background-color: var(--surface-color);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: 40px;
+  padding: clamp(20px, 6vw, 40px);
   width: 100%;
   max-width: 520px;
   box-shadow: var(--shadow-sm);
@@ -2891,7 +2960,12 @@ table.data-table tbody tr:hover {
   }
 
   .wizard-step-body {
-    grid-template-columns: 1fr !important;
+    /* `minmax(0, 1fr)`, not `1fr`: a grid item's default `min-width: auto`
+       lets a wide child (the Design Studio's grid, the fabric picker) push the
+       track past the container, which is exactly what happened -- a 392px
+       track inside a 390px viewport. minmax(0,...) lets the track shrink and
+       hands the overflow decision back to the child. */
+    grid-template-columns: minmax(0, 1fr) !important;
     gap: 20px !important;
   }
 
@@ -3189,11 +3263,21 @@ table.data-table tbody tr:hover {
     gap: 8px !important;
   }
 
+  /* `flex: 1 1 auto` used to be listed against bare `.btn-primary` /
+     `.btn-secondary` here, so every button in the app that happened to be a
+     flex item stretched on mobile -- including icon-only close buttons, which
+     grew to 127px and crowded their own dialog title. The stretching is only
+     wanted for the buttons in the portal header bar, so that is where it now
+     lives; centring the label is safe everywhere. */
   .portal-header-right button,
   .portal-header-right a,
+  .portal-header-right .btn-primary,
+  .portal-header-right .btn-secondary {
+    flex: 1 1 auto;
+  }
+
   .btn-primary,
   .btn-secondary {
-    flex: 1 1 auto;
     justify-content: center;
     text-align: center;
     white-space: nowrap;
@@ -3281,11 +3365,21 @@ table.data-table tbody tr:hover {
     gap: 8px !important;
   }
 
+  /* `flex: 1 1 auto` used to be listed against bare `.btn-primary` /
+     `.btn-secondary` here, so every button in the app that happened to be a
+     flex item stretched on mobile -- including icon-only close buttons, which
+     grew to 127px and crowded their own dialog title. The stretching is only
+     wanted for the buttons in the portal header bar, so that is where it now
+     lives; centring the label is safe everywhere. */
   .portal-header-right button,
   .portal-header-right a,
+  .portal-header-right .btn-primary,
+  .portal-header-right .btn-secondary {
+    flex: 1 1 auto;
+  }
+
   .btn-primary,
   .btn-secondary {
-    flex: 1 1 auto;
     justify-content: center;
     text-align: center;
     white-space: nowrap;
@@ -3350,8 +3444,15 @@ table.data-table tbody tr:hover {
   }
 
   .stepper-progress-bar > div {
-    min-width: 85px !important;
+    /* Fixed width, not just a minimum: the container is `white-space: nowrap`,
+       so a label wider than its slot -- "Complete & Create Order" -- ran over
+       the neighbouring step's label instead of wrapping. Re-enabling wrapping
+       inside a slot of known width is what keeps all six readable. */
+    width: 100px !important;
+    min-width: 100px !important;
     flex-shrink: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
   }
 
   .stepper-progress-bar > div:nth-child(even) {
@@ -3363,7 +3464,12 @@ table.data-table tbody tr:hover {
     /* The wizard body is `1fr 360px` on desktop -- the form and its summary
        sidebar. At 375px that reserves 360px for the sidebar alone, pushing the
        form itself off-screen. */
-    grid-template-columns: 1fr !important;
+    /* `minmax(0, 1fr)`, not `1fr`: a grid item's default `min-width: auto`
+       lets a wide child (the Design Studio's grid, the fabric picker) push the
+       track past the container, which is exactly what happened -- a 392px
+       track inside a 390px viewport. minmax(0,...) lets the track shrink and
+       hands the overflow decision back to the child. */
+    grid-template-columns: minmax(0, 1fr) !important;
     gap: 20px !important;
   }
 
@@ -3802,3 +3908,110 @@ table.data-table tbody tr:hover {
 
 
 
+
+/* ==========================================================================
+   MOBILE TOUCH-TARGET FLOOR
+
+   The controls in this app are sized almost entirely by inline `padding` and
+   `font-size` written at the call site -- `padding: 6px 10px; font-size: 12px`
+   appears on hundreds of buttons and selects. That is fine with a mouse and
+   wrong with a thumb: measured on the orders registry it produces 28-32px
+   controls sitting a few pixels apart, which is where mis-taps come from.
+
+   Fixing it at the call sites would mean editing every one of those inline
+   styles and would drift back the moment somebody copies a neighbouring row.
+   Setting a floor here is the fix that holds: no inline style declares
+   `min-height`, so an ordinary rule wins without `!important` and composes
+   with whatever padding the call site chose.
+
+   `font-size` does need `!important`, and only on text-entry fields: iOS
+   Safari zooms the whole page when a focused input is under 16px, which throws
+   the layout off and leaves the user pinching back out on every field.
+
+   Three conditions, not just a width. A phone turned sideways is 844x390: the
+   width breakpoints all miss it and the app hands a landscape phone the full
+   desktop layout, 20px selects and all -- same fingers, no floor. The short-
+   viewport arm catches that, and the coarse-pointer arm catches tablets and
+   anything else driven by touch at a width a mouse would also use.
+   ========================================================================== */
+@media (max-width: 768px),
+       (max-height: 500px) and (max-width: 950px),
+       (pointer: coarse) and (max-width: 1024px) {
+  .app-container .btn-primary,
+  .app-container .btn-secondary,
+  .app-container .whatsapp-btn,
+  .app-container .portal-menu-item,
+  .app-container .view-all-link,
+  .app-container input.form-control,
+  .app-container select.form-control,
+  .app-container select,
+  .app-container .input-wrapper input,
+  .app-container .input-wrapper select,
+  .app-container .form-input,
+  .app-container input[type='text'],
+  .app-container input[type='email'],
+  .app-container input[type='tel'],
+  .app-container input[type='number'],
+  .app-container input[type='password'],
+  .app-container input[type='search'],
+  .app-container input[type='date'] {
+    min-height: 44px;
+  }
+
+  /* A 13px checkbox is a browser default, not a decision. Scaling the box
+     keeps the native control (and its keyboard behaviour) and just makes it
+     hittable; the extra padding gives the row some slop around it. */
+  .app-container input[type='checkbox'],
+  .app-container input[type='radio'] {
+    width: 22px;
+    height: 22px;
+    margin: 6px;
+    flex-shrink: 0;
+  }
+
+  /* The tab strips and filter pills (Inventory's seven module tabs, the
+     Customers type filter) are class-less buttons styled entirely inline at
+     `padding: 8px 16px`, which lands at 33.5px. 40 rather than 44 here: this
+     selector also catches the small inline chips inside dense rows, and 44
+     would visibly loosen those without making them easier to hit. Anything
+     that is really a button carries .btn-* and gets 44 above. */
+  .app-container button {
+    min-height: 40px;
+  }
+
+  /* Icon-only buttons -- modal closes, the copy-to-clipboard glyphs -- have no
+     text to give them width, so they came out ~20px wide however tall the rule
+     above made them. `:has(> svg:only-child)` is exactly "a button whose whole
+     content is one icon", so this reaches them all rather than one at a time. */
+  .app-container button:has(> svg:only-child) {
+    min-width: 40px;
+    justify-content: center;
+  }
+
+  /* Links and pills that are laid out as text still need a thumb-sized box. */
+  .app-container .view-all-link,
+  .app-container .whatsapp-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app-container input.form-control,
+  .app-container select.form-control,
+  .app-container textarea.form-control,
+  .app-container .input-wrapper input,
+  .app-container .input-wrapper select,
+  .app-container .input-wrapper textarea,
+  .app-container .search-bar-container .search-input,
+  .app-container input[type='text'],
+  .app-container input[type='email'],
+  .app-container input[type='tel'],
+  .app-container input[type='number'],
+  .app-container input[type='password'],
+  .app-container input[type='search'],
+  .app-container input[type='date'],
+  .app-container textarea,
+  .app-container .form-input {
+    font-size: 16px !important;
+  }
+}

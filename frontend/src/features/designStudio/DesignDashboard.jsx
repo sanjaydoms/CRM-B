@@ -33,7 +33,7 @@ function StatTile({ icon: Icon, label, value, accent }) {
         width: '38px', height: '38px', borderRadius: '8px', flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: accent ? 'rgba(212,175,55,0.12)' : 'rgba(255,255,255,0.05)',
-        color: accent ? 'var(--accent-color, #d4af37)' : 'var(--text-secondary)',
+        color: accent ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)',
       }}>
         <Icon size={18} />
       </div>

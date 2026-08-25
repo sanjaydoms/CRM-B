@@ -155,7 +155,7 @@ export default function DesignUpload({ onClose, onUploaded }) {
             {previews.map((src, i) => (
               <img key={src} src={src} alt={`upload ${i + 1}`}
                    style={{ width: '72px', height: '72px', objectFit: 'cover', borderRadius: '6px',
-                            border: i === 0 ? '2px solid var(--accent-color, #d4af37)' : '1px solid var(--border-color)' }} />
+                            border: i === 0 ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)' }} />
             ))}
           </div>
         )}
