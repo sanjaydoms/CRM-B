@@ -28,7 +28,6 @@ import UsersScreen from './screens/Users.jsx';
 import Onboarding from './screens/Onboarding.jsx';
 import Leads from './screens/Leads.jsx';
 import Modules from './screens/Modules.jsx';
-import Flags from './screens/Flags.jsx';
 import Config from './screens/Config.jsx';
 import OrdersMonitor from './screens/OrdersMonitor.jsx';
 import Integrations from './screens/Integrations.jsx';
@@ -48,7 +47,10 @@ const SCREENS = {
   onboarding: Onboarding,
   leads: Leads,
   modules: Modules,
-  flags: Flags,
+  // No `flags` entry, and that is deliberate -- see the note in nav.js. The
+  // screen file is kept; nothing routes to it, so #/flags falls through to the
+  // console's "no such screen" state rather than presenting switches that
+  // control nothing.
   config: Config,
   orders: OrdersMonitor,
   integrations: Integrations,

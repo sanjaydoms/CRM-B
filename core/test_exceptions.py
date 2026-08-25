@@ -100,6 +100,33 @@ class ErrorCaptureTests(TransactionTestCase):
         logging.disable(logging.CRITICAL)
         self.addCleanup(logging.disable, logging.NOTSET)
 
+    def bare_schema(self, schema_name):
+        """A real but EMPTY Postgres schema, created for the life of the test.
+
+        These tests used to name a schema that did not exist, on the reasoning
+        that `set_schema` only changes what the *next* query would use. That is
+        no longer legal: tenants/schema_guard.py refuses to point the connection
+        at a schema that is not there, because Postgres silently resolves such a
+        query against `public` and that fallthrough was a real vulnerability.
+
+        An empty schema keeps every assertion below exactly as it was -- the
+        point is that ErrorEvent is written to `public` from a connection
+        pointed somewhere else, and an empty schema is pointed somewhere else
+        just as well as an imaginary one. It is also closer to the situation
+        being described: a half-migrated boutique.
+        """
+        with connection.cursor() as cursor:
+            cursor.execute('CREATE SCHEMA IF NOT EXISTS "%s"' % schema_name)
+        self.addCleanup(self._drop_schema, schema_name)
+        return schema_name
+
+    def _drop_schema(self, schema_name):
+        connection.set_schema_to_public()
+        with connection.cursor() as cursor:
+            cursor.execute('DROP SCHEMA IF EXISTS "%s" CASCADE' % schema_name)
+        from superadmin.schemas import forget
+        forget(schema_name)
+
     def crash(self, url='/boom/'):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 500)
@@ -216,7 +243,7 @@ class ErrorCaptureTests(TransactionTestCase):
         try:
             raise ValueError('crashed inside a boutique')
         except ValueError as exc:
-            connection.set_schema('boutique_elsewhere')
+            connection.set_schema(self.bare_schema('boutique_elsewhere'))
             try:
                 _record(exc, request)
                 self.assertEqual(connection.schema_name, 'boutique_elsewhere')
@@ -239,7 +266,7 @@ class ErrorCaptureTests(TransactionTestCase):
         try:
             raise ValueError('one bug, many boutiques')
         except ValueError as exc:
-            connection.set_schema(schema_name)
+            connection.set_schema(self.bare_schema(schema_name))
             try:
                 _record(exc, request)
             finally:

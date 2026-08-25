@@ -46,7 +46,8 @@ def _fit(value, field):
     return ('' if value is None else str(value))[:_MAX[field]]
 
 
-def record(request, action, target='', boutique='', before=None, after=None, reason=''):
+def record(request, action, target='', boutique='', before=None, after=None,
+           reason='', actor=None):
     """Write one audit entry. Returns the AuditLog, or None if it could not be written.
 
     `action` should be one of AuditLog.ACTIONS. `target` is whatever was acted
@@ -58,6 +59,16 @@ def record(request, action, target='', boutique='', before=None, after=None, rea
 
     For `console.login_failed` there is no authenticated user, so `actor` comes
     out as the empty string; pass the attempted username as `target`.
+
+    `actor` overrides the name taken off `request.user`, and exists for exactly
+    one situation: the sign-in itself. PlatformLoginView declares
+    `authentication_classes = []` -- a login cannot require a token -- so
+    `request.user` is still AnonymousUser at the moment the administrator has
+    just been authenticated. Left to the request, the single entry that says who
+    entered the console recorded an empty actor: a trail reading "somebody
+    signed in", which is the one fact it existed to capture. Pass it only where
+    the caller has *verified* the identity; an unverified name in this column is
+    worse than a blank one, because the blank is honest.
 
     Never raises. An audit write that fails must not take the suspension or the
     password reset that triggered it down with it -- but the failure is logged
@@ -91,7 +102,10 @@ def record(request, action, target='', boutique='', before=None, after=None, rea
                 # `user` at all, and AnonymousUser has a blank `username`.
                 # Neither is worth losing the entry over -- an action recorded
                 # with no actor still says it happened.
-                actor=_fit(getattr(getattr(request, 'user', None), 'username', ''), 'actor'),
+                actor=_fit(
+                    actor if actor is not None
+                    else getattr(getattr(request, 'user', None), 'username', ''),
+                    'actor'),
                 action=_fit(action, 'action'),
                 target=_fit(target, 'target'),
                 boutique=_fit(boutique, 'boutique'),

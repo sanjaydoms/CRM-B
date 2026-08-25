@@ -83,7 +83,30 @@ class BoutiqueTenantAdmin(admin.ModelAdmin):
                 level=messages.WARNING,
             )
         boutiques = queryset.exclude(schema_name=get_public_schema_name())
+        # Read before the update, because afterwards there is nothing left to
+        # say what changed: .update() fires no signal, and a bulk admin action
+        # writes no django_admin_log entry either.
+        affected = list(boutiques.values_list('schema_name', flat=True))
         changed = boutiques.update(is_active=active)
+
+        # Suspension is the most consequential action on the platform, and on
+        # this path it was invisible: the console's own suspend endpoint writes
+        # an AuditLog row, superadmin/admin.py mirrors its admin edits into the
+        # same trail, and this back door -- which can suspend EVERY boutique in
+        # one click -- recorded nothing anywhere. "Who took the platform down,
+        # and when" had no answer if it was done from here.
+        #
+        # audit.record never raises (superadmin/audit.py), so a failure to write
+        # the trail cannot break the action an administrator is taking.
+        from superadmin import audit
+        for schema_name in affected:
+            audit.record(
+                request,
+                'boutique.reactivate' if active else 'boutique.suspend',
+                target=schema_name, boutique=schema_name,
+                before={'is_active': not active}, after={'is_active': active},
+                reason='Changed in the Django admin (bulk action).',
+            )
         # The middleware holds resolved tenants for a few minutes; drop them so
         # this takes effect now in this process at least (other gunicorn workers
         # catch up at their own TTL -- see the note in middleware.py).

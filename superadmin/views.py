@@ -79,10 +79,33 @@ class PlatformLoginView(APIView):
             # someone probing which public account is the administrator, which
             # is the same hunt by another route.
             LoginThrottle.record_failure(request)
+            # The attempted username is the `target`, not the `actor`: nobody
+            # authenticated, so there is no actor to name, and recording an
+            # unverified name in the actor column would put words in the mouth
+            # of whoever owns that account.
+            #
+            # Recorded whether the account exists or not, and the entry does not
+            # say which -- the response already refuses to distinguish the two,
+            # and an audit trail that does would be a directory of platform
+            # administrators for anyone who can read it.
+            audit.record(request, 'console.login_failed', target=username)
             return Response({'error': 'Invalid administrator credentials.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
         token, _ = Token.objects.get_or_create(user=user)
+        # The one action every other entry in this trail hangs off. `console.
+        # login` and `console.login_failed` were both in AuditLog.ACTIONS from
+        # the start and neither was ever written by anything -- so the trail
+        # advertised sign-in history it did not keep, which is worse than not
+        # offering it: a reviewer reading a boutique's history saw suspensions
+        # and password resets with no record of who had been in the console at
+        # all, and no indication that half the vocabulary was decorative.
+        # `actor` is passed explicitly: this view authenticates with no token, so
+        # request.user is still anonymous here and the entry naming who entered
+        # the console would otherwise have no name in it. authenticate() has
+        # just verified this one.
+        audit.record(request, 'console.login', target=user.username,
+                     actor=user.username)
         return Response({
             'token': token.key,
             'user': {'username': user.username, 'email': user.email},
@@ -104,6 +127,10 @@ class PlatformLogoutView(APIView):
     permission_classes = [IsPlatformAdmin]
 
     def post(self, request):
+        # Recorded before the token is deleted, not after: record() reads the
+        # actor off request.user, and this is the last moment the session it is
+        # describing still exists.
+        audit.record(request, 'console.logout', target=request.user.username)
         Token.objects.filter(user=request.user).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -209,9 +236,28 @@ class BoutiqueDataView(APIView):
     Read-only. The console shows a boutique's data; it does not edit it, because
     every rule that keeps that data correct lives in the boutique's own API and
     none of it would run here.
+
+    **Every access writes an audit row**, and this is the most important line in
+    the class. This is the highest-privilege read surface the platform has -- it
+    reaches one customer's name, address, phone number and measurements inside
+    somebody else's business -- and until now it was the only such surface that
+    left no trace. SupportView, which reads strictly less, recorded a `data.view`
+    entry; browsing crm_api.customer here recorded nothing, so the question "who
+    read this boutique's customer list, and when" had no answer anywhere.
+    Measured before the fix: two requests returning customer PII, zero audit
+    rows.
     """
 
     permission_classes = [IsPlatformAdmin]
+
+    #: How much of a search term is kept in the trail. The term is what the
+    #: administrator was LOOKING for, so it is the substance of the access
+    #: rather than decoration -- an entry saying only "searched something" does
+    #: not tell a reviewer whether a boutique's records were being combed for
+    #: one person. It is bounded because it is caller-supplied text going into a
+    #: log, and it is the only query value recorded: page numbers are recorded
+    #: as numbers and nothing else from the query string is stored at all.
+    SEARCH_TERM_LIMIT = 120
 
     def get(self, request, schema_name=None, key=None):
         tenant = _boutiques().filter(schema_name=schema_name).first()
@@ -219,28 +265,68 @@ class BoutiqueDataView(APIView):
             return Response({'error': 'No such boutique.'},
                             status=status.HTTP_404_NOT_FOUND)
 
+        search = (request.query_params.get('q') or '').strip()
+
         try:
             with schema_context(tenant.schema_name):
                 if key is None:
+                    listed = datasets.inventory()
+                    # The sidebar is an access too: it reports how many
+                    # customers, orders and measurements a boutique holds, which
+                    # is a real fact about someone's business even though no row
+                    # is rendered. Recorded as a distinct access type so a
+                    # reviewer can tell "opened the table list" from "read the
+                    # customer table" instead of seeing one undifferentiated
+                    # 'data.view' for both.
+                    audit.record(request, 'data.view', target='datasets',
+                                 boutique=schema_name,
+                                 after={'access': 'model_index',
+                                        'models': len(listed)})
                     return Response({
                         'boutique': {'schema_name': tenant.schema_name, 'name': tenant.name},
-                        'datasets': datasets.inventory(),
+                        'datasets': listed,
                     })
 
                 model = datasets.get_model(key)
                 if model is None:
                     # Also the answer for a model that exists but is excluded
-                    # (authtoken, say). Saying "that is off limits" would confirm
-                    # the table is there and worth asking about.
+                    # (authtoken, say) or simply not on the allowlist. Saying
+                    # "that is off limits" would confirm the table is there and
+                    # worth asking about.
+                    #
+                    # Recorded as well: an administrator naming a table the
+                    # console will not serve is exactly the attempt worth having
+                    # a record of, and a trail that holds only successful reads
+                    # cannot show someone probing for one.
+                    audit.record(request, 'data.view', target=key,
+                                 boutique=schema_name,
+                                 after={'access': 'refused', 'reason': 'not_browsable'})
                     return Response({'error': 'No such dataset.'},
                                     status=status.HTTP_404_NOT_FOUND)
 
-                return Response(datasets.rows(
+                page = datasets.rows(
                     model,
                     page=request.query_params.get('page', 1),
                     page_size=request.query_params.get('page_size'),
-                    search=(request.query_params.get('q') or '').strip(),
-                ))
+                    search=search,
+                )
+                # Written after the read rather than before it, so `rows` records
+                # what was actually handed over: an entry claiming fifty rows
+                # were read when the query returned none is a worse record than
+                # no entry.
+                audit.record(
+                    request, 'data.view', target=key, boutique=schema_name,
+                    after={
+                        'access': 'rows',
+                        'rows': len(page['rows']),
+                        'matching': page['count'],
+                        'page': page['page'],
+                        'page_size': page['page_size'],
+                        # Recorded only when there was one, so the common case is
+                        # not a column of empty strings.
+                        **({'search': search[:self.SEARCH_TERM_LIMIT]} if search else {}),
+                    })
+                return Response(page)
         except ValueError:
             # A non-numeric ?page= or ?page_size= reaches int() in datasets.rows.
             return Response({'error': 'page and page_size must be numbers.'},

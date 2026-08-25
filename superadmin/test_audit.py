@@ -13,6 +13,7 @@ from unittest import mock
 
 from django.contrib.auth.models import AnonymousUser, User
 from django.db import OperationalError
+from django.db import connection
 from django.test import RequestFactory, TestCase
 from django_tenants.utils import schema_context
 
@@ -24,6 +25,14 @@ def a_request(user=None, **meta):
     request = RequestFactory().post('/api/superadmin/boutiques/acme/suspend/', **meta)
     request.user = AnonymousUser() if user is None else user
     return request
+
+
+def _drop_bare_schema(schema_name):
+    connection.set_schema_to_public()
+    with connection.cursor() as cursor:
+        cursor.execute('DROP SCHEMA IF EXISTS "%s" CASCADE' % schema_name)
+    from superadmin.schemas import forget
+    forget(schema_name)
 
 
 class RecordTests(TestCase):
@@ -73,6 +82,16 @@ class RecordTests(TestCase):
         except would swallow the result. The schema below deliberately does not
         exist -- Postgres accepts it in search_path and fails only on the query,
         which is precisely the situation being tested."""
+        # A real but EMPTY schema. This used to name one that did not exist;
+        # tenants/schema_guard.py now refuses that, because Postgres resolves
+        # such a query against `public` and the fallthrough was exploitable.
+        # An empty schema tests the same thing -- record() must pin to public
+        # from a connection pointed at a boutique that has no auditlog table --
+        # and is a state a half-migrated boutique really reaches.
+        with connection.cursor() as cursor:
+            cursor.execute('CREATE SCHEMA IF NOT EXISTS "no_such_boutique_schema"')
+        self.addCleanup(_drop_bare_schema, 'no_such_boutique_schema')
+
         with schema_context('no_such_boutique_schema'):
             entry = audit.record(a_request(self.admin), 'user.deactivate',
                                  target='cutter@acme.test', boutique='acme')

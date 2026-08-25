@@ -51,20 +51,31 @@ _present = set()
 def schema_exists(schema_name):
     """Whether `schema_name` is a real Postgres schema.
 
-    information_schema.schemata rather than django_tenants' own helper: this has
-    to be true about the database, not about the tenant table, and the whole
-    point is that the two can disagree.
+    Delegates to django_tenants' own helper, which reads `pg_catalog.pg_namespace`.
+    This used to query `information_schema.schemata`, and that was a latent
+    outage waiting for a stricter database role: per Postgres' documentation
+    that view lists only the schemas *owned by a currently enabled role*, so an
+    application connecting as a role that did not own the tenant schemas would
+    see none of them. While this answer only decided whether the console could
+    read a boutique, the cost of being wrong was one screen saying "unreadable".
+    Now that the same answer gates EVERY schema switch in the application
+    (tenants/schema_guard.py), being wrong would refuse every tenant on the
+    platform. pg_namespace lists schemas regardless of ownership.
+
+    Using the library's own function also means this cannot disagree with the
+    check `TenantMixin.create_schema` makes when it decides a schema is already
+    there.
+
+    The cache is ours and is positive-only: a schema that is missing now may be
+    created a moment later by a signup, and caching "absent" would make the new
+    boutique invisible until the worker restarted.
     """
     if not schema_name:
         return False
     if schema_name in _present:
         return True
-    with connection.cursor() as cursor:
-        cursor.execute(
-            'SELECT 1 FROM information_schema.schemata WHERE schema_name = %s',
-            [schema_name],
-        )
-        found = cursor.fetchone() is not None
+    from django_tenants.utils import schema_exists as _library_schema_exists
+    found = _library_schema_exists(schema_name)
     if found:
         _present.add(schema_name)
     return found

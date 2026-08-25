@@ -206,7 +206,10 @@ table.sa-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .sa-table th.sa-num { text-align: right; }
 .sa-name { font-weight: 500; }
 .sa-owner { font-size: 13px; color: var(--text-secondary); }
-.sa-schema { font-size: 12px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* overflow-wrap because these carry machine values -- schema names, ALLOWED_HOSTS,
+   URLs -- which have no spaces to break at, so on a narrow screen a single long
+   one pushed the whole Configuration and Integrations pages sideways. */
+.sa-schema { font-size: 12px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 
 /* Suspend/Reactivate is the only action in the table, and the table is wide
  * enough to scroll on a laptop -- so the action pins to the right edge rather
@@ -267,6 +270,30 @@ table.sa-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   color: var(--text-primary);
 }
 .sa-input:focus, .sa-select:focus, .sa-textarea:focus { outline: none; border-color: var(--primary-color); }
+
+/* Keyboard focus, which this console had nowhere at all.
+   The rule above removes the browser's outline on the three form controls and
+   replaces it with a border colour; every BUTTON -- the navigation, Sign out,
+   Deactivate, Revoke, Reset, the pagers, the tabs, the confirm dialogs -- had
+   no focus indicator of any kind, so a keyboard user tabbing through the
+   platform's most destructive controls could not see which one they were about
+   to press.
+   :focus-visible rather than :focus, so a mouse click does not leave a ring
+   behind; outline-offset so the ring stays legible on the dark
+   aria-current='page' navigation pill, where an inset outline would disappear. */
+.sa-nav-item:focus-visible,
+.sa-btn:focus-visible,
+.sa-tab:focus-visible,
+.sa-input:focus-visible,
+.sa-select:focus-visible,
+.sa-textarea:focus-visible,
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
 .sa-select { padding: 7px 10px; font-size: 13.5px; }
 .sa-textarea { min-height: 60px; resize: vertical; font-size: 13.5px; }
 
@@ -642,20 +669,73 @@ table.sa-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   padding: 16px 18px;
 }
 .sa-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
-.sa-card p { font-size: 13px; color: var(--text-secondary); }
+/* overflow-wrap because these cards carry machine strings with nothing to break
+   at. The System Health page prints MEDIA_ROOT as an absolute filesystem path,
+   and on a 375px screen that one unbreakable word set the card's min-content
+   width to 448px, blew the grid column out past the viewport, and gave the whole
+   page a horizontal scrollbar -- on the screen an administrator opens when
+   something is already wrong. */
+.sa-card p { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
 
 .sa-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 
 @media (max-width: 900px) {
   .sa-shell { grid-template-columns: 1fr; }
   .sa-nav { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border-color); }
-  .sa-nav-group { display: inline-block; margin-right: 10px; }
   .sa-page { padding: 16px 14px 48px; }
   .sa-topbar { padding: 10px 14px; flex-wrap: wrap; }
+
+  /* The rail becomes a strip that scrolls SIDEWAYS, not a block that wraps.
+     `display: inline-block` on the groups let the 17 nav items reflow into a
+     ragged two-column stack about 1200px tall, so on a 375px phone every
+     screen in the console opened below a full page of navigation and the
+     content had to be scrolled to -- on the dashboard, on every boutique, on
+     the audit trail, every time. Measured at 375x812 before this rule.
+
+     One row that scrolls horizontally costs ~56px instead, keeps every
+     destination reachable, and needs no disclosure widget or JavaScript: the
+     group headings are dropped on this width because they were what forced
+     the wrap, and the item labels already say where each one goes. */
+  .sa-nav {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    /* Momentum scrolling on iOS, and a scrollbar that does not eat a row. */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    padding: 8px 10px;
+  }
+  .sa-nav-group { display: contents; }
+  .sa-nav-group-title { display: none; }
+  .sa-nav-brand { flex: 0 0 auto; margin: 0 8px 0 0; }
+  /* width:auto matters as much as the nowrap. The rail sets width:100% so an
+     item fills a 232px column; inside this flex strip that percentage resolves
+     against the STRIP, so every pill became ~300px on a 320px phone and the
+     seventeen of them were 5,100px of sideways scrolling. Content-width pills
+     put most of the console within one or two swipes. */
+  .sa-nav-item { flex: 0 0 auto; width: auto; white-space: nowrap; margin: 0; }
 }
 
 @media (max-width: 640px) {
   .sa-main { padding: 18px 14px; }
   .sa-header { padding: 12px 16px; }
   .sa-tabs { margin-left: 0; order: 3; width: 100%; }
+
+  /* Sign out was falling off the right edge of a 320px screen -- measured at
+     every route, the button's right edge sat 11px past the viewport. The
+     topbar already wraps at this width, but `margin-left: auto` kept this group
+     pinned as one 317px block that could not wrap within itself. Letting it
+     wrap and letting the administrator's email give up its space first keeps
+     both controls on screen, which matters more than seeing the whole address:
+     signing out is the one thing on this bar that must always be reachable. */
+  .sa-topbar-right { margin-left: 0; width: 100%; flex-wrap: wrap; gap: 8px; }
+  .sa-topbar-right .sa-who {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }

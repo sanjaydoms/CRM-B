@@ -296,9 +296,16 @@ class SignupView(views.APIView):
                 }
             }, status=status.HTTP_201_CREATED)
         except Exception as e:
-            # Fallback to public connection on error
+            # The exception text is LOGGED, never returned. It used to be sent
+            # to the caller verbatim, so an unauthenticated request could be
+            # made to print database internals -- a ghost tenant schema turned
+            # this into `relation "crm_api_tailor" does not exist`, naming a
+            # real table and column to anyone who asked. core/exceptions.py
+            # already files the traceback for an operator to read.
+            logger.exception('%s failed', self.__class__.__name__)
             connection.set_schema_to_public()
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "Something went wrong. Please try again."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class LoginView(views.APIView):
     permission_classes = [AllowAny]
@@ -397,8 +404,16 @@ class LoginView(views.APIView):
                 }
             }, status=status.HTTP_200_OK)
         except Exception as e:
+            # The exception text is LOGGED, never returned. It used to be sent
+            # to the caller verbatim, so an unauthenticated request could be
+            # made to print database internals -- a ghost tenant schema turned
+            # this into `relation "crm_api_tailor" does not exist`, naming a
+            # real table and column to anyone who asked. core/exceptions.py
+            # already files the traceback for an operator to read.
+            logger.exception('%s failed', self.__class__.__name__)
             connection.set_schema_to_public()
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "Something went wrong. Please try again."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class LogoutView(views.APIView):
     permission_classes = [IsAuthenticated]

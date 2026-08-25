@@ -15,7 +15,7 @@
  */
 
 import {
-  Activity, AlertTriangle, Building2, FileWarning, Flag, Gauge, HeartPulse,
+  Activity, AlertTriangle, Building2, FileWarning, Gauge, HeartPulse,
   KeyRound, LayoutDashboard, Mail, Plug, PackageSearch, ScrollText, Settings,
   ShoppingBag, Sparkles, Users, Wrench,
 } from 'lucide-react';
@@ -41,7 +41,24 @@ export const NAV = [
     group: 'Product',
     items: [
       { key: 'modules', label: 'Modules', icon: PackageSearch },
-      { key: 'flags', label: 'Feature Flags', icon: Flag },
+      // Feature Flags is deliberately NOT listed, and the screen it pointed at
+      // is still in the repository.
+      //
+      // FeatureFlag, its API and FeatureFlag.applies_to(schema) all work and
+      // are tested. Nothing in the product calls applies_to -- not one line of
+      // backend code, not one line of frontend code. So the screen was a set of
+      // switches an administrator could throw, which reported success, and
+      // which changed nothing anywhere.
+      //
+      // That is worse than an absent feature. Every other control in this
+      // console does what it says, so an operator has no reason to suspect this
+      // one, and a flag flipped in an incident would be believed. Showing a
+      // switch that controls nothing is how a control plane loses the property
+      // it exists for.
+      //
+      // Put it back the moment there is a real consumer: add the item here and
+      // the `flags` entry to SCREENS in SuperAdmin.jsx (both are required), and
+      // point superadmin/models.py FeatureFlag at what now reads it.
       { key: 'config', label: 'Configuration', icon: Settings },
     ],
   },

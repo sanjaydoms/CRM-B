@@ -75,20 +75,37 @@ class ConsoleView(APIView):
 # --------------------------------------------------------------- users
 
 class UsersView(ConsoleView):
-    """Every account on the platform, merged across boutiques."""
+    """Every account on the platform, merged across boutiques.
+
+    Audited: this reaches into every boutique's schema and returns their staff's
+    names and email addresses. Recording it costs one row per page and is what
+    lets a reviewer tell an administrator opening one boutique's team from one
+    sweeping every account on the platform.
+    """
 
     def get(self, request):
         params = request.query_params
-        return Response(users_module.list_users(
+        search = params.get('q', '')
+        boutique = params.get('boutique') or None
+        page = users_module.list_users(
             list(_boutiques()),
-            search=params.get('q', ''),
-            boutique=params.get('boutique') or None,
+            search=search,
+            boutique=boutique,
             role=params.get('role') or None,
             status=params.get('status') or None,
             page=_int(params.get('page'), 1),
             page_size=_int(params.get('page_size'), users_module.DEFAULT_PAGE_SIZE,
                            high=users_module.MAX_PAGE_SIZE),
-        ))
+        )
+        audit.record(request, 'data.view', target='users',
+                     # Blank when the sweep covered every boutique, which is the
+                     # case worth being able to pick out of the trail.
+                     boutique=boutique or '',
+                     after={'access': 'user_directory',
+                            'returned': len(page['users']),
+                            'matching': page['count'],
+                            **({'search': search.strip()[:120]} if search.strip() else {})})
+        return Response(page)
 
 
 class UserActionView(ConsoleView):
@@ -614,12 +631,32 @@ class OrdersMonitorView(ConsoleView):
 # -------------------------------------------------------------- search
 
 class SearchView(ConsoleView):
+    """One box that finds anything on the platform -- and says that it did.
+
+    Audited for the same reason the data browser is. A single `?q=<phone number>`
+    resolves a stranger's number to a named individual inside a named boutique,
+    across every schema on the platform, in one request. That is the same class
+    of access the data browser records on every page, and it was leaving no
+    trace at all -- so a reviewer could see that somebody paged through a
+    boutique's customer table but not that somebody had searched every boutique
+    for one person by phone number.
+    """
+
     def get(self, request):
         term = request.query_params.get('q', '')
         limit = _int(request.query_params.get('limit'), search_module.DEFAULT_PER_TYPE,
                      high=search_module.MAX_PER_TYPE)
-        return Response({'results': search_module.search(term, list(_boutiques()), limit),
-                         'min_term': search_module.MIN_TERM})
+        results = search_module.search(term, list(_boutiques()), limit)
+
+        # Only a term that actually ran is recorded: anything shorter than
+        # MIN_TERM scans nothing, and filing those would bury the real searches
+        # under every keystroke of a type-ahead.
+        if len((term or '').strip()) >= search_module.MIN_TERM:
+            audit.record(request, 'data.view', target='search',
+                         after={'access': 'search',
+                                'search': term.strip()[:120],
+                                'hits': len(results)})
+        return Response({'results': results, 'min_term': search_module.MIN_TERM})
 
 
 # ---------------------------------------------------------- diagnostics

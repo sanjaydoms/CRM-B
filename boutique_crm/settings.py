@@ -372,6 +372,20 @@ TENANT_LIMIT_SET_CALLS = False
 TENANT_MODEL = 'tenants.BoutiqueTenant'
 TENANT_DOMAIN_MODEL = 'tenants.Domain'
 
+# Refuse to point the connection at a schema that does not exist.
+#
+# django-tenants calls this on every set_tenant(), which is the single function
+# schema_context, tenant_context and the middleware all end in -- so this is the
+# one place that can make the invariant "a tenant reference can never cause a
+# query to run against public or another tenant's schema" true for the whole
+# application rather than for one call site at a time.
+#
+# It is load-bearing security, not a nicety: without it, requesting a password
+# reset for the platform administrator's address while any boutique had a
+# registry row without a schema minted a valid reset token and overwrote that
+# administrator's password. See tenants/schema_guard.py.
+EXTRA_SET_TENANT_METHOD_PATH = 'tenants.schema_guard.enforce_tenant_schema'
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators

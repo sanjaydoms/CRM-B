@@ -55,6 +55,7 @@ class AuditLog(models.Model):
         ('error.resolve', 'Error resolved'),
         ('data.view', 'Boutique data viewed'),
         ('console.login', 'Console sign-in'),
+        ('console.logout', 'Console sign-out'),
         ('console.login_failed', 'Console sign-in failed'),
     ]
 
@@ -169,12 +170,31 @@ class ErrorEvent(models.Model):
 
 
 class FeatureFlag(models.Model):
-    """A switch that can be flipped without a deploy.
+    """UNUSED INFRASTRUCTURE. Nothing in this product reads a flag.
+
+    `applies_to()` below is correct and tested. It is also called by no product
+    code whatsoever -- not in this app, not in crm_api, not in apps/, not in the
+    frontend. Verified by grep across the whole repository: every reference is
+    either this model, the console's own CRUD endpoints, the Django admin, or a
+    test of one of those.
+
+    So the console's Feature Flags screen has been withdrawn from the navigation
+    (frontend/src/superadmin/nav.js) rather than left presenting switches that
+    change nothing. A control that reports success and has no effect is the one
+    kind of control a platform console must not ship: it is indistinguishable
+    from a working one at the moment it is trusted.
+
+    The table, the API and this class are kept because they are harmless, tested
+    and ready. Before showing the screen again, give a flag a real reader and say
+    here what it is.
 
     Distinct from a module (core/modules.py): a module is an existing product
-    surface an administrator withholds from a boutique, while a flag is a
-    behaviour the code itself asks about. `enabled_for` narrows a global-off
-    flag to named boutiques, which is what makes a beta possible.
+    surface an administrator withholds from a boutique, and that one IS enforced
+    -- in TenantHeaderMiddleware, on every request. A flag is a behaviour the
+    code itself asks about, and no code asks.
+
+    `enabled_for` narrows a global-off flag to named boutiques, which is what
+    would make a beta possible.
 
     `rollout_percent` is a bucketed hash of the schema name, not a coin flip --
     a boutique that is in the rollout must stay in it, or a half-released
