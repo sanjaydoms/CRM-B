@@ -26,7 +26,6 @@ DISPATCH_ROLES = frozenset({BomLine.Role.PACKAGING, BomLine.Role.LABEL})
 
 
 class MaterialPlanError(ValueError):
-    """Raised when an invalid material plan operation is attempted."""
     pass
 
 

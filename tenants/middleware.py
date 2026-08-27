@@ -45,7 +45,6 @@ _CONTROL_COLUMNS = ('is_active', 'enabled_modules')
 
 
 class TenantGone(Exception):
-    """Raised when a tenant was deleted while a request was in flight."""
     pass
 
 

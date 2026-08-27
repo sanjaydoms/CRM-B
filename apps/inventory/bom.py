@@ -8,7 +8,6 @@ PRECISION = Decimal('0.001')
 
 
 class BomError(ValueError):
-    """Raised when Bill of Materials calculation or conversion fails."""
     pass
 
 

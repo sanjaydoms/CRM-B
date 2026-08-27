@@ -19,7 +19,6 @@ MAX_VALUE = 10 ** 9
 
 
 class FormulaError(ValueError):
-    """Raised when formula evaluation fails."""
     pass
 
 
