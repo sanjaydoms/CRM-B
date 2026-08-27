@@ -5,6 +5,8 @@ from crm_api.models import Customer, OrderDraft
 
 
 class DraftConflict(ValueError):
+    """Raised when an order draft is updated with a stale version."""
+    pass
 
 
 @transaction.atomic

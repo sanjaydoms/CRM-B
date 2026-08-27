@@ -26,6 +26,8 @@ def forget(schema_name):
 
 
 class MissingSchema(Exception):
+    """Raised when a tenant schema does not exist in Postgres."""
+    pass
 
 
 def tenant_scope(tenant):

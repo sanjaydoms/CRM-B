@@ -212,6 +212,8 @@ class LocationStock(models.Model):
 
 
 class DirectStockWriteError(RuntimeError):
+    """Raised when quantity fields are updated directly instead of via movement methods."""
+    pass
 
 
 class Supplier(models.Model):

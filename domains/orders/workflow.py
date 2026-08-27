@@ -7,6 +7,8 @@ ENTERING_STATUSES = ('IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'PAUSED')
 
 
 class TransitionError(ValueError):
+    """Raised when an invalid order stage transition is attempted."""
+    pass
 
 
 def _requires_measurements(order, stage):

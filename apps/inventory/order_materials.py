@@ -26,6 +26,8 @@ DISPATCH_ROLES = frozenset({BomLine.Role.PACKAGING, BomLine.Role.LABEL})
 
 
 class MaterialPlanError(ValueError):
+    """Raised when an invalid material plan operation is attempted."""
+    pass
 
 
 def _still_to_reserve(line):
