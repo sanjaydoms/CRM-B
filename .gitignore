@@ -1,4 +1,3 @@
-# Python/Django
 .venv/
 __pycache__/
 *.pyc
@@ -6,35 +5,16 @@ db.sqlite3
 *.dump
 *.sql
 
-# Node/React
 frontend/node_modules/
 frontend/dist/
 
-# OS/System
 .DS_Store
 .gemini/
 
-# Logs
 *.log
 
-# Local secrets
 .env
 
-# Uploads. Nothing a user or a test run puts here belongs in the repository.
-#
-# This used to name one directory -- media/design_library/ -- while stating the
-# intent for all of them, and the gap showed: sixteen files under media/ were
-# tracked, including two customer-scoped fabric photographs under
-# media/fabrics/cust_<uuid>/ and images uploaded through the customer profile
-# form. Those are a boutique's clients' pictures, committed to a git remote.
-#
-# So the rule is inverted: everything under media/ is ignored, and the handful
-# of seeded catalogue images the application genuinely ships with are named back
-# in. `media/*` rather than `media/` is load-bearing -- git does not descend into
-# an excluded directory, so the un-ignore lines below would never be consulted.
-#
-# Adding a new seeded image means adding it here. That is the point: it makes
-# committing an upload a deliberate act rather than the default.
 media/*
 !media/design_ai_*.jpg
 !media/design_cat_*.jpg

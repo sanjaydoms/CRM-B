@@ -1,30 +1,3 @@
-"""The console endpoints added for the Super Admin Control Center.
-
-Split from views.py rather than appended to it because that file is the original
-console -- sign-in, overview, boutiques, leads, the data browser -- and this is
-everything built on top: users, onboarding, modules, flags, configuration,
-health, errors, the audit trail, the orders monitor and search. Two files of
-three hundred lines each beat one of six hundred, and the split follows the
-seam that already exists.
-
-Three rules hold across every view here, and each has a failure behind it:
-
-**Every class names permission_classes = [IsPlatformAdmin].**
-settings.DEFAULT_PERMISSION_CLASSES is core.permissions.RolePermission, which
-resolves a *boutique* role -- and resolve_user_role answers OWNER for any
-superuser. A console endpoint that forgets the class does not fail closed; it
-opens to anything holding a superuser token in any schema.
-
-**Every mutation writes an audit row.**
-The console's whole purpose is doing things no boutique can undo. Before this,
-`BoutiqueTenant.objects.filter(pk=...).update(is_active=False)` fired no signal
-and wrote no record, so "who suspended this boutique" had no answer anywhere.
-
-**Query parameters are parsed, never trusted.**
-They arrive as strings from a URL anyone can edit. `int(request.query_params
-['page'])` on `?page=abc` is a 500 and -- now that errors are captured -- an
-ErrorEvent row, for a malformed URL.
-"""
 
 from django.db import transaction
 from django.db.models import Q
@@ -45,11 +18,6 @@ from .views import _boutiques
 
 
 def _int(value, default, low=1, high=None):
-    """A query parameter as a bounded integer, never an exception.
-
-    Anything unparseable becomes the default rather than a 500: these come from
-    a URL bar, and a typo in one is not a server fault.
-    """
     try:
         parsed = int(value)
     except (TypeError, ValueError):
@@ -63,25 +31,12 @@ def _tenant_or_404(schema_name):
 
 
 class ConsoleView(APIView):
-    """Base class, so a new endpoint cannot be written without the permission.
-
-    Subclassing rather than remembering: the one rule that must hold on every
-    view in this file is the one most easily left off a new one.
-    """
 
     permission_classes = [IsPlatformAdmin]
 
 
-# --------------------------------------------------------------- users
 
 class UsersView(ConsoleView):
-    """Every account on the platform, merged across boutiques.
-
-    Audited: this reaches into every boutique's schema and returns their staff's
-    names and email addresses. Recording it costs one row per page and is what
-    lets a reviewer tell an administrator opening one boutique's team from one
-    sweeping every account on the platform.
-    """
 
     def get(self, request):
         params = request.query_params
@@ -98,8 +53,6 @@ class UsersView(ConsoleView):
                            high=users_module.MAX_PAGE_SIZE),
         )
         audit.record(request, 'data.view', target='users',
-                     # Blank when the sweep covered every boutique, which is the
-                     # case worth being able to pick out of the trail.
                      boutique=boutique or '',
                      after={'access': 'user_directory',
                             'returned': len(page['users']),
@@ -109,17 +62,6 @@ class UsersView(ConsoleView):
 
 
 class UserActionView(ConsoleView):
-    """Deactivate, reactivate, revoke sessions, or trigger a password reset.
-
-    One endpoint with an `action` in the URL rather than four, because all four
-    share the same shape: resolve the boutique, act, audit, report. The set is
-    closed -- an unknown action is a 400, not a 404, because the boutique and
-    user in the path may both be perfectly real.
-
-    Every one of these is audited *with the reason the administrator typed*.
-    Resetting someone's password is not a neutral act and the trail should say
-    why it happened.
-    """
 
     ACTIONS = {
         'deactivate': ('user.deactivate', lambda s, u: users_module.set_user_active(s, u, False)),
@@ -142,8 +84,6 @@ class UserActionView(ConsoleView):
         audit_action, run = entry
         ok, message = run(schema_name, username)
 
-        # Recorded whether it succeeded or not. A refused deactivation of a
-        # boutique owner is exactly the kind of attempt worth having a record of.
         audit.record(request, audit_action, target=username, boutique=schema_name,
                      after={'ok': ok, 'result': message},
                      reason=(request.data.get('reason') or '').strip())
@@ -152,14 +92,8 @@ class UserActionView(ConsoleView):
                         status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST)
 
 
-# ---------------------------------------------------------- onboarding
 
 class OnboardingView(ConsoleView):
-    """Onboarding progress for every boutique, or the full checklist for one.
-
-    The list form deliberately returns the summary rather than every step: it is
-    a table of fifty boutiques, and the checklist is what the detail view is for.
-    """
 
     def get(self, request, schema_name=None):
         if schema_name:
@@ -187,15 +121,8 @@ class OnboardingView(ConsoleView):
         return Response({'boutiques': rows})
 
 
-# ------------------------------------------------------------- modules
 
 class ModulesView(ConsoleView):
-    """The feature surface, and which boutiques have had it changed.
-
-    GET returns the registry itself -- including the structural and client-only
-    entries, so the console can explain why Orders and Invoices have no switch
-    rather than leaving a hole where someone expected one.
-    """
 
     def get(self, request):
         return Response({
@@ -209,16 +136,6 @@ class ModulesView(ConsoleView):
 
 
 class BoutiqueModulesView(ConsoleView):
-    """Switch one boutique's modules on or off.
-
-    PATCH with {"modules": {"inventory": false}, "reason": "..."} -- a partial
-    map, merged over what is stored, so the caller sends only what changed and
-    two administrators editing different modules cannot clobber each other.
-
-    Only keys the registry knows are accepted. An unknown key would be stored
-    forever, matched by nothing, and would show up in the audit trail as a
-    change that did something.
-    """
 
     def patch(self, request, schema_name=None):
         tenant = _tenant_or_404(schema_name)
@@ -244,14 +161,8 @@ class BoutiqueModulesView(ConsoleView):
             after[key] = bool(value)
 
         with transaction.atomic():
-            # .update() rather than .save(): BoutiqueTenant is a TenantMixin and
-            # its save() is what creates and migrates Postgres schemas. Toggling
-            # a switch must not be able to trigger any of that.
             BoutiqueTenant.objects.filter(pk=tenant.pk).update(enabled_modules=after)
 
-        # The middleware caches tenants for 300s, and it is the middleware that
-        # enforces these switches -- so without this the change lands in the
-        # database and does nothing for five minutes in this worker.
         clear_tenant_cache()
 
         audit.record(request, 'boutique.modules', target=schema_name,
@@ -261,14 +172,10 @@ class BoutiqueModulesView(ConsoleView):
         return Response({
             'schema_name': schema_name,
             'enabled_modules': after,
-            # Said out loud because it is the difference between "it worked" and
-            # "it worked here". gunicorn runs more than one worker and each
-            # holds its own tenant cache.
             'note': 'Other server workers apply this within 5 minutes.',
         })
 
 
-# --------------------------------------------------------- feature flags
 
 class FlagsView(ConsoleView):
     def get(self, request):
@@ -304,11 +211,6 @@ class FlagsView(ConsoleView):
 
 
 class FlagDetailView(ConsoleView):
-    """Change or remove one flag.
-
-    `rollout_percent` is clamped rather than validated into an error: a console
-    slider cannot send 150, and a hand-written 150 clearly means "everyone".
-    """
 
     def patch(self, request, key=None):
         with public_scope():
@@ -331,8 +233,6 @@ class FlagDetailView(ConsoleView):
                     return Response({'error': 'enabled_for must be a list of schema names.'},
                                     status=status.HTTP_400_BAD_REQUEST)
                 known = set(_boutiques().values_list('schema_name', flat=True))
-                # Silently keeping an unknown schema here would make a flag look
-                # targeted at a boutique that does not exist.
                 unknown = sorted(set(wanted) - known)
                 if unknown:
                     return Response({'error': f"Unknown boutiques: {', '.join(unknown)}."},
@@ -361,16 +261,8 @@ class FlagDetailView(ConsoleView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# ------------------------------------------------------- configuration
 
 class ConfigView(ConsoleView):
-    """Platform settings, as rows.
-
-    Reads back the settings.py values that matter operationally alongside the
-    editable rows -- but only whether a credential is *present*, never its
-    value. An operations console that prints an API key is a credential store
-    with a login page in front of it.
-    """
 
     def get(self, request):
         from django.conf import settings as django_settings
@@ -389,7 +281,6 @@ class ConfigView(ConsoleView):
                 'tracking_base_url': django_settings.TRACKING_BASE_URL,
                 'whatsapp_country_code': django_settings.WHATSAPP_COUNTRY_CODE,
             },
-            # Presence, never values.
             'credentials': {
                 'email_host': bool(getattr(django_settings, 'EMAIL_HOST', '')),
                 'supabase': bool(django_settings.SUPABASE_URL and django_settings.SUPABASE_KEY),
@@ -415,10 +306,6 @@ class ConfigView(ConsoleView):
             setting.save()
             after = setting.value
 
-        # maintenance_mode is read by the middleware from a per-worker cache, so
-        # a write that does not clear it takes effect at the TTL rather than at
-        # the click. Cleared for every key rather than only that one: the next
-        # cached setting will be added by someone who does not read this.
         clear_platform_cache()
 
         audit.record(request, 'setting.change', target=key, before=before, after=after,
@@ -427,26 +314,17 @@ class ConfigView(ConsoleView):
                          'note': 'Other server workers apply this within 5 minutes.'})
 
 
-# -------------------------------------------------------------- health
 
 class HealthView(ConsoleView):
     def get(self, request):
         results = health.checks()
-        # The worst individual status becomes the headline, so a green banner
-        # can never sit above a red row.
         rank = ['critical', 'offline', 'degraded', 'warning', 'not_configured', 'healthy']
         worst = next((s for s in rank if any(r['status'] == s for r in results)), 'healthy')
         return Response({'overall': worst, 'checks': results})
 
 
-# -------------------------------------------------------------- errors
 
 class ErrorsView(ConsoleView):
-    """The error feed, grouped by fingerprint.
-
-    Ordered by last seen rather than by count: an error that stopped happening a
-    week ago is less urgent than one happening now, whatever its total.
-    """
 
     def get(self, request):
         params = request.query_params
@@ -474,10 +352,6 @@ class ErrorsView(ConsoleView):
                 'exception_type': e.exception_type, 'message': e.message,
                 'traceback': e.traceback, 'path': e.path, 'method': e.method,
                 'status_code': e.status_code, 'boutique': e.boutique,
-                # `boutique` is the most recent occurrence only. Without this
-                # the console can name the fortieth boutique a bug hit and none
-                # of the other thirty-nine -- the column ErrorEvent.boutiques
-                # exists to answer, serialised nowhere until now.
                 'boutiques': e.boutiques,
                 'username': e.username, 'severity': e.severity, 'status': e.status,
                 'count': e.count, 'first_seen': e.first_seen, 'last_seen': e.last_seen,
@@ -497,7 +371,6 @@ class ErrorsView(ConsoleView):
 
 
 class ErrorSummaryView(ConsoleView):
-    """Just the counts, for the navigation badge. Two aggregates, no rows."""
 
     def get(self, request):
         with public_scope():
@@ -509,7 +382,6 @@ class ErrorSummaryView(ConsoleView):
 
 
 class ErrorDetailView(ConsoleView):
-    """Acknowledge, resolve, ignore or annotate one error group."""
 
     ALLOWED = {'new', 'acknowledged', 'resolved', 'ignored'}
 
@@ -532,8 +404,6 @@ class ErrorDetailView(ConsoleView):
                     event.resolved_by = request.user.username
                     event.resolved_at = timezone.now()
                 else:
-                    # Reopening clears the resolution, or the next person reads a
-                    # name and a date against an error that is live again.
                     event.resolved_by = ''
                     event.resolved_at = None
             if 'notes' in request.data:
@@ -549,16 +419,8 @@ class ErrorDetailView(ConsoleView):
         return Response(after)
 
 
-# --------------------------------------------------------------- audit
 
 class AuditView(ConsoleView):
-    """The trail. Read-only over HTTP -- there is no write route by design.
-
-    AuditLog is append-only: it is written by superadmin.audit.record and by
-    nothing else. Exposing an edit or delete route here would make the record of
-    an action editable by the same credential that took the action, which is the
-    one property an audit trail cannot give up.
-    """
 
     def get(self, request):
         params = request.query_params
@@ -590,15 +452,8 @@ class AuditView(ConsoleView):
                          'actions': [{'value': v, 'label': l} for v, l in AuditLog.ACTIONS]})
 
 
-# ------------------------------------------------------ orders monitor
 
 class OrdersMonitorView(ConsoleView):
-    """Order operations across every boutique, or inside one.
-
-    Aggregates only. The console must be able to spot a systemic problem --
-    every boutique's messages queueing, orders piling up at one stage -- without
-    reading anybody's order book.
-    """
 
     def get(self, request, schema_name=None):
         if schema_name:
@@ -628,19 +483,8 @@ class OrdersMonitorView(ConsoleView):
         return Response({'totals': totals, 'boutiques': rows})
 
 
-# -------------------------------------------------------------- search
 
 class SearchView(ConsoleView):
-    """One box that finds anything on the platform -- and says that it did.
-
-    Audited for the same reason the data browser is. A single `?q=<phone number>`
-    resolves a stranger's number to a named individual inside a named boutique,
-    across every schema on the platform, in one request. That is the same class
-    of access the data browser records on every page, and it was leaving no
-    trace at all -- so a reviewer could see that somebody paged through a
-    boutique's customer table but not that somebody had searched every boutique
-    for one person by phone number.
-    """
 
     def get(self, request):
         term = request.query_params.get('q', '')
@@ -648,9 +492,6 @@ class SearchView(ConsoleView):
                      high=search_module.MAX_PER_TYPE)
         results = search_module.search(term, list(_boutiques()), limit)
 
-        # Only a term that actually ran is recorded: anything shorter than
-        # MIN_TERM scans nothing, and filing those would bury the real searches
-        # under every keystroke of a type-ahead.
         if len((term or '').strip()) >= search_module.MIN_TERM:
             audit.record(request, 'data.view', target='search',
                          after={'access': 'search',
@@ -659,15 +500,8 @@ class SearchView(ConsoleView):
         return Response({'results': results, 'min_term': search_module.MIN_TERM})
 
 
-# ---------------------------------------------------------- diagnostics
 
 class SupportView(ConsoleView):
-    """One boutique, everything a support call needs, in one request.
-
-    Assembled server-side rather than by the console firing six requests: this
-    is opened while someone is on the phone, and six round trips over a hosted
-    database is the difference between an answer and a wait.
-    """
 
     def get(self, request, schema_name=None):
         tenant = _tenant_or_404(schema_name)
@@ -679,12 +513,6 @@ class SupportView(ConsoleView):
                 {'id': e.id, 'exception_type': e.exception_type, 'path': e.path,
                  'count': e.count, 'severity': e.severity, 'status': e.status,
                  'last_seen': e.last_seen}
-                # `boutique` holds only the MOST RECENT occurrence, so filtering
-                # on it alone hides a bug from every boutique it hit except the
-                # one that hit it last -- which on a support call is exactly the
-                # error being asked about. `boutiques` is the full list, capped
-                # at 20 by core/exceptions.py, and `contains` is a JSON
-                # containment test that Postgres can answer directly.
                 for e in ErrorEvent.objects.filter(
                     Q(boutique=schema_name) | Q(boutiques__contains=schema_name))[:10]
             ]
@@ -694,9 +522,6 @@ class SupportView(ConsoleView):
                 for a in AuditLog.objects.filter(boutique=schema_name)[:15]
             ]
 
-        # Reading a boutique's diagnostics is itself worth recording: it is the
-        # console reaching into one customer's data, which is exactly the class
-        # of access an audit trail exists to make reviewable.
         audit.record(request, 'data.view', target='support', boutique=schema_name)
 
         return Response({

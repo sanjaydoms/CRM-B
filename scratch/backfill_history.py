@@ -17,7 +17,6 @@ def backfill():
         with schema_context(schema_name):
             count = 0
             for m in Measurement.objects.all():
-                # check if there's any history
                 if not MeasurementHistory.objects.filter(customer=m.customer).exists():
                     MeasurementHistory.objects.create(
                         customer=m.customer,

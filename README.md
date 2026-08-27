@@ -1,10 +1,8 @@
-# TryOn2Buy CRM Boutique MVP
 
 A premium, multi-tenant Customer Relationship Management (CRM) platform for boutique fashion studios, enabling owners to track custom order lifecycles, manage staff/tailors, explore fabric libraries, and view auto-generated customer intelligence (Style DNA).
 
 ---
 
-## Architecture Overview
 
 The project is structured as a monorepo consisting of a **Django Backend** and a **Vite React Frontend**:
 
@@ -23,9 +21,7 @@ The project is structured as a monorepo consisting of a **Django Backend** and a
 
 ---
 
-## Backend Core Configurations
 
-### 1. Multi-Tenancy (`django-tenants`)
 The backend uses **schema-based multi-tenancy**. Each boutique has its own isolated database schema (e.g. `sanjay_boutique`, `aditi_boutique`) under a single shared PostgreSQL database.
 
 * **Schema Middleware (`tenants/middleware.py`):**
@@ -33,7 +29,6 @@ The backend uses **schema-based multi-tenancy**. Each boutique has its own isola
 * **Public Schema:** Contains tenant registration metadata (`BoutiqueTenant` & `Domain` models).
 * **Tenant Schemas:** Contain customers, measurements, order histories, fabric libraries, and staff directories.
 
-### 2. Database Integration (Supabase PostgreSQL)
 * **Configuration Location:** `boutique_crm/settings.py`
 * **Default Connection:** Connected to Supabase's transaction pooler on port `6543`.
 * **Local Fallback:** Setting `USE_LOCAL_DB=True` points Django at a local
@@ -42,23 +37,19 @@ The backend uses **schema-based multi-tenancy**. Each boutique has its own isola
   runner enables it implicitly, so `manage.py test` never touches a hosted
   database.
 
-### 3. File Storage Integration (Supabase Storage)
 Instead of local media folders, the application uploads files (such as customer profiles, fabric snaps, and design uploads) directly to Supabase Storage:
 * **Custom Storage Driver:** `crm_api/storage.py` implements a custom Django storage wrapper (`SupabaseStorage`) communicating with Supabase API.
 * **Bucket name:** `boutique-crm`.
 
 ---
 
-## API Reference & Endpoint Map
 
 All backend APIs are prefixed with `/api/` and require token-based authentication (except login/signup):
 
-### Authentication
 * `POST /api/auth/signup/` — Registers a new boutique, auto-generates their tenant schema, seeds default staff/fabrics, and returns authentication tokens.
 * `POST /api/auth/login/` — Authenticats the user and matches them to their tenant.
 * `GET /api/auth/me/` — Checks active user context.
 
-### Business Modules
 * `GET/POST /api/customers/` — Directory CRUD (includes measurements inline).
 * `POST /api/customers/<id>/fabric-selections/` — Uploads fabric files & configurations.
 * `POST /api/customers/<id>/design-preferences/` — Stores design specifications and template links.
@@ -66,7 +57,6 @@ All backend APIs are prefixed with `/api/` and require token-based authenticatio
 * `PATCH /api/orders/<id>/update-status/` — Advances order status through staging channels.
 * `GET /api/dashboard/` — Provides aggregated boutique statistics (revenue splits, order status, recent activity).
 
-### Platform console
 Public schema only, superuser only, and never tenant-scoped — see *Platform
 console (superadmin)* under deployment for the rules that enforce that.
 * `POST /api/superadmin/auth/login/` — Signs in a platform administrator. Rejects any account that is not a superuser in the public schema.
@@ -78,21 +68,16 @@ console (superadmin)* under deployment for the rules that enforce that.
 
 ---
 
-## Local Development Setup
 
-### Prerequisite
 Ensure you have `npm`, `python3`, and a virtual environment tool installed.
 
 1. **Clone & Install Dependencies:**
    ```bash
-   # Create and activate virtual environment
    python3 -m venv .venv
    source .venv/bin/activate
    
-   # Install backend packages
    pip install -r requirements.txt
    
-   # Install frontend packages
    cd frontend
    npm install
    cd ..
@@ -114,9 +99,7 @@ Ensure you have `npm`, `python3`, and a virtual environment tool installed.
 
 ---
 
-## Production Deployment Guide
 
-### Verifying an environment before you trust it
 
 ```bash
 python manage.py migrate_schemas --noinput
@@ -146,7 +129,6 @@ staging.** Migrations touch the shared `public` schema, which dropping a tenant
 afterwards does not undo.
 
 
-### Django Backend (Render)
 * **Build Command:**
   ```bash
   pip install -r requirements.txt && python manage.py migrate_schemas --noinput && python create_superuser.py
@@ -256,7 +238,6 @@ afterwards does not undo.
   seconds to wake, which reads to a user as the whole app hanging on first load.
   No amount of application tuning covers that -- it needs a paid instance.
 
-### React Frontend (Vercel)
 * **Root Directory:** `frontend`
 * **Build Command:** `npm run build` (runs `vite build`, then `build-site.mjs`
   to assemble the static marketing pages)
@@ -276,7 +257,6 @@ afterwards does not undo.
     build falls back to `http://localhost:8000/api`; a Vercel build with it unset
     fails rather than shipping a form that posts nowhere.
 
-### Platform console (superadmin)
 The product-wide administrator's surface: **`/superadmin`** on the frontend
 origin, backed by **`/api/superadmin/`** on the API. It is the one place in the
 system that is meant to read across every boutique.
@@ -325,7 +305,6 @@ when the console itself is what is broken. Both read the same figures from
 no cross-schema join to be had. Fine at the tens; past a hundred or so, roll the
 counts into a public-schema table on a schedule and read that instead.
 
-### Demo requests
 The marketing site's demo form posts to `/demo-request/` -- a plain Django view
 (`tenants/views.py`), public and outside `/api/` for the same reason
 `/track/<token>/` is. Leads land in `tenants.DemoRequest`, which lives in the

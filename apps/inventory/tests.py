@@ -54,7 +54,6 @@ class InventoryTestBase(TenantTestCase):
 
 
 class StockLedgerTests(InventoryTestBase):
-    """Business rule: stock changes only through movements, and they must agree."""
 
     def test_stock_in_records_a_movement_with_before_and_after(self):
         item = self.make_item()
@@ -68,7 +67,6 @@ class StockLedgerTests(InventoryTestBase):
         self.assertEqual(movement.new_stock, Decimal('50.000'))
 
     def test_direct_stock_edit_is_refused(self):
-        """The rule that makes the ledger trustworthy."""
         item = self.make_item()
         InventoryService.stock_in(item, 10, user=self.owner)
 
@@ -96,9 +94,7 @@ class StockLedgerTests(InventoryTestBase):
         InventoryService.damage(item, 2, user=self.owner)
 
         item.refresh_from_db()
-        # 100 in, 15 issued out, 3 back, 2 damaged out = 86
         self.assertEqual(item.current_stock, Decimal('86.000'))
-        # 20 reserved, 15 of it issued = 5 still reserved
         self.assertEqual(item.reserved_stock, Decimal('5.000'))
         self.assertEqual(item.available_stock, Decimal('81.000'))
 
@@ -145,7 +141,6 @@ class StockGuardTests(InventoryTestBase):
         self.assertEqual(item.available_stock, Decimal('22.000'))
 
     def test_issuing_without_a_reservation_works(self):
-        """Material is often handed to the workroom without being reserved first."""
         item = self.make_item()
         InventoryService.stock_in(item, 40, user=self.owner)
 
@@ -278,7 +273,6 @@ class InventoryApiTests(InventoryTestBase):
 
         body = self.client.get(reverse('inventory-item-summary')).json()
 
-        # 10 x 1200 + 20 x 5 = 12,100
         self.assertEqual(Decimal(str(body['inventory_value'])), Decimal('12100.00'))
         self.assertEqual(body['needs_reorder_count'], 1)
         self.assertEqual(body['needs_reorder'][0]['item_code'], 'BTN-001')
@@ -332,13 +326,6 @@ class PurchaseOrderTests(InventoryTestBase):
         self.assertEqual(line.quantity_outstanding, Decimal('15.000'))
 
     def test_a_rejected_line_rolls_back_the_lines_before_it(self):
-        """The multi-line receipt that used to leave half a delivery in stock.
-
-        Each InventoryService.purchase() is its own atomic block, so the earlier
-        lines committed before the later one raised. The owner was told the
-        receipt failed while the first items were already booked in -- and
-        correcting the typo and resubmitting counted them twice, permanently.
-        """
         item_a = self.make_item(item_code='FAB-ATOM-A', name='Silk Roll A')
         item_b = self.make_item(item_code='FAB-ATOM-B', name='Silk Roll B')
         po = PurchaseOrder.objects.create(po_number='PO-ATOMIC', supplier=self.supplier)
@@ -360,15 +347,12 @@ class PurchaseOrderTests(InventoryTestBase):
         item_a.refresh_from_db()
         line_a.refresh_from_db()
         po.refresh_from_db()
-        # Nothing of the first line survived the failure of the second.
         self.assertEqual(item_a.current_stock, Decimal('0.000'))
         self.assertEqual(line_a.quantity_received, Decimal('0.000'))
         self.assertEqual(po.status, PurchaseOrder.Status.DRAFT)
         self.assertFalse(StockMovement.objects.filter(item=item_a).exists())
 
     def test_a_junk_quantity_is_a_400_not_a_500(self):
-        # Decimal('abc') raises InvalidOperation -- an ArithmeticError, which
-        # escaped the ValueError handler as an unhandled server error.
         po, line, item = self._po_with_line()
         response = self.client.post(
             reverse('purchase-order-receive', args=[po.id]),
@@ -398,27 +382,14 @@ class PurchaseOrderTests(InventoryTestBase):
 
 
 class CatalogSeedTests(InventoryTestBase):
-    """The published catalogue is loaded whole.
-
-    The specification's central rule is that no category, sub-category or item
-    from the two source documents may be omitted, merged or renamed. Asserting a
-    count would only catch a wholesale failure, so these tests re-parse the
-    originals -- which are committed alongside the code in catalog_sources/ --
-    and compare them against the database name by name. If someone edits a
-    source document without regenerating catalog_definitions.py, or quietly drops
-    a row from it, this fails and says exactly which item went missing.
-    """
 
     SKIP_SECTIONS = {
-        # A recap of items already listed above it, not new catalogue entries.
         'Common Materials Used in Bridal Maggam Work',
-        # Numbered prose, not a material list.
         'Complete Workflow (Apparel Lifecycle)',
     }
 
     @classmethod
     def _parse_source(cls, filename):
-        """(section, subsection, item) for every bullet in a source document."""
         import re
         from pathlib import Path
 
@@ -478,7 +449,6 @@ class CatalogSeedTests(InventoryTestBase):
         self.assertEqual(CatalogItem.objects.count(), 732)
 
     def test_non_stockable_rows_are_typed_as_such(self):
-        """A payment gateway and a garment category cannot hold stock."""
         from .models import CatalogItem, ItemType
 
         for name, expected in [
@@ -501,7 +471,6 @@ class CatalogSeedTests(InventoryTestBase):
                 self.assertTrue(item.is_stockable, name)
 
     def test_syncing_twice_creates_nothing_new(self):
-        """A redeploy re-runs the loader; it must not duplicate the catalogue."""
         from .catalog_sync import sync_catalog
         from .models import CatalogItem, CatalogSection
 
@@ -513,7 +482,6 @@ class CatalogSeedTests(InventoryTestBase):
 
 
 class CatalogApiTests(InventoryTestBase):
-    """Browsing the catalogue, and turning one of its rows into stock."""
 
     def test_sections_list_reports_every_section_with_counts(self):
         response = self.client.get('/api/inventory/catalog/items/sections/')
@@ -576,7 +544,6 @@ class CatalogApiTests(InventoryTestBase):
 
 
 class StockLocationTests(InventoryTestBase):
-    """Locations, transfers, and the invariant that ties them to the total."""
 
     def setUp(self):
         super().setUp()
@@ -618,7 +585,6 @@ class StockLocationTests(InventoryTestBase):
         self.assertEqual(self.main.kind, StockLocation.Kind.MAIN_STORE)
 
     def test_unlocated_stock_in_lands_at_the_default(self):
-        """Every caller predates locations; none of them should have to change."""
         item = self.make_item()
         InventoryService.stock_in(item, 40, user=self.owner)
         self.assertEqual(self._breakdown(item), {'Main Store': Decimal('40.000')})
@@ -697,7 +663,6 @@ class StockLocationTests(InventoryTestBase):
         self.assertIn('Embroidery Unit', str(ctx.exception))
 
     def test_the_full_lifecycle_keeps_the_books_straight(self):
-        """Receipt, transfer, consumption, waste and a return, end to end."""
         item = self.make_item()
         InventoryService.goods_receipt(item, 100, user=self.owner)
         InventoryService.transfer(item, 40, from_location=self.main,
@@ -707,7 +672,6 @@ class StockLocationTests(InventoryTestBase):
         InventoryService.return_stock(item, 3, to_location=self.main, user=self.owner)
 
         item.refresh_from_db()
-        # 100 received, 25 consumed, 5 wasted, 3 returned = 73
         self.assertEqual(item.current_stock, Decimal('73.000'))
         self.assertEqual(self._breakdown(item),
                          {'Main Store': Decimal('63.000'), 'Cutting Unit': Decimal('10.000')})
@@ -715,7 +679,6 @@ class StockLocationTests(InventoryTestBase):
 
 
 class TransactionTypeTests(InventoryTestBase):
-    """The twelve transaction types the specification requires."""
 
     REQUIRED = [
         'PURCHASE', 'GOODS_RECEIPT', 'RESERVATION', 'RELEASE', 'CONSUMPTION',
@@ -729,7 +692,6 @@ class TransactionTypeTests(InventoryTestBase):
         self.assertFalse(missing, f'missing transaction types: {missing}')
 
     def test_waste_and_damage_are_separate_lines(self):
-        """Waste is a production metric, damage a handling one."""
         item = self.make_item()
         InventoryService.stock_in(item, 50, user=self.owner)
         InventoryService.waste(item, 4, user=self.owner)
@@ -757,7 +719,6 @@ class TransactionTypeTests(InventoryTestBase):
         self.assertEqual(item.current_stock, Decimal('6.000'))
 
     def test_consumption_is_distinct_from_issue(self):
-        """Issuing hands material over; consuming records it went into the garment."""
         item = self.make_item()
         InventoryService.stock_in(item, 30, user=self.owner)
         InventoryService.issue(item, 10, user=self.owner)
@@ -770,7 +731,6 @@ class TransactionTypeTests(InventoryTestBase):
         self.assertEqual(types, ['STOCK_IN', 'ISSUE', 'CONSUMPTION'])
 
     def test_every_movement_stays_in_history(self):
-        """Every transaction must remain in history permanently."""
         item = self.make_item()
         for op, qty in [(InventoryService.stock_in, 20), (InventoryService.reserve, 5),
                         (InventoryService.release, 5), (InventoryService.waste, 2),
@@ -840,12 +800,6 @@ class LocationApiTests(InventoryTestBase):
 
 
 class FormulaTests(TenantTestCase):
-    """The quantity-formula evaluator.
-
-    A formula comes out of the database, so it comes from whoever can write to
-    the database. These tests are as much about what it refuses as what it
-    computes.
-    """
 
     def test_arithmetic(self):
         from .formula import evaluate
@@ -873,10 +827,8 @@ class FormulaTests(TenantTestCase):
         self.assertEqual(evaluate('2.2 if length > 42 else 1.9', {'length': 45}), Decimal('2.2'))
         self.assertEqual(evaluate('2.2 if length > 42 else 1.9', {'length': 40}), Decimal('1.9'))
 
-    # --- what it must refuse -------------------------------------------
 
     def test_attribute_access_is_refused(self):
-        """The classic sandbox escape."""
         from .formula import FormulaError, evaluate
         for hostile in [
             "().__class__",
@@ -913,7 +865,6 @@ class FormulaTests(TenantTestCase):
         self.assertIn('bust', str(ctx.exception), 'the message should say what is available')
 
     def test_huge_exponent_is_refused(self):
-        """9**9**9 is a denial of service in four characters."""
         from .formula import FormulaError, evaluate
         with self.assertRaises(FormulaError):
             evaluate('9 ** 9 ** 9')
@@ -947,7 +898,6 @@ class FormulaTests(TenantTestCase):
 
 
 class BomTests(InventoryTestBase):
-    """Turning a recipe plus measurements into quantities to reserve."""
 
     def setUp(self):
         super().setUp()
@@ -1022,7 +972,6 @@ class BomTests(InventoryTestBase):
                                    quantity=Decimal('1'), unit=Unit.PIECE)
         self.assertEqual(self.bom.lines.count(), len(BomLine.Role.values))
 
-    # --- unit conversion ------------------------------------------------
 
     def test_line_unit_is_converted_into_the_stocked_unit(self):
         from . import bom as bom_service
@@ -1053,7 +1002,6 @@ class BomTests(InventoryTestBase):
         self.assertEqual(convert(Decimal('500'), Unit.GRAM, Unit.KILOGRAM), Decimal('0.500'))
 
     def test_an_unknown_conversion_is_refused_not_guessed(self):
-        """Treating 2 rolls as 2 metres would silently reserve the wrong amount."""
         from . import bom as bom_service
         self.line(quantity=Decimal('2'), unit=Unit.ROLL)
         with self.assertRaises(bom_service.BomError) as ctx:
@@ -1061,7 +1009,6 @@ class BomTests(InventoryTestBase):
         self.assertIn('no conversion', str(ctx.exception))
 
     def test_waste_is_applied_before_conversion(self):
-        """So a percentage means the same thing whichever unit the line uses."""
         from . import bom as bom_service
         from .models import UnitConversion
         UnitConversion.objects.create(item=self.fabric, from_unit=Unit.ROLL,
@@ -1069,11 +1016,8 @@ class BomTests(InventoryTestBase):
         self.line(quantity=Decimal('2'), unit=Unit.ROLL, waste_percent=Decimal('10'))
 
         rows = bom_service.requirements(self.bom)
-        # 2 rolls + 10% = 2.2 rolls = 110 m. Converting first would give the same
-        # number here, but not once the factor is fractional -- this pins the order.
         self.assertEqual(rows[0]['required_quantity'], Decimal('110.000'))
 
-    # --- error handling -------------------------------------------------
 
     def test_a_broken_formula_names_the_material(self):
         from . import bom as bom_service
@@ -1091,7 +1035,6 @@ class BomTests(InventoryTestBase):
         self.assertIn('negative', str(ctx.exception))
 
     def test_unresolved_lines_are_counted(self):
-        """A line naming only a catalogue row cannot be reserved yet."""
         from . import bom as bom_service
         from .models import BomLine, CatalogItem
         dabka = CatalogItem.objects.filter(name='Dabka').first()
@@ -1118,7 +1061,6 @@ class BomApiTests(InventoryTestBase):
             {'variables': {'waist': 30}}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         row = response.data['requirements'][0]
-        # (0.2*30 + 2) = 8, +10% = 8.8
         self.assertEqual(Decimal(str(row['required_quantity'])), Decimal('8.800'))
 
     def test_missing_measurement_is_a_400_with_a_readable_message(self):
@@ -1161,27 +1103,19 @@ class BomApiTests(InventoryTestBase):
 
 
 class FormulaHardeningTests(TenantTestCase):
-    """Every defect an adversarial review of stage 3 confirmed, pinned.
-
-    These are regression tests for real holes, not hypotheticals: each one
-    failed before the fix that accompanies it.
-    """
 
     def test_negative_base_to_a_fractional_power_is_refused(self):
-        """(-1) ** 0.5 is a complex number; float() of it is a TypeError 500."""
         from .formula import FormulaError, evaluate
         with self.assertRaises(FormulaError) as ctx:
             evaluate('(0 - 1) ** 0.5')
         self.assertIn('complex', str(ctx.exception))
 
     def test_round_with_an_infinite_precision_is_refused(self):
-        """int(inf) is an OverflowError, and it used to sit outside the try."""
         from .formula import FormulaError, evaluate
         with self.assertRaises(FormulaError):
             evaluate('round(1.5, 1e400)')
 
     def test_nested_powers_cannot_slip_past_the_exponent_cap(self):
-        """Each exponent is 8, so bounding the exponent alone lets this through."""
         from .formula import FormulaError, evaluate
         with self.assertRaises(FormulaError):
             evaluate('((9 ** 8) ** 8) ** 8')
@@ -1194,7 +1128,6 @@ class FormulaHardeningTests(TenantTestCase):
             evaluate('1e30')
 
     def test_nan_and_infinity_cannot_arrive_as_measurements(self):
-        """Variables come from the request body, where they are strings."""
         from .formula import FormulaError, evaluate
         for hostile in ('nan', 'inf', '-inf', 'Infinity'):
             with self.assertRaises(FormulaError, msg=hostile):
@@ -1206,7 +1139,6 @@ class FormulaHardeningTests(TenantTestCase):
             evaluate('9' * 400)
 
     def test_and_or_short_circuit_and_yield_the_operand(self):
-        """`waist or 30` should be the measurement, not "true"."""
         from .formula import evaluate
         self.assertEqual(evaluate('waist or 30', {'waist': 32}), Decimal('32'))
         self.assertEqual(evaluate('waist or 30', {'waist': 0}), Decimal('30'))
@@ -1214,26 +1146,17 @@ class FormulaHardeningTests(TenantTestCase):
         self.assertEqual(evaluate('waist and 30', {'waist': 0}), Decimal('0'))
 
     def test_or_short_circuits_before_an_unknown_name(self):
-        """Proof it stops evaluating: the right operand would otherwise raise."""
         from .formula import evaluate
         self.assertEqual(evaluate('waist or hips', {'waist': 32}), Decimal('32'))
 
-    # --- the write-time validation hole --------------------------------
 
     def test_validate_syntax_catches_a_hostile_call_beside_an_unknown_name(self):
-        """The bypass: _eval is depth-first, so the left operand raised first.
-
-        `hips * __import__('os')` used to pass write-time validation, because
-        the unknown-variable error from the left was the one the serializer had
-        been told to ignore -- and the call on the right was never looked at.
-        """
         from .formula import FormulaError, validate_syntax
         with self.assertRaises(FormulaError) as ctx:
             validate_syntax("hips * __import__('os')")
         self.assertIn('__import__', str(ctx.exception))
 
     def test_validate_syntax_allows_unknown_names(self):
-        """A measurement does not exist until an order does."""
         from .formula import validate_syntax
         self.assertTrue(validate_syntax('0.15 * bust + hips'))
 
@@ -1248,7 +1171,6 @@ class FormulaHardeningTests(TenantTestCase):
 
 
 class BomHardeningTests(InventoryTestBase):
-    """Regression tests for the BOM defects the review confirmed."""
 
     def setUp(self):
         super().setUp()
@@ -1266,21 +1188,12 @@ class BomHardeningTests(InventoryTestBase):
         return BomLine.objects.create(**defaults)
 
     def test_conversion_happens_before_rounding(self):
-        """Rounding in the line's unit first multiplies the error by the factor.
-
-        The stored quantity itself is only 3dp, so the sub-precision digits have
-        to come from somewhere the field cannot round away: 0.001 rolls plus 5%
-        waste is 0.00105 rolls. Converting first gives 0.00105 x 50 = 0.0525 ->
-        0.053 m. Rounding first gives 0.001 -> 0.050 m, understating it by the
-        full conversion factor.
-        """
         from . import bom as bom_service
         self._line(quantity=Decimal('0.001'), unit=Unit.ROLL, waste_percent=Decimal('5'))
         rows = bom_service.requirements(self.bom)
         self.assertEqual(rows[0]['required_quantity'], Decimal('0.053'))
 
     def test_an_enormous_quantity_is_a_bom_error_not_a_500(self):
-        """decimal.InvalidOperation is an ArithmeticError, not a ValueError."""
         from . import bom as bom_service
         self._line(quantity_formula='bust * 1000', unit=Unit.METER)
         with self.assertRaises(bom_service.BomError):
@@ -1296,7 +1209,6 @@ class BomHardeningTests(InventoryTestBase):
 
 
 class BomVersioningTests(InventoryTestBase):
-    """Version uniqueness, which a single unique constraint could not deliver."""
 
     def setUp(self):
         super().setUp()
@@ -1306,8 +1218,6 @@ class BomVersioningTests(InventoryTestBase):
         self.template = GarmentTemplate.resolve('lehenga')
 
     def test_two_version_ones_for_the_same_template_are_refused(self):
-        """The ordinary case: template set, design null. Postgres NULL semantics
-        made the original single constraint inert exactly here."""
         from django.db.utils import IntegrityError
         from .models import BillOfMaterials
         BillOfMaterials.objects.create(name='Lehenga', template=self.template)
@@ -1335,7 +1245,6 @@ class BomVersioningTests(InventoryTestBase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
 
     def test_standalone_boms_do_not_share_a_version_counter(self):
-        """Versioning one standalone BOM used to be numbered off all the others."""
         from .models import BillOfMaterials
         other = BillOfMaterials.objects.create(name='Unrelated', version=9)
         mine = BillOfMaterials.objects.create(name='Mine')
@@ -1346,7 +1255,6 @@ class BomVersioningTests(InventoryTestBase):
         self.assertEqual(response.data['version'], 2, 'should follow its own lineage, not v9')
 
     def test_a_superseded_version_cannot_be_versioned_again(self):
-        """Otherwise two active BOMs end up live for the same garment."""
         from .models import BillOfMaterials
         bom = BillOfMaterials.objects.create(name='Twice', template=self.template)
         first = self.client.post(f'/api/inventory/boms/{bom.id}/new-version/', {}, format='json')
@@ -1373,7 +1281,6 @@ class BomApiHardeningTests(InventoryTestBase):
                                unit=Unit.METER, is_optional=True, sequence=2)
 
     def test_include_optional_false_is_honoured_as_a_string(self):
-        """bool('false') is True; a naive truth-test reserved the optional line."""
         response = self.client.post(
             f'/api/inventory/boms/{self.bom.id}/requirements/',
             {'variables': {}, 'include_optional': 'false'}, format='json')
@@ -1403,7 +1310,6 @@ class BomApiHardeningTests(InventoryTestBase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
 
     def test_a_hostile_formula_beside_an_unknown_name_is_rejected(self):
-        """The write-time validation bypass, at the API boundary."""
         response = self.client.post('/api/inventory/bom-lines/', {
             'bom': str(self.bom.id), 'role': 'FABRIC',
             'inventory_item': str(self.fabric.id),
@@ -1424,7 +1330,6 @@ class BomApiHardeningTests(InventoryTestBase):
 
 
 class OrderMaterialTestBase(InventoryTestBase):
-    """Shared fixture: an order, a BOM, and stock to satisfy it."""
 
     def setUp(self):
         super().setUp()
@@ -1461,7 +1366,6 @@ class OrderMaterialTestBase(InventoryTestBase):
 
 
 class OrderMaterialLifecycleTests(OrderMaterialTestBase):
-    """The ten steps, in order."""
 
     def test_1_planning_snapshots_the_requirement(self):
         from .models import OrderMaterialPlan
@@ -1511,7 +1415,6 @@ class OrderMaterialLifecycleTests(OrderMaterialTestBase):
                          'a refused reservation reserves nothing at all')
 
     def test_4_reserving_twice_does_not_double_allocate(self):
-        """The rule the specification calls out by name."""
         from . import order_materials
         plan = self.plan()
         order_materials.reserve(plan, user=self.owner)
@@ -1644,7 +1547,6 @@ class OrderMaterialLifecycleTests(OrderMaterialTestBase):
         order_materials.close(plan, user=self.owner)
 
         self.fabric.refresh_from_db()
-        # 100 - 2.5 consumed - 0.2 wasted = 97.3, nothing left reserved
         self.assertEqual(self.fabric.current_stock, Decimal('97.300'))
         self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
         self.box.refresh_from_db()
@@ -1652,7 +1554,6 @@ class OrderMaterialLifecycleTests(OrderMaterialTestBase):
 
 
 class CustomerMaterialTests(OrderMaterialTestBase):
-    """The customer's own material, which is never boutique stock."""
 
     def receive(self, quantity='5'):
         from . import order_materials
@@ -1661,7 +1562,6 @@ class CustomerMaterialTests(OrderMaterialTestBase):
             unit=Unit.METER, user=self.owner)
 
     def test_receiving_creates_no_inventory_item(self):
-        """The rule the specification states most emphatically."""
         from .models import InventoryItem
         before = InventoryItem.objects.count()
         material = self.receive()
@@ -1834,13 +1734,6 @@ class OrderMaterialApiTests(OrderMaterialTestBase):
 
 
 class MaterialPlanHardeningTests(OrderMaterialTestBase):
-    """Regression tests for the defects an adversarial review confirmed.
-
-    The important ones all share a root: a consumption used to release
-    reservation clamped against the item's GLOBAL reserved figure, so one
-    order's over-consumption silently cancelled another order's reservation and
-    left that order unable to release what it still believed it held.
-    """
 
     def second_order(self):
         from crm_api.models import Order
@@ -1857,7 +1750,6 @@ class MaterialPlanHardeningTests(OrderMaterialTestBase):
         self.fabric.refresh_from_db()
         self.assertEqual(self.fabric.reserved_stock, Decimal('6.000'))
 
-        # Production on my order used 5 m though only 3 were reserved.
         line = mine.lines.get(material_name='Raw Silk')
         order_materials.confirm_consumption(line, Decimal('5'), user=self.owner)
 
@@ -1867,7 +1759,6 @@ class MaterialPlanHardeningTests(OrderMaterialTestBase):
         self.assertEqual(self.fabric.current_stock, Decimal('95.000'))
 
     def test_the_other_order_can_still_be_closed_afterwards(self):
-        """The wedge: releasing used to fail, so the order could never close."""
         from . import order_materials
         other = self.second_order()
         mine = self.plan()
@@ -1898,7 +1789,6 @@ class MaterialPlanHardeningTests(OrderMaterialTestBase):
         self.assertEqual(self.fabric.reserved_stock, Decimal('0.000'))
 
     def test_release_then_dispatch_does_not_steal_a_reservation(self):
-        """Steps 8 then 9, the documented order, with a shared packaging item."""
         from . import order_materials
         other = self.second_order()
         mine = self.plan()
@@ -1929,7 +1819,6 @@ class MaterialPlanHardeningTests(OrderMaterialTestBase):
         self.fabric.refresh_from_db()
         self.assertEqual(self.fabric.reserved_stock, Decimal('3.000'))
 
-    # --- status guards ---------------------------------------------------
 
     def test_packaging_cannot_be_deducted_from_a_cancelled_plan(self):
         from . import order_materials
@@ -1964,10 +1853,8 @@ class MaterialPlanHardeningTests(OrderMaterialTestBase):
         with self.assertRaises(order_materials.MaterialPlanError):
             order_materials.release_unused(plan, user=self.owner)
 
-    # --- counters --------------------------------------------------------
 
     def test_re_reserving_after_a_release_actually_reserves_again(self):
-        """reserved_quantity is a lifetime total, not a current holding."""
         from . import order_materials
         plan = self.plan()
         order_materials.reserve(plan, user=self.owner)
@@ -1982,7 +1869,6 @@ class MaterialPlanHardeningTests(OrderMaterialTestBase):
                          'a re-reserve after releasing must not be a silent no-op')
 
     def test_two_lines_naming_the_same_item_are_summed(self):
-        """A lehenga's skirt and blouse are both silk; 60 + 60 does not fit 100."""
         from . import order_materials
         from .models import BillOfMaterials, BomLine
         bom = BillOfMaterials.objects.create(name='Two silk panels')
@@ -2001,7 +1887,6 @@ class MaterialPlanHardeningTests(OrderMaterialTestBase):
         with self.assertRaises(order_materials.MaterialPlanError):
             order_materials.reserve(plan, user=self.owner)
 
-    # --- quantities ------------------------------------------------------
 
     def test_a_nan_quantity_is_refused_not_a_500(self):
         from . import order_materials
@@ -2058,7 +1943,6 @@ class CustomerMaterialApiHardeningTests(OrderMaterialTestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
 
     def test_deleting_a_material_is_not_allowed(self):
-        """It would cascade away the movement ledger that explains the balances."""
         created = self.make()
         response = self.client.delete(
             f"/api/inventory/customer-materials/{created.data['id']}/")
@@ -2093,12 +1977,10 @@ class CustomerMaterialApiHardeningTests(OrderMaterialTestBase):
 
 
 class InventoryReportTests(OrderMaterialTestBase):
-    """The sixteen figures, against a known set of movements."""
 
     def test_stock_position_covers_six_of_the_reports(self):
         from . import reports
         position = reports.stock_position()
-        # 100 fabric + 50 thread + 20 box
         self.assertEqual(position['current_stock'], Decimal('170.000'))
         self.assertEqual(position['reserved_stock'], Decimal('0.000'))
         self.assertEqual(position['available_stock'], Decimal('170.000'))
@@ -2114,12 +1996,10 @@ class InventoryReportTests(OrderMaterialTestBase):
 
     def test_inventory_value_is_stock_times_purchase_price(self):
         from . import reports
-        # every fixture item is priced at 1200
         self.assertEqual(reports.stock_position()['inventory_value'],
                          Decimal('204000.00'))
 
     def test_low_stock_measures_availability_not_shelf_quantity(self):
-        """Material promised to an order will not be there for the next one."""
         from . import order_materials, reports
         self.fabric.refresh_from_db()
         self.fabric.reorder_level = Decimal('98')
@@ -2173,13 +2053,10 @@ class InventoryReportTests(OrderMaterialTestBase):
         self.assertEqual(rates['consumed'], Decimal('2.000'))
         self.assertEqual(rates['wasted'], Decimal('0.500'))
         self.assertEqual(rates['damaged'], Decimal('5.000'))
-        # waste over what went to production: 0.5 / (2 + 0.5) = 20%
         self.assertEqual(rates['waste_percent'], Decimal('20.00'))
-        # damage over what was taken in: 5 / 170 = 2.94%
         self.assertEqual(rates['damage_percent'], Decimal('2.94'))
 
     def test_a_rate_with_no_data_is_none_not_zero(self):
-        """0% waste and "no production yet" must not look the same."""
         from . import reports
         rates = reports.loss_rates()
         self.assertIsNone(rates['waste_percent'])
@@ -2234,8 +2111,6 @@ class InventoryReportTests(OrderMaterialTestBase):
         self.assertEqual(usage['customer_materials'][0]['remaining'], Decimal('2.000'))
 
     def test_supplier_performance_judges_only_what_can_be_judged(self):
-        """An order still open is not late, and one with no promised date cannot
-        be judged either way."""
         import datetime
         from . import reports
         from .models import PurchaseOrder
@@ -2300,7 +2175,6 @@ class InventoryReportApiTests(OrderMaterialTestBase):
         self.assertEqual(ok.status_code, status.HTTP_200_OK)
 
     def test_a_bad_date_is_refused_not_ignored(self):
-        """Silently reporting over all time would be the worst outcome."""
         response = self.client.get('/api/inventory/reports/loss-rates/?since=last-tuesday')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -2328,21 +2202,11 @@ class InventoryReportApiTests(OrderMaterialTestBase):
 
 
 class StaleInstanceGuardTests(InventoryTestBase):
-    """A stale instance must not be able to rewind stock.
-
-    The DirectStockWriteError guard compares an instance against its own
-    snapshot, which cannot detect this case: an instance loaded before a
-    movement still holds the old balance, agrees with its own snapshot, and a
-    plain save() writes that figure back over the real one. Nothing looks
-    changed and the stock is silently rewound.
-    """
 
     def test_saving_a_stale_instance_does_not_rewind_stock(self):
         item = self.make_item()
         InventoryService.stock_in(item, 100, user=self.owner)
 
-        # `item` is the instance from before the movement: it still believes
-        # current_stock is 0, and so does its snapshot.
         self.assertEqual(item.current_stock, Decimal('0'))
         item.rack_location = 'A-4'
         item.save()
@@ -2364,7 +2228,6 @@ class StaleInstanceGuardTests(InventoryTestBase):
         self.assertEqual(item.current_stock, Decimal('100.000'))
 
     def test_a_deliberate_direct_edit_is_still_refused(self):
-        """The original guard must keep working."""
         item = self.make_item()
         InventoryService.stock_in(item, 10, user=self.owner)
         item.refresh_from_db()
@@ -2373,7 +2236,6 @@ class StaleInstanceGuardTests(InventoryTestBase):
             item.save()
 
     def test_refreshing_then_saving_is_allowed(self):
-        """refresh_from_db must re-snapshot, or the guard reads it as an edit."""
         item = self.make_item()
         InventoryService.stock_in(item, 40, user=self.owner)
         item.refresh_from_db()
@@ -2386,10 +2248,8 @@ class StaleInstanceGuardTests(InventoryTestBase):
 
 
 class ReportDateWindowTests(OrderMaterialTestBase):
-    """A bare date has to become a moment, and the two ends differ."""
 
     def test_until_today_includes_today(self):
-        """?until=<today> meaning midnight this morning excludes today's work."""
         import datetime
         from django.utils import timezone
 
@@ -2425,15 +2285,8 @@ class ReportDateWindowTests(OrderMaterialTestBase):
 
 
 class WriteOffWhileReservedTests(InventoryTestBase):
-    """Physical loss has to be recordable even when the material is spoken for."""
 
     def test_damage_can_be_recorded_against_reserved_stock(self):
-        """record_movement refused any movement leaving reserved > stock, with a
-        message hardcoded to 'Cannot reserve'. It fired for DAMAGE, SCRAP,
-        supplier returns and stock counts -- operations that carry no
-        reservation at all -- so a real loss could not be written off, and the
-        owner was told about a reservation they never attempted.
-        """
         item = self.make_item()
         InventoryService.stock_in(item, 10, user=self.owner)
         InventoryService.reserve(item, 10, user=self.owner)
@@ -2442,5 +2295,4 @@ class WriteOffWhileReservedTests(InventoryTestBase):
 
         item.refresh_from_db()
         self.assertEqual(item.current_stock, Decimal('6'))
-        # The reservation cannot outlive the stock that backed it.
         self.assertEqual(item.reserved_stock, Decimal('6'))

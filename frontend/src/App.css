@@ -56,7 +56,6 @@
   }
 }
 
-#center {
   display: flex;
   flex-direction: column;
   gap: 25px;
@@ -70,7 +69,6 @@
   }
 }
 
-#next-steps {
   display: flex;
   border-top: 1px solid var(--border);
   text-align: left;
@@ -95,7 +93,6 @@
   }
 }
 
-#docs {
   border-right: 1px solid var(--border);
 
   @media (max-width: 1024px) {
@@ -104,7 +101,6 @@
   }
 }
 
-#next-steps ul {
   list-style: none;
   padding: 0;
   display: flex;
@@ -153,7 +149,6 @@
   }
 }
 
-#spacer {
   height: 88px;
   border-top: 1px solid var(--border);
   @media (max-width: 1024px) {

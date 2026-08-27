@@ -1,17 +1,3 @@
-"""Work has to find the person who does it.
-
-The state machine already refused a QC Master the stages that are not theirs.
-What nothing did was tell them about the ones that ARE: a QC Master is never
-order.tailor and never order.master, so the only way an order reached them was
-a Master remembering to run assign-stage by hand. Orders reached quality check
-and sat there invisible -- and the inspection got completed by whoever could
-see it, which is the role boundary being honoured in permission and bypassed in
-practice.
-
-These pin the queue: a role sees exactly the work that has legitimately arrived
-at a stage they may perform, because visibility and permission now read the
-same declaration in workflow_config.
-"""
 
 from django.contrib.auth.models import User
 from django.db import connection
@@ -71,7 +57,6 @@ class QCDiscoveryTestBase(TenantTestCase):
         }, user=self.owner)
 
     def reach(self, order, key):
-        """Complete everything before `key`, properly, leaving `key` open."""
         config = BoutiqueSettings.objects.get(id=1).workflow_config
         keys = [s["key"] for s in config]
         for earlier in keys[:keys.index(key)]:
@@ -89,18 +74,14 @@ class QCDiscoveryTestBase(TenantTestCase):
 
 
 class RoleStageDeclarationTests(QCDiscoveryTestBase):
-    """Visibility and permission must read one declaration, not two."""
 
     def test_the_queue_is_built_from_the_same_roles_list_the_engine_enforces(self):
         config = BoutiqueSettings.objects.get(id=1).workflow_config
         self.assertEqual(stages_for_role(config, 'QC Master'), ['master_quality_check'])
         self.assertEqual(stages_for_role(config, 'Pressing Staff'), ['pressing'])
-        # A role nobody declared owns nothing, rather than everything.
         self.assertEqual(stages_for_role(config, 'Designer'), [])
 
     def test_a_renamed_role_moves_visibility_with_it(self):
-        # The property that makes drift impossible: edit the config and the
-        # queue follows, because there is no second list to forget.
         settings = BoutiqueSettings.objects.get(id=1)
         for stage in settings.workflow_config:
             if stage['key'] == 'master_quality_check':
@@ -121,9 +102,6 @@ class QCQueueTests(QCDiscoveryTestBase):
         self.assertIn(order.order_id, self.visible_ids(self.qc.user))
 
     def test_an_order_still_in_stitching_is_not_in_the_qc_queue(self):
-        # The containment half. Without a readiness check every order ever
-        # taken carries a NOT_STARTED quality check, and the whole order book
-        # lands on the QC Master's desk on day one.
         order = self.reach(self.make_order(), 'stitching_in_progress')
         self.assertNotIn(order.order_id, self.visible_ids(self.qc.user))
 
@@ -151,8 +129,6 @@ class QCQueueTests(QCDiscoveryTestBase):
         self.assertEqual(self.visible_ids(self.qc.user), {qc_order.order_id})
 
     def test_a_manual_assignment_still_works_alongside_the_queue(self):
-        # The queue supplements personal attachment; it does not replace it.
-        # A Master who wants a named inspector can still say so.
         order = self.reach(self.make_order(), 'pressing')
         self.assertNotIn(order.order_id, self.visible_ids(self.qc.user))
 
@@ -170,15 +146,11 @@ class QCQueueTests(QCDiscoveryTestBase):
         self.assertEqual([r['order_id'] for r in rows], [order.order_id])
 
     def test_the_customer_behind_a_queued_order_resolves(self):
-        # Or the queue renders rows with no customer name on them.
         order = self.reach(self.make_order(), 'master_quality_check')
         names = visible_customers(Customer.objects.all(), self.qc.user)
         self.assertEqual([c.first_name for c in names], ['Meera'])
 
     def test_a_tailor_does_not_inherit_the_whole_book(self):
-        # A Tailor IS order.tailor here, so they legitimately see their own
-        # orders -- what must not happen is the queue widening that to
-        # everyone else's stitching too.
         mine = self.reach(self.make_order("9800000004"), 'master_quality_check')
         other_tailor, _ = self._staff("Latha", "Tailor", "latha@qc.test")
         theirs = OrderService.create_order_for_customer(
@@ -190,7 +162,6 @@ class QCQueueTests(QCDiscoveryTestBase):
 
 
 class QCInspectionTests(QCDiscoveryTestBase):
-    """Discovery is only worth anything if the work can then be done."""
 
     def test_the_qc_master_can_complete_the_inspection_they_found(self):
         order = self.reach(self.make_order(), 'master_quality_check')
@@ -207,8 +178,6 @@ class QCInspectionTests(QCDiscoveryTestBase):
         self.assertEqual(order.order_status, 'Ready for Dispatch')
 
     def test_the_role_boundary_still_holds_on_the_stages_that_are_not_theirs(self):
-        # P0's guarantee, re-pinned: seeing an order does not widen what the
-        # QC Master may do to it.
         order = self.reach(self.make_order(), 'master_quality_check')
         response = self.qc_client.post(
             reverse('order-transition-stage', args=[order.id]),
@@ -240,8 +209,6 @@ class QueueNotificationTests(QCDiscoveryTestBase):
         self.assertIn(order.order_id, qc_notes.get().message)
 
     def test_the_notification_is_addressed_to_the_role_not_a_person(self):
-        # A boutique with two QC Masters must not have the system pick one --
-        # that is the manual assignment this replaces.
         self._staff("Second Inspector", "QC Master", "qc2@qc.test")
         order = self.reach(self.make_order(), 'pressing')
         Notification.objects.all().delete()

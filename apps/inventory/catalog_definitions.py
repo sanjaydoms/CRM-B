@@ -1,26 +1,4 @@
-"""The inventory catalog, as data.
 
-Generated from the two source documents that define it:
-
-    01-maggam-embroidery-materials.md   -> doc "MAGGAM"   (22 sections)
-    02-apparel-ecosystem-checklist.md   -> doc "APPAREL"  (27 sections)
-
-Every bullet in those documents appears here exactly once, under its own section
-and sub-section, with its name reproduced verbatim. Nothing is merged, renamed or
-dropped -- test_catalog_matches_the_source_documents re-parses the originals and
-fails if this file and they ever disagree.
-
-The leading "N." on a source heading is markdown ordering rather than part of the
-name, so it is carried as `sequence` and stripped from `section`.
-
-`item_type` is the one piece of judgement added on top of the sources. The
-documents list things that cannot hold stock -- "Website", "ERP" and "Payment
-Gateway" are systems; "Sarees" and "Sherwanis" are garment categories, not
-materials. They are catalogued because the specification forbids omitting
-anything, and typed so that only stockable rows reach stock and BOM logic.
-"""
-
-# (name, item_type, default_unit)
 CATALOG = [
     {
         'doc': 'MAGGAM',
@@ -1246,7 +1224,6 @@ CATALOG = [
 
 
 def all_items():
-    """Every catalogue row, flattened, in source order."""
     for group in CATALOG:
         for name, item_type, unit in group['items']:
             yield {

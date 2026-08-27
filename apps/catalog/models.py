@@ -1,12 +1,3 @@
-"""Garment product templates.
-
-A template describes one garment as data -- sections, fields, options and the
-rules that decide which fields apply -- so the order form is rendered from the
-database rather than written twice, once in JSX and once in a serializer.
-
-Adding a garment, a regional variation or a boutique's own option list is a row,
-not a deploy. See docs/garment-product-templates.md for the full specification.
-"""
 
 import uuid
 
@@ -16,9 +7,6 @@ from crm_api.models import Order
 from apps.inventory.models import Category as InventoryCategory
 
 
-# The five sections every garment renders, in this order. A garment with nothing
-# to put in a section simply has no fields there -- the section itself never
-# disappears, so the counter staff see the same shape for a saree and a churidar.
 class SectionKey(models.TextChoices):
     BASIC = 'basic', 'Basic Information'
     MEASUREMENTS = 'measurements', 'Measurements'
@@ -40,24 +28,16 @@ class FieldType(models.TextChoices):
 
 
 class GarmentTemplate(models.Model):
-    """One garment type. `key` is permanent; everything else may be edited."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     key = models.CharField(max_length=50, db_index=True)
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True, null=True)
 
-    # Bumped whenever a field or option changes in a way that would alter how an
-    # existing spec validates. Jobs freeze the version they were created under,
-    # so a template edited in April cannot retroactively invalidate March's work.
     version = models.IntegerField(default=1)
     is_active = models.BooleanField(default=True, db_index=True)
     sequence = models.IntegerField(default=0)
 
-    # Null = the global default shipped with the product. A boutique that
-    # customises a garment gets its own row, and resolution is "tenant if
-    # present, else global" -- so boutiques inherit improvements to the defaults
-    # right up until the moment they override one.
     tenant = models.CharField(max_length=100, blank=True, null=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -72,7 +52,6 @@ class GarmentTemplate(models.Model):
 
     @classmethod
     def resolve(cls, key, tenant=None):
-        """The template a given boutique should see for `key`."""
         if tenant:
             override = cls.objects.filter(key=key, tenant=tenant, is_active=True).first()
             if override:
@@ -110,14 +89,10 @@ class TemplateField(models.Model):
     help_text = models.CharField(max_length=300, blank=True, null=True)
     sequence = models.IntegerField(default=0)
 
-    # {"field": "petticoat_required", "op": "eq", "value": true}, nested under
-    # "all"/"any". Evaluated by core.templates.is_visible and its JS twin.
     visible_when = models.JSONField(blank=True, null=True)
 
-    # {"min": 0, "max": 120, "step": 0.25, "max_length": 500}
     validation = models.JSONField(default=dict, blank=True)
 
-    # inventory_ref only: restricts the picker, and is enforced on write.
     inventory_category = models.CharField(
         max_length=30, choices=InventoryCategory.choices, blank=True, null=True
     )
@@ -130,11 +105,6 @@ class TemplateField(models.Model):
 
 
 class TemplateFieldOption(models.Model):
-    """A dropdown value.
-
-    A table rather than a Python enum so the owner can add "Paithani" to saree
-    types from the admin without waiting for a release.
-    """
 
     field = models.ForeignKey(
         TemplateField, on_delete=models.CASCADE, related_name='options'
@@ -153,40 +123,21 @@ class TemplateFieldOption(models.Model):
 
 
 class GarmentJob(models.Model):
-    """One dress on an order.
-
-    An order is a commercial envelope and may hold several of these -- a lehenga,
-    its blouse and a dupatta are three jobs, each with its own template, spec and
-    measurement snapshot.
-    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='garment_jobs')
     template = models.ForeignKey(
         GarmentTemplate, on_delete=models.PROTECT, related_name='jobs'
     )
-    # Frozen at creation: this job renders and validates against the template as
-    # it was the day it was taken, not as it is today.
     template_version = models.IntegerField()
 
-    # Categorical answers keyed by TemplateField.key.
     spec = models.JSONField(default=dict, blank=True)
 
-    # What THIS dress costs, component by component. Money used to live only on
-    # the Order as one flat set, so a Blouse + Lehenga order was priced as
-    # whichever garment the customer's profile named. The order's columns still
-    # exist -- as the SUM of these, written by domains.orders.pricing, which is
-    # the only arithmetic path. Names deliberately mirror Order's columns so
-    # the rollup is a loop, not a mapping. All-zero components on an old job
-    # mean "priced before this existed"; such orders keep their entered totals
-    # and are never recomputed. Packaging is not here: one parcel per order.
     base_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fabric_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     embroidery_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     customization_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     tailoring_charges = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    # Numeric dimensions, kept apart from `spec` because they are versioned,
-    # printed on the cutting sheet and compared across a customer's orders.
     measurements = models.JSONField(default=dict, blank=True)
 
     sequence = models.IntegerField(default=0)
@@ -206,12 +157,6 @@ class GarmentJob(models.Model):
 
 
 class JobMaterial(models.Model):
-    """A material line resolving one inventory_ref field on a job.
-
-    Store material points at an InventoryItem so issuing it can write a
-    StockMovement; customer-supplied material is recorded as free text and never
-    touches stock.
-    """
 
     class Source(models.TextChoices):
         STORE = 'STORE', 'Store inventory'

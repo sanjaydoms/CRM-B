@@ -1,17 +1,3 @@
-"""Personalising a design for an order that does not exist yet.
-
-Design Studio was built when the wizard POSTed the customer at step one, so
-every entry point is customer-shaped. Drafts deliberately ended that -- an
-abandoned order must not leave a half-made customer behind -- and the studio
-never moved with them: a new-customer order reached step three, found
-`customerId === null`, and rendered a blank silent screen.
-
-The fix is NOT a second customer-less code path. It is one Subject with two
-constructors (see context.Subject), so build_context, the query generator, the
-ranker and every provider go on seeing a single shape. These tests pin that
-equivalence, the per-garment isolation the projection now carries, and the two
-things a draft must never do: create a customer, or leak one.
-"""
 
 from decimal import Decimal
 
@@ -59,7 +45,6 @@ class PersonalisationTestBase(TenantTestCase):
         return api
 
     def new_customer_payload(self):
-        """Exactly what the wizard stores: template ids AND keys, per garment."""
         return {
             'first_name': 'Deepa', 'last_name': 'Krishnan',
             'mobile_number': '919611022233', 'email_address': 'deepa@personal.test',
@@ -97,7 +82,6 @@ class PersonalisationTestBase(TenantTestCase):
 
 
 class SubjectEquivalenceTests(PersonalisationTestBase):
-    """One shape, two sources -- the whole point of the architecture."""
 
     def test_a_draft_and_a_customer_produce_the_same_context_shape(self):
         draft_context = build_context(subject_from_draft(self.new_customer_payload()))
@@ -130,7 +114,6 @@ class SubjectEquivalenceTests(PersonalisationTestBase):
 
 
 class PerGarmentContextTests(PersonalisationTestBase):
-    """Two dresses, one customer: only the spec tells them apart."""
 
     def _context_for(self, garment_key, draft_id):
         response = self.api.get(reverse('design-context'),
@@ -148,11 +131,6 @@ class PerGarmentContextTests(PersonalisationTestBase):
         self.assertNotEqual(blouse['style_preferences'], lehenga['style_preferences'])
 
     def test_a_garments_own_spec_beats_the_shared_customer_default(self):
-        # Both garments inherit neckline "Sweetheart" from the one profile
-        # behind them. A blouse declares a neck (front_neck) and must override
-        # it; a lehenga's template has no neck field at all, so it keeps the
-        # customer's -- and is distinguished instead by its own vocabulary,
-        # `border`. Each garment personalises off what it actually declares.
         draft = self.a_draft()
         blouse = self._context_for('blouse', draft.id)
         lehenga = self._context_for('lehenga', draft.id)
@@ -166,7 +144,6 @@ class PerGarmentContextTests(PersonalisationTestBase):
     def test_garment_measurements_override_the_standing_ones(self):
         draft = self.a_draft()
         lehenga = self._context_for('lehenga', draft.id)
-        # The customer's standing waist is 28; this lehenga is cut to 32.
         self.assertEqual(lehenga['measurements']['waist'], '32')
         self.assertEqual(lehenga['measurements']['floor_length'], '41')
 
@@ -203,7 +180,6 @@ class PerGarmentContextTests(PersonalisationTestBase):
 
 
 class NoOrphanCustomerTests(PersonalisationTestBase):
-    """Personalising must create nothing."""
 
     def test_personalising_a_draft_creates_no_customer_or_order(self):
         draft = self.a_draft()
@@ -244,7 +220,6 @@ class NoOrphanCustomerTests(PersonalisationTestBase):
 
 
 class DraftOwnershipTests(PersonalisationTestBase):
-    """A draft is personal until it becomes an order."""
 
     def test_another_owners_draft_is_not_readable(self):
         draft = self.a_draft()
@@ -253,7 +228,6 @@ class DraftOwnershipTests(PersonalisationTestBase):
             password="otherpass123")
         response = self.client_for(intruder).get(
             reverse('design-context'), {'draft_id': str(draft.id)})
-        # Refused, and without confirming the draft exists.
         self.assertIn(response.status_code, (400, 403, 404))
         self.assertNotIn('Deepa', str(response.data))
 
@@ -265,7 +239,6 @@ class DraftOwnershipTests(PersonalisationTestBase):
 
 
 class ReturningCustomerTests(PersonalisationTestBase):
-    """A draft for someone who already exists still gets their history."""
 
     def test_a_draft_linked_to_a_customer_uses_the_saved_profile(self):
         customer = self.saved_customer()
@@ -277,7 +250,6 @@ class ReturningCustomerTests(PersonalisationTestBase):
         context = response.data['context']
         self.assertEqual(context['customer_id'], str(customer.id))
         self.assertIn('Maroon Silk', context['preferred_fabrics'])
-        # And the garment still wins on style.
         self.assertEqual(context['style_preferences']['neckline'], 'Deep V')
 
     def test_personalising_an_existing_customer_creates_no_duplicate(self):
@@ -288,7 +260,6 @@ class ReturningCustomerTests(PersonalisationTestBase):
 
 
 class PostConfirmContextTests(PersonalisationTestBase):
-    """After Confirm the persisted garment job is canonical, not the draft."""
 
     def _confirm(self, draft_id):
         return self.api.post(reverse('order-draft-confirm', args=[draft_id]))
@@ -330,7 +301,6 @@ class PostConfirmContextTests(PersonalisationTestBase):
 
 
 class DraftPersistenceTests(PersonalisationTestBase):
-    """Save, refresh, resume -- personalisation survives because the draft does."""
 
     def test_context_is_identical_after_a_fresh_client_reads_the_draft(self):
         draft = self.a_draft()
@@ -354,7 +324,6 @@ class DraftPersistenceTests(PersonalisationTestBase):
 
 
 class SelectionSurvivesConfirmTests(PersonalisationTestBase):
-    """A shortlist chosen before the customer existed lands on the right dress."""
 
     def _payload_with_designs(self):
         payload = self.new_customer_payload()
@@ -388,8 +357,6 @@ class SelectionSurvivesConfirmTests(PersonalisationTestBase):
         self.assertEqual(by_garment['lehenga'].title, 'A-Line Lehenga')
 
     def test_both_garments_keep_their_own_selection(self):
-        # The old one-selection-per-board rule would have let the second
-        # garment's choice unpick the first's.
         from .models import DesignBoardItem
         draft = self.a_draft(self._payload_with_designs())
         self.api.post(reverse('order-draft-confirm', args=[draft.id]))
@@ -419,7 +386,6 @@ class SelectionSurvivesConfirmTests(PersonalisationTestBase):
 
 
 class PersonalisationPermissionTests(PersonalisationTestBase):
-    """Adding a draft source must not widen who may personalise."""
 
     def _designer_client(self):
         from .models import Designer
@@ -438,9 +404,6 @@ class PersonalisationPermissionTests(PersonalisationTestBase):
         return self.client_for(user)
 
     def test_a_designer_still_cannot_run_discovery(self):
-        # OwnerOnly on the discovery endpoints predates P1.4 and stays. A
-        # designer's window onto an order is the assignment projection built in
-        # P1.1 -- spec, measurements and brief, no customer identity -- not this.
         draft = self.a_draft()
         client = self._designer_client()
         self.assertEqual(

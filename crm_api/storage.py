@@ -28,7 +28,6 @@ class SupabaseStorage(Storage):
             "ApiKey": self.supabase_key,
         }
         
-        # Read the file content
         content_bytes = content.read()
         mime_type, _ = mimetypes.guess_type(name)
         if mime_type:
@@ -36,7 +35,6 @@ class SupabaseStorage(Storage):
             
         res = requests.post(url, headers=headers, data=content_bytes)
         
-        # If file already exists, retry with x-upsert header to overwrite it
         if res.status_code != 200:
             headers["x-upsert"] = "true"
             res = requests.post(url, headers=headers, data=content_bytes)

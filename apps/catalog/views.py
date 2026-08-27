@@ -17,7 +17,6 @@ from .serializers import (
 
 
 def _full_template_queryset():
-    """One query per level: a template is fetched whole or not at all."""
     return GarmentTemplate.objects.prefetch_related(
         Prefetch(
             'sections',
@@ -29,29 +28,12 @@ def _full_template_queryset():
 
 
 class GarmentTemplateViewSet(viewsets.ReadOnlyModelViewSet):
-    """Templates are read-only over the API; they are edited in the admin.
-
-    Readable by anyone signed in. This viewset declared no permission policy at
-    all, so it silently inherited RolePermission -- whose DESIGNER branch
-    returns False before the safe-method check is ever reached, because it was
-    written for customers, orders and money. Templates are neither: they are
-    the garment vocabulary the design upload form is built from, and refusing
-    them left a designer's Garment dropdown permanently empty, so every design
-    they uploaded landed with template=null, garment_type='' and spec_tags={} --
-    invisible to the very filters the library ships with.
-    """
 
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'key'
     serializer_class = GarmentTemplateSerializer
 
     def get_queryset(self):
-        """Templates live in the caller's schema, so tenancy is already handled.
-
-        The `tenant` column is the second level: a boutique that forks a garment
-        for one of its branches or labels gets a row tagged with that name, and
-        it wins over the default of the same key.
-        """
         queryset = _full_template_queryset().filter(is_active=True)
         label = self.request.headers.get('X-Template-Variant')
         if label:
@@ -71,7 +53,6 @@ class GarmentTemplateViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['post'])
     def validate(self, request, key=None):
-        """Dry-run a spec without saving. Used by the wizard before advancing."""
         template = self.get_object()
         try:
             cleaned = validate_spec(
@@ -91,22 +72,6 @@ class GarmentJobViewSet(viewsets.ModelViewSet):
         queryset = GarmentJob.objects.select_related('template').prefetch_related(
             'materials', 'materials__inventory_item'
         )
-        # Scoped to the orders this caller may see, exactly as the sibling
-        # routers outside crm_api already are.
-        #
-        # This viewset names no permission_classes, so it inherits
-        # RolePermission -- which grants every safe method to any non-Owner,
-        # non-Designer role -- and the only narrowing here was an OPTIONAL
-        # ?order= filter. GarmentJobSerializer emits `spec` and `measurements`
-        # in full: every body measurement, customer_notes, special_instructions
-        # and internal_notes, the last of whose help_text reads "Staff only --
-        # never shown on the customer copy".
-        #
-        # So a tailor correctly refused another tailor's order at
-        # /api/orders/<id>/ read the same order's garments here, for every
-        # client in the boutique, by calling this endpoint with no parameters.
-        # One line covers list, retrieve and both materials sub-actions,
-        # because they all resolve their object through this queryset.
         queryset = queryset.filter(
             order__in=visible_orders(Order.objects.all(), self.request.user))
         if order_id := self.request.query_params.get('order'):
@@ -115,8 +80,6 @@ class GarmentJobViewSet(viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        # The wizard saves each step as it goes, so a half-filled job is expected
-        # until it is explicitly confirmed.
         context['draft'] = str(self.request.data.get('draft', '')).lower() == 'true'
         return context
 

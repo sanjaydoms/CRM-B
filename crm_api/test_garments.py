@@ -1,16 +1,3 @@
-"""An order names every garment on it, everywhere.
-
-The regression these pin down: an order for a blouse and a lehenga was shown as
-a blouse on the order summary, the invoice, all three staff dashboards, the
-customer's WhatsApp confirmation, the tracking page and the analytics -- because
-each of those read Customer.garment_type, a single field on the person that the
-wizard overwrites with whichever dress was entered last. The customer was
-invoiced for one of the two garments she had ordered.
-
-Every surface now goes through domains.orders.garments, so these cover the
-canonical helper, both order serializers, the confirmation message and the
-tracking page, at one, two and three garments.
-"""
 
 from decimal import Decimal
 
@@ -47,8 +34,6 @@ class GarmentNamingTests(TenantTestCase):
             first_name="Lakshmi", last_name="Iyer",
             mobile_number="919845012345", email_address="lakshmi@garments.test",
             address="44 Church Street", customer_type="Women",
-            # The field every surface used to read. Deliberately set to something
-            # that is NOT the whole truth, so a test that still reads it fails.
             garment_type="Blouse",
         )
         self.templates = {}
@@ -72,7 +57,6 @@ class GarmentNamingTests(TenantTestCase):
             )
         return OrderRepository.get_by_id(order.pk)
 
-    # ---- the canonical helper -------------------------------------------
 
     def test_single_garment_order_names_that_garment(self):
         order = self._order("T2B-ONE", ['blouse'])
@@ -90,16 +74,10 @@ class GarmentNamingTests(TenantTestCase):
         self.assertEqual(garment_label(order), 'Blouse, Lehenga and Dupatta')
 
     def test_repeated_garment_type_is_listed_once_per_garment(self):
-        """Two blouses on one order are two garments, not one."""
         order = self._order("T2B-PAIR", ['blouse', 'blouse'])
         self.assertEqual(garment_names(order), ['Blouse', 'Blouse'])
 
     def test_order_with_no_jobs_falls_back_to_the_customer_field(self):
-        """Orders written before garment jobs existed still name their garment.
-
-        Nine of the ten orders already in the database have no jobs, so the
-        fallback is load-bearing rather than defensive.
-        """
         order = OrderRepository.get_by_id(
             Order.objects.create(order_id="T2B-LEGACY", customer=self.customer).pk
         )
@@ -114,7 +92,6 @@ class GarmentNamingTests(TenantTestCase):
         self.assertEqual(garment_names(order), [])
         self.assertEqual(garment_label(order), 'Custom garment')
 
-    # ---- the serializers every screen reads ------------------------------
 
     def test_order_serializer_carries_every_garment(self):
         order = self._order("T2B-SER", ['blouse', 'lehenga'])
@@ -124,7 +101,6 @@ class GarmentNamingTests(TenantTestCase):
         self.assertEqual(len(data['garment_jobs']), 2)
 
     def test_summary_serializer_carries_every_garment(self):
-        """The dashboard panels name the garment too, and named the wrong one."""
         self._order("T2B-SUM", ['blouse', 'lehenga'])
         row = OrderSummarySerializer(
             OrderRepository.summary_queryset().get(order_id="T2B-SUM")
@@ -133,11 +109,6 @@ class GarmentNamingTests(TenantTestCase):
         self.assertEqual(row['garment_label'], 'Blouse and Lehenga')
 
     def test_each_garment_keeps_its_own_measurements(self):
-        """The blouse's waist is the blouse's, not whichever dress was last.
-
-        The customer-level roll-up keeps one waist for the whole order, so a
-        screen reading it shows the tailor the lehenga's waist for the blouse.
-        """
         order = self._order(
             "T2B-MEAS", ['blouse', 'lehenga'],
             measurements={
@@ -148,12 +119,10 @@ class GarmentNamingTests(TenantTestCase):
         jobs = {j['template_name']: j for j in OrderSerializer(order).data['garment_jobs']}
         self.assertEqual(jobs['Blouse']['measurements']['waist'], '30')
         self.assertEqual(jobs['Lehenga']['measurements']['waist'], '31')
-        # Dimensions the roll-up drops entirely must survive on the job.
         self.assertEqual(jobs['Blouse']['measurements']['blouse_length'], '15')
         self.assertEqual(jobs['Blouse']['measurements']['armhole'], '16')
         self.assertEqual(jobs['Lehenga']['measurements']['floor_length'], '40')
 
-    # ---- what the customer is actually told ------------------------------
 
     def test_confirmation_message_lists_every_garment(self):
         order = self._order("T2B-MSG", ['blouse', 'lehenga'])

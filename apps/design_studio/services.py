@@ -1,4 +1,3 @@
-"""Studio orchestration: context -> queries -> multi-source search -> ranking."""
 
 import logging
 import uuid
@@ -14,18 +13,10 @@ from .providers.registry import active_providers, source_status
 
 logger = logging.getLogger(__name__)
 
-# Per-source cap. Without it a large catalogue would crowd every other source
-# out of the gallery.
 PER_SOURCE_LIMIT = 24
 
 
 def discover(subject, order_input=None, extra_keywords=None, sources=None, limit=40):
-    """Run a full studio search and return ranked designs with their context.
-
-    `subject` is a context.Subject -- a saved customer or an unconfirmed draft,
-    already resolved. This function has never needed to know which, and now
-    cannot: that is what keeps one search path serving both.
-    """
     context = build_context(subject, order_input)
     intelligence = get_intelligence()
     queries = intelligence.generate_queries(context, extra_keywords)
@@ -36,8 +27,6 @@ def discover(subject, order_input=None, extra_keywords=None, sources=None, limit
         try:
             results = provider.search(queries, context, limit=PER_SOURCE_LIMIT)
         except Exception:
-            # One misbehaving source must not empty the gallery. Log it and
-            # carry on with whatever the others returned.
             logger.exception("Design source %s failed", provider.key)
             continue
         for candidate in results:
@@ -60,16 +49,8 @@ def discover(subject, order_input=None, extra_keywords=None, sources=None, limit
 
 @transaction.atomic
 def select_item(board, item):
-    """Make ``item`` the selected design for its garment.
-
-    Scoped to the item's own garment. Clearing every selection on the board was
-    right while an order meant one dress; on a two-garment order it means
-    choosing the lehenga's design silently unpicks the blouse's.
-    """
     if item.board_id != board.id:
         raise ValueError("Item does not belong to this board")
-    # The DB enforces one selection per garment, so the previous one for THIS
-    # garment has to be cleared before the new one is written.
     (board.items
      .filter(is_selected=True, garment_job_id=item.garment_job_id)
      .exclude(pk=item.pk)
@@ -79,17 +60,12 @@ def select_item(board, item):
     if board.status == DesignBoard.STATUS_DRAFT:
         board.status = DesignBoard.STATUS_SHORTLISTED
         board.save(update_fields=['status', 'updated_at'])
-    # The board was loaded with its items prefetched, so that cached list still
-    # shows the old selection. Serialising it as-is sent the client a board
-    # whose items all read is_selected=false straight after a successful
-    # select, and the UI had no way to know which design had been chosen.
     board.refresh_from_db()
     return item
 
 
 @transaction.atomic
 def approve_board(board, user):
-    """Lock in the selected design as the reference production will follow."""
     selected = board.selected_item
     if selected is None:
         raise ValueError("Select a design before approving the board")
@@ -103,12 +79,6 @@ def approve_board(board, user):
 
 @transaction.atomic
 def save_to_order(board, order):
-    """Attach an approved board to an order.
-
-    Everything production needs -- reference image, source and original URL,
-    attributes, palette, customer notes and tailor instructions -- travels with
-    the board, so the order carries the full design specification from here on.
-    """
     if board.status != DesignBoard.STATUS_APPROVED:
         raise ValueError("Approve the board before saving it to an order")
     selected = board.selected_item
@@ -124,15 +94,6 @@ def save_to_order(board, order):
 
 
 def _credit_order_to_design(item):
-    """Count this order against the library design it came from, if any.
-
-    A board item is a provider-agnostic snapshot: its `source` is not reliable
-    proof of where `source_ref` points, because a re-imported Pinterest pin and
-    a live, not-yet-imported Pinterest search result both carry `source ==
-    'pinterest'` -- one's ref is a DesignAsset id, the other is Pinterest's own
-    id for a pin that was never brought into the library. Rather than trust the
-    label, resolve `source_ref` as a UUID and only credit a real match.
-    """
     try:
         asset_id = uuid.UUID(item.source_ref)
     except (ValueError, TypeError, AttributeError):
@@ -141,7 +102,6 @@ def _credit_order_to_design(item):
 
 
 def item_from_candidate(board, payload, position=0):
-    """Create a board item from a gallery result payload."""
     return DesignBoardItem(
         board=board,
         source=payload.get('source', ''),

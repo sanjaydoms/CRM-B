@@ -1,10 +1,8 @@
-# Inventory Management System — Implementation Requirements (Do Not Omit Any Item)
 
 This document is the implementation specification to hand to an AI coding agent. It references `01-maggam-embroidery-materials.md` and `02-apparel-ecosystem-checklist.md` as the canonical source inventory catalogs.
 
 The Inventory module is the backbone of the Boutique CRM and must support the complete lifecycle of every inventory item from procurement to customer delivery.
 
-## Critical Requirement
 
 The uploaded inventory documents (`01-maggam-embroidery-materials.md` and `02-apparel-ecosystem-checklist.md`) are the **single source of truth**.
 
@@ -64,7 +62,6 @@ The complete Maggam/Aari/Zardosi material list — including every listed fabric
 
 ---
 
-## Inventory Lifecycle
 
 Every inventory item must support the following lifecycle:
 
@@ -98,7 +95,6 @@ Customer Delivery
 
 No inventory deduction should occur directly. Inventory must always move through transactions.
 
-### Supported Transaction Types
 
 - Purchase
 - Goods Receipt
@@ -117,7 +113,6 @@ Every transaction must remain in history permanently.
 
 ---
 
-## Order Integration
 
 When an order is created:
 
@@ -134,7 +129,6 @@ When an order is created:
 
 ---
 
-## Bill of Materials (BOM)
 
 Every dress/design must support a configurable BOM.
 
@@ -158,7 +152,6 @@ The BOM becomes the source for automatic inventory reservation.
 
 ---
 
-## Customer-Supplied Materials
 
 Customer-owned materials must **never** be added to boutique inventory. Track separately:
 
@@ -180,7 +173,6 @@ These items are linked only to that customer's order.
 
 ---
 
-## Multi-Location Inventory
 
 Inventory must support movement between:
 
@@ -197,7 +189,6 @@ Every transfer must maintain complete traceability.
 
 ---
 
-## Reporting
 
 The system must calculate:
 
@@ -220,7 +211,6 @@ The system must calculate:
 
 ---
 
-## Non-Negotiable Rule
 
 **The implementation AI must parse and preserve every inventory category and every individual inventory item from the referenced documents exactly as provided. No category, subcategory, material, accessory, consumable, tool, asset, embellishment, packaging component, or workflow step may be omitted, merged, renamed, or simplified unless explicitly instructed.**
 

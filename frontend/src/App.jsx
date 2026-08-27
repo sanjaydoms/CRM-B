@@ -8878,10 +8878,8 @@ function App() {
                   body * {
                     visibility: hidden;
                   }
-                  #invoice-printable, #invoice-printable * {
                     visibility: visible;
                   }
-                  #invoice-printable {
                     position: absolute;
                     left: 0;
                     top: 0;

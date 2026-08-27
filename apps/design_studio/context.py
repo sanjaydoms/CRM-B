@@ -1,11 +1,3 @@
-"""Customer Context Engine.
-
-Assembles everything the studio knows about a customer before a single design
-is fetched: profile, measurements, the order being created, and what they have
-bought before. Every downstream step -- query generation, ranking, the match
-reasons shown on a card -- reads from this one structure, so the gallery can
-always explain itself.
-"""
 
 from collections import Counter
 from dataclasses import dataclass, field, asdict
@@ -14,9 +6,6 @@ from decimal import Decimal
 
 from crm_api.models import Customer
 
-# Bust-to-waist drop is the cheap, reliable signal available from the
-# measurements already captured in step 2. It is a styling hint for ranking,
-# never a judgement shown to the customer.
 _BODY_TYPE_RULES = [
     (Decimal('12'), 'Hourglass'),
     (Decimal('8'), 'Balanced'),
@@ -49,26 +38,6 @@ def _age_group(dob):
 
 @dataclass
 class Subject:
-    """Who a garment is being designed for, and what they have chosen before.
-
-    The source-neutral middle of the personalisation path, and the reason this
-    module has one context builder rather than two.
-
-    A saved Customer and an unconfirmed OrderDraft hold the same facts under the
-    same names -- the wizard's form is modelled on the Customer table -- so the
-    difference between "this person exists" and "this person is still being
-    typed" is resolved HERE, by two small constructors, and nowhere downstream.
-    build_context, the query generator, the ranker and every provider see one
-    shape and never learn which source it came from.
-
-    Doing it any other way means an `if customer_id else draft` at every layer
-    that touches personalisation, which is how the two paths start disagreeing
-    about what a customer is.
-
-    `history` is real for a saved customer and empty for a draft. Empty is the
-    correct answer for someone who has not ordered before, not a degraded one:
-    a first-time customer genuinely has no favourite colour.
-    """
 
     customer_id: str = ''
     first_name: str = ''
@@ -102,7 +71,6 @@ class Subject:
 
 
 def subject_from_customer(customer):
-    """A saved customer: profile, measurements and real purchase history."""
     measurement = getattr(customer, 'measurements', None)
     measurements = {}
     if measurement is not None:
@@ -137,17 +105,6 @@ def subject_from_customer(customer):
 
 
 def subject_from_draft(payload):
-    """An order still being written: the same facts, none of them saved yet.
-
-    Reads the draft payload the wizard already stores -- the customer form is
-    spread across its top level -- so nothing new has to be captured and no
-    Customer row has to exist for the studio to personalise. That row is minted
-    once, at Confirm, and until then this is the whole of what is known.
-
-    History is deliberately empty. A draft for a returning customer carries the
-    customer id, and callers resolve that to the saved subject instead; a draft
-    with no customer is a person with no past, which is the truth.
-    """
     payload = payload or {}
     measurements = {
         key: value for key, value in (payload.get('measurements') or {}).items()
@@ -220,16 +177,12 @@ def _body_type(measurements):
 
 
 def _history_signals(customer):
-    """Colours, fabrics and designs this customer has actually chosen before."""
     colours, fabrics, designs = Counter(), Counter(), Counter()
 
     for selection in customer.fabric_selections.all():
         if selection.fabric_name:
             fabrics[selection.fabric_name.strip()] += 1
 
-    # Colour is not a first-class field on an order; it is carried on the
-    # customer's profile and inside the names of the fabrics they picked, which
-    # is why colours are derived from fabric names below.
     if customer.embellishments:
         designs[customer.embellishments.strip()] += 1
     if customer.pattern_style:
@@ -253,11 +206,6 @@ _COLOUR_WORDS = {
 }
 
 
-#: Which garment-spec answers override which stored style preference. The
-#: garment's own spec is what distinguishes a blouse from the lehenga beside it
-#: on the same order -- the customer's saved defaults are identical for both --
-#: so where a job has answered, its answer wins. Keys are the template
-#: vocabulary (see apps/catalog/definitions.py: sleeve_and_neck).
 _SPEC_TO_STYLE = {
     'neckline': ('front_neck', 'neck_type', 'neckline_style'),
     'sleeve': ('sleeve_length', 'sleeve_style'),
@@ -270,19 +218,6 @@ _SPEC_TO_STYLE = {
 
 
 def build_context(subject, order_input=None):
-    """Build the personalisation context for one garment.
-
-    Takes a Subject, not a Customer: see that class for why the source of the
-    facts is resolved before this point rather than inside it.
-
-    ``order_input`` is what is being made right now -- garment type, occasion,
-    budget, timeline, and the garment's own ``spec``. It wins over the
-    subject's stored defaults, because it describes this dress rather than this
-    person's usual taste. The spec overlay is what keeps a two-garment order
-    honest: both garments share one customer and therefore one set of saved
-    preferences, and only the job's own answers tell the blouse from the
-    lehenga.
-    """
     order_input = order_input or {}
     measurements = dict(subject.measurements or {})
     budget = _as_decimal(order_input.get('budget')) or Decimal('0')
@@ -300,12 +235,6 @@ def build_context(subject, order_input=None):
     for style_key, spec_keys in _SPEC_TO_STYLE.items():
         for spec_key in spec_keys:
             value = spec.get(spec_key)
-            # Booleans are excluded on purpose. Several template fields with
-            # style-sounding names are yes/no questions -- a lehenga's `border`
-            # is a checkbox, a saree's is a choice of border -- and folding one
-            # in would hand the ranker "pattern: True", which is not a style
-            # preference and matches nothing. The garment's real style signals
-            # are its selects and free text.
             if isinstance(value, bool):
                 continue
             if value not in (None, '', [], {}):
@@ -314,8 +243,6 @@ def build_context(subject, order_input=None):
                     else str(value))
                 break
 
-    # Measurements taken for THIS garment beat the customer's standing ones for
-    # the same reason: a blouse is measured at the chest it is being cut to.
     measurements.update({
         key: value for key, value in (order_input.get('measurements') or {}).items()
         if value not in (None, '')

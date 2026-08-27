@@ -1,13 +1,3 @@
-"""Point existing designs at a garment template and tag them from it.
-
-Deliberately conservative. A design keeps its `garment_type` and `attributes`
-whatever happens here; this only *adds* a template link and `spec_tags` where the
-mapping is unambiguous.
-
-Under-tagging is recoverable -- an owner sets the field and the design appears in
-the filter. Mis-tagging is not: a lehenga filed as a blouse is invisible where it
-should be and wrong where it is, and nobody knows to look for it.
-"""
 
 import re
 
@@ -31,8 +21,6 @@ def backfill(apps, schema_editor):
         by_name[_slug(template.key)] = template
         by_name[_slug(template.name)] = template
 
-    # The option values each field will accept, so a design is only tagged with
-    # a value the order form would actually produce.
     allowed = {}
     for template in templates:
         for section in template.sections.all():
@@ -41,7 +29,6 @@ def backfill(apps, schema_editor):
                 if values:
                     allowed.setdefault(field.key, set()).update(values)
 
-    # Where the studio's own attribute names differ from the template's keys.
     ATTRIBUTE_KEYS = {
         'sleeve': 'sleeve_length',
         'sleeve_style': 'sleeve_length',
@@ -73,9 +60,6 @@ def backfill(apps, schema_editor):
                 if key not in allowed or not isinstance(raw_value, str):
                     continue
                 value = _slug(raw_value)
-                # Only a value the form itself offers. "Half Sleeve" has no
-                # option to land on, so it stays untagged rather than inventing
-                # one that no order will ever match.
                 if value in allowed[key]:
                     tags[key] = value
 
