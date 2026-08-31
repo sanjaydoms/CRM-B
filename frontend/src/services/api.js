@@ -105,6 +105,7 @@ export const api = {
     
     // Store token and tenant_id
     if (data.token) {
+      sessionEndedHandled = false;
       localStorage.setItem('token', data.token);
     }
     if (data.tenant_id) {
