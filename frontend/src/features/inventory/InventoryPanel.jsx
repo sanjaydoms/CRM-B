@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDownCircle, BarChart3, BookOpen, ClipboardList, History, MapPin, Package, Plus, Scissors, Search, Truck, X } from 'lucide-react';
 import { api } from '../../services/api';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import LanguageSelector from '../../components/LanguageSelector.jsx';
 import CatalogBrowser from './CatalogBrowser';
 import LocationsTab from './LocationsTab';
 import RecipesTab from './RecipesTab';
 import ReportsTab from './ReportsTab';
+
 
 // Movement types the UI offers, in the order an item actually travels.
 // `field` names the number the form asks for, because "adjust" asks for a
@@ -82,7 +85,9 @@ function Modal({ title, onClose, children, width = '520px' }) {
 }
 
 export default function InventoryPanel({ currentUser }) {
+  const { t } = useLanguage();
   const [tab, setTab] = useState('items');
+
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState(null);
   const [options, setOptions] = useState({ categories: [], units: [], default_unit_by_category: {} });
@@ -158,17 +163,18 @@ export default function InventoryPanel({ currentUser }) {
       <header className="portal-header">
         <div className="portal-header-left">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>Inventory</h1>
+            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>{t('inventoryPage.title')}</h1>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              Fabrics, trims and materials. Every change is recorded in the stock ledger.
+              {t('inventoryPage.subtitle')}
             </p>
           </div>
         </div>
-        <div className="portal-header-right">
+        <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <LanguageSelector />
           {isOwner && (
             <button type="button" className="btn-primary" onClick={() => setEditingItem({})}>
               <Plus size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-              New Item
+              {t('inventoryPage.newItem')}
             </button>
           )}
         </div>
@@ -176,22 +182,22 @@ export default function InventoryPanel({ currentUser }) {
 
       {summary && (
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
-          <Stat label="Stock value" value={money(summary.inventory_value)} hint={`${summary.item_count} items tracked`} />
-          <Stat label="Out of stock" value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? '#ef4444' : undefined} />
-          <Stat label="Reorder due" value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? '#f59e0b' : undefined} />
-          <Stat label="Dead stock" value={summary.dead_stock_count} hint="No movement in 90 days" />
+          <Stat label={t('inventoryPage.stockValue')} value={money(summary.inventory_value)} hint={`${summary.item_count} items tracked`} />
+          <Stat label={t('inventoryPage.outOfStock')} value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? '#ef4444' : undefined} />
+          <Stat label={t('inventoryPage.reorderDue')} value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? '#f59e0b' : undefined} />
+          <Stat label={t('inventoryPage.deadStock')} value={summary.dead_stock_count} hint="No movement in 90 days" />
         </div>
       )}
 
       <div style={{ display: 'flex', gap: '12px', marginTop: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', flexWrap: 'wrap' }}>
         {[
-          { key: 'items', label: 'Items', icon: Package },
-          { key: 'catalog', label: 'Catalogue', icon: BookOpen },
-          { key: 'locations', label: 'Locations', icon: MapPin },
-          { key: 'recipes', label: 'Recipes', icon: Scissors },
-          { key: 'purchase', label: 'Purchase Orders', icon: Truck },
-          { key: 'suppliers', label: 'Suppliers', icon: ClipboardList },
-          { key: 'reports', label: 'Reports', icon: BarChart3 },
+          { key: 'items', label: t('inventoryPage.items'), icon: Package },
+          { key: 'catalog', label: t('inventoryPage.catalog'), icon: BookOpen },
+          { key: 'locations', label: t('inventoryPage.locations'), icon: MapPin },
+          { key: 'recipes', label: t('inventoryPage.recipes'), icon: Scissors },
+          { key: 'purchase', label: t('inventoryPage.purchaseOrders'), icon: Truck },
+          { key: 'suppliers', label: t('inventoryPage.suppliers'), icon: ClipboardList },
+          { key: 'reports', label: t('inventoryPage.reports'), icon: BarChart3 },
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -210,6 +216,7 @@ export default function InventoryPanel({ currentUser }) {
           </button>
         ))}
       </div>
+
 
       {loadError && (
         <div style={{ ...panel, padding: '32px', textAlign: 'center', marginTop: '20px', borderColor: 'rgba(220,38,38,0.3)' }}>

@@ -88,6 +88,22 @@ const hi = {
     addNewDesign: "नया डिजाइन जोड़ें",
     catalogDesigns: "कैटलॉग डिजाइन",
     aiStudio: "AI स्टूडियो",
+  },
+  inventoryPage: {
+    title: "इन्वेंटरी प्रबंधन (Inventory)",
+    subtitle: "फैब्रिक, ट्रिम्स और सामग्रियां। प्रत्येक परिवर्तन स्टॉक लेजर में दर्ज किया जाता है।",
+    newItem: "नया आइटम",
+    stockValue: "स्टॉक मूल्य",
+    outOfStock: "स्टॉक समाप्त",
+    reorderDue: "रीऑर्डर बाकी",
+    deadStock: "डेड स्टॉक",
+    items: "सामग्रियां (Items)",
+    catalog: "कैटलॉग",
+    locations: "स्थान",
+    recipes: "रेसिपी",
+    purchaseOrders: "खरीद आदेश",
+    suppliers: "आपूर्तिकर्ता",
+    reports: "रिपोर्ट",
   }
 };
 

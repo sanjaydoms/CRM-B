@@ -88,6 +88,22 @@ const en = {
     addNewDesign: "Add New Design",
     catalogDesigns: "Catalog Designs",
     aiStudio: "AI Studio",
+  },
+  inventoryPage: {
+    title: "Inventory Management",
+    subtitle: "Fabrics, trims and materials. Every change is recorded in the stock ledger.",
+    newItem: "New Item",
+    stockValue: "Stock Value",
+    outOfStock: "Out of Stock",
+    reorderDue: "Reorder Due",
+    deadStock: "Dead Stock",
+    items: "Items",
+    catalog: "Catalogue",
+    locations: "Locations",
+    recipes: "Recipes",
+    purchaseOrders: "Purchase Orders",
+    suppliers: "Suppliers",
+    reports: "Reports",
   }
 };
 
