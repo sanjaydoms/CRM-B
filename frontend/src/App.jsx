@@ -3817,12 +3817,12 @@ function App() {
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                         <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Master Tailors (Cutting & Supervision)</h3>
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.masterTailorsCategory', 'Master Tailors (Cutting & Supervision)')}</h3>
                       </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         {tailors.filter(t => t.role === 'Master').length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors registered yet.</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('tailorsPage.noMasterTailors', 'No Master Tailors registered yet.')}</p>
                         ) : (
                           tailors.filter(t => t.role === 'Master').map(tailor => (
                             <div key={tailor.id} style={{
@@ -3845,7 +3845,7 @@ function App() {
                               </div>
                               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                  {tailor.status}
+                                  {tailor.status === 'Available' ? t('tailorsPage.available', 'Available') : t('tailorsPage.busy', 'Busy')}
                                 </span>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
                                   if (!tailor.email) {
@@ -3854,7 +3854,7 @@ function App() {
                                   }
                                   setShareCredsTailor(tailor);
                                 }}>
-                                  <Lock size={12} /> Share
+                                  <Lock size={12} /> {t('tailorsPage.shareBtn', 'Share')}
                                 </button>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
                                   setEditingTailor(tailor);
@@ -3867,7 +3867,7 @@ function App() {
                                     role: tailor.role || 'Tailor'
                                   });
                                   setShowTailorModal(true);
-                                }}>Edit</button>
+                                }}>{t('tailorsPage.editBtn', 'Edit')}</button>
                               </div>
                             </div>
                           ))
@@ -3884,12 +3884,12 @@ function App() {
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                         <Scissors size={20} />
-                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Stitching Tailors (Assembly & Detailing)</h3>
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.stitchingTailorsCategory', 'Stitching Tailors (Assembly & Detailing)')}</h3>
                       </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         {stitchingStaff().length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors registered yet.</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('tailorsPage.noStitchingTailors', 'No Stitching Tailors registered yet.')}</p>
                         ) : (
                           stitchingStaff().map(tailor => (
                             <div key={tailor.id} style={{
@@ -3912,7 +3912,7 @@ function App() {
                               </div>
                               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                  {tailor.status}
+                                  {tailor.status === 'Available' ? t('tailorsPage.available', 'Available') : t('tailorsPage.busy', 'Busy')}
                                 </span>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
                                   if (!tailor.email) {
@@ -3921,7 +3921,7 @@ function App() {
                                   }
                                   setShareCredsTailor(tailor);
                                 }}>
-                                  <Lock size={12} /> Share
+                                  <Lock size={12} /> {t('tailorsPage.shareBtn', 'Share')}
                                 </button>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
                                   setEditingTailor(tailor);
@@ -3934,7 +3934,7 @@ function App() {
                                     role: tailor.role || 'Tailor'
                                   });
                                   setShowTailorModal(true);
-                                }}>Edit</button>
+                                }}>{t('tailorsPage.editBtn', 'Edit')}</button>
                               </div>
                             </div>
                           ))
@@ -3953,24 +3953,24 @@ function App() {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                       <Sparkles size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Workflow Assignment & Supervision Control</h3>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.workflowSupervisionTitle', 'Workflow Assignment & Supervision Control')}</h3>
                     </div>
                     
                     <div style={{ overflowX: 'auto' }}>
                       <table className="portal-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ textAlign: 'left', borderBottom: '1.5px solid var(--border-color)' }}>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Order / Client</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Status</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Supervising Master</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Stitching Tailor</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.colOrderClient', 'Order / Client')}</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('common.status', 'Status')}</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.supervisingMaster', 'Supervising Master')}</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.stitchingTailor', 'Stitching Tailor')}</th>
                           </tr>
                         </thead>
                         <tbody>
                           {ordersList.filter(o => ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped'].includes(o.order_status)).length === 0 ? (
                             <tr>
                               <td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                                No active orders in creation phase.
+                                {t('tailorsPage.noActiveOrdersInCreation', 'No active orders in creation phase.')}
                               </td>
                             </tr>
                           ) : (
@@ -3985,7 +3985,7 @@ function App() {
                                 </td>
                                 <td style={{ padding: '16px' }}>
                                   <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                    {order.order_status}
+                                    {t(`status.${order.order_status}`, order.order_status)}
                                   </span>
                                 </td>
                                 <td style={{ padding: '16px' }}>
@@ -3995,7 +3995,7 @@ function App() {
                                     value={order.master || ''}
                                     onChange={(e) => handleAssignWorkflow(order.id, { master: e.target.value || null })}
                                   >
-                                    <option value="">Unassigned</option>
+                                    <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
                                     {tailors.filter(t => t.role === 'Master').map(m => (
                                       <option key={m.id} value={m.id}>{m.name}</option>
                                     ))}
@@ -4008,7 +4008,7 @@ function App() {
                                     value={order.tailor || ''}
                                     onChange={(e) => handleAssignWorkflow(order.id, { tailor: e.target.value || null })}
                                   >
-                                    <option value="">Unassigned</option>
+                                    <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
                                     {stitchingStaff().map(s => (
                                       <option key={s.id} value={s.id}>{s.name}</option>
                                     ))}
@@ -6292,14 +6292,14 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingTailor ? 'Edit Tailor Details' : 'Add New Tailor Profile'}
+                    {editingTailor ? t('tailorsPage.editTailorTitle', 'Edit Tailor Details') : t('tailorsPage.addTailorTitle', 'Add New Tailor Profile')}
                   </h3>
                   <button className="close-btn" onClick={() => setShowTailorModal(false)}><X size={20} /></button>
                 </div>
                 
                 <form onSubmit={handleSaveTailor} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Tailor Name</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.tailorName', 'Tailor Name')}</label>
                     <input 
                       type="text" 
                       required 
@@ -6311,7 +6311,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Email Address (for login)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.emailAddressLogin', 'Email Address (for login)')}</label>
                     <input 
                       type="email" 
                       required 
@@ -6323,7 +6323,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Specialty</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.specialty', 'Specialty')}</label>
                     <input 
                       type="text" 
                       required 
@@ -6336,7 +6336,7 @@ function App() {
 
                   <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Rating (1.0 — 5.0)</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.ratingLabel', 'Rating (1.0 — 5.0)')}</label>
                       <input 
                         type="number" 
                         required 
@@ -6350,20 +6350,20 @@ function App() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Status</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('common.status', 'Status')}</label>
                       <select 
                         className="form-control"
                         value={tailorForm.status}
                         onChange={e => setTailorForm({...tailorForm, status: e.target.value})}
                       >
-                        <option value="Available">Available</option>
-                        <option value="Busy">Busy</option>
+                        <option value="Available">{t('tailorsPage.available', 'Available')}</option>
+                        <option value="Busy">{t('tailorsPage.busy', 'Busy')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Staff Role</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.staffRole', 'Staff Role')}</label>
                     <select 
                       className="form-control"
                       value={tailorForm.role}
@@ -6379,8 +6379,8 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Tailor</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                    <button type="submit" className="btn-primary">{t('tailorsPage.saveTailorBtn', 'Save Tailor')}</button>
                   </div>
                 </form>
               </div>
@@ -6393,36 +6393,27 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    Share Login Credentials
+                    {t('tailorsPage.shareCredentialsTitle', 'Share Login Credentials')}
                   </h3>
                   <button className="close-btn" onClick={() => setShareCredsTailor(null)}><X size={20} /></button>
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Provide these credentials to <strong>{shareCredsTailor.name}</strong> so they can log in to view and manage their assignments.
+                    {t('tailorsPage.shareCredentialsHelp', 'Provide these credentials so they can log in to view and manage their assignments.')}
                   </p>
 
                   <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Login Portal URL</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.loginPortalUrl', 'Login Portal URL')}</span>
                       <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{window.location.origin}</div>
                     </div>
                     <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Username / Email</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.usernameEmail', 'Username / Email')}</span>
                       <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{shareCredsTailor.email}</div>
                     </div>
-                    {/* The password is generated per account and returned on
-                        the one response that created it -- it is never stored
-                        in readable form, so this panel can only show it in the
-                        moment it was made. Opened from the roster later, there
-                        is nothing to show, and saying so is the honest answer:
-                        this used to print a fixed literal that was in the
-                        repository and in this bundle, and which stopped being
-                        the real password the moment anyone set the override
-                        environment variable the code recommended. */}
                     <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Temporary Password</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.temporaryPassword', 'Temporary Password')}</span>
                       {shareCredsTailor.bootstrap_password ? (
                         <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', fontFamily: 'ui-monospace, monospace', letterSpacing: '.5px' }}>{shareCredsTailor.bootstrap_password}</div>
                       ) : (
@@ -6435,7 +6426,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShareCredsTailor(null)}>Close</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShareCredsTailor(null)}>{t('common.cancel', 'Close')}</button>
                     
                     {/* Copy to Clipboard */}
                     <button 
@@ -6450,7 +6441,7 @@ function App() {
                       }}
                       style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <Copy size={14} /> Copy
+                      <Copy size={14} /> {t('tailorsPage.copyBtn', 'Copy')}
                     </button>
 
                     {/* Share via WhatsApp */}
@@ -6465,7 +6456,7 @@ function App() {
                       }}
                       style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <MessageSquare size={14} /> Share WhatsApp
+                      <MessageSquare size={14} /> {t('tailorsPage.shareWhatsappBtn', 'Share WhatsApp')}
                     </button>
                   </div>
                 </div>
