@@ -6470,14 +6470,14 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingDesign ? 'Edit Design Details' : 'Add New Design to Collection'}
+                    {editingDesign ? t('designsPage.editDesignDetails', 'Edit Design Details') : t('designsPage.addNewDesignTitle', 'Add New Design to Collection')}
                   </h3>
                   <button className="close-btn" onClick={() => setShowDesignModal(false)}><X size={20} /></button>
                 </div>
                 
                 <form onSubmit={handleSaveDesign} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Design Name</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.designName', 'Design Name')}</label>
                     <input 
                       type="text" 
                       required 
@@ -6490,36 +6490,36 @@ function App() {
 
                   <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Garment Category</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.garmentCategory', 'Garment Category')}</label>
                       <select 
                         className="form-control"
                         value={designForm.garment_type}
                         onChange={e => setDesignForm({...designForm, garment_type: e.target.value})}
                       >
-                        <option value="Lehenga">Lehenga</option>
-                        <option value="Gown">Gown</option>
-                        <option value="Saree">Saree</option>
-                        <option value="Kurti">Kurti</option>
-                        <option value="Sherwani">Sherwani</option>
-                        <option value="Anarkali">Anarkali</option>
+                        <option value="Lehenga">{t('designsPage.lehenga', 'Lehenga')}</option>
+                        <option value="Gown">{t('designsPage.gown', 'Gown')}</option>
+                        <option value="Saree">{t('designsPage.saree', 'Saree')}</option>
+                        <option value="Kurti">{t('designsPage.kurti', 'Kurti')}</option>
+                        <option value="Sherwani">{t('designsPage.sherwani', 'Sherwani')}</option>
+                        <option value="Anarkali">{t('designsPage.anarkali', 'Anarkali')}</option>
                       </select>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Design Type</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.designType', 'Design Type')}</label>
                       <select 
                         className="form-control"
                         value={designForm.is_boutique}
                         onChange={e => setDesignForm({...designForm, is_boutique: e.target.value === 'true' || e.target.value === true})}
                       >
-                        <option value="true">Boutique Catalog Collection</option>
-                        <option value="false">AI Suggestion Template</option>
+                        <option value="true">{t('designsPage.boutiqueCatalogCollection', 'Boutique Catalog Collection')}</option>
+                        <option value="false">{t('designsPage.aiSuggestionTemplate', 'AI Suggestion Template')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Neckline Style (Optional)</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.necklineStyleOptional', 'Neckline Style (Optional)')}</label>
                       <input 
                         type="text" 
                         className="form-control" 
@@ -6529,7 +6529,7 @@ function App() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Sleeve Style (Optional)</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.sleeveStyleOptional', 'Sleeve Style (Optional)')}</label>
                       <input 
                         type="text" 
                         className="form-control" 
@@ -6541,7 +6541,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Catalog Price (₹) - Only for Boutique Catalog</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.catalogPriceLabel', 'Catalog Price (₹) - Only for Boutique Catalog')}</label>
                     <input 
                       type="number" 
                       min="0"
@@ -6555,7 +6555,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Image URL (Optional)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.imageUrlOptional', 'Image URL (Optional)')}</label>
                     <input 
                       type="url" 
                       className="form-control" 
@@ -6566,7 +6566,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Description (Optional)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.descriptionOptional', 'Description (Optional)')}</label>
                     <textarea 
                       className="form-control" 
                       placeholder="e.g. Hand-embroidered with gold thread, georgette base..." 
@@ -6577,8 +6577,8 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Design</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                    <button type="submit" className="btn-primary">{t('designsPage.saveDesign', 'Save Design')}</button>
                   </div>
                 </form>
               </div>
