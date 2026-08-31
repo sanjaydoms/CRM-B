@@ -6941,12 +6941,12 @@ function App() {
             {/* Stepper progress bar */}
             <div className="stepper-progress-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1000px', margin: '0 auto', position: 'relative' }}>
               {[
-                { number: 1, label: t('wizard.personalDetails'), sub: 'Completed' },
-                { number: 2, label: t('wizard.measurements'), sub: 'Completed' },
-                { number: 3, label: t('wizard.aiDesignStudio'), sub: 'Discover & approve design' },
-                { number: 4, label: t('wizard.fabricSelection'), sub: 'Choose fabrics' },
-                { number: 5, label: t('wizard.tailorAssignment'), sub: 'Assign tailor' },
-                { number: 6, label: t('wizard.completeOrder'), sub: 'review & confirm' }
+                { number: 1, label: t('wizard.personalDetails'), sub: t('wizard.reviewAndConfirm', 'review & confirm') },
+                { number: 2, label: t('wizard.measurements'), sub: t('wizard.completed', 'Completed') },
+                { number: 3, label: t('wizard.aiDesignStudio'), sub: t('wizard.subDiscoverDesign', 'Discover & approve design') },
+                { number: 4, label: t('wizard.fabricSelection'), sub: t('wizard.subChooseFabrics', 'Choose fabrics') },
+                { number: 5, label: t('wizard.tailorAssignment'), sub: t('wizard.subAssignTailor', 'Assign tailor') },
+                { number: 6, label: t('wizard.completeOrder'), sub: t('wizard.reviewAndConfirm', 'review & confirm') }
               ].map((step, index) => {
 
                 const stepNum = index + 1;
@@ -6975,7 +6975,7 @@ function App() {
                         {step.label}
                       </span>
                       <span style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                        {isActive ? 'review & confirm' : (isCompleted ? 'Completed' : step.sub)}
+                        {isActive ? t('wizard.reviewAndConfirm', 'review & confirm') : (isCompleted ? t('wizard.completed', 'Completed') : step.sub)}
                       </span>
                     </div>
                     {index < 5 && (
@@ -6999,14 +6999,14 @@ function App() {
             {currentStep === 1 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Create Customer</h1>
-                  <p className="page-subtitle">Onboard new clients into the Scaleezy ecosystem. Capture style preferences and measurements for a personalized atelier experience.</p>
+                  <h1 className="page-title">{t('wizard.createCustomerTitle', 'Create Customer')}</h1>
+                  <p className="page-subtitle">{t('wizard.createCustomerSubtitle', 'Onboard new clients into the Scaleezy ecosystem. Capture style preferences and measurements for a personalized atelier experience.')}</p>
                 </div>
 
                 <div className="content-card">
                   <div className="card-title">
                     <Users size={20} />
-                    Customer Profile
+                    {t('wizard.customerProfile', 'Customer Profile')}
                   </div>
 
                   <div className="profile-upload-widget">
@@ -7019,7 +7019,7 @@ function App() {
                     </div>
                     <div className="photo-upload-actions">
                       <label className="upload-btn-label">
-                        Upload Photo
+                        {t('wizard.uploadPhoto', 'Upload Photo')}
                         <input 
                           type="file" 
                           id="profile-picker" 
@@ -7028,13 +7028,13 @@ function App() {
                           onChange={handleProfilePhotoChange}
                         />
                       </label>
-                      <span className="upload-btn-sub">JPG, PNG up to 5MB</span>
+                      <span className="upload-btn-sub">{t('wizard.uploadPhotoSub', 'JPG, PNG up to 5MB')}</span>
                     </div>
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">First Name <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.firstName', 'First Name')} <span className="required">*</span></label>
                       <input 
                         type="text" 
                         value={customerForm.first_name}
@@ -7044,7 +7044,7 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Last Name <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.lastName', 'Last Name')} <span className="required">*</span></label>
                       <input 
                         type="text" 
                         value={customerForm.last_name}
@@ -7057,7 +7057,7 @@ function App() {
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Mobile Number <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.mobileNumber', 'Mobile Number')} <span className="required">*</span></label>
                       <div className="input-wrapper">
                         <span className="input-icon-left" style={{ fontSize: '14px', left: '12px' }}>🇮🇳 +91</span>
                         <input 
@@ -7070,7 +7070,7 @@ function App() {
                       </div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Email Address <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.emailAddress', 'Email Address')} <span className="required">*</span></label>
                       <input 
                         type="email" 
                         value={customerForm.email_address || ''}
@@ -7082,19 +7082,19 @@ function App() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Address <span className="required">*</span></label>
+                    <label className="form-label">{t('wizard.address', 'Address')} <span className="required">*</span></label>
                     <input 
                       type="text" 
                       value={customerForm.address || ''}
                       onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})}
                       className="form-control" 
-                      placeholder="Street name, Apartment, City, State, PIN code"
+                      placeholder={t('wizard.addressPlaceholder', 'Street name, Apartment, City, State, PIN code')}
                     />
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">City / Region</label>
+                      <label className="form-label">{t('wizard.cityRegion', 'City / Region')}</label>
                       <input 
                         type="text" 
                         value={customerForm.city_region || ''}
@@ -7104,31 +7104,31 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Source</label>
+                      <label className="form-label">{t('wizard.source', 'Source')}</label>
                       <select 
                         value={customerForm.source}
                         onChange={(e) => setCustomerForm({...customerForm, source: e.target.value})}
                         className="form-control"
                       >
-                        <option value="Walk In">Walk In</option>
-                        <option value="Instagram">Instagram</option>
-                        <option value="Referral">Referral</option>
-                        <option value="Website">Website</option>
+                        <option value="Walk In">{t('wizard.walkIn', 'Walk In')}</option>
+                        <option value="Instagram">{t('wizard.instagram', 'Instagram')}</option>
+                        <option value="Referral">{t('wizard.referral', 'Referral')}</option>
+                        <option value="Website">{t('wizard.website', 'Website')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Customer Type</label>
+                      <label className="form-label">{t('wizard.customerType', 'Customer Type')}</label>
                       <select 
                         value={customerForm.customer_type}
                         onChange={(e) => setCustomerForm({...customerForm, customer_type: e.target.value})}
                         className="form-control"
                       >
-                        <option value="Women">Women</option>
-                        <option value="Men">Men</option>
-                        <option value="Kids">Kids</option>
+                        <option value="Women">{t('wizard.women', 'Women')}</option>
+                        <option value="Men">{t('wizard.men', 'Men')}</option>
+                        <option value="Kids">{t('wizard.kids', 'Kids')}</option>
                       </select>
                     </div>
                   </div>
@@ -7145,10 +7145,10 @@ function App() {
                       each one opens its own form in the next step. */}
                   <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
                     <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                      Dresses in this Order <span className="required">*</span>
+                      {t('wizard.dressesInOrder', 'Dresses in this Order')} <span className="required">*</span>
                     </label>
                     <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                      Pick every garment being stitched. Each one gets its own measurements and options.
+                      {t('wizard.dressesInOrderSub', 'Pick every garment being stitched. Each one gets its own measurements and options.')}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       {garmentTemplates.map(template => {
@@ -7167,10 +7167,6 @@ function App() {
                         );
                       })}
                     </div>
-                    {/* An empty picker used to render as a blank box with no
-                        explanation, which looks identical to "the boutique has
-                        no garments" and leaves the order form unusable. Say what
-                        went wrong and offer the retry. */}
                     {garmentTemplates.length === 0 && (
                       <div style={{ fontSize: '12.5px', color: garmentTemplatesError ? '#c0392b' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span>
@@ -7184,55 +7180,55 @@ function App() {
                           style={{ padding: '4px 10px', fontSize: '12px' }}
                           onClick={loadGarmentTemplates}
                         >
-                          Retry
+                          {t('common.retry', 'Retry')}
                         </button>
                       </div>
                     )}
                     {garmentTemplates.length > 0 && garmentJobs.length === 0 && (
                       <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '12px' }}>
-                        No garment chosen yet.
+                        {t('wizard.noGarmentChosen', 'No garment chosen yet.')}
                       </div>
                     )}
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Pattern Style</label>
+                      <label className="form-label">{t('wizard.patternStyle', 'Pattern Style')}</label>
                       <select 
                         value={customerForm.pattern_style || ''}
                         onChange={(e) => setCustomerForm({...customerForm, pattern_style: e.target.value})}
                         className="form-control"
                       >
-                        <option value="">Select Pattern Style</option>
-                        <option value="Floral Prints">Floral Prints</option>
-                        <option value="Traditional Brocade">Traditional Brocade</option>
-                        <option value="Solid Plain">Solid Plain</option>
-                        <option value="Geometrical">Geometrical</option>
+                        <option value="">{t('wizard.selectPatternStyle', 'Select Pattern Style')}</option>
+                        <option value="Floral Prints">{t('wizard.floralPrints', 'Floral Prints')}</option>
+                        <option value="Traditional Brocade">{t('wizard.traditionalBrocade', 'Traditional Brocade')}</option>
+                        <option value="Solid Plain">{t('wizard.solidPlain', 'Solid Plain')}</option>
+                        <option value="Geometrical">{t('wizard.geometrical', 'Geometrical')}</option>
                       </select>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Occasion</label>
+                      <label className="form-label">{t('wizard.occasion', 'Occasion')}</label>
                       <select 
                         value={customerForm.occasion || ''}
                         onChange={(e) => setCustomerForm({...customerForm, occasion: e.target.value})}
                         className="form-control"
                       >
-                        <option value="">Select Occasion</option>
-                        <option value="Wedding / Bridal">Wedding / Bridal</option>
-                        <option value="Festive wear">Festive wear</option>
-                        <option value="Formal Event">Formal Event</option>
-                        <option value="Casual wear">Casual wear</option>
+                        <option value="">{t('wizard.selectOccasion', 'Select Occasion')}</option>
+                        <option value="Wedding / Bridal">{t('wizard.weddingBridal', 'Wedding / Bridal')}</option>
+                        <option value="Festive wear">{t('wizard.festiveWear', 'Festive wear')}</option>
+                        <option value="Formal Event">{t('wizard.formalEvent', 'Formal Event')}</option>
+                        <option value="Casual wear">{t('wizard.casualWear', 'Casual wear')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Custom Requirements</label>
+                    <label className="form-label">{t('wizard.customRequirements', 'Custom Requirements')}</label>
                     <textarea 
                       value={customerForm.custom_requirements || ''}
                       onChange={(e) => setCustomerForm({...customerForm, custom_requirements: e.target.value})}
                       className="form-control"
-                      placeholder="Specify custom preferences (e.g. padding, side zippers, extra margin)"
+                      placeholder={t('wizard.customReqPlaceholder', 'Specify custom preferences (e.g. padding, side zippers, extra margin)')}
                     />
                   </div>
                 </div>
@@ -7241,12 +7237,12 @@ function App() {
                 <div className="content-card">
                   <div className="card-title">
                     <FolderOpen size={20} />
-                    Additional Information
+                    {t('wizard.additionalInformation', 'Additional Information')}
                   </div>
 
                   <div className="form-grid-3">
                     <div className="form-group">
-                      <label className="form-label">Date of Birth</label>
+                      <label className="form-label">{t('wizard.dateOfBirth', 'Date of Birth')}</label>
                       <input 
                         type="date" 
                         value={customerForm.date_of_birth || ''}
@@ -7255,7 +7251,7 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Occupation</label>
+                      <label className="form-label">{t('wizard.occupation', 'Occupation')}</label>
                       <input 
                         type="text" 
                         value={customerForm.occupation || ''}
@@ -7265,26 +7261,26 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Preferred Communication</label>
+                      <label className="form-label">{t('wizard.preferredCommunication', 'Preferred Communication')}</label>
                       <select 
                         value={customerForm.preferred_communication}
                         onChange={(e) => setCustomerForm({...customerForm, preferred_communication: e.target.value})}
                         className="form-control"
                       >
                         <option value="WhatsApp">WhatsApp</option>
-                        <option value="Call">Phone Call</option>
+                        <option value="Call">{t('wizard.phoneCall', 'Phone Call')}</option>
                         <option value="Email">Email</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Notes</label>
+                    <label className="form-label">{t('wizard.notes', 'Notes')}</label>
                     <textarea 
                       value={customerForm.notes || ''}
                       onChange={(e) => setCustomerForm({...customerForm, notes: e.target.value})}
                       className="form-control"
-                      placeholder="Any additional notes about the customer..."
+                      placeholder={t('wizard.customerNotesPlaceholder', 'Any additional notes about the customer...')}
                     />
                   </div>
                 </div>
@@ -8430,28 +8426,28 @@ function App() {
                 <div className="sidebar-card">
                   <div className="sidebar-card-title">
                     <Sparkles size={16} />
-                    How it works
+                    {t('wizard.howItWorks', 'How it works')}
                   </div>
                   <div className="instruction-steps">
                     <div className="instruction-step">
                       <div className="step-num-badge">1</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Enter Profile Details</span>
-                        <span className="instruction-step-desc">Provide size tags and contact channels.</span>
+                        <span className="instruction-step-title">{t('wizard.enterProfileDetails', 'Enter Profile Details')}</span>
+                        <span className="instruction-step-desc">{t('wizard.provideSizeTagsDesc', 'Provide size tags and contact channels.')}</span>
                       </div>
                     </div>
                     <div className="instruction-step">
                       <div className="step-num-badge">2</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Submit Measurements</span>
-                        <span className="instruction-step-desc">Collect 7 key body specifications.</span>
+                        <span className="instruction-step-title">{t('wizard.submitMeasurements', 'Submit Measurements')}</span>
+                        <span className="instruction-step-desc">{t('wizard.collectBodySpecsDesc', 'Collect 7 key body specifications.')}</span>
                       </div>
                     </div>
                     <div className="instruction-step">
                       <div className="step-num-badge">3</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Bespoke Design & Fabric</span>
-                        <span className="instruction-step-desc">Pick reference sketches and fabric rolls.</span>
+                        <span className="instruction-step-title">{t('wizard.bespokeDesignFabric', 'Bespoke Design & Fabric')}</span>
+                        <span className="instruction-step-desc">{t('wizard.pickRefSketchesDesc', 'Pick reference sketches and fabric rolls.')}</span>
                       </div>
                     </div>
                   </div>
@@ -8460,10 +8456,10 @@ function App() {
                 <div className="sidebar-card">
                   <div className="sidebar-card-title">
                     <ShieldCheck size={16} />
-                    Privacy Assured
+                    {t('wizard.privacyAssured', 'Privacy Assured')}
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    Customer details, style files, and measurement records are saved exclusively to the Scaleezy database cluster and never shared.
+                    {t('wizard.privacyAssuredDesc', 'Customer details, style files, and measurement records are saved exclusively to the Scaleezy database cluster and never shared.')}
                   </p>
                 </div>
               </>
@@ -8801,18 +8797,18 @@ function App() {
           <div className="footer-left-actions">
             <button className="btn-secondary" onClick={handleBack}>
               <ArrowLeft size={16} />
-              Back
+              {t('common.back', 'Back')}
             </button>
           </div>
           <div className="footer-right-actions">
             {/* Show Save as Draft only if they are creating a new customer profile (Step 1 or 2) */}
             {currentStep < 3 && (
               <button className="btn-secondary" onClick={handleSaveDraft} disabled={ctaBusy}>
-                Save as Draft
+                {t('wizard.saveAsDraft', 'Save as Draft')}
               </button>
             )}
             <button className="btn-primary" onClick={handleNext} disabled={ctaBusy} style={{ opacity: ctaBusy ? 0.6 : 1 }}>
-              {ctaBusy ? 'Working…' : <>{currentStep === 5 ? 'Confirm Order' : 'Next'}<ArrowRight size={16} /></>}
+              {ctaBusy ? t('wizard.working', 'Working…') : <>{currentStep === 5 ? t('wizard.confirmOrder', 'Confirm Order') : t('common.next', 'Next')}<ArrowRight size={16} /></>}
             </button>
           </div>
         </div>
