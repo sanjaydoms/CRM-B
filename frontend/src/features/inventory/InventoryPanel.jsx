@@ -181,10 +181,10 @@ export default function InventoryPanel({ currentUser }) {
 
       {summary && (
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
-          <Stat label={t('inventoryPage.stockValue')} value={money(summary.inventory_value)} hint={`${summary.item_count} items tracked`} />
+          <Stat label={t('inventoryPage.stockValue')} value={money(summary.inventory_value)} hint={`${summary.item_count} ${t('inventoryPage.itemsTracked', 'items tracked')}`} />
           <Stat label={t('inventoryPage.outOfStock')} value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? '#ef4444' : undefined} />
           <Stat label={t('inventoryPage.reorderDue')} value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? '#f59e0b' : undefined} />
-          <Stat label={t('inventoryPage.deadStock')} value={summary.dead_stock_count} hint="No movement in 90 days" />
+          <Stat label={t('inventoryPage.deadStock')} value={summary.dead_stock_count} hint={t('inventoryPage.noMovement90Days', 'No movement in 90 days')} />
         </div>
       )}
 
@@ -356,6 +356,7 @@ function ItemsTab({
   items, loading, search, setSearch, category, setCategory, reorderOnly, setReorderOnly,
   categories, categoryLabel, isOwner, onMove, onLedger, onEdit,
 }) {
+  const { t } = useLanguage();
   return (
     <>
       <div style={{ display: 'flex', gap: '12px', marginTop: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -364,38 +365,38 @@ function ItemsTab({
           <input
             type="text"
             className="form-control"
-            placeholder="Search items…"
+            placeholder={t('inventoryPage.searchPlaceholder', 'Search items…')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <select className="form-control" style={{ maxWidth: '200px' }} value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="">All categories</option>
+          <option value="">{t('inventoryPage.allCategories', 'All categories')}</option>
           {categories.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
           <input type="checkbox" checked={reorderOnly} onChange={(e) => setReorderOnly(e.target.checked)} />
-          Reorder due only
+          {t('inventoryPage.reorderDueOnly', 'Reorder due only')}
         </label>
       </div>
 
       {loading && items.length === 0 ? (
-        <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>Loading inventory…</div>
+        <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>{t('inventoryPage.loadingInventory', 'Loading inventory…')}</div>
       ) : items.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>
-          No items match these filters.
+          {t('inventoryPage.noMatchingItems', 'No items match these filters.')}
         </div>
       ) : (
         <div style={{ ...panel, marginTop: '20px', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '780px' }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                <th style={{ padding: '14px 12px' }}>Item</th>
-                <th style={{ padding: '14px 12px' }}>Category</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>In stock</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Reserved</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Available</th>
-                <th style={{ padding: '14px 12px' }}>Location</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableItem', 'Item')}</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableCategory', 'Category')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableInStock', 'In stock')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableReserved', 'Reserved')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableAvailable', 'Available')}</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableLocation', 'Location')}</th>
                 <th style={{ padding: '14px 12px' }}></th>
               </tr>
             </thead>
@@ -427,13 +428,13 @@ function ItemsTab({
                   <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{item.rack_location || '—'}</td>
                   <td style={{ padding: '12px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px', marginRight: '6px' }} onClick={() => onMove(item)}>
-                      <ArrowDownCircle size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />Move
+                      <ArrowDownCircle size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />{t('inventoryPage.move', 'Move')}
                     </button>
                     <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px', marginRight: '6px' }} onClick={() => onLedger(item)}>
-                      <History size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />History
+                      <History size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />{t('inventoryPage.history', 'History')}
                     </button>
                     {isOwner && (
-                      <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => onEdit(item)}>Edit</button>
+                      <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => onEdit(item)}>{t('inventoryPage.edit', 'Edit')}</button>
                     )}
                   </td>
                 </tr>
