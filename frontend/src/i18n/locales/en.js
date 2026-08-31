@@ -104,6 +104,13 @@ const en = {
     purchaseOrders: "Purchase Orders",
     suppliers: "Suppliers",
     reports: "Reports",
+  },
+  accountPage: {
+    title: "My Account Settings",
+    subtitle: "Manage your boutique profile and atelier details.",
+    boutiqueProfile: "Boutique Profile",
+    personalInformation: "Personal Information",
+    saveChanges: "Save Changes",
   }
 };
 

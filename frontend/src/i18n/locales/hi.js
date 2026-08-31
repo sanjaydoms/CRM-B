@@ -104,6 +104,13 @@ const hi = {
     purchaseOrders: "खरीद आदेश",
     suppliers: "आपूर्तिकर्ता",
     reports: "रिपोर्ट",
+  },
+  accountPage: {
+    title: "खाता सेटिंग्स (My Account Settings)",
+    subtitle: "अपने बुटीक प्रोफ़ाइल और एटेलियर विवरण प्रबंधित करें।",
+    boutiqueProfile: "बुटीक प्रोफ़ाइल",
+    personalInformation: "व्यक्तिगत जानकारी",
+    saveChanges: "परिवर्तन सहेजें",
   }
 };
 
