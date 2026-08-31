@@ -7690,8 +7690,8 @@ function App() {
             {currentStep === 5 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Review & Staff Assignment</h1>
-                  <p className="page-subtitle">Assign a Master Tailor to supervise/cut and a Stitching Tailor for the assembly.</p>
+                  <h1 className="page-title">{t('wizard.reviewStaffAssignmentTitle', 'Review & Staff Assignment')}</h1>
+                  <p className="page-subtitle">{t('wizard.reviewStaffAssignmentDesc', 'Assign a Master Tailor to supervise/cut and a Stitching Tailor for the assembly.')}</p>
                 </div>
 
                 <div className="responsive-profile-grid" style={{ gap: '24px' }}>
@@ -7699,12 +7699,12 @@ function App() {
                   <div className="content-card" style={{ margin: 0 }}>
                     <div className="card-title">
                       <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                      1. Assign Master Tailor (Cutting & Supervision)
+                      {t('wizard.assignMasterTailorTitle', '1. Assign Master Tailor (Cutting & Supervision)')}
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {tailors.filter(t => t.role === 'Master').length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors available. Add one to continue:</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('wizard.noMasterTailorsAvailable', 'No Master Tailors available. Add one to continue:')}</div>
                           <button 
                             className="btn-primary" 
                             style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -7714,7 +7714,7 @@ function App() {
                               setShowTailorModal(true);
                             }}
                           >
-                            <Plus size={14} /> Add Master Tailor
+                            <Plus size={14} /> {t('wizard.addMasterTailorBtn', 'Add Master Tailor')}
                           </button>
                         </div>
                       ) : (
@@ -7741,7 +7741,7 @@ function App() {
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
                                 <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
-                                  {t.status}
+                                  {t.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
                                 </span>
                               </div>
                               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
@@ -7756,12 +7756,12 @@ function App() {
                   <div className="content-card" style={{ margin: 0 }}>
                     <div className="card-title">
                       <Scissors size={20} />
-                      2. Assign Stitching Tailor (Sewing & Details)
+                      {t('wizard.assignStitchingTailorTitle', '2. Assign Stitching Tailor (Sewing & Details)')}
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {stitchingStaff().length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors available. Add one to continue:</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('wizard.noStitchingTailorsAvailable', 'No Stitching Tailors available. Add one to continue:')}</div>
                           <button 
                             className="btn-primary" 
                             style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -7771,7 +7771,7 @@ function App() {
                               setShowTailorModal(true);
                             }}
                           >
-                            <Plus size={14} /> Add Stitching Tailor
+                            <Plus size={14} /> {t('wizard.addStitchingTailorBtn', 'Add Stitching Tailor')}
                           </button>
                         </div>
                       ) : (
@@ -7798,7 +7798,7 @@ function App() {
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
                                 <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
-                                  {t.status}
+                                  {t.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
                                 </span>
                               </div>
                               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
@@ -7814,7 +7814,7 @@ function App() {
                 <div className="content-card" style={{ margin: '24px 0 0 0' }}>
                   <div className="card-title">
                     <Compass size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                    3. Delivery Method Configuration
+                    {t('wizard.deliveryMethodConfigTitle', '3. Delivery Method Configuration')}
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
@@ -7827,7 +7827,7 @@ function App() {
                           checked={deliveryMethod === 'Direct Pickup'}
                           onChange={() => setDeliveryMethod('Direct Pickup')}
                         />
-                        Direct Boutique Pickup
+                        {t('wizard.directBoutiquePickup', 'Direct Boutique Pickup')}
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
                         <input 
@@ -7837,14 +7837,14 @@ function App() {
                           checked={deliveryMethod === 'Courier'}
                           onChange={() => setDeliveryMethod('Courier')}
                         />
-                        Courier Delivery
+                        {t('wizard.courierDeliveryOption', 'Courier Delivery')}
                       </label>
                     </div>
 
                     {deliveryMethod === 'Courier' && (
                       <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', background: 'rgba(0,0,0,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '8px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Courier Service Provider</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.courierServiceProvider', 'Courier Service Provider')}</label>
                           <input 
                             type="text" 
                             className="form-control"
@@ -7855,7 +7855,7 @@ function App() {
                           />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Tracking Reference Number</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.trackingReferenceNumber', 'Tracking Reference Number')}</label>
                           <input 
                             type="text" 
                             className="form-control"
@@ -7865,7 +7865,7 @@ function App() {
                           />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', gridColumn: 'span 2' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Shipping / Delivery Address</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.shippingDeliveryAddress', 'Shipping / Delivery Address')}</label>
                           <textarea 
                             className="form-control"
                             rows="3"
@@ -8463,13 +8463,13 @@ function App() {
               <div className="sidebar-card">
                 <div className="sidebar-card-title">
                   <ShoppingBag size={18} />
-                  Order Summary
+                  {t('wizard.orderSummaryTitle', 'Order Summary')}
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 600 }}>{customerForm.customer_type} • {wizardGarmentLabel}</div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Fabric: {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer fabric'}
+                    {t('wizard.fabricLabel', 'Fabric:')} {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : t('wizard.customerFabricLabel', 'Customer fabric')}
                   </div>
                 </div>
 
@@ -8483,25 +8483,25 @@ function App() {
                     </div>
                   ))}
                   <div className="summary-item-row">
-                    <span>Packaging & Handling</span>
+                    <span>{t('wizard.packagingHandling', 'Packaging & Handling')}</span>
                     <span className="price-display">{formatMoney(quotePrices.packaging)}</span>
                   </div>
                   {parseFloat(quotePrices.discount || 0) > 0 && (
                     <div className="summary-item-row">
-                      <span>Discount</span>
+                      <span>{t('wizard.discount', 'Discount')}</span>
                       <span className="price-display">−{formatMoney(quotePrices.discount)}</span>
                     </div>
                   )}
                   <div className="summary-item-row" style={{ borderTop: '1px solid #f1f3f5', paddingTop: '10px' }}>
-                    <span>Subtotal</span>
+                    <span>{t('wizard.subtotal', 'Subtotal')}</span>
                     <span className="price-display">{formatMoney(getSubtotal())}</span>
                   </div>
                   <div className="summary-item-row">
-                    <span>Taxes (GST 5%)</span>
+                    <span>{t('wizard.taxesGst', 'Taxes (GST 5%)')}</span>
                     <span className="price-display">{formatMoney(getTaxes())}</span>
                   </div>
                   <div className="summary-item-row total">
-                    <span>Total Amount</span>
+                    <span>{t('wizard.totalAmount', 'Total Amount')}</span>
                     <span className="price-display total">{formatMoney(getTotalPrice())}</span>
                   </div>
                 </div>
