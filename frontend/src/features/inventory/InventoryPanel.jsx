@@ -590,6 +590,7 @@ function MovementModal({ item, onClose, onDone }) {
 }
 
 function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
+  const { t } = useLanguage();
   const isNew = !item.id;
   const [form, setForm] = useState({
     item_code: item.item_code || '',
@@ -632,28 +633,28 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
   };
 
   return (
-    <Modal title={isNew ? 'New inventory item' : `Edit · ${item.name}`} onClose={onClose} width="600px">
+    <Modal title={isNew ? t('inventoryPage.newItemTitle', 'New inventory item') : `${t('inventoryPage.editTitle', 'Edit')} · ${item.name}`} onClose={onClose} width="600px">
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
-          <Field label="Item code" required value={form.item_code} onChange={(v) => set('item_code', v)} />
-          <Field label="Name" required value={form.name} onChange={(v) => set('name', v)} />
-          <SelectField label="Category" value={form.category} onChange={(v) => { set('category', v); set('unit', ''); }}
+          <Field label={t('inventoryPage.itemCode', 'Item code')} required value={form.item_code} onChange={(v) => set('item_code', v)} />
+          <Field label={t('inventoryPage.itemName', 'Name')} required value={form.name} onChange={(v) => set('name', v)} />
+          <SelectField label={t('inventoryPage.category', 'Category')} value={form.category} onChange={(v) => { set('category', v); set('unit', ''); }}
             options={options.categories} />
           <SelectField
-            label="Unit"
+            label={t('inventoryPage.unit', 'Unit')}
             value={form.unit || unitForCategory || ''}
             onChange={(v) => set('unit', v)}
             options={options.units}
-            hint={!form.unit && unitForCategory ? 'Default for this category' : ''}
+            hint={!form.unit && unitForCategory ? t('inventoryPage.defaultForCategory', 'Default for this category') : ''}
           />
-          <Field label="Colour" value={form.color} onChange={(v) => set('color', v)} />
-          <Field label="Rack location" value={form.rack_location} onChange={(v) => set('rack_location', v)} />
-          <Field label="Purchase price" type="number" value={form.purchase_price} onChange={(v) => set('purchase_price', v)} />
-          <Field label="Selling price" type="number" value={form.selling_price} onChange={(v) => set('selling_price', v)} />
-          <Field label="Reorder level" type="number" value={form.reorder_level} onChange={(v) => set('reorder_level', v)} />
-          <Field label="Minimum stock" type="number" value={form.minimum_stock} onChange={(v) => set('minimum_stock', v)} />
+          <Field label={t('inventoryPage.colour', 'Colour')} value={form.color} onChange={(v) => set('color', v)} />
+          <Field label={t('inventoryPage.rackLocation', 'Rack location')} value={form.rack_location} onChange={(v) => set('rack_location', v)} />
+          <Field label={t('inventoryPage.purchasePrice', 'Purchase price')} type="number" value={form.purchase_price} onChange={(v) => set('purchase_price', v)} />
+          <Field label={t('inventoryPage.sellingPrice', 'Selling price')} type="number" value={form.selling_price} onChange={(v) => set('selling_price', v)} />
+          <Field label={t('inventoryPage.reorderLevel', 'Reorder level')} type="number" value={form.reorder_level} onChange={(v) => set('reorder_level', v)} />
+          <Field label={t('inventoryPage.minimumStock', 'Minimum stock')} type="number" value={form.minimum_stock} onChange={(v) => set('minimum_stock', v)} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600 }}>Supplier</label>
+            <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('inventoryPage.supplier', 'Supplier')}</label>
             <select className="form-control" value={form.supplier || ''} onChange={(e) => set('supplier', e.target.value)}>
               <option value="">—</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -662,7 +663,7 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
         </div>
 
         <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: 0 }}>
-          Stock quantities are not set here — they only change through recorded movements.
+          {t('inventoryPage.stockNotSetHereHint', 'Stock quantities are not set here — they only change through recorded movements.')}
         </p>
 
         {error && (
@@ -670,8 +671,8 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
         )}
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save item'}</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
+          <button type="submit" className="btn-primary" disabled={saving}>{saving ? t('common.saving', 'Saving…') : t('inventoryPage.saveItem', 'Save item')}</button>
         </div>
       </form>
     </Modal>
