@@ -3789,28 +3789,30 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Tailoring Staff
+                        {t('tailorsPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Add, configure, or review in-house custom tailors.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('tailorsPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <LanguageSelector />
                     <button className="btn-primary" onClick={() => {
                       setEditingTailor(null);
                       setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
                       setShowTailorModal(true);
                     }}>
                       <Plus size={16} />
-                      Add New Tailor
+                      {t('tailorsPage.addNewTailor')}
                     </button>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
                     </div>
                   </div>
                 </header>
+
 
                 <div className="tailor-manager-content" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
                   {/* Two separate panels for Master and Stitching staff */}

@@ -72,6 +72,15 @@ const en = {
     inStock: "In Stock",
     outOfStock: "Out of Stock",
     pricePerMeter: "Per Meter",
+  },
+  tailorsPage: {
+    title: "Manage Tailoring Staff",
+    subtitle: "Add, configure, or review in-house custom tailors.",
+    addNewTailor: "Add New Tailor",
+    masterTailors: "Master Tailors",
+    stitchingStaff: "Stitching Staff",
+    available: "Available",
+    busy: "Busy",
   }
 };
 

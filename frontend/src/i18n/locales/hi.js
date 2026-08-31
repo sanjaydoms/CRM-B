@@ -72,6 +72,15 @@ const hi = {
     inStock: "स्टॉक में है",
     outOfStock: "स्टॉक समाप्त",
     pricePerMeter: "प्रति मीटर",
+  },
+  tailorsPage: {
+    title: "दर्जी कर्मचारियों को प्रबंधित करें",
+    subtitle: "इन-हाउस कस्टम दर्जियों को जोड़ें, कॉन्फ़िगर करें या समीक्षा करें।",
+    addNewTailor: "नया दर्जी जोड़ें",
+    masterTailors: "मास्टर दर्जी",
+    stitchingStaff: "सिलाई कर्मचारी",
+    available: "उपलब्ध",
+    busy: "व्यस्त",
   }
 };
 
