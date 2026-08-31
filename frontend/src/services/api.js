@@ -36,6 +36,8 @@ const getHeaders = (isMultipart = false) => {
   if (tenantId) {
     headers['X-Tenant-ID'] = tenantId;
   }
+  const lang = localStorage.getItem('app_language') || 'en';
+  headers['Accept-Language'] = lang;
   return headers;
 };
 

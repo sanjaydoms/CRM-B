@@ -397,6 +397,7 @@ const GARMENT_VIEWS = [
  * costs no extra request.
  */
 function GarmentGallery({ order, onChanged }) {
+  const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [view, setView] = useState('FRONT');
@@ -434,9 +435,9 @@ function GarmentGallery({ order, onChanged }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
         <Package size={14} />
-        <span style={{ fontSize: '13px', fontWeight: 600 }}>Finished garment photos</span>
+        <span style={{ fontSize: '13px', fontWeight: 600 }}>{t('ordersPage.finishedGarmentPhotos', 'Finished garment photos')}</span>
         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-          {published ? 'visible to the customer' : `${images.length} uploaded, not yet shared`}
+          {published ? t('ordersPage.visibleToCustomer', 'visible to the customer') : t('ordersPage.uploadedNotShared', '{count} uploaded, not yet shared', { count: images.length })}
         </span>
       </div>
 
@@ -471,7 +472,7 @@ function GarmentGallery({ order, onChanged }) {
                   borderRadius: '4px', cursor: 'pointer', width: '100%'
                 }}
               >
-                Remove
+                {t('ordersPage.remove', 'Remove')}
               </button>
             </figure>
           ))}
@@ -499,7 +500,7 @@ function GarmentGallery({ order, onChanged }) {
           disabled={busy}
           onClick={() => fileRef.current?.click()}
         >
-          {busy ? 'Working…' : 'Add photo'}
+          {busy ? 'Working…' : t('ordersPage.addPhoto', 'Add photo')}
         </button>
 
         <button
@@ -510,12 +511,12 @@ function GarmentGallery({ order, onChanged }) {
           title={missing.length ? `Still needs: ${missing.join(', ')}` : ''}
           onClick={() => run(() => api.publishGarmentImages(order.id, !published))}
         >
-          {published ? 'Hide from customer' : 'Share with customer'}
+          {published ? 'Hide from customer' : t('ordersPage.shareWithCustomer', 'Share with customer')}
         </button>
 
         {!published && missing.length > 0 && (
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            needs {missing.map((m) => m.toLowerCase()).join(' and ')}
+            {t('ordersPage.needsFrontAndBack', 'needs front and back')}
           </span>
         )}
       </div>
@@ -524,6 +525,7 @@ function GarmentGallery({ order, onChanged }) {
 }
 
 function StageTimeline({ stages, onSelectStage }) {
+  const { t } = useLanguage();
   // Fifteen stages in a strip about three-and-a-half stages wide: opening an
   // order on a phone put "Created" on screen and whatever actually needs doing
   // several swipes away. Centre the live stage (or the last one finished) so
@@ -555,7 +557,7 @@ function StageTimeline({ stages, onSelectStage }) {
         borderRadius: '8px', border: '1px solid var(--border-color)',
         fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center'
       }}>
-        No production stages recorded for this order.
+        {t('ordersPage.noProductionStages', 'No production stages recorded for this order.')}
       </div>
     );
   }
@@ -2720,7 +2722,15 @@ function App() {
       {view === 'dashboard' && currentUser && (
         <div className="portal-layout">
           <MobileHeader
-            title={dashboardTab === 'overview' ? 'Dashboard' : dashboardTab.charAt(0).toUpperCase() + dashboardTab.slice(1)}
+            title={t(
+              dashboardTab === 'overview' ? 'nav.dashboard' :
+              dashboardTab === 'orders' ? 'nav.manageOrders' :
+              dashboardTab === 'fabrics' ? 'nav.manageFabrics' :
+              dashboardTab === 'tailors' ? 'nav.manageTailors' :
+              dashboardTab === 'designs' ? 'nav.manageDesigns' :
+              `nav.${dashboardTab}`,
+              dashboardTab.charAt(0).toUpperCase() + dashboardTab.slice(1)
+            )}
             currentUser={currentUser}
             notificationsCount={notifications.filter(n => !n.is_read).length}
             onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
@@ -3323,9 +3333,9 @@ function App() {
                               />
                             </div>
                             <div className="order-row-desc">
-                              <div className="order-row-id">Order ID: {order.order_id}</div>
-                              <div className="order-row-name">{order.customer_name} • {order.order_status}</div>
-                              <div className="order-row-fabric">Tailor: {order.tailor_name || 'Unassigned'}</div>
+                              <div className="order-row-id">{t('dashboard.orderId', 'Order ID:')} {order.order_id}</div>
+                              <div className="order-row-name">{order.customer_name} • {order.order_status_display || t(`status.${order.order_status}`, order.order_status)}</div>
+                              <div className="order-row-fabric">{t('ordersPage.stitchingTailor', 'Tailor')}: {order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
                             </div>
                             <div className="order-row-status-box">
                               {/* Show the status the order is actually in. This
@@ -3337,9 +3347,9 @@ function App() {
                                   Green for the settled states, amber while the
                                   garment is still moving. */}
                               <span className={`order-row-badge ${['Confirmed', 'Shipped', 'Delivered'].includes(order.order_status) ? 'confirmed' : 'in_progress'}`}>
-                                {order.order_status || 'In Progress'}
+                                {order.order_status_display || t(`status.${order.order_status}`, order.order_status || 'In Progress')}
                               </span>
-                              <span className="order-row-date">Est. {new Date(order.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+                              <span className="order-row-date">{t('ordersPage.estDelivery', 'Est.')} {new Date(order.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
                             </div>
                           </div>
                         ))}
@@ -3350,25 +3360,25 @@ function App() {
                   {/* Order Live Tracker Sidebar */}
                   <div className="order-detail-progress-card">
                     <div className="panel-header-row">
-                      <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Order Progress</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>VIEW ALL</a>
+                      <h3 style={{ fontSize: '15px', fontWeight: 600 }}>{t('dashboard.orderProgress', 'Order Progress')}</h3>
+                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAll', 'VIEW ALL')}</a>
                     </div>
 
                     {selectedDashboardOrder ? (
                       <>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <div style={{ fontSize: '13px', fontWeight: 600 }}>{selectedDashboardOrder.customer_name}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Order ID: {selectedDashboardOrder.order_id}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('dashboard.orderId', 'Order ID:')} {selectedDashboardOrder.order_id}</div>
                         </div>
 
                         <div style={{ marginTop: '12px', marginBottom: '16px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                            <span>PRODUCTION PROGRESS</span>
+                            <span>{t('dashboard.productionProgress', 'PRODUCTION PROGRESS')}</span>
                             <span>{(() => {
                               const stages = selectedDashboardOrder.stages || [];
                               const completed = stages.filter(s => s.status === 'COMPLETED').length;
                               const pct = stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
-                              return `${pct}% (${completed}/${stages.length} Stages)`;
+                              return `${pct}% (${completed}/${stages.length} ${t('dashboard.stages', 'Stages')})`;
                             })()}</span>
                           </div>
                           <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
@@ -3451,7 +3461,7 @@ function App() {
                                         style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}
                                         onClick={e => e.stopPropagation()}
                                       >
-                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>Assign:</span>
+                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>{t('dashboard.assign', 'Assign:')}</span>
                                         <select
                                           className="form-control"
                                           style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
@@ -3461,7 +3471,7 @@ function App() {
                                             selectedDashboardOrder.id, stage.stage_key, e.target.value
                                           )}
                                         >
-                                          <option value="">Unassigned</option>
+                                          <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
                                           {eligibleStaffForStage(stage.stage_key).map(t => (
                                             <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
                                           ))}
@@ -3477,7 +3487,7 @@ function App() {
 
                         {/* Delivery Information */}
                         <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '12px' }}>
-                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>Delivery Method: {selectedDashboardOrder.delivery_method}</div>
+                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>{t('ordersPage.deliveryMethodLabel', 'Delivery Method:')} {selectedDashboardOrder.delivery_method_display || t(`deliveryMethod.${selectedDashboardOrder.delivery_method}`, selectedDashboardOrder.delivery_method)}</div>
                           {selectedDashboardOrder.delivery_method === 'Courier' && (
                             <div style={{ color: 'var(--text-secondary)' }}>
                               <strong>Carrier:</strong> {selectedDashboardOrder.courier_service || 'TBD'}<br />
@@ -3504,7 +3514,7 @@ function App() {
                           }}>
                             <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <Scissors size={12} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                              <span>Tailor Completion Notes</span>
+                              <span>{t('dashboard.tailorNotes', 'Tailor Completion Notes')}</span>
                             </div>
                             {selectedDashboardOrder.tailor_comments && (
                               <p style={{ color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
@@ -3533,7 +3543,7 @@ function App() {
 
                         <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '12px', fontWeight: 600 }}>Update Status:</span>
+                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('ordersPage.updateStatus', 'Update Status:')}</span>
                             <select 
                               value={selectedDashboardOrder.order_status} 
                               onChange={async (e) => {
@@ -3557,7 +3567,7 @@ function App() {
                               }}
                             >
                               {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
-                                <option key={status} value={status} style={{ background: '#222', color: '#fff' }}>{status}</option>
+                                <option key={status} value={status} style={{ background: '#222', color: '#fff' }}>{t(`status.${status}`, status)}</option>
                               ))}
                             </select>
                           </div>
@@ -3581,14 +3591,14 @@ function App() {
                                 }
                               }}
                             >
-                              Advance to Next Stage
+                              {t('dashboard.advanceStage', 'Advance to Next Stage')}
                             </button>
                           )}
                         </div>
                       </>
                     ) : (
                       <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        Select an order on the left to see progress details.
+                        {t('dashboard.selectOrderHint', 'Select an order on the left to see progress details.')}
                       </div>
                     )}
                   </div>
@@ -3597,7 +3607,7 @@ function App() {
                 {/* Upcoming Appointments & Style Inspiration Row */}
                 <div className="dashboard-row-layout">
                   <div>
-                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Upcoming Appointments</h3>
+                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>{t('dashboard.upcomingAppointments', 'Upcoming Appointments')}</h3>
                     {/* Real appointments. These were two literal cards naming
                         "Anya (Stylist)" and "Rohit (Master Tailor)" on fixed
                         dates -- shown to every boutique including one created
@@ -3608,7 +3618,7 @@ function App() {
                     <div className="appointments-section-panel">
                       {appointments.length === 0 ? (
                         <div style={{ padding: '16px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                          No appointments booked.
+                          {t('dashboard.noAppointments', 'No appointments booked.')}
                         </div>
                       ) : appointments.map(appt => {
                         const when = new Date(appt.scheduled_time);
@@ -3620,13 +3630,13 @@ function App() {
                             </div>
                             <div className="appt-info">
                               <span className="appt-title">
-                                {APPOINTMENT_TYPE_LABELS[appt.appointment_type] || 'Appointment'}
+                                {APPOINTMENT_TYPE_LABELS[appt.appointment_type] || t('dashboard.appointment', 'Appointment')}
                               </span>
                               <span className="appt-sub">
                                 {appt.customer_detail
                                   ? `${appt.customer_detail.first_name} ${appt.customer_detail.last_name}`
-                                  : 'Client'}
-                                {appt.assigned_staff_detail ? ` · with ${appt.assigned_staff_detail.name}` : ''}
+                                  : t('ordersPage.client', 'Client')}
+                                {appt.assigned_staff_detail ? t('dashboard.withStaff', ' · with {name}', { name: appt.assigned_staff_detail.name }) : ''}
                               </span>
                               <span className="appt-time">
                                 {when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
@@ -4274,11 +4284,11 @@ function App() {
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <span style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-primary)' }}>{order.order_id}</span>
                                 <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
-                                  {order.order_status}
+                                  {order.order_status_display || t(`status.${order.order_status}`, order.order_status)}
                                 </span>
                               </div>
                               <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                Client: <strong>{order.customer_name}</strong> | Created: {fmtDate(order.order_date)}
+                                {t('ordersPage.client', 'Client:')} <strong>{order.customer_name}</strong> | {t('ordersPage.created', 'Created:')} {fmtDate(order.order_date)}
                               </div>
                               {(() => {
                                 const v = order.master_verification || {};
@@ -4287,7 +4297,7 @@ function App() {
                                 if (checked > 0) {
                                   return (
                                     <div style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(212,175,55,0.08)', padding: '2px 8px', borderRadius: '4px', marginTop: '4px' }}>
-                                      <span>👑 Master Verified: {checked}/{total} items ({Math.round((checked/total)*100)}%)</span>
+                                      <span>{t('ordersPage.masterVerified', '👑 Master Verified:')} {checked}/{total} items ({Math.round((checked/total)*100)}%)</span>
                                     </div>
                                   );
                                 }
@@ -4296,7 +4306,7 @@ function App() {
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <span style={{ fontSize: '13px', fontWeight: 600 }}>Update Status:</span>
+                              <span style={{ fontSize: '13px', fontWeight: 600 }}>{t('ordersPage.updateStatus', 'Update Status:')}</span>
                               <select 
                                 className="form-control"
                                 style={{ fontSize: '13px', padding: '6px 12px', width: '180px', margin: 0 }}
@@ -4308,7 +4318,7 @@ function App() {
                                 }}
                               >
                                 {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
-                                  <option key={status} value={status}>{status}</option>
+                                  <option key={status} value={status}>{t(`status.${status}`, status)}</option>
                                 ))}
                               </select>
                             </div>
@@ -4342,12 +4352,12 @@ function App() {
                             border: '1px solid var(--border-color)'
                           }}>
                             <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Supervising Master</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-text, #b07c40)' }}>{order.master_name || 'Unassigned'}</div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.supervisingMaster', 'Supervising Master')}</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-text, #b07c40)' }}>{order.master_name || t('ordersPage.unassigned', 'Unassigned')}</div>
                             </div>
                             <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Stitching Tailor</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || 'Unassigned'}</div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.stitchingTailor', 'Stitching Tailor')}</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
                             </div>
                             {/* The same guard the assignment card one screen
                                 earlier already applies to the identical figure.
@@ -4361,13 +4371,13 @@ function App() {
                                 customer tracking page and the whole registry. */}
                             {!isProductionStaff(currentUser.role) && (
                               <div>
-                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Value</span>
+                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.totalValue', 'Total Value')}</span>
                                 <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
                               </div>
                             )}
                             <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Est. Delivery</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : 'TBD'}</div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.estDelivery', 'Est. Delivery')}</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : t('ordersPage.tbd', 'TBD')}</div>
                             </div>
                           </div>
 
@@ -4434,7 +4444,7 @@ function App() {
                             gap: '8px'
                           }}>
                             <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              Delivery Method: {order.delivery_method}
+                              {t('ordersPage.deliveryMethodLabel', 'Delivery Method:')} {order.delivery_method_display || t(`deliveryMethod.${order.delivery_method}`, order.delivery_method)}
                             </div>
                             {order.delivery_method === 'Courier' && (
                               <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
