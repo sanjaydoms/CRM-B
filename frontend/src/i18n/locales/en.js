@@ -118,6 +118,10 @@ const en = {
     sideView: "Side view",
     detailView: "Detail / Accent view",
     masterVerified: "👑 Master Verified:",
+    noOrdersYet: "No orders yet",
+    noOrdersYetDesc: "Orders you create will appear here, with their production stage and who is working on them.",
+    createFirstOrder: "Create your first order",
+    noOrdersMatching: "No orders found matching the criteria.",
   },
   status: {
     Received: "Received",

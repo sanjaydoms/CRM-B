@@ -4255,15 +4255,15 @@ function App() {
                                 right. */}
                             {ordersList.length === 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No orders yet</div>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t('ordersPage.noOrdersYet', 'No orders yet')}</div>
                                 <div style={{ fontSize: '13px', maxWidth: '44ch', lineHeight: 1.5 }}>
-                                  Orders you create will appear here, with their production stage and who is working on them.
+                                  {t('ordersPage.noOrdersYetDesc', 'Orders you create will appear here, with their production stage and who is working on them.')}
                                 </div>
                                 <button className="btn-primary" onClick={() => setView('order-selector')}>
-                                  Create your first order
+                                  {t('ordersPage.createFirstOrder', 'Create your first order')}
                                 </button>
                               </div>
-                            ) : 'No orders found matching the criteria.'}
+                            ) : t('ordersPage.noOrdersMatching', 'No orders found matching the criteria.')}
                           </div>
                         );
                       }
