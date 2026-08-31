@@ -41,6 +41,17 @@ const en = {
     garment: "Garment",
     amount: "Amount",
     date: "Date",
+  },
+  ordersPage: {
+    title: "Atelier Orders Registry",
+    subtitle: "Search, filter, and track all custom creations and dispatch logistics.",
+    newOrder: "New Custom Order",
+    searchPlaceholder: "Search by Order ID or Client...",
+    filterAll: "All",
+    filterActive: "Active",
+    filterShipped: "Shipped",
+    filterDelivered: "Delivered",
+    noOrdersFound: "No matching orders found.",
   }
 };
 

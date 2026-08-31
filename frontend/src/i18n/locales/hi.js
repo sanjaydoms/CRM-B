@@ -41,6 +41,17 @@ const hi = {
     garment: "पोशाक",
     amount: "राशि",
     date: "दिनांक",
+  },
+  ordersPage: {
+    title: "एटेलियर ऑर्डर रजिस्ट्री",
+    subtitle: "सभी कस्टम क्रिएशंस और डिस्पैच लॉजिस्टिक्स को खोजें, फ़िल्टर करें और ट्रैक करें।",
+    newOrder: "नया कस्टम ऑर्डर",
+    searchPlaceholder: "ऑर्डर आईडी या ग्राहक द्वारा खोजें...",
+    filterAll: "सभी",
+    filterActive: "सक्रिय",
+    filterShipped: "भेज दिया (Shipped)",
+    filterDelivered: "डिलीवर किया गया",
+    noOrdersFound: "कोई मेल खाता हुआ ऑर्डर नहीं मिला।",
   }
 };
 

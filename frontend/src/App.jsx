@@ -4159,23 +4159,18 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Atelier Orders Registry
+                        {t('ordersPage.title')}
                       </h1>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        Search, filter, and track all custom creations and dispatch logistics.
+                        {t('ordersPage.subtitle')}
                       </p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
-                    {/* Owner-only. A Master reaches this registry -- they
-                        supervise the whole floor -- and was shown this button
-                        too, but taking an order means creating a customer and
-                        RolePermission refuses every non-Owner write outside the
-                        order actions. The wizard therefore 403'd on step 1,
-                        after the Master had filled the form in. */}
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <LanguageSelector />
                     {(!currentUser?.role || currentUser.role === 'Owner') && (
                       <button className="btn-primary" onClick={handleStartNewCustomer}>
-                        <Plus size={16} /> New Custom Order
+                        <Plus size={16} /> {t('ordersPage.newOrder')}
                       </button>
                     )}
                   </div>
@@ -4197,14 +4192,19 @@ function App() {
                     {/* Filter Tabs. Wrapping, not nowrap: four pills do not fit
                         one 320px row and "Delivered" was clipped off the end. */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                      {['All', 'Active', 'Shipped', 'Delivered'].map(statusTab => (
+                      {[
+                        { key: 'All', label: t('ordersPage.filterAll') },
+                        { key: 'Active', label: t('ordersPage.filterActive') },
+                        { key: 'Shipped', label: t('ordersPage.filterShipped') },
+                        { key: 'Delivered', label: t('ordersPage.filterDelivered') }
+                      ].map(({ key: statusTab, label }) => (
                         <button 
                           key={statusTab}
                           onClick={() => setOrdersFilterTab(statusTab)}
                           className={ordersFilterTab === statusTab ? 'btn-primary' : 'btn-secondary'}
                           style={{ padding: '6px 16px', fontSize: '13px' }}
                         >
-                          {statusTab}
+                          {label}
                         </button>
                       ))}
                     </div>
@@ -4214,13 +4214,14 @@ function App() {
                       <Search className="search-icon" size={16} />
                       <input 
                         type="text" 
-                        placeholder="Search by Order ID or Client..."
+                        placeholder={t('ordersPage.searchPlaceholder')}
                         className="search-input"
                         value={ordersSearch}
                         onChange={(e) => setOrdersSearch(e.target.value)}
                       />
                     </div>
                   </div>
+
 
                   {/* Orders List Grid */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
