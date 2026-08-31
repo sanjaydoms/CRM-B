@@ -6928,22 +6928,15 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', maxWidth: '1280px', margin: '0 auto 16px' }}>
               <div className="brand-logo" style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '1px', color: 'var(--text-primary)' }}>SCALEEZY</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                {/* "Need help?" carried cursor:pointer and no handler --
-                    the wizard's own header inviting a click that does nothing.
-                    There is no help surface to point it at. */}
-                {/* Whether the work is safe. The wizard writes to a draft on
-                    the server as the owner moves through it, and they need to
-                    know that without being told to trust it. A conflict is
-                    called out separately because it needs a different action:
-                    not "try again" but "reload, someone else moved this on". */}
+                <LanguageSelector />
                 {draftSaveState !== 'idle' && (
                   <span style={{ fontSize: '12.5px',
                                  color: draftSaveState === 'conflict' || draftSaveState === 'failed'
                                         ? '#c0392b' : 'var(--text-secondary)' }}>
-                    {draftSaveState === 'saving' && 'Saving…'}
-                    {draftSaveState === 'saved' && '✓ Saved'}
-                    {draftSaveState === 'failed' && 'Could not save — your last change is not stored'}
-                    {draftSaveState === 'conflict' && 'Changed in another tab — reload before continuing'}
+                    {draftSaveState === 'saving' && t('wizard.saving')}
+                    {draftSaveState === 'saved' && t('wizard.saved')}
+                    {draftSaveState === 'failed' && t('wizard.couldNotSave')}
+                    {draftSaveState === 'conflict' && t('wizard.conflict')}
                   </span>
                 )}
                 <span style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} onClick={() => setView('dashboard')}>
@@ -6955,13 +6948,14 @@ function App() {
             {/* Stepper progress bar */}
             <div className="stepper-progress-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1000px', margin: '0 auto', position: 'relative' }}>
               {[
-                { number: 1, label: 'Personal details', sub: 'Completed' },
-                { number: 2, label: 'Measurements', sub: 'Completed' },
-                { number: 3, label: 'AI Design Studio', sub: 'Discover & approve design' },
-                { number: 4, label: 'Fabric Selection', sub: 'Choose fabrics' },
-                { number: 5, label: 'Tailor Assignment', sub: 'Assign tailor' },
-                { number: 6, label: 'Complete & Create Order', sub: 'review & confirm' }
+                { number: 1, label: t('wizard.personalDetails'), sub: 'Completed' },
+                { number: 2, label: t('wizard.measurements'), sub: 'Completed' },
+                { number: 3, label: t('wizard.aiDesignStudio'), sub: 'Discover & approve design' },
+                { number: 4, label: t('wizard.fabricSelection'), sub: 'Choose fabrics' },
+                { number: 5, label: t('wizard.tailorAssignment'), sub: 'Assign tailor' },
+                { number: 6, label: t('wizard.completeOrder'), sub: 'review & confirm' }
               ].map((step, index) => {
+
                 const stepNum = index + 1;
                 const isCompleted = currentStep > stepNum;
                 const isActive = currentStep === stepNum;

@@ -127,6 +127,18 @@ const hi = {
     resetTitle: "अपना पासवर्ड रीसेट करें",
     sendResetLink: "रीसेट लिंक भेजें",
     backToSignin: "साइन इन पर वापस जाएं",
+  },
+  wizard: {
+    personalDetails: "व्यक्तिगत विवरण",
+    measurements: "शारीरिक माप (Measurements)",
+    aiDesignStudio: "AI डिजाइन स्टूडियो",
+    fabricSelection: "फैब्रिक चयन",
+    tailorAssignment: "दर्जी आवंटन",
+    completeOrder: "पूरा करें और ऑर्डर बनाएं",
+    saving: "सहेजा जा रहा है...",
+    saved: "✓ सहेजा गया",
+    couldNotSave: "सहेजा नहीं जा सका — आपका अंतिम परिवर्तन संग्रहीत नहीं है",
+    conflict: "किसी अन्य टैब में बदला गया — जारी रखने से पहले पुनः लोड करें",
   }
 };
 

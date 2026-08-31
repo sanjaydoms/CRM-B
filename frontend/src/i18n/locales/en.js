@@ -127,6 +127,18 @@ const en = {
     resetTitle: "Reset your password",
     sendResetLink: "Send reset link",
     backToSignin: "Back to sign in",
+  },
+  wizard: {
+    personalDetails: "Personal Details",
+    measurements: "Measurements",
+    aiDesignStudio: "AI Design Studio",
+    fabricSelection: "Fabric Selection",
+    tailorAssignment: "Tailor Assignment",
+    completeOrder: "Complete & Create Order",
+    saving: "Saving...",
+    saved: "✓ Saved",
+    couldNotSave: "Could not save — your last change is not stored",
+    conflict: "Changed in another tab — reload before continuing",
   }
 };
 
