@@ -57,7 +57,21 @@
 
   var yr = document.getElementById('yr');
   if (yr) yr.textContent = new Date().getFullYear();
+
+  // Marketing Site Translation Dictionary & Switcher
+  var siteLangSelect = document.getElementById('site-lang-select');
+  if (siteLangSelect) {
+    var savedLang = localStorage.getItem('app_language') || 'en';
+    siteLangSelect.value = savedLang;
+    
+    siteLangSelect.addEventListener('change', function (e) {
+      var lang = e.target.value;
+      localStorage.setItem('app_language', lang);
+      location.reload();
+    });
+  }
 </script>
+
 
 </body>
 </html>
