@@ -6,7 +6,7 @@ import {
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu,
-  PenTool
+  PenTool, Settings
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
@@ -30,6 +30,7 @@ import GarmentSummary from './features/catalog/GarmentSummary';
 import { MobileHeader } from './components/ui/MobileHeader';
 import { useLanguage } from './i18n/LanguageContext.jsx';
 import LanguageSelector from './components/LanguageSelector.jsx';
+import SettingsPage from './components/SettingsPage.jsx';
 import { BottomNavigation } from './components/ui/BottomNavigation';
 
 import { BottomSheet } from './components/ui/BottomSheet';
@@ -2858,6 +2859,7 @@ function App() {
                 <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
               )}
               <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> {t('nav.account')}</a>
+              <a className={`portal-menu-item ${dashboardTab === 'settings' ? 'active' : ''}`} onClick={() => { setDashboardTab('settings'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Settings size={16} /> {t('nav.settings')}</a>
               <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
             </nav>
 
@@ -6115,6 +6117,11 @@ function App() {
                 </div>
               </>
             )}
+
+            {/* 9. SETTINGS TAB */}
+            {dashboardTab === 'settings' && (
+              <SettingsPage currentUser={currentUser} boutiqueSettings={boutiqueSettings} />
+            )}
           </main>
 
           {/* Fabrics CRUD Modal Overlay */}
@@ -6647,6 +6654,7 @@ function App() {
             
             <nav className="portal-menu">
               <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); }}><Users size={16} /> Dashboard</a>
+              <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); setDashboardTab('settings'); }}><Settings size={16} /> {t('nav.settings')}</a>
               {/* My Orders / Appointments / Measurements sat here with no
                   onClick and no href, between two links that work -- so on the
                   order-selector sidebar three of five items silently did
