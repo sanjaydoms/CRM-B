@@ -6647,22 +6647,17 @@ function App() {
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             
             <nav className="portal-menu">
-              <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); }}><Users size={16} /> Dashboard</a>
+              <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); }}><Users size={16} /> {t('nav.dashboard', 'Dashboard')}</a>
               <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); setDashboardTab('settings'); }}><Settings size={16} /> {t('nav.settings')}</a>
-              {/* My Orders / Appointments / Measurements sat here with no
-                  onClick and no href, between two links that work -- so on the
-                  order-selector sidebar three of five items silently did
-                  nothing. Deleted rather than wired: each already has a real
-                  home on the dashboard this screen returns to. */}
-              <a className="portal-menu-item" onClick={handleLogout}><User size={16} /> Logout</a>
+              <a className="portal-menu-item" onClick={handleLogout}><User size={16} /> {t('nav.logout', 'Logout')}</a>
             </nav>
           </aside>
 
           <main className="portal-main">
             <div className="selector-container">
               <div className="selector-header">
-                <h1 className="selector-title" style={{ fontFamily: 'var(--font-serif)', fontSize: '32px' }}>Create New Custom Order</h1>
-                <p className="selector-subtitle" style={{ color: 'var(--text-secondary)' }}>Choose how you would like to initiate this bespoke order creation.</p>
+                <h1 className="selector-title" style={{ fontFamily: 'var(--font-serif)', fontSize: '32px' }}>{t('entry.createOrderTitle', 'Create New Custom Order')}</h1>
+                <p className="selector-subtitle" style={{ color: 'var(--text-secondary)' }}>{t('entry.createOrderSubtitle', 'Choose how you would like to initiate this bespoke order creation.')}</p>
               </div>
 
               {/* Orders already being written. Offered, never resumed
@@ -6672,10 +6667,12 @@ function App() {
               {resumableDrafts.length > 0 && (
                 <div className="content-card" style={{ marginBottom: '20px' }}>
                   <div style={{ fontWeight: 600, marginBottom: '4px' }}>
-                    You have {resumableDrafts.length === 1 ? 'an order' : `${resumableDrafts.length} orders`} in progress
+                    {resumableDrafts.length === 1
+                      ? t('entry.orderInProgressOne', 'You have an order in progress')
+                      : t('entry.orderInProgressMany', `You have ${resumableDrafts.length} orders in progress`, { count: resumableDrafts.length })}
                   </div>
                   <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                    Saved automatically. Pick one up where you left it, or discard it.
+                    {t('entry.savedAutomaticallySub', 'Saved automatically. Pick one up where you left it, or discard it.')}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {resumableDrafts.map(draft => {
@@ -6687,26 +6684,25 @@ function App() {
                                                      paddingTop: '10px' }}>
                           <div style={{ flex: '1 1 260px' }}>
                             <div style={{ fontWeight: 600 }}>
-                              {draft.customer_name || 'Unnamed customer'}
+                              {draft.customer_name || t('entry.unnamedCustomer', 'Unnamed customer')}
                             </div>
                             <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                              {garments.length ? garments.join(', ') : 'No garment chosen yet'}
-                              {' · '}Step {draft.current_step} of 6
-                              {' · '}last saved {new Date(draft.updated_at).toLocaleString()}
+                              {garments.length ? garments.join(', ') : t('wizard.noGarmentChosen', 'No garment chosen yet')}
+                              {' · '}{t('entry.stepXofY', `Step ${draft.current_step} of 6`, { step: draft.current_step })}
+                              {' · '}{t('entry.lastSaved', 'last saved')} {new Date(draft.updated_at).toLocaleString()}
                             </div>
                           </div>
                           <button type="button" className="btn-primary" onClick={() => hydrateWizard(draft)}>
-                            Resume
+                            {t('entry.resume', 'Resume')}
                           </button>
                           {discardingDraftId === draft.id ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                                Discard this order? Nothing has been booked, but everything
-                                entered on it will be lost.
+                                {t('entry.discardConfirmDesc', 'Discard this order? Nothing has been booked, but everything entered on it will be lost.')}
                               </span>
                               <button type="button" className="btn-secondary"
                                       onClick={() => setDiscardingDraftId(null)}>
-                                Keep it
+                                {t('entry.keepIt', 'Keep it')}
                               </button>
                               <button type="button" className="btn-primary" onClick={async () => {
                                 try {
@@ -6719,13 +6715,13 @@ function App() {
                                   setDiscardingDraftId(null);
                                 }
                               }}>
-                                Discard permanently
+                                {t('entry.discardPermanently', 'Discard permanently')}
                               </button>
                             </div>
                           ) : (
                             <button type="button" className="btn-secondary"
                                     onClick={() => setDiscardingDraftId(draft.id)}>
-                              Discard
+                              {t('entry.discard', 'Discard')}
                             </button>
                           )}
                         </div>
@@ -6741,26 +6737,26 @@ function App() {
                   <div className="selector-option-icon">
                     <Users size={32} />
                   </div>
-                  <h3 className="selector-option-title">Existing Customer</h3>
-                  <p className="selector-option-desc">Select a client profile from your database and retrieve their measurements.</p>
+                  <h3 className="selector-option-title">{t('entry.existingCustomerTitle', 'Existing Customer')}</h3>
+                  <p className="selector-option-desc">{t('entry.existingCustomerDesc', 'Select a client profile from your database and retrieve their measurements.')}</p>
                   
                   <div className="selector-features-list">
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Use saved measurements</span>
+                      <span>{t('entry.useSavedMeasurements', 'Use saved measurements')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>View past orders & prefs</span>
+                      <span>{t('entry.viewPastOrdersPrefs', 'View past orders & prefs')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Faster order creation</span>
+                      <span>{t('entry.fasterOrderCreation', 'Faster order creation')}</span>
                     </div>
                   </div>
 
                   <button className="selector-card-btn">
-                    Select Existing Customer
+                    {t('entry.selectExistingCustomerBtn', 'Select Existing Customer')}
                     <ArrowRight size={14} />
                   </button>
                 </div>
@@ -6770,26 +6766,26 @@ function App() {
                   <div className="selector-option-icon">
                     <User size={32} />
                   </div>
-                  <h3 className="selector-option-title">New Customer</h3>
-                  <p className="selector-option-desc">Create a new customer profile and input their measurements from scratch.</p>
+                  <h3 className="selector-option-title">{t('entry.newCustomerTitle', 'New Customer')}</h3>
+                  <p className="selector-option-desc">{t('entry.newCustomerDesc', 'Create a new customer profile and input their measurements from scratch.')}</p>
 
                   <div className="selector-features-list">
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Add customer details</span>
+                      <span>{t('entry.addCustomerDetails', 'Add customer details')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Capture measurements</span>
+                      <span>{t('entry.captureMeasurements', 'Capture measurements')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Start custom journey</span>
+                      <span>{t('entry.startCustomJourney', 'Start custom journey')}</span>
                     </div>
                   </div>
 
                   <button className="selector-card-btn">
-                    Create New Customer
+                    {t('entry.createNewCustomerBtn', 'Create New Customer')}
                     <ArrowRight size={14} />
                   </button>
                 </div>
@@ -6797,65 +6793,65 @@ function App() {
 
               {/* Explanatory Flow Diagrams at the bottom */}
               <div className="selector-flow-explain-box">
-                <h4 className="selector-flow-explain-title">How the creation process works</h4>
+                <h4 className="selector-flow-explain-title">{t('entry.howProcessWorksTitle', 'How the creation process works')}</h4>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                   {/* Flow with Existing Customer */}
                   <div>
-                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>FLOW WITH EXISTING CUSTOMER:</h5>
+                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>{t('entry.flowExistingCustomerHeader', 'FLOW WITH EXISTING CUSTOMER:')}</h5>
                     <div className="flow-steps-visual">
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Users size={16} /></div>
-                        <span className="flow-step-node-title">Select Customer</span>
-                        <span className="flow-step-node-desc">Search and select client from database</span>
+                        <span className="flow-step-node-title">{t('entry.flowSelectCustomer', 'Select Customer')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowSelectCustomerDesc', 'Search and select client from database')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><FileText size={16} /></div>
-                        <span className="flow-step-node-title">Review Profile</span>
-                        <span className="flow-step-node-desc">Check sizes and preferences</span>
+                        <span className="flow-step-node-title">{t('entry.flowReviewProfile', 'Review Profile')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowReviewProfileDesc', 'Check sizes and preferences')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Sparkles size={16} /></div>
-                        <span className="flow-step-node-title">Create Order</span>
-                        <span className="flow-step-node-desc">Define styles, fabrics and details</span>
+                        <span className="flow-step-node-title">{t('entry.flowCreateOrder', 'Create Order')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowCreateOrderDesc', 'Define styles, fabrics and details')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Check size={16} /></div>
-                        <span className="flow-step-node-title">Proceed to Journey</span>
-                        <span className="flow-step-node-desc">Stitching and fitting commences</span>
+                        <span className="flow-step-node-title">{t('entry.flowProceedJourney', 'Proceed to Journey')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowProceedJourneyDesc', 'Stitching and fitting commences')}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Flow with New Customer */}
                   <div>
-                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>FLOW WITH NEW CUSTOMER:</h5>
+                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>{t('entry.flowNewCustomerHeader', 'FLOW WITH NEW CUSTOMER:')}</h5>
                     <div className="flow-steps-visual">
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><User size={16} /></div>
-                        <span className="flow-step-node-title">Add Personal Details</span>
-                        <span className="flow-step-node-desc">Input names and contact credentials</span>
+                        <span className="flow-step-node-title">{t('entry.flowAddPersonalDetails', 'Add Personal Details')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowAddPersonalDetailsDesc', 'Input names and contact credentials')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><Scissors size={16} /></div>
-                        <span className="flow-step-node-title">Capture Sizes</span>
-                        <span className="flow-step-node-desc">Log exact body dimensions</span>
+                        <span className="flow-step-node-title">{t('entry.flowCaptureSizes', 'Capture Sizes')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowCaptureSizesDesc', 'Log exact body dimensions')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><Compass size={16} /></div>
-                        <span className="flow-step-node-title">Style Preferences</span>
-                        <span className="flow-step-node-desc">Choose fabrics, cuts, necklines</span>
+                        <span className="flow-step-node-title">{t('entry.flowStylePreferences', 'Style Preferences')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowStylePreferencesDesc', 'Choose fabrics, cuts, necklines')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><ArrowRight size={16} /></div>
-                        <span className="flow-step-node-title">Proceed to Journey</span>
-                        <span className="flow-step-node-desc">Submit for creation workflow</span>
+                        <span className="flow-step-node-title">{t('entry.flowProceedJourney', 'Proceed to Journey')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowSubmitCreationWorkflowDesc', 'Submit for creation workflow')}</span>
                       </div>
                     </div>
                   </div>
@@ -6871,7 +6867,7 @@ function App() {
             <div className="existing-customer-search-modal">
               <div className="search-modal-card">
                 <div className="search-modal-header">
-                  <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Select Existing Customer</h3>
+                  <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{t('entry.selectExistingCustomerModalTitle', 'Select Existing Customer')}</h3>
                   <button className="close-btn" onClick={() => setShowSearchModal(false)}><X size={20} /></button>
                 </div>
                 
@@ -6879,7 +6875,7 @@ function App() {
                   <Search size={18} />
                   <input 
                     type="text" 
-                    placeholder="Search by customer name or mobile number..." 
+                    placeholder={t('entry.searchCustomerPlaceholder', 'Search by customer name or mobile number...')} 
                     value={searchModalQuery}
                     onChange={(e) => setSearchModalQuery(e.target.value)}
                     className="form-control"
@@ -6890,7 +6886,7 @@ function App() {
                 <div className="search-results-list">
                   {filteredSearchModalCustomers.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                      No customers found matching "{searchModalQuery}"
+                      {t('entry.noCustomersFoundMatching', 'No customers found matching')} "{searchModalQuery}"
                     </div>
                   ) : (
                     filteredSearchModalCustomers.map(cust => (
