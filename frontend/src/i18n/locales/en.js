@@ -111,6 +111,22 @@ const en = {
     boutiqueProfile: "Boutique Profile",
     personalInformation: "Personal Information",
     saveChanges: "Save Changes",
+  },
+  auth: {
+    welcomeBack: "Welcome back 👋",
+    loginSubtitle: "Login to continue your custom creation journey.",
+    emailLabel: "Email",
+    emailPlaceholder: "Enter your email",
+    passwordLabel: "Password",
+    passwordPlaceholder: "Enter your password",
+    forgotPassword: "Forgot password?",
+    loginBtn: "Login to Workspace",
+    noAccount: "Don't have a boutique account?",
+    signup: "Signup",
+    backToHome: "Back to Home",
+    resetTitle: "Reset your password",
+    sendResetLink: "Send reset link",
+    backToSignin: "Back to sign in",
   }
 };
 

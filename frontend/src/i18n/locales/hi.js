@@ -111,6 +111,22 @@ const hi = {
     boutiqueProfile: "बुटीक प्रोफ़ाइल",
     personalInformation: "व्यक्तिगत जानकारी",
     saveChanges: "परिवर्तन सहेजें",
+  },
+  auth: {
+    welcomeBack: "वापसी पर स्वागत है 👋",
+    loginSubtitle: "अपनी कस्टम क्रिएशन यात्रा जारी रखने के लिए लॉगिन करें।",
+    emailLabel: "ईमेल (Email)",
+    emailPlaceholder: "अपना ईमेल दर्ज करें",
+    passwordLabel: "पासवर्ड (Password)",
+    passwordPlaceholder: "अपना पासवर्ड दर्ज करें",
+    forgotPassword: "पासवर्ड भूल गए?",
+    loginBtn: "वर्कस्पेस में लॉगिन करें",
+    noAccount: "क्या आपके पास बुटीक खाता नहीं है?",
+    signup: "साइनअप करें",
+    backToHome: "मुख्य पृष्ठ पर वापस जाएं",
+    resetTitle: "अपना पासवर्ड रीसेट करें",
+    sendResetLink: "रीसेट लिंक भेजें",
+    backToSignin: "साइन इन पर वापस जाएं",
   }
 };
 

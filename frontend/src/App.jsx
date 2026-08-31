@@ -2254,8 +2254,8 @@ function App() {
 
   return (
     <div className="app-container">
-
       {/* 2. SIGN IN SCREEN (Image 2) */}
+
       {view === 'login' && (
         <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '88px 16px 40px' }}>
           
@@ -2333,13 +2333,6 @@ function App() {
               </div>
 
               <div className="auth-remember-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', margin: '6px 0 10px 0' }}>
-                {/* "Remember me" was uncontrolled, defaultChecked and read by
-                    nothing -- the token goes to localStorage either way, so the
-                    session always persisted and the box was decoration that
-                    implied a choice. Wiring it to sessionStorage would mean
-                    touching four api functions for a preference nobody asked
-                    for; saying nothing is more honest than a control that does
-                    not control anything. */}
                 <span />
                 <button
                   type="button"
@@ -2362,20 +2355,17 @@ function App() {
               </button>
             </form>
 
-            {/* "Continue with Google" and "Continue with Apple" used to sit
-                here. Neither had an onClick, and there is no OAuth anywhere in
-                this product -- no client id, no callback route, no social
-                account model. Two buttons that do nothing on the first screen
-                a new owner sees. Deleted rather than wired up: adding a second
-                identity provider is a feature with its own account-linking
-                questions, not a fix for a dead button. */}
-
             <div className="auth-card-footer" style={{ borderTop: '1px solid #eaecef', marginTop: '32px', paddingTop: '20px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
-              Don't have a boutique account? <a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600, textDecoration: 'none' }} onClick={() => { setSignupStep(1); setView('signup'); }}>Signup</a>
+              Don't have a boutique account?{' '}
+              <a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600, textDecoration: 'none' }} onClick={() => { setSignupStep(1); setView('signup'); }}>
+                Signup
+              </a>
             </div>
           </div>
         </div>
       )}
+
+
 
       {/* 3. SIGN UP SCREEN (Image 3) */}
       {/* Ask for a reset link. Reached from the login screen; leaves back to
