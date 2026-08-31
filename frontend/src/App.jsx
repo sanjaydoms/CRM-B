@@ -5708,7 +5708,7 @@ function App() {
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: 'var(--accent-text, #b07c40)' }}>
                         ₹{paidRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>From paid customer orders</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.fromPaidOrders', 'From paid customer orders')}</span>
                     </div>
 
                     {/* Pending Bills Card */}
@@ -5721,11 +5721,11 @@ function App() {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Pending Invoices</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.pendingInvoices', 'Pending Invoices')}</span>
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#ffc107' }}>
                         ₹{pendingBill.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Awaiting full or partial payment</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.awaitingPayment', 'Awaiting full or partial payment')}</span>
                     </div>
 
                     {/* Average Order Value Card */}
@@ -5738,11 +5738,11 @@ function App() {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Average Ticket Size</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.avgTicketSize', 'Average Ticket Size')}</span>
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#4a90e2' }}>
                         ₹{aov.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Per bespoke order</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.perBespokeOrder', 'Per bespoke order')}</span>
                     </div>
 
                     {/* Total Registered Clients */}
@@ -5755,11 +5755,11 @@ function App() {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Client Base</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.clientBase', 'Client Base')}</span>
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#2ec4b6' }}>
-                        {customersList.length} Clients
+                        {customersList.length} {customersList.length === 1 ? t('analyticsPage.clientSingle', 'Client') : t('analyticsPage.clientPlural', 'Clients')}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total boutique directory profiles</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.totalDirectoryProfiles', 'Total boutique directory profiles')}</span>
                     </div>
                   </div>
 
@@ -5774,13 +5774,13 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Popular Garment Types</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.popularGarmentTypes', 'Popular Garment Types')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {topGarmentsList.map(([garment, count], idx) => {
                             const pct = Math.round((count / garmentTotal) * 100) || 0;
                             return (
                               <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                                   <span>{garment}</span>
                                   <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
                                 </div>
@@ -5799,7 +5799,7 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Customer Segmentation</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.customerSegmentation', 'Customer Segmentation')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                           {(() => {
                             const vipCount = customersList.filter(c => c.segment === 'VIP').length;
@@ -5808,9 +5808,9 @@ function App() {
                             const total = customersList.length || 1;
 
                             return [
-                              { name: 'VIP (Very Important Customer)', count: vipCount, color: '#d4af37' },
-                              { name: 'HVC (High Value Customer)', count: hvcCount, color: '#a855f7' },
-                              { name: 'General Customers', count: generalCount, color: '#9ca3af' }
+                              { name: t('analyticsPage.vipCustomer', 'VIP (Very Important Customer)'), count: vipCount, color: '#d4af37' },
+                              { name: t('analyticsPage.hvcCustomer', 'HVC (High Value Customer)'), count: hvcCount, color: '#a855f7' },
+                              { name: t('analyticsPage.generalCustomers', 'General Customers'), count: generalCount, color: '#9ca3af' }
                             ].map((seg, idx) => {
                               const pct = Math.round((seg.count / total) * 100);
                               return (
@@ -5838,21 +5838,21 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Neckline & Sleeve Trends</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.necklineSleeveTrends', 'Neckline & Sleeve Trends')}</h3>
                         <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                           <div>
-                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Top Necklines</h4>
+                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topNecklines', 'Top Necklines')}</h4>
                             {topNecklinesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifycontent: 'space-between', padding: '4px 0' }}>
+                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
                                 <span style={{ fontWeight: 600 }}>{count}</span>
                               </div>
                             ))}
                           </div>
                           <div>
-                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Top Sleeves</h4>
+                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topSleeves', 'Top Sleeves')}</h4>
                             {topSleevesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifycontent: 'space-between', padding: '4px 0' }}>
+                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
                                 <span style={{ fontWeight: 600 }}>{count}</span>
                               </div>
@@ -5870,22 +5870,22 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Staff & Workload Overview</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.staffWorkloadOverview', 'Staff & Workload Overview')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Total Tailoring Team</span>
-                            <span style={{ fontWeight: 600 }}>{tailors.length} Tailors</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{t('analyticsPage.totalTailoringTeam', 'Total Tailoring Team')}</span>
+                            <span style={{ fontWeight: 600 }}>{tailors.length} {tailors.length === 1 ? t('analyticsPage.tailorSingle', 'Tailor') : t('analyticsPage.tailorPlural', 'Tailors')}</span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Busy / Assigned Tailors</span>
-                            <span style={{ fontWeight: 600, color: '#ffc107' }}>{busyTailors} Busy</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{t('analyticsPage.busyAssignedTailors', 'Busy / Assigned Tailors')}</span>
+                            <span style={{ fontWeight: 600, color: '#ffc107' }}>{busyTailors} {t('analyticsPage.busyStatus', 'Busy')}</span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Available Staff capacity</span>
-                            <span style={{ fontWeight: 600, color: '#2ec4b6' }}>{tailors.length - busyTailors} Free</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{t('analyticsPage.availableStaffCapacity', 'Available Staff capacity')}</span>
+                            <span style={{ fontWeight: 600, color: '#2ec4b6' }}>{tailors.length - busyTailors} {t('analyticsPage.freeStatus', 'Free')}</span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Atelier Average Rating</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{t('analyticsPage.atelierAvgRating', 'Atelier Average Rating')}</span>
                             <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                               ⭐ {avgTailorRating.toFixed(2)}
                             </span>
@@ -5899,7 +5899,7 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Order Status Breakdown</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.orderStatusBreakdown', 'Order Status Breakdown')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {Object.entries(dashboardData?.stats?.status_distribution || {}).map(([status, count], idx) => {
                             const pct = Math.round((count / ordersList.length) * 100) || 0;
