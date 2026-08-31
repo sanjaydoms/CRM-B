@@ -6133,14 +6133,14 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingFabric ? 'Edit Fabric Details' : 'Add New Fabric to Catalog'}
+                    {editingFabric ? t('fabricsPage.editFabricDetails', 'Edit Fabric Details') : t('fabricsPage.addNewFabricTitle', 'Add New Fabric to Catalog')}
                   </h3>
                   <button className="close-btn" onClick={() => setShowFabricModal(false)}><X size={20} /></button>
                 </div>
                 
                 <form onSubmit={handleSaveFabric} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Fabric Name</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.fabricName', 'Fabric Name')}</label>
                     <input 
                       type="text" 
                       required 
@@ -6153,7 +6153,7 @@ function App() {
 
                   <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Material</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.material', 'Material')}</label>
                       <input 
                         type="text" 
                         required 
@@ -6164,7 +6164,7 @@ function App() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Color</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.color', 'Color')}</label>
                       <input 
                         type="text" 
                         required 
@@ -6177,7 +6177,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Price per Meter (₹)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}</label>
                     <input 
                       type="number" 
                       required 
@@ -6191,7 +6191,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Image URL (Optional)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}</label>
                     <input 
                       type="url" 
                       className="form-control" 
@@ -6208,12 +6208,12 @@ function App() {
                       checked={fabricForm.is_available}
                       onChange={e => setFabricForm({...fabricForm, is_available: e.target.checked})}
                     />
-                    <label htmlFor="fabricAvailable" style={{ fontSize: '13px', cursor: 'pointer' }}>Available in Inventory</label>
+                    <label htmlFor="fabricAvailable" style={{ fontSize: '13px', cursor: 'pointer' }}>{t('fabricsPage.availableInInventory', 'Available in Inventory')}</label>
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Fabric</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                    <button type="submit" className="btn-primary">{t('fabricsPage.saveFabric', 'Save Fabric')}</button>
                   </div>
                 </form>
               </div>
