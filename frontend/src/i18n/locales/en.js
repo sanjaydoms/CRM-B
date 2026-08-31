@@ -1,0 +1,47 @@
+const en = {
+  common: {
+    english: "English",
+    hindi: "Hindi",
+    selectLanguage: "Language",
+    loading: "Loading...",
+    save: "Save",
+    cancel: "Cancel",
+    search: "Search",
+    filter: "Filter",
+    all: "All",
+    status: "Status",
+    actions: "Actions",
+    view: "View",
+    edit: "Edit",
+    delete: "Delete",
+  },
+  nav: {
+    dashboard: "Dashboard",
+    orders: "Orders",
+    customers: "Customers",
+    inventory: "Inventory",
+    menu: "Menu",
+    assignments: "Assignments",
+    account: "Account",
+  },
+  dashboard: {
+    title: "Dashboard Overview",
+    subtitle: "Real-time boutique metrics, customer activity, and operational performance",
+    totalOrders: "Total Orders",
+    pendingOrders: "Pending Orders",
+    deliveredOrders: "Delivered Orders",
+    totalCustomers: "Total Customers",
+    recentOrders: "Recent Orders",
+    quickActions: "Quick Actions",
+    newOrder: "New Order",
+    addCustomer: "Add Customer",
+    noOrders: "No recent orders found.",
+    orderId: "Order ID",
+    customer: "Customer",
+    garment: "Garment",
+    amount: "Amount",
+    date: "Date",
+  }
+};
+
+export default en;

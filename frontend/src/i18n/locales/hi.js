@@ -1,0 +1,47 @@
+const hi = {
+  common: {
+    english: "अंग्रेज़ी",
+    hindi: "हिंदी",
+    selectLanguage: "भाषा",
+    loading: "लोड हो रहा है...",
+    save: "सहेजें",
+    cancel: "रद्द करें",
+    search: "खोजें",
+    filter: "फ़िल्टर",
+    all: "सभी",
+    status: "स्थिति",
+    actions: "कार्रवाई",
+    view: "देखें",
+    edit: "संपादित करें",
+    delete: "हटाएं",
+  },
+  nav: {
+    dashboard: "डैशबोर्ड",
+    orders: "ऑर्डर",
+    customers: "ग्राहक",
+    inventory: "इन्वेंटरी",
+    menu: "मेनू",
+    assignments: "कार्य आवंटन",
+    account: "खाता",
+  },
+  dashboard: {
+    title: "डैशबोर्ड अवलोकन",
+    subtitle: "वास्तविक समय बुटीक मेट्रिक्स, ग्राहक गतिविधि और परिचालन प्रदर्शन",
+    totalOrders: "कुल ऑर्डर",
+    pendingOrders: "लंबित ऑर्डर",
+    deliveredOrders: "डिलीवर किए गए ऑर्डर",
+    totalCustomers: "कुल ग्राहक",
+    recentOrders: "हाल के ऑर्डर",
+    quickActions: "त्वरित कार्रवाई",
+    newOrder: "नया ऑर्डर",
+    addCustomer: "ग्राहक जोड़ें",
+    noOrders: "कोई हालिया ऑर्डर नहीं मिला।",
+    orderId: "ऑर्डर आईडी",
+    customer: "ग्राहक",
+    garment: "पोशाक",
+    amount: "राशि",
+    date: "दिनांक",
+  }
+};
+
+export default hi;

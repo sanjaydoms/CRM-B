@@ -28,7 +28,10 @@ const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 import { MobileHeader } from './components/ui/MobileHeader';
+import { useLanguage } from './i18n/LanguageContext.jsx';
+import LanguageSelector from './components/LanguageSelector.jsx';
 import { BottomNavigation } from './components/ui/BottomNavigation';
+
 import { BottomSheet } from './components/ui/BottomSheet';
 import { ResponsiveCard } from './components/ui/ResponsiveCard';
 import { ProgressiveAccordion } from './components/ui/ProgressiveAccordion';
@@ -660,6 +663,8 @@ function App() {
     () => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login');
   const [dashboardTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs'
   const [currentUser, setCurrentUser] = useState(null);
+  const { t, language } = useLanguage();
+
   
   // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
@@ -2836,7 +2841,8 @@ function App() {
             <nav className="portal-menu">
               {(!currentUser.role || currentUser.role === 'Owner') ? (
                 <>
-                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Dashboard</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.dashboard')}</a>
+
                   <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
                   <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
                   <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> Invoices</a>
@@ -3250,21 +3256,22 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Welcome back, {currentUser.first_name}! 👋
+                        {language === 'hi' ? `वापसी पर स्वागत है, ${currentUser.first_name}! 👋` : `Welcome back, ${currentUser.first_name}! 👋`}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Your custom creation journey starts here.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('dashboard.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <LanguageSelector />
                     <button className="btn-primary" onClick={() => setView('order-selector')}>
                       <Sparkles size={16} />
-                      New Custom Order
+                      {t('dashboard.newOrder')}
                     </button>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
                     </div>
                   </div>
                 </header>
@@ -3273,32 +3280,28 @@ function App() {
                 <section className="quick-action-button-grid">
                   <div className="quick-action-item" onClick={() => setView('order-selector')}>
                     <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
-                    <h4>New Order</h4>
-                    <p>Start custom order</p>
+                    <h4>{t('dashboard.newOrder')}</h4>
+                    <p>{language === 'hi' ? 'कस्टम ऑर्डर शुरू करें' : 'Start custom order'}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('tailors')}>
                     <div className="quick-action-icon-box"><Scissors size={18} /></div>
-                    <h4>Manage Staff</h4>
-                    <p>Tailors & status</p>
+                    <h4>{language === 'hi' ? 'कर्मचारी प्रबंधित करें' : 'Manage Staff'}</h4>
+                    <p>{language === 'hi' ? 'दर्जी और स्थिति' : 'Tailors & status'}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('designs')}>
                     <div className="quick-action-icon-box"><Heart size={18} /></div>
-                    <h4>Design Catalog</h4>
-                    <p>Style collections</p>
+                    <h4>{language === 'hi' ? 'डिजाइन कैटलॉग' : 'Design Catalog'}</h4>
+                    <p>{language === 'hi' ? 'शैली संग्रह' : 'Style collections'}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('fabrics')}>
                     <div className="quick-action-icon-box"><Compass size={18} /></div>
-                    <h4>Fabric Library</h4>
-                    <p>Explore fabrics</p>
+                    <h4>{language === 'hi' ? 'फैब्रिक लाइब्रेरी' : 'Fabric Library'}</h4>
+                    <p>{language === 'hi' ? 'फैब्रिक खोजें' : 'Explore fabrics'}</p>
                   </div>
-                  {/* This tile was the one of five with no onClick at all --
-                      it looked identical to its four working siblings and did
-                      nothing when pressed. Booking now opens a real
-                      appointment against apps/scheduling. */}
                   <div className="quick-action-item" onClick={() => setShowAppointmentModal(true)}>
                     <div className="quick-action-icon-box"><Calendar size={18} /></div>
-                    <h4>Book Appointment</h4>
-                    <p>Consult with stylist</p>
+                    <h4>{language === 'hi' ? 'अपॉइंटमेंट बुक करें' : 'Book Appointment'}</h4>
+                    <p>{language === 'hi' ? 'स्टाइलिस्ट से परामर्श करें' : 'Consult with stylist'}</p>
                   </div>
                 </section>
 
@@ -3307,9 +3310,10 @@ function App() {
                   {/* Active Orders List */}
                   <div className="orders-list-panel">
                     <div className="panel-header-row">
-                      <h3 style={{ fontSize: '16px', fontWeight: 600 }}>My Orders</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>VIEW ALL ORDERS →</a>
+                      <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{language === 'hi' ? 'मेरे ऑर्डर' : 'My Orders'}</h3>
+                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>{language === 'hi' ? 'सभी ऑर्डर देखें →' : 'VIEW ALL ORDERS →'}</a>
                     </div>
+
 
                     {loading ? (
                       <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
