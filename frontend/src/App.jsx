@@ -3245,7 +3245,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <LanguageSelector />
                     <button className="btn-primary" onClick={() => setView('order-selector')}>
                       <Sparkles size={16} />
                       {t('dashboard.newOrder')}
@@ -3671,7 +3670,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <LanguageSelector />
                     <button className="btn-primary" onClick={() => {
                       setEditingFabric(null);
                       setFabricForm({ name: '', material: '', color: '', price_per_meter: '', image_url: '', is_available: true });
@@ -3778,7 +3776,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <LanguageSelector />
                     <button className="btn-primary" onClick={() => {
                       setEditingTailor(null);
                       setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
@@ -4058,7 +4055,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <LanguageSelector />
                     {(!currentUser?.role || currentUser.role === 'Owner') && (
                       <button className="btn-primary" onClick={() => {
                         setEditingDesign(null);
@@ -4151,7 +4147,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <LanguageSelector />
                     {(!currentUser?.role || currentUser.role === 'Owner') && (
                       <button className="btn-primary" onClick={handleStartNewCustomer}>
                         <Plus size={16} /> {t('ordersPage.newOrder')}
@@ -4514,7 +4509,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <LanguageSelector />
                     <div className="search-input-wrapper" style={{ margin: 0 }}>
                       <Search size={18} />
                       <input 
@@ -5933,7 +5927,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <LanguageSelector />
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
@@ -6928,7 +6921,6 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', maxWidth: '1280px', margin: '0 auto 16px' }}>
               <div className="brand-logo" style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '1px', color: 'var(--text-primary)' }}>SCALEEZY</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <LanguageSelector />
                 {draftSaveState !== 'idle' && (
                   <span style={{ fontSize: '12.5px',
                                  color: draftSaveState === 'conflict' || draftSaveState === 'failed'

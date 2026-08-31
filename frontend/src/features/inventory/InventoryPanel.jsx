@@ -170,7 +170,6 @@ export default function InventoryPanel({ currentUser }) {
           </div>
         </div>
         <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <LanguageSelector />
           {isOwner && (
             <button type="button" className="btn-primary" onClick={() => setEditingItem({})}>
               <Plus size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
