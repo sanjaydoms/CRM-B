@@ -4069,17 +4069,13 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Design Collections
+                        {t('designsPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Add, edit, or remove catalog designs and AI suggestions.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('designsPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
-                    {/* This posts through the catalogue's own endpoint, which
-                        (unlike DesignAssetViewSet) has no per-design ownership
-                        check -- so it stays Owner-only rather than opened to a
-                        Designer the way the library's own upload flow below
-                        already is. */}
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <LanguageSelector />
                     {(!currentUser?.role || currentUser.role === 'Owner') && (
                       <button className="btn-primary" onClick={() => {
                         setEditingDesign(null);
@@ -4096,17 +4092,18 @@ function App() {
                         setShowDesignModal(true);
                       }}>
                         <Plus size={16} />
-                        Add New Design
+                        {t('designsPage.addNewDesign')}
                       </button>
                     )}
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
                     </div>
                   </div>
                 </header>
+
 
                 <div className="design-manager-content" style={{ marginTop: '24px' }}>
                   {/* Dashboard first: stats before images, so opening the module

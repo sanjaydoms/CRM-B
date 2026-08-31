@@ -81,6 +81,13 @@ const hi = {
     stitchingStaff: "सिलाई कर्मचारी",
     available: "उपलब्ध",
     busy: "व्यस्त",
+  },
+  designsPage: {
+    title: "डिजाइन संग्रह प्रबंधित करें",
+    subtitle: "कैटलॉग डिजाइन और AI सुझावों को जोड़ें, संपादित करें या हटाएं।",
+    addNewDesign: "नया डिजाइन जोड़ें",
+    catalogDesigns: "कैटलॉग डिजाइन",
+    aiStudio: "AI स्टूडियो",
   }
 };
 

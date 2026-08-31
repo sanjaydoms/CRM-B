@@ -81,6 +81,13 @@ const en = {
     stitchingStaff: "Stitching Staff",
     available: "Available",
     busy: "Busy",
+  },
+  designsPage: {
+    title: "Manage Design Collections",
+    subtitle: "Add, edit, or remove catalog designs and AI suggestions.",
+    addNewDesign: "Add New Design",
+    catalogDesigns: "Catalog Designs",
+    aiStudio: "AI Studio",
   }
 };
 
