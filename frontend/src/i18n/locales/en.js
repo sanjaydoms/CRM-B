@@ -52,6 +52,18 @@ const en = {
     filterShipped: "Shipped",
     filterDelivered: "Delivered",
     noOrdersFound: "No matching orders found.",
+  },
+  customersPage: {
+    title: "Customer Directory",
+    subtitle: "View client profiles, style files, and body measurements.",
+    searchPlaceholder: "Search customers...",
+    filterAll: "All",
+    filterWomen: "Women",
+    filterMen: "Men",
+    filterKids: "Kids",
+    noCustomersYet: "No customers yet",
+    noMatchingCustomers: "No customers found matching current filters",
+    addFirstCustomer: "Add your first customer",
   }
 };
 

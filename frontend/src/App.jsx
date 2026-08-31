@@ -4524,17 +4524,18 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Customer Directory
+                        {t('customersPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>View client profiles, style files, and body measurements.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('customersPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <LanguageSelector />
                     <div className="search-input-wrapper" style={{ margin: 0 }}>
                       <Search size={18} />
                       <input 
                         type="text" 
-                        placeholder="Search customers..." 
+                        placeholder={t('customersPage.searchPlaceholder')} 
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="form-control"
@@ -4545,14 +4546,19 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
                     </div>
                   </div>
                 </header>
 
                 {/* Customer Type Filters */}
                 <div style={{ display: 'flex', gap: '12px', marginTop: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                  {['All', 'Women', 'Men', 'Kids'].map(type => (
+                  {[
+                    { key: 'All', label: t('customersPage.filterAll') },
+                    { key: 'Women', label: t('customersPage.filterWomen') },
+                    { key: 'Men', label: t('customersPage.filterMen') },
+                    { key: 'Kids', label: t('customersPage.filterKids') }
+                  ].map(({ key: type, label }) => (
                     <button
                       key={type}
                       type="button"
@@ -4570,7 +4576,7 @@ function App() {
                         transition: 'all 0.2s ease'
                       }}
                     >
-                      {type}
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -4578,7 +4584,7 @@ function App() {
                 <div className="customers-list-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {loading && customersList.length === 0 ? (
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Loading customer directory…</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{t('common.loading')}</span>
                     </div>
                   ) : loadErrors.includes('customers') ? (
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(127,29,29,0.15)', borderRadius: '12px', border: '1px solid rgba(220,38,38,0.3)' }}>
@@ -4589,19 +4595,20 @@ function App() {
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                       {customersList.length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                          <div style={{ fontWeight: 600 }}>No customers yet</div>
+                          <div style={{ fontWeight: 600 }}>{t('customersPage.noCustomersYet')}</div>
                           <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '44ch', lineHeight: 1.5 }}>
                             Everyone you take an order for is kept here, with their measurements, past orders and preferences.
                           </div>
                           <button className="btn-primary" onClick={handleStartNewCustomer}>
-                            Add your first customer
+                            {t('customersPage.addFirstCustomer')}
                           </button>
                         </div>
                       ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>No customers found matching current filters</span>
+                        <span style={{ color: 'var(--text-muted)' }}>{t('customersPage.noMatchingCustomers')}</span>
                       )}
                     </div>
                   ) : (
+
                     directoryCustomers.map(cust => (
                       <div key={cust.id} className="customer-detail-card responsive-customer-card" style={{
                         background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',

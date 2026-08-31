@@ -52,6 +52,18 @@ const hi = {
     filterShipped: "भेज दिया (Shipped)",
     filterDelivered: "डिलीवर किया गया",
     noOrdersFound: "कोई मेल खाता हुआ ऑर्डर नहीं मिला।",
+  },
+  customersPage: {
+    title: "ग्राहक निर्देशिका (Customer Directory)",
+    subtitle: "ग्राहक प्रोफाइल, शैली फाइलें और शारीरिक माप देखें।",
+    searchPlaceholder: "ग्राहकों को खोजें...",
+    filterAll: "सभी",
+    filterWomen: "महिलाएं (Women)",
+    filterMen: "पुरुष (Men)",
+    filterKids: "बच्चे (Kids)",
+    noCustomersYet: "अभी तक कोई ग्राहक नहीं है",
+    noMatchingCustomers: "वर्तमान फ़िल्टर से मेल खाता कोई ग्राहक नहीं मिला",
+    addFirstCustomer: "अपना पहला ग्राहक जोड़ें",
   }
 };
 
