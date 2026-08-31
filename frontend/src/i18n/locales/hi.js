@@ -64,6 +64,14 @@ const hi = {
     noCustomersYet: "अभी तक कोई ग्राहक नहीं है",
     noMatchingCustomers: "वर्तमान फ़िल्टर से मेल खाता कोई ग्राहक नहीं मिला",
     addFirstCustomer: "अपना पहला ग्राहक जोड़ें",
+  },
+  fabricsPage: {
+    title: "फैब्रिक लाइब्रेरी प्रबंधित करें",
+    subtitle: "बुटीक कैटलॉग फैब्रिक को कॉन्फ़िगर करें, जोड़ें या संपादित करें।",
+    addNewFabric: "नया फैब्रिक जोड़ें",
+    inStock: "स्टॉक में है",
+    outOfStock: "स्टॉक समाप्त",
+    pricePerMeter: "प्रति मीटर",
   }
 };
 

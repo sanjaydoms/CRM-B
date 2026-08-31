@@ -3682,28 +3682,30 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Fabric Library
+                        {t('fabricsPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Configure, add, or edit boutique catalog fabrics.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('fabricsPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <LanguageSelector />
                     <button className="btn-primary" onClick={() => {
                       setEditingFabric(null);
                       setFabricForm({ name: '', material: '', color: '', price_per_meter: '', image_url: '', is_available: true });
                       setShowFabricModal(true);
                     }}>
                       <Plus size={16} />
-                      Add New Fabric
+                      {t('fabricsPage.addNewFabric')}
                     </button>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
                     </div>
                   </div>
                 </header>
+
 
                 <div className="fabric-manager-content" style={{ marginTop: '24px' }}>
                   <div className="fabrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>

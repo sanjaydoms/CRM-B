@@ -64,6 +64,14 @@ const en = {
     noCustomersYet: "No customers yet",
     noMatchingCustomers: "No customers found matching current filters",
     addFirstCustomer: "Add your first customer",
+  },
+  fabricsPage: {
+    title: "Manage Fabric Library",
+    subtitle: "Configure, add, or edit boutique catalog fabrics.",
+    addNewFabric: "Add New Fabric",
+    inStock: "In Stock",
+    outOfStock: "Out of Stock",
+    pricePerMeter: "Per Meter",
   }
 };
 
