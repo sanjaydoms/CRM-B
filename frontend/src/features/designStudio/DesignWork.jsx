@@ -31,7 +31,15 @@ const STATUS_STYLE = {
 };
 
 function StatusPill({ status }) {
+  const { t } = useLanguage();
   const style = STATUS_STYLE[status] || { label: status, colour: 'var(--text-secondary)', icon: ClipboardList };
+  const keyMap = {
+    ASSIGNED: 'assigned',
+    SUBMITTED: 'awaitingReview',
+    APPROVED: 'approved',
+    CHANGES_REQUESTED: 'changesRequested'
+  };
+  const label = keyMap[status] ? t(`designWorkPage.${keyMap[status]}`, style.label) : style.label;
   const Icon = style.icon;
   return (
     <span style={{
@@ -39,7 +47,7 @@ function StatusPill({ status }) {
       padding: '3px 9px', borderRadius: '99px', fontSize: '11px', fontWeight: 600,
       color: style.colour, background: `${style.colour}1f`, whiteSpace: 'nowrap',
     }}>
-      <Icon size={12} /> {style.label}
+      <Icon size={12} /> {label}
     </span>
   );
 }
@@ -53,6 +61,7 @@ function formatDate(value) {
 
 /** The supervisor's assign form: pick a garment, pick a designer, send it. */
 function AssignPanel({ orders, designers, onAssigned, onError }) {
+  const { t } = useLanguage();
   const [jobId, setJobId] = useState('');
   const [designerId, setDesignerId] = useState('');
   const [brief, setBrief] = useState('');
@@ -91,44 +100,44 @@ function AssignPanel({ orders, designers, onAssigned, onError }) {
   return (
     <form className="content-card" onSubmit={submit} style={{ marginBottom: '18px' }}>
       <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-        <UserPlus size={16} /> Assign design work
+        <UserPlus size={16} /> {t('designWorkPage.assignDesignWork', 'Assign design work')}
       </h3>
       <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
         <label style={{ display: 'block' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Garment</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.garment', 'Garment')}</span>
           <select className="form-input" value={jobId} required
                   onChange={(e) => setJobId(e.target.value)}>
-            <option value="">Choose a garment…</option>
+            <option value="">{t('designWorkPage.chooseGarment', 'Choose a garment…')}</option>
             {garmentOptions.map(option => (
               <option key={option.id} value={option.id}>{option.label}</option>
             ))}
           </select>
         </label>
         <label style={{ display: 'block' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Designer</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.designer', 'Designer')}</span>
           <select className="form-input" value={designerId} required
                   onChange={(e) => setDesignerId(e.target.value)}>
-            <option value="">Choose a designer…</option>
+            <option value="">{t('designWorkPage.chooseDesigner', 'Choose a designer…')}</option>
             {(designers || []).map(designer => (
               <option key={designer.id} value={designer.id}>{designer.name}</option>
             ))}
           </select>
         </label>
         <label style={{ display: 'block' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Due date</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.dueDate', 'Due date')}</span>
           <input type="date" className="form-input" value={dueDate}
                  onChange={(e) => setDueDate(e.target.value)} />
         </label>
       </div>
       <label style={{ display: 'block', marginTop: '12px' }}>
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Brief (optional)</span>
+        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.briefOptional', 'Brief (optional)')}</span>
         <textarea className="form-input" rows={2} value={brief}
-                  placeholder="What are you asking for, beyond the spec?"
+                  placeholder={t('designWorkPage.briefPlaceholder', 'What are you asking for, beyond the spec?')}
                   onChange={(e) => setBrief(e.target.value)} />
       </label>
       <button type="submit" className="btn-primary" disabled={busy || !jobId || !designerId}
               style={{ marginTop: '12px' }}>
-        {busy ? 'Assigning…' : 'Assign'}
+        {busy ? t('designWorkPage.assigningBtn', 'Assigning…') : t('designWorkPage.assignBtn', 'Assign')}
       </button>
     </form>
   );
@@ -136,6 +145,7 @@ function AssignPanel({ orders, designers, onAssigned, onError }) {
 
 /** The designer's end: choose one of your designs and hand it back. */
 function SubmitPanel({ assignment, designs, onSubmitted, onError }) {
+  const { t } = useLanguage();
   const [designId, setDesignId] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -156,7 +166,7 @@ function SubmitPanel({ assignment, designs, onSubmitted, onError }) {
   if (!designs.length) {
     return (
       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '10px' }}>
-        Upload a design in the Design Studio first, then submit it here.
+        {t('designWorkPage.uploadDesignFirst', 'Upload a design in the Design Studio first, then submit it here.')}
       </p>
     );
   }
@@ -164,22 +174,22 @@ function SubmitPanel({ assignment, designs, onSubmitted, onError }) {
   return (
     <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-end' }}>
       <label style={{ flex: '1 1 200px' }}>
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Your design</span>
+        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.yourDesign', 'Your design')}</span>
         <select className="form-input" value={designId} onChange={(e) => setDesignId(e.target.value)}>
-          <option value="">Choose a design…</option>
+          <option value="">{t('designWorkPage.chooseDesign', 'Choose a design…')}</option>
           {designs.map(design => (
             <option key={design.id} value={design.id}>{design.title}</option>
           ))}
         </select>
       </label>
       <label style={{ flex: '2 1 240px' }}>
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Note (optional)</span>
+        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.noteOptional', 'Note (optional)')}</span>
         <input className="form-input" value={note} onChange={(e) => setNote(e.target.value)}
-               placeholder="Anything the owner should know" />
+               placeholder={t('designWorkPage.notePlaceholderDesigner', 'Anything the owner should know')} />
       </label>
       <button className="btn-primary" disabled={busy || !designId} onClick={submit}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-        <Send size={14} /> {busy ? 'Submitting…' : 'Submit design'}
+        <Send size={14} /> {busy ? t('designWorkPage.submittingBtn', 'Submitting…') : t('designWorkPage.submitDesignBtn', 'Submit design')}
       </button>
     </div>
   );
@@ -280,17 +290,17 @@ function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError 
       {isSupervisor && assignment.status === 'SUBMITTED' && (
         <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-end' }}>
           <label style={{ flex: '1 1 240px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Note (optional)</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.noteOptional', 'Note (optional)')}</span>
             <input className="form-input" value={note} onChange={(e) => setNote(e.target.value)}
-                   placeholder="What needs changing?" />
+                   placeholder={t('designWorkPage.notePlaceholderSupervisor', 'What needs changing?')} />
           </label>
           <button className="btn-primary" disabled={busy} onClick={() => review('approve')}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <Check size={14} /> Approve
+            <Check size={14} /> {t('designWorkPage.approveBtn', 'Approve')}
           </button>
           <button className="btn-secondary" disabled={busy} onClick={() => review('changes')}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <RotateCcw size={14} /> Request changes
+            <RotateCcw size={14} /> {t('designWorkPage.requestChangesBtn', 'Request changes')}
           </button>
         </div>
       )}

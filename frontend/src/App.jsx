@@ -4034,12 +4034,12 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Design Work
+                        {t('designWorkPage.title', 'Design Work')}
                       </h1>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                         {currentUser?.role === 'Designer'
-                          ? 'The garments you have been asked to design.'
-                          : 'Assign a garment to a designer, and review what comes back.'}
+                          ? t('designWorkPage.subtitleDesigner', 'The garments you have been asked to design.')
+                          : t('designWorkPage.subtitleSupervisor', 'Assign a garment to a designer, and review what comes back.')}
                       </p>
                     </div>
                   </div>
