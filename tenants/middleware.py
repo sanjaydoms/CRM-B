@@ -446,7 +446,7 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
                     status=403,
                 )
 
-        if tenant:
+        if tenant and tenant.schema_name != public_schema_name:
             tenant.domain_url = request.get_host()
             request.tenant = tenant
             connection.set_tenant(request.tenant)
@@ -459,3 +459,10 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
         else:
             connection.set_schema_to_public()
             timezone.deactivate()
+            if request.path.startswith('/api/') and not request.path.startswith(PUBLIC_ONLY_PREFIXES) and not request.path.startswith('/api/auth/'):
+                return JsonResponse(
+                    {"error": "Boutique tenant context required for this endpoint. If you are a Superadmin, please use the Superadmin Console at /superadmin.html."},
+                    status=400,
+                )
+
+
