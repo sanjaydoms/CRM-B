@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Package, Plus, Search } from 'lucide-react';
 
 import { api } from '../../services/api';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
 
 /**
  * The published catalogue: 732 materials across 49 sections.
@@ -32,6 +33,7 @@ const TYPE_LABEL = {
 };
 
 export default function CatalogBrowser({ isOwner, onStocked }) {
+  const { t } = useLanguage();
   const [sections, setSections] = useState([]);
   const [openSection, setOpenSection] = useState(null);
   const [items, setItems] = useState([]);
@@ -49,9 +51,6 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
   }, []);
 
   const loadItems = useCallback((section, term) => {
-    // A search spans the whole catalogue; without one, only the open section is
-    // fetched. Loading all 732 to filter in the browser would be the easy thing
-    // and the wrong one.
     if (!section && !term) { setItems([]); return; }
     setLoading(true);
     api.getCatalogItems({
@@ -81,8 +80,6 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
     setError(null);
     try {
       await api.stockCatalogItem(item.id, {});
-      // Re-fetch rather than patching in place: the row now carries the id of
-      // the inventory item it created, which is what hides the button.
       loadItems(openSection, search.trim());
       onStocked?.();
     } catch (err) {
@@ -109,12 +106,12 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
           <input type="checkbox" checked={stockableOnly} onChange={(e) => setStockableOnly(e.target.checked)} />
-          Only what can be stocked
+          {t('inventoryPage.onlyStockable', 'Only what can be stocked')}
         </label>
         {openSection && (
           <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
                   onClick={() => { setOpenSection(null); setSearch(''); }}>
-            All sections
+            {t('inventoryPage.allSections', 'All sections')}
           </button>
         )}
       </div>
@@ -127,7 +124,7 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
 
       {!openSection && !search.trim() && (
         <div>
-          {[['MAGGAM', 'Maggam · Aari · Zardosi'], ['APPAREL', 'Apparel ecosystem']].map(([doc, label]) => (
+          {[['MAGGAM', t('inventoryPage.maggamSection', 'Maggam · Aari · Zardosi')], ['APPAREL', t('inventoryPage.apparelSection', 'Apparel ecosystem')]].map(([doc, label]) => (
             <div key={doc} style={{ marginBottom: '24px' }}>
               <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px' }}>
                 {label}
@@ -142,7 +139,7 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
                   >
                     <div style={{ fontSize: '13.5px', fontWeight: 600 }}>{section.full_name}</div>
                     <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      {section.item_count} material{section.item_count === 1 ? '' : 's'}
+                      {section.item_count} {t('inventoryPage.tableItem', 'material')}
                     </div>
                   </button>
                 ))}
@@ -162,7 +159,7 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
           </div>
           {!loading && items.length === 0 && (
             <div style={{ padding: '28px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-              Nothing matches.
+              {t('inventoryPage.nothingMatches', 'Nothing matches.')}
             </div>
           )}
           <div>
@@ -179,11 +176,11 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
                 </div>
                 {item.stocked_item_id ? (
                   <span style={{ fontSize: '11.5px', color: '#34d399', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <Check size={13} /> In your inventory
+                    <Check size={13} /> {t('inventoryPage.inYourInventory', 'In your inventory')}
                   </span>
                 ) : !item.is_stockable ? (
                   <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                    Not a stockable material
+                    {t('inventoryPage.notStockableMaterial', 'Not a stockable material')}
                   </span>
                 ) : isOwner ? (
                   <button type="button" className="btn-secondary"
@@ -191,7 +188,7 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
                           disabled={busy === item.id}
                           onClick={() => stock(item)}>
                     <Plus size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
-                    {busy === item.id ? 'Adding…' : 'Stock this'}
+                    {busy === item.id ? t('inventoryPage.adding', 'Adding…') : t('inventoryPage.stockThis', 'Stock this')}
                   </button>
                 ) : null}
               </div>

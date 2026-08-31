@@ -703,20 +703,21 @@ function SelectField({ label, value, onChange, options, hint }) {
 }
 
 function PurchaseTab({ purchaseOrders, suppliers, items, isOwner, onReceive, onCreated }) {
+  const { t } = useLanguage();
   const [creating, setCreating] = useState(false);
   return (
     <>
       {isOwner && (
         <div style={{ marginTop: '20px' }}>
           <button type="button" className="btn-secondary" onClick={() => setCreating(true)}>
-            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />New purchase order
+            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />{t('inventoryPage.newPurchaseOrder', 'New purchase order')}
           </button>
         </div>
       )}
 
       {purchaseOrders.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '16px', color: 'var(--text-muted)' }}>
-          No purchase orders yet.
+          {t('inventoryPage.noPurchaseOrdersYet', 'No purchase orders yet.')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
@@ -733,7 +734,7 @@ function PurchaseTab({ purchaseOrders, suppliers, items, isOwner, onReceive, onC
                   </div>
                   {isOwner && outstanding && (
                     <button type="button" className="btn-secondary" style={{ fontSize: '12px' }} onClick={() => onReceive(po)}>
-                      Receive goods
+                      {t('inventoryPage.receiveGoods', 'Receive goods')}
                     </button>
                   )}
                 </div>
@@ -904,18 +905,19 @@ function ReceiveModal({ purchaseOrder, onClose, onDone }) {
 }
 
 function SuppliersTab({ suppliers, isOwner, onAdd }) {
+  const { t } = useLanguage();
   return (
     <>
       {isOwner && (
         <div style={{ marginTop: '20px' }}>
           <button type="button" className="btn-secondary" onClick={onAdd}>
-            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />New supplier
+            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />{t('inventoryPage.newSupplier', 'New supplier')}
           </button>
         </div>
       )}
       {suppliers.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '16px', color: 'var(--text-muted)' }}>
-          No suppliers yet.
+          {t('inventoryPage.noSuppliersYet', 'No suppliers yet.')}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px', marginTop: '16px' }}>

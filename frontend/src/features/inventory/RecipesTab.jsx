@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Calculator, Plus, Trash2 } from 'lucide-react';
 
 import { api } from '../../services/api';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
 
 /**
  * Recipes: what each garment is made of.
@@ -28,6 +29,7 @@ const ROLES = [
 const qty = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
 
 export default function RecipesTab({ items, isOwner }) {
+  const { t } = useLanguage();
   const [boms, setBoms] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -47,9 +49,6 @@ export default function RecipesTab({ items, isOwner }) {
     } finally {
       setLoading(false);
     }
-    // `selected` is read to preserve the open recipe across a refresh; including
-    // it in the deps would re-fetch every time the selection changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -58,11 +57,11 @@ export default function RecipesTab({ items, isOwner }) {
     <div style={{ marginTop: '20px' }}>
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)', flex: '1 1 auto' }}>
-          What each garment is made of. An order reserves against the recipe.
+          {t('inventoryPage.recipesSubtitle', 'What each garment is made of. An order reserves against the recipe.')}
         </div>
         {isOwner && (
           <button type="button" className="btn-primary" style={{ fontSize: '13px' }} onClick={() => setCreating(true)}>
-            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} /> New recipe
+            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} /> {t('inventoryPage.newRecipe', 'New recipe')}
           </button>
         )}
       </div>
@@ -75,7 +74,7 @@ export default function RecipesTab({ items, isOwner }) {
 
       {!loading && boms.length === 0 && (
         <div style={{ ...panel, padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-          No recipes yet. A recipe lists the materials a garment needs, so an order can reserve them.
+          {t('inventoryPage.noRecipes', 'No recipes yet. A recipe lists the materials a garment needs, so an order can reserve them.')}
         </div>
       )}
 
