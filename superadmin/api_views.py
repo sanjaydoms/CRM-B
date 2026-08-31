@@ -126,6 +126,11 @@ class UserActionView(ConsoleView):
         'activate': ('user.activate', lambda s, u: users_module.set_user_active(s, u, True)),
         'revoke': ('user.revoke_token', users_module.revoke_sessions),
         'reset-password': ('user.password_reset', users_module.trigger_password_reset),
+        # Issues a one-time link and RETURNS it, rather than only mailing it.
+        # With no SMTP configured -- production's current state -- mailing was
+        # the same as discarding, so an administrator had no way to hand a
+        # boutique its access at all.
+        'access-link': ('user.access_link', users_module.issue_access_link),
     }
 
     def post(self, request, schema_name=None, username=None, action=None):
@@ -140,15 +145,33 @@ class UserActionView(ConsoleView):
             return Response({'error': 'No such boutique.'}, status=status.HTTP_404_NOT_FOUND)
 
         audit_action, run = entry
-        ok, message = run(schema_name, username)
+        # Actions return (ok, message) or (ok, message, data). The third slot
+        # exists for access-link, which has something to hand back; normalising
+        # here keeps the other three from growing a `None` they do not use.
+        result = run(schema_name, username)
+        ok, message = result[0], result[1]
+        data = result[2] if len(result) > 2 else None
 
         # Recorded whether it succeeded or not. A refused deactivation of a
         # boutique owner is exactly the kind of attempt worth having a record of.
+        #
+        # `data` is deliberately NOT recorded. For access-link it contains a live
+        # sign-in link, and an audit trail holding working credentials is a
+        # second place to steal them from -- one that is, by design, kept
+        # forever and readable by every administrator. What is worth recording
+        # is that a link was issued, for whom, and whether it was also emailed.
+        recorded = {'ok': ok, 'result': message}
+        if data:
+            recorded['emailed'] = data.get('emailed', False)
+            recorded['expires_minutes'] = data.get('expires_minutes')
         audit.record(request, audit_action, target=username, boutique=schema_name,
-                     after={'ok': ok, 'result': message},
+                     after=recorded,
                      reason=(request.data.get('reason') or '').strip())
 
-        return Response({'ok': ok, 'message': message},
+        body = {'ok': ok, 'message': message}
+        if data:
+            body.update(data)
+        return Response(body,
                         status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST)
 
 

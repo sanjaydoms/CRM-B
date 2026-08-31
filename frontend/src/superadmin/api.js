@@ -139,6 +139,12 @@ export const consoleApi = {
   userAction: (schema, username, action, reason = '') =>
     request(`/users/${schema}/${encodeURIComponent(username)}/${action}/`,
             { method: 'POST', body: { reason } }),
+  // Returns {link, expires_minutes, emailed, email_address, ...}. The link is
+  // credential-equivalent until it is used: it is shown once, never stored by
+  // this client, and never written to the audit trail server-side.
+  accessLink: (schema, username, reason = '') =>
+    request(`/users/${schema}/${encodeURIComponent(username)}/access-link/`,
+            { method: 'POST', body: { reason } }),
 
   onboarding: () => request('/onboarding/'),
   onboardingFor: (schema) => request(`/onboarding/${schema}/`),

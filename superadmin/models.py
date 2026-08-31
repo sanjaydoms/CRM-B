@@ -48,6 +48,7 @@ class AuditLog(models.Model):
         ('user.activate', 'User activated'),
         ('user.revoke_token', 'User sessions revoked'),
         ('user.password_reset', 'Password reset triggered'),
+        ('user.access_link', 'Sign-in link issued'),
         ('lead.update', 'Lead updated'),
         ('flag.change', 'Feature flag changed'),
         ('setting.change', 'Platform setting changed'),

@@ -475,6 +475,74 @@ class _PasswordResetThrottle(AnonRateThrottle):
     scope = 'password_reset'
 
 
+def make_reset_link(tenant, user):
+    """A signed set-your-password link for one account.
+
+    The payload carries the schema because every step of validating the token --
+    loading the user, reading the password hash it is derived from -- happens
+    inside the boutique's own schema, and the browser following this link has no
+    session and no X-Tenant-ID yet. The schema name is not a secret: it is
+    already in localStorage and on every API call as a header.
+
+    The token is Django's own `default_token_generator`, which derives from the
+    user's password hash and last_login. That gives two properties this flow
+    depends on and neither of which is written here: the link stops working the
+    moment it is used (the hash it was derived from has changed), and it expires
+    after PASSWORD_RESET_TIMEOUT.
+
+    Extracted so the console can *obtain* a link rather than only cause one to be
+    emailed. With no SMTP configured -- which is production's current state --
+    emailing was the same as discarding, and an administrator had no way to give
+    a boutique owner access at all.
+
+    Caller must already know the tenant. Resolving it from the address instead is
+    what the console cannot do safely: staff emails are unique inside a schema
+    and nothing makes them unique across schemas.
+    """
+    with schema_context(tenant.schema_name):
+        payload = '.'.join([
+            tenant.schema_name,
+            urlsafe_base64_encode(force_bytes(user.pk)),
+            default_token_generator.make_token(user),
+        ])
+    return f"{settings.PASSWORD_RESET_BASE_URL}?reset={payload}"
+
+
+def send_reset_email(tenant, user, link, address):
+    """Mail `link` to `address`. Returns True if it was accepted for delivery.
+
+    Never raises. A mail failure must not change what a caller tells the world:
+    for the public endpoint, which addresses bounce is the same directory the
+    generic answer exists to withhold; for the console, the link is returned to
+    the administrator anyway and is useful without the email.
+
+    The link is logged on failure because with no SMTP configured the log is the
+    only place an operator could otherwise recover it from.
+    """
+    boutique = tenant.name or 'your boutique'
+    try:
+        send_mail(
+            subject=f"Set your {boutique} password",
+            message=(
+                f"An administrator has issued a sign-in link for {address} on "
+                f"{boutique}.\n\n"
+                f"Open it to choose your password:\n\n{link}\n\n"
+                f"The link stops working in "
+                f"{settings.PASSWORD_RESET_TIMEOUT // 60} minutes, and once you "
+                f"use it every device signed in to this account is signed out.\n\n"
+                f"If you were not expecting this, ignore it -- nothing has "
+                f"changed until the link is used."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[address],
+            fail_silently=False,
+        )
+        return True
+    except Exception:
+        logger.exception('reset email failed for %s (link: %s)', address, link)
+        return False
+
+
 class PasswordResetRequestView(views.APIView):
     """Start a reset. Answers the same way whether or not the account exists.
 
@@ -506,45 +574,10 @@ class PasswordResetRequestView(views.APIView):
             if not user or not user.is_active:
                 return Response(self.ANSWER, status=status.HTTP_200_OK)
 
-            # The link has to carry the schema. Every part of validating the
-            # token -- loading the user, reading the password hash it is derived
-            # from -- happens inside the boutique's own schema, and the browser
-            # following this link has no session and no X-Tenant-ID yet. The
-            # schema name is not a secret: it is already in localStorage and on
-            # every API call as a header.
-            payload = '.'.join([
-                tenant.schema_name,
-                urlsafe_base64_encode(force_bytes(user.pk)),
-                default_token_generator.make_token(user),
-            ])
+            address = user.email or email
 
-        link = f"{settings.PASSWORD_RESET_BASE_URL}?reset={payload}"
-        boutique = tenant.name or 'your boutique'
-        try:
-            send_mail(
-                subject=f"Reset your {boutique} password",
-                message=(
-                    f"Someone asked to reset the password for {email} on "
-                    f"{boutique}.\n\n"
-                    f"Open this link to choose a new one:\n\n{link}\n\n"
-                    f"The link stops working in "
-                    f"{settings.PASSWORD_RESET_TIMEOUT // 60} minutes, and "
-                    f"once you use it every device signed in to this account "
-                    f"is signed out.\n\n"
-                    f"If this was not you, ignore this email -- nothing has "
-                    f"changed."
-                ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email or email],
-                fail_silently=False,
-            )
-        except Exception:
-            # Never surface the mail failure to the caller: which addresses
-            # bounce is the same directory the generic answer above exists to
-            # withhold. Logged with the link because with no SMTP configured
-            # the log is the only place an operator can recover it from.
-            logger.exception('password reset email failed for %s (link: %s)',
-                             email, link)
+        link = make_reset_link(tenant, user)
+        send_reset_email(tenant, user, link, address)
 
         return Response(self.ANSWER, status=status.HTTP_200_OK)
 
