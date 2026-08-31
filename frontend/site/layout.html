@@ -69,8 +69,51 @@
       localStorage.setItem('app_language', lang);
       location.reload();
     });
+
+    if (savedLang === 'hi') {
+      var hiMap = {
+        "Bring one real order.": "एक वास्तविक ऑर्डर लाएं।",
+        "Book a demo": "डेमो बुक करें",
+        "Your name": "आपका नाम",
+        "Boutique name": "बुटीक का नाम",
+        "Email": "ईमेल",
+        "Phone or WhatsApp": "फोन या व्हाट्सएप",
+        "What do you make?": "आप क्या बनाते हैं?",
+        "Orders a month": "प्रति माह ऑर्डर",
+        "People on the floor": "फ्लोर पर कर्मचारी",
+        "Biggest problem right now": "वर्तमान में सबसे बड़ी समस्या",
+        "Request a demo": "डेमो के लिए अनुरोध करें",
+        "A better way to run the atelier": "एटेलियर चलाने का बेहतर तरीका",
+        "What the half hour covers": "आधे घंटे में क्या कवर किया जाता है",
+        "Three things that make it useful.": "तीन चीजें जो इसे उपयोगी बनाती हैं।",
+        "One live order": "एक लाइव ऑर्डर",
+        "Your stage names": "आपके स्टेज के नाम",
+        "Your costing sheet": "आपकी लागत शीट",
+        "What is Scaleezy Boutique?": "Scaleezy Boutique क्या है?",
+        "What it is": "यह क्या है",
+        "Modules": "मॉड्यूल्स",
+        "Lifecycle": "जीवन चक्र (Lifecycle)",
+        "Your floor": "आपका फ्लोर",
+        "For customers": "ग्राहकों के लिए",
+        "Blog": "ब्लॉग",
+        "FAQ": "अक्सर पूछे जाने वाले प्रश्न (FAQ)",
+        "Sign in": "साइन इन करें"
+      };
+
+      document.addEventListener('DOMContentLoaded', function () {
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        var node;
+        while ((node = walker.nextNode())) {
+          var trimmed = node.nodeValue.trim();
+          if (hiMap[trimmed]) {
+            node.nodeValue = node.nodeValue.replace(trimmed, hiMap[trimmed]);
+          }
+        }
+      });
+    }
   }
 </script>
+
 
 
 </body>
