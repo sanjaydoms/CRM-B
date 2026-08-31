@@ -21,6 +21,7 @@ from django.db import connection
 from tenants.models import BoutiqueTenant, Domain
 from django_tenants.utils import schema_context
 from core.roles import OWNER, resolve_user_role
+from apps.email_service.services import EmailService
 
 logger = logging.getLogger(__name__)
 
@@ -509,38 +510,14 @@ def make_reset_link(tenant, user):
 
 
 def send_reset_email(tenant, user, link, address):
-    """Mail `link` to `address`. Returns True if it was accepted for delivery.
+    """Mail `link` to `address` via EmailService. Returns True if accepted for delivery.
 
     Never raises. A mail failure must not change what a caller tells the world:
     for the public endpoint, which addresses bounce is the same directory the
     generic answer exists to withhold; for the console, the link is returned to
     the administrator anyway and is useful without the email.
-
-    The link is logged on failure because with no SMTP configured the log is the
-    only place an operator could otherwise recover it from.
     """
-    boutique = tenant.name or 'your boutique'
-    try:
-        send_mail(
-            subject=f"Set your {boutique} password",
-            message=(
-                f"An administrator has issued a sign-in link for {address} on "
-                f"{boutique}.\n\n"
-                f"Open it to choose your password:\n\n{link}\n\n"
-                f"The link stops working in "
-                f"{settings.PASSWORD_RESET_TIMEOUT // 60} minutes, and once you "
-                f"use it every device signed in to this account is signed out.\n\n"
-                f"If you were not expecting this, ignore it -- nothing has "
-                f"changed until the link is used."
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[address],
-            fail_silently=False,
-        )
-        return True
-    except Exception:
-        logger.exception('reset email failed for %s (link: %s)', address, link)
-        return False
+    return EmailService.send_password_reset_email(tenant, user, link, address)
 
 
 class PasswordResetRequestView(views.APIView):

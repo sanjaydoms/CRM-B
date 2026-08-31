@@ -125,6 +125,7 @@ SHARED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
+    'apps.email_service',
 ]
 
 TENANT_APPS = [
