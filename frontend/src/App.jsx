@@ -2823,7 +2823,7 @@ function App() {
                 }}
               >
                 <Bell size={16} />
-                <span>Inbox Alerts</span>
+                <span>{t('common.inboxAlerts', 'Inbox Alerts')}</span>
                 {notifications.filter(n => !n.is_read).length > 0 && (
                   <span style={{
                     backgroundColor: '#ff4d4d',
@@ -2916,7 +2916,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(currentUser.first_name)}`} alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
                     </div>
                   </div>
                 </header>
@@ -5379,9 +5379,9 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Invoices & Billing
+                        {t('invoicesPage.title', 'Invoices & Billing')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Manage invoices, verify billing payments, and print receipts.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('invoicesPage.subtitle', 'Manage invoices, verify billing payments, and print receipts.')}</p>
                     </div>
                   </div>
                   <div className="portal-header-right">
@@ -5389,7 +5389,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
                     </div>
                   </div>
                 </header>
@@ -5410,15 +5410,15 @@ function App() {
                   return (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginTop: '24px' }}>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Collected Revenue</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.totalCollectedRevenue', 'Total Collected Revenue')}</span>
                         <div style={{ fontSize: '24px', fontWeight: 700, color: '#107c41', marginTop: '8px' }}>{formatMoney(paidTotal)}</div>
                       </div>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Outstanding Balance</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.outstandingBalance', 'Outstanding Balance')}</span>
                         <div style={{ fontSize: '24px', fontWeight: 700, color: '#d4af37', marginTop: '8px' }}>{formatMoney(pendingTotal)}</div>
                       </div>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Invoiced Volume</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.totalInvoicedVolume', 'Total Invoiced Volume')}</span>
                         <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>{formatMoney(grandTotal)}</div>
                       </div>
                     </div>
@@ -5446,7 +5446,7 @@ function App() {
                         className={invoiceFilter === option ? 'btn-primary' : 'btn-secondary'}
                         style={{ padding: '6px 16px', fontSize: '13px' }}
                       >
-                        {option}
+                        {option === 'All' ? t('common.all', 'All') : option === 'Paid' ? t('invoicesPage.paid', 'Paid') : t('invoicesPage.pending', 'Pending')}
                       </button>
                     ))}
                   </div>
@@ -5455,7 +5455,7 @@ function App() {
                     <Search className="search-icon" size={16} />
                     <input 
                       type="text" 
-                      placeholder="Search Invoice ID or Client..."
+                      placeholder={t('invoicesPage.searchPlaceholder', 'Search Invoice ID or Client...')}
                       className="search-input"
                       value={invoiceSearch}
                       onChange={(e) => setInvoiceSearch(e.target.value)}
@@ -5474,15 +5474,15 @@ function App() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.015)' }}>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Invoice ID</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Billing Client</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Date</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Total Price</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Advance Paid</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Total Paid</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Balance Due</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Payment Status</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Action</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.invoiceId', 'Invoice ID')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.billingClient', 'Billing Client')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.date', 'Date')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.totalPrice', 'Total Price')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.advancePaid', 'Advance Paid')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.totalPaid', 'Total Paid')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.balanceDue', 'Balance Due')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.status', 'Payment Status')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.actions', 'Action')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5505,8 +5505,8 @@ function App() {
                             <tr>
                               <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                 {ordersList.length === 0
-                                  ? 'Invoices appear here once you have created an order.'
-                                  : 'No invoices matching the criteria.'}
+                                  ? t('invoicesPage.emptyState', 'Invoices appear here once you have created an order.')
+                                  : t('invoicesPage.noMatchingInvoices', 'No invoices matching the criteria.')}
                               </td>
                             </tr>
                           );
@@ -5594,11 +5594,11 @@ function App() {
                                     puts the order there. Pending and Paid stay
                                     because both are unambiguous shortcuts:
                                     nothing received, and settled in full. */}
-                                <option value="Pending">Pending</option>
+                                <option value="Pending">{t('invoicesPage.pending', 'Pending')}</option>
                                 {order.payment_status === 'Partially Paid' && (
-                                  <option value="Partially Paid">Partially Paid</option>
+                                  <option value="Partially Paid">{t('invoicesPage.partiallyPaid', 'Partially Paid')}</option>
                                 )}
-                                <option value="Paid">Paid</option>
+                                <option value="Paid">{t('invoicesPage.paid', 'Paid')}</option>
                               </select>
                             </td>
                             <td style={{ padding: '16px' }}>
@@ -5606,7 +5606,7 @@ function App() {
                                 setConfirmedOrder(order);
                                 setShowInvoiceModal(true);
                               }}>
-                                <FileText size={12} /> View Invoice
+                                <FileText size={12} /> {t('invoicesPage.viewInvoice', 'View Invoice')}
                               </button>
                             </td>
                           </tr>
@@ -5673,9 +5673,9 @@ function App() {
                     <div className="portal-header-left">
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                          Business Analytics & Trends
+                          {t('analyticsPage.title', 'Business Analytics & Trends')}
                         </h1>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Summary of revenues, style preferences, and operations workload.</p>
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('analyticsPage.subtitle', 'Summary of revenues, style preferences, and operations workload.')}</p>
                       </div>
                     </div>
                     <div className="portal-header-right">
@@ -5683,7 +5683,7 @@ function App() {
                         <div className="user-avatar-circle">
                           <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                         </div>
-                        <span>Hi, {currentUser.first_name}</span>
+                        <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
                       </div>
                     </div>
                   </header>
@@ -5704,7 +5704,7 @@ function App() {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Collected Revenue</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.collectedRevenue', 'Collected Revenue')}</span>
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: 'var(--accent-text, #b07c40)' }}>
                         ₹{paidRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                       </span>
@@ -5906,7 +5906,7 @@ function App() {
                             return (
                               <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
-                                  <span>{status}</span>
+                                  <span>{t(`status.${status}`, status)}</span>
                                   <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
                                 </div>
                                 <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
@@ -5972,13 +5972,13 @@ function App() {
                     
                     <div style={{ alignSelf: 'stretch', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
                       <div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Tenant Domain</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>{t('accountPage.tenantDomain', 'Tenant Domain')}</div>
                         <div style={{ fontWeight: 600, color: 'var(--accent-text, #b07c40)' }}>
                           {localStorage.getItem('tenant_id') || '--'}
                         </div>
                       </div>
                       <div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Atelier Email</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>{t('accountPage.atelierEmail', 'Atelier Email')}</div>
                         <div style={{ fontWeight: 600 }}>{currentUser.email}</div>
                       </div>
                       {/* "Registered Since: June 2024" was a literal, shown to
@@ -5999,7 +5999,7 @@ function App() {
                       succeed should not be drawn. */}
                   {(!currentUser?.role || currentUser.role === 'Owner') && (
                   <div className="content-card">
-                    <h3 className="card-title">Edit Boutique Profile</h3>
+                    <h3 className="card-title">{t('accountPage.editProfile', 'Edit Boutique Profile')}</h3>
                     <form 
                       style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} 
                       onSubmit={async (e) => {
@@ -6025,7 +6025,7 @@ function App() {
                       }}
                     >
                       <div className="form-group">
-                        <label className="form-label">Boutique Name</label>
+                        <label className="form-label">{t('accountPage.boutiqueName', 'Boutique Name')}</label>
                         <input 
                           type="text" 
                           name="boutiqueName"
@@ -6037,7 +6037,7 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">Boutique Address</label>
+                        <label className="form-label">{t('accountPage.boutiqueAddress', 'Boutique Address')}</label>
                         <textarea 
                           name="boutiqueAddress"
                           className="form-control" 
@@ -6050,7 +6050,7 @@ function App() {
 
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label className="form-label">Boutique Phone</label>
+                          <label className="form-label">{t('accountPage.boutiquePhone', 'Boutique Phone')}</label>
                           <input 
                             type="text" 
                             name="boutiquePhone"
@@ -6061,7 +6061,7 @@ function App() {
                           />
                         </div>
                         <div className="form-group">
-                          <label className="form-label">Boutique Email</label>
+                          <label className="form-label">{t('accountPage.boutiqueEmail', 'Boutique Email')}</label>
                           <input 
                             type="email" 
                             name="boutiqueEmail"
@@ -6074,7 +6074,7 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">Boutique Logo</label>
+                        <label className="form-label">{t('accountPage.boutiqueLogo', 'Boutique Logo')}</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '4px' }}>
                           {boutiqueSettings?.logo && (
                             <img 
@@ -6103,16 +6103,16 @@ function App() {
                             defaultChecked={!!boutiqueSettings?.design_approval_required}
                           />
                           <span>
-                            <span style={{ fontWeight: 600 }}>Require approval for new designs</span>
+                            <span style={{ fontWeight: 600 }}>{t('accountPage.requireApproval', 'Require approval for new designs')}</span>
                             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                              When on, uploads from staff other than you wait for your review before appearing in the library.
+                              {t('accountPage.approvalHelp', 'When on, uploads from staff other than you wait for your review before appearing in the library.')}
                             </div>
                           </span>
                         </label>
                       </div>
 
                       <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-start', marginTop: '8px' }}>
-                        Save Changes
+                        {t('accountPage.saveChanges', 'Save Changes')}
                       </button>
                     </form>
                   </div>

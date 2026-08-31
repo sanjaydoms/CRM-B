@@ -5,6 +5,7 @@ import {
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
 
 /**
  * Design work as a job on someone's desk.
@@ -344,7 +345,8 @@ export default function DesignWork({ currentUser }) {
       .catch(() => {});
   }, [isSupervisor, myDesignerId]);
 
-  const heading = isSupervisor ? 'Design work' : 'My design work';
+  const { t } = useLanguage();
+  const heading = isSupervisor ? t('designWorkPage.titleSupervisor', 'Design Work') : t('designWorkPage.titleDesigner', 'My Design Work');
 
   return (
     <div>
@@ -352,7 +354,7 @@ export default function DesignWork({ currentUser }) {
         <h2 style={{ margin: 0 }}>{heading}</h2>
         <label style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <input type="checkbox" checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)} />
-          Only work still open
+          {t('designWorkPage.onlyOpen', 'Only work still open')}
         </label>
       </div>
 
@@ -368,14 +370,14 @@ export default function DesignWork({ currentUser }) {
       )}
 
       {loading ? (
-        <p style={{ color: 'var(--text-secondary)' }}>Loading…</p>
+        <p style={{ color: 'var(--text-secondary)' }}>{t('common.loading', 'Loading…')}</p>
       ) : assignments.length === 0 ? (
         <div className="content-card" style={{ textAlign: 'center', padding: '32px' }}>
           <ClipboardList size={28} style={{ color: 'var(--text-secondary)' }} />
           <p style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>
             {isSupervisor
-              ? 'No design work outstanding. Assign a garment above to get started.'
-              : 'Nothing on your desk right now.'}
+              ? t('designWorkPage.noWorkSupervisor', 'No design work outstanding. Assign a garment above to get started.')
+              : t('designWorkPage.noWorkDesigner', 'Nothing on your desk right now.')}
           </p>
         </div>
       ) : (
