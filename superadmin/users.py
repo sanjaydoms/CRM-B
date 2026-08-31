@@ -381,3 +381,81 @@ def trigger_password_reset(schema, username):
     # The view logs a mail failure rather than raising it, so this reports what
     # is actually known: a link was generated and sending was attempted.
     return True, f'A reset link has been sent to {address}.'
+
+
+def issue_access_link(schema, username):
+    """A one-time sign-in link for one account. Returns (ok, message, data).
+
+    This is how a platform administrator gives a boutique access -- and it
+    deliberately does NOT share a password.
+
+    A password an administrator can read is a password that ends up somewhere it
+    cannot be recalled from: a screenshot, a WhatsApp thread, a support ticket.
+    A link is strictly better on every axis that matters here. It expires
+    (PASSWORD_RESET_TIMEOUT). It works exactly once -- Django's
+    default_token_generator derives the token from the password hash, so the
+    moment it is used the token that made it is no longer valid. And the person
+    who ends up holding the account chose its password themselves, which means
+    nobody else ever knew it.
+
+    Why this exists alongside trigger_password_reset: that function *emails* the
+    link and reports whether the mail was accepted. With no SMTP configured --
+    production's current state, and what superadmin/health.py reports -- emailing
+    is indistinguishable from discarding, so an administrator had no way to hand
+    over access at all. This returns the link so it can be delivered over
+    whatever channel the boutique actually uses, which for this product is
+    usually WhatsApp or a phone call.
+
+    It also works for an account with no email address on file, which
+    trigger_password_reset must refuse.
+
+    The link is credential-equivalent while it is unused. It is returned to the
+    caller and it is NOT written to the audit trail -- see the caller in
+    superadmin/api_views.py, which records that a link was issued and for whom,
+    never the link itself. An audit trail that stores live credentials is a
+    second place to steal them from.
+    """
+    from django.conf import settings
+
+    from crm_api.auth_views import make_reset_link, send_reset_email
+
+    tenant = _tenant(schema)
+    if tenant is None:
+        return False, 'No such boutique.', None
+    if not tenant.is_active:
+        # PasswordResetConfirmView refuses a suspended boutique, so the link
+        # would be dead on arrival. Say so now rather than after it is sent.
+        return False, ('That boutique is suspended -- reactivate it before '
+                       'issuing a sign-in link.'), None
+
+    with tenant_scope(tenant):
+        user = User.objects.filter(username=username).first()
+        if user is None:
+            return False, 'No such user in that boutique.', None
+        if not user.is_active:
+            return False, ('That account is deactivated. Reactivate it before '
+                           'issuing a sign-in link.'), None
+        address = (user.email or '').strip()
+
+    link = make_reset_link(tenant, user)
+
+    # Emailed as well when there is somewhere to send it, because the boutique
+    # getting it directly is better than the administrator relaying it. The
+    # return value says whether that happened, so the console can tell the
+    # administrator whether they still need to deliver it by hand.
+    emailed = False
+    if '@' in address and getattr(settings, 'EMAIL_HOST', ''):
+        emailed = send_reset_email(tenant, user, link, address)
+
+    minutes = int(getattr(settings, 'PASSWORD_RESET_TIMEOUT', 3600)) // 60
+    return True, (
+        f'Sign-in link issued for {username}.'
+        + (f' Emailed to {address}.' if emailed else ' Copy it and send it to them.')
+    ), {
+        'link': link,
+        'expires_minutes': minutes,
+        'emailed': emailed,
+        'email_address': address if emailed else '',
+        'boutique': tenant.name,
+        'username': username,
+    }

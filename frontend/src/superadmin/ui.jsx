@@ -15,7 +15,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Check, ChevronLeft, ChevronRight, Info, Lock, RefreshCw, Search, X,
+  AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, Info, Lock, RefreshCw, Search, X,
 } from 'lucide-react';
 
 /* ----------------------------------------------------------- formatting */
@@ -383,6 +383,74 @@ export function NotBuilt({ title, detail }) {
       <Info size={22} />
       <h3>{title}</h3>
       <p>{detail}</p>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------- one-time link */
+
+/**
+ * A credential-equivalent string, shown once, with a copy button.
+ *
+ * Used for the sign-in link an administrator hands to a boutique. Three
+ * deliberate properties:
+ *
+ * It is never persisted by this client -- not in localStorage, not in a URL.
+ * The component holds it in React state and it is gone on navigation, which is
+ * the same lifetime the server gives it.
+ *
+ * Copy uses the clipboard API with a select-the-text fallback, because
+ * navigator.clipboard is unavailable on a page served over plain http (this
+ * console runs on localhost in development, where it happens to be allowed, and
+ * over https in production -- but a self-hosted http deployment would silently
+ * have no copy button at all, and a copy button that does nothing is worse than
+ * none).
+ *
+ * The warning is not decoration. The holder of this link can set the password
+ * on that account, so it wants a channel the administrator trusts.
+ */
+export function OneTimeLink({ value, expiresMinutes, note }) {
+  const [copied, setCopied] = useState(false);
+  const field = useRef(null);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // No clipboard permission, or an insecure origin. Select it instead so
+      // the administrator can copy by hand rather than being stuck.
+      field.current?.select();
+    }
+  };
+
+  return (
+    <div className="sa-onetime">
+      <div className="sa-onetime-row">
+        <input ref={field} className="sa-input" readOnly value={value}
+          onFocus={(e) => e.target.select()} aria-label="One-time sign-in link" />
+        <button className="sa-btn primary-inline" onClick={copy} type="button">
+          {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+        </button>
+      </div>
+      <p className="sa-onetime-note">
+        <AlertTriangle size={13} />
+        <span>
+          Anyone holding this link can set the password on that account. Send it
+          over a channel you trust, and only to the person it belongs to.
+          {expiresMinutes ? ` It stops working in ${expiresMinutes} minutes` : ''}
+          {expiresMinutes ? ', and the moment it is used.' : ''}
+          {note ? ` ${note}` : ''}
+        </span>
+      </p>
+      <p className="sa-onetime-note sa-muted">
+        <Lock size={13} />
+        <span>
+          Shown once. It is not stored by this console and not written to the
+          audit log — only the fact that you issued it is recorded.
+        </span>
+      </p>
     </div>
   );
 }

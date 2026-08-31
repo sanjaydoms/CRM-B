@@ -24,11 +24,11 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { KeyRound, Mail, Pause, Play, Users as UsersIcon } from 'lucide-react';
+import { KeyRound, Link2, Mail, Pause, Play, Users as UsersIcon } from 'lucide-react';
 
 import { consoleApi } from '../api';
 import {
-  Async, Confirm, Empty, Pager, Pill, SearchBox, SectionHead, Select,
+  Async, Confirm, Empty, OneTimeLink, Pager, Pill, SearchBox, SectionHead, Select,
   day, moment, useApi, useToast,
 } from '../ui';
 
@@ -84,6 +84,16 @@ const ACTIONS = {
     body: 'Sends the boutique\'s own reset email to the address on the account. '
       + 'Their current password keeps working until they use the link.',
   },
+  'access-link': {
+    verb: 'Get sign-in link',
+    body: 'Creates a one-time link that lets them choose their own password, and '
+      + 'shows it to you so you can send it however you normally reach them. '
+      + 'This is how you hand a boutique its access without anybody having to '
+      + 'know a password: you never see one, and neither does the audit log. '
+      + 'Their current password, if they have one, keeps working until the link '
+      + 'is used. It is also emailed automatically when the platform has a mail '
+      + 'server configured and the account has an address.',
+  },
 };
 
 export default function Users({ route }) {
@@ -91,6 +101,7 @@ export default function Users({ route }) {
   const [filters, setFilters] = useState({ q: '', boutique: '', role: '', status: '' });
   const [page, setPage] = useState(1);
   const [pending, setPending] = useState(null);
+  const [issued, setIssued] = useState(null);
   const [busy, setBusy] = useState(false);
 
   // Any filter change returns to page 1. Page 4 of the old filter is usually
@@ -121,8 +132,14 @@ export default function Users({ route }) {
     const { user, action } = pending;
     setBusy(true);
     try {
-      const result = await consoleApi.userAction(user.boutique, user.username, action, reason);
+      const result = action === 'access-link'
+        ? await consoleApi.accessLink(user.boutique, user.username, reason)
+        : await consoleApi.userAction(user.boutique, user.username, action, reason);
       toast(result.message);
+      // The link is held in state only long enough to be copied, and only ever
+      // here -- never in localStorage, never in the URL. Closing the panel
+      // drops it, which is the same lifetime the server gives the token.
+      if (action === 'access-link' && result.link) setIssued({ user, ...result });
       state.reload();
     } catch (e) {
       // A refusal arrives as HTTP 400 carrying the server's own sentence --
@@ -257,6 +274,16 @@ export default function Users({ route }) {
                             </button>
                             {/* The reset view skips inactive users silently, so
                                 offering it here would promise an email nobody sends. */}
+                            {/* Works with no email address on file and with no
+                                mail server, which is why it sits before Reset:
+                                it is the one that always has an answer. */}
+                            <button className="sa-btn" style={{ marginLeft: 6 }}
+                              disabled={!u.is_active}
+                              title={u.is_active ? 'Create a one-time link you can send them'
+                                : 'Reactivate the account first.'}
+                              onClick={() => setPending({ user: u, action: 'access-link' })}>
+                              <Link2 size={13} /> Sign-in link
+                            </button>
                             <button className="sa-btn" style={{ marginLeft: 6 }}
                               disabled={!u.is_active}
                               title={u.is_active ? undefined
@@ -277,6 +304,32 @@ export default function Users({ route }) {
           </>
         )}
       </Async>
+
+      {issued && (
+        <div className="sa-modal-backdrop" onClick={() => setIssued(null)}>
+          <div className="sa-modal" role="dialog" aria-modal="true"
+            aria-label="Sign-in link" onClick={(e) => e.stopPropagation()}>
+            <h3>Sign-in link for {issued.user.username}</h3>
+            <div className="sa-modal-body">
+              <p style={{ marginBottom: 10 }}>
+                Send this to <strong>{issued.user.username}</strong> at{' '}
+                {issued.boutique || issued.user.boutique_name}. Opening it lets them
+                set their own password and signs them in.
+                {issued.emailed
+                  ? ` It has also been emailed to ${issued.email_address}.`
+                  : ' The platform has no mail server configured, so it has not been'
+                    + ' emailed — you need to deliver it yourself.'}
+              </p>
+              <OneTimeLink value={issued.link} expiresMinutes={issued.expires_minutes} />
+            </div>
+            <div className="sa-modal-actions">
+              <button className="sa-btn primary-inline" onClick={() => setIssued(null)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Confirm
         open={Boolean(pending)}

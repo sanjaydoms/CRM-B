@@ -31,9 +31,13 @@ from superadmin.schemas import MissingSchema, forget
 from superadmin.search import DEFAULT_PER_TYPE, search
 from superadmin.serializers import TenantSerializer
 from superadmin.tests import temporary_tenant
-from superadmin.users import (DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, clamped_int,
+from superadmin.users import (DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, clamped_int, issue_access_link,
                               list_users, revoke_sessions, set_user_active,
                               trigger_password_reset)
+# The console client helper lives with the console's own tests; imported
+# rather than re-declared so both files sign in the same way.
+from superadmin.tests import admin_client
+from tenants.middleware import clear_tenant_cache
 from tenants.models import BoutiqueTenant
 
 
@@ -631,3 +635,113 @@ class BoutiqueRowTests(TransactionTestCase):
             # nothing, it is unknown, and the column renders it as such.
             self.assertIsNone(row['collected'])
             self.assertIsNone(row['revenue'])
+
+
+class AccessLinkTests(TransactionTestCase):
+    """Handing a boutique its access without anybody learning a password.
+
+    The properties under test are the reasons this exists rather than a
+    "show me their password" button, so each is asserted rather than assumed.
+    """
+
+    def setUp(self):
+        connection.set_schema_to_public()
+
+    def test_link_sets_a_password_signs_in_and_then_stops_working(self):
+        with temporary_tenant('al_flow', 'owner@al.test', 'Link Atelier') as tenant:
+            with schema_context('al_flow'):
+                User.objects.create_user(username='owner@al.test',
+                                         email='owner@al.test',
+                                         password='the-original-password')
+
+            ok, message, data = issue_access_link('al_flow', 'owner@al.test')
+            self.assertTrue(ok, message)
+            self.assertIn('reset=', data['link'])
+
+            payload = data['link'].split('reset=')[1]
+            chosen = 'TheOwnerChose2026!x'
+
+            client = APIClient()
+            self.assertEqual(client.post('/api/auth/password-reset/confirm/',
+                                         {'token': payload, 'password': chosen},
+                                         format='json').status_code, 200)
+
+            signed_in = client.post('/api/auth/login/',
+                                    {'username': 'owner@al.test', 'password': chosen},
+                                    format='json')
+            self.assertEqual(signed_in.status_code, 200)
+            self.assertEqual(signed_in.json()['user']['role'], 'Owner')
+
+            # Single use. The token derives from the password hash, so setting a
+            # password invalidates the link that set it -- which is what makes
+            # it safe to send over a channel that keeps history.
+            self.assertEqual(client.post('/api/auth/password-reset/confirm/',
+                                         {'token': payload, 'password': 'Another2026!x'},
+                                         format='json').status_code, 400)
+            self.assertIs(tenant.is_active, True)
+
+    def test_works_for_an_account_with_no_email_on_file(self):
+        """The case trigger_password_reset must refuse and this must not.
+
+        Staff accounts are created by the boutique through the roster and do not
+        always carry an address; those are exactly the people an administrator
+        is asked to get signed in.
+        """
+        with temporary_tenant('al_noemail', 'owner@ne.test', 'No Email Atelier'):
+            with schema_context('al_noemail'):
+                User.objects.create_user(username='tailor-no-address', password='x')
+
+            ok, message, data = issue_access_link('al_noemail', 'tailor-no-address')
+            self.assertTrue(ok, message)
+            self.assertIn('reset=', data['link'])
+            self.assertFalse(data['emailed'])
+
+            refused_ok, _refused_message = trigger_password_reset(
+                'al_noemail', 'tailor-no-address')
+            self.assertFalse(refused_ok)
+
+    def test_refused_for_a_suspended_boutique_and_a_deactivated_account(self):
+        with temporary_tenant('al_susp', 'owner@su.test', 'Suspended Atelier') as tenant:
+            with schema_context('al_susp'):
+                User.objects.create_user(username='owner@su.test',
+                                         email='owner@su.test', password='x')
+                User.objects.create_user(username='gone', password='x', is_active=False)
+
+            ok, message, data = issue_access_link('al_susp', 'gone')
+            self.assertFalse(ok)
+            self.assertIsNone(data)
+            self.assertIn('deactivated', message)
+
+            BoutiqueTenant.objects.filter(pk=tenant.pk).update(is_active=False)
+            clear_tenant_cache()
+            # The confirm view refuses a suspended boutique, so a link issued
+            # here would be dead on arrival. Refuse now, with the real reason.
+            ok, message, data = issue_access_link('al_susp', 'owner@su.test')
+            self.assertFalse(ok)
+            self.assertIn('suspended', message)
+
+    def test_the_endpoint_returns_the_link_but_the_audit_trail_does_not(self):
+        """A trail holding live credentials is a second place to steal them."""
+        from superadmin.models import AuditLog
+
+        with temporary_tenant('al_audit', 'owner@au.test', 'Audit Atelier'):
+            with schema_context('al_audit'):
+                User.objects.create_user(username='owner@au.test',
+                                         email='owner@au.test', password='x')
+
+            response = admin_client().post(
+                '/api/superadmin/users/al_audit/owner@au.test/access-link/',
+                {'reason': 'owner locked out, verified by phone'}, format='json')
+            self.assertEqual(response.status_code, 200)
+            link = response.json()['link']
+            self.assertIn('reset=', link)
+
+            connection.set_schema_to_public()
+            entry = AuditLog.objects.filter(action='user.access_link').first()
+            self.assertIsNotNone(entry)
+            self.assertEqual(entry.target, 'owner@au.test')
+            self.assertEqual(entry.boutique, 'al_audit')
+            self.assertEqual(entry.reason, 'owner locked out, verified by phone')
+            # The whole point: the record says a link was issued, not what it was.
+            self.assertNotIn('reset=', str(entry.after))
+            self.assertNotIn(link, str(entry.after))
