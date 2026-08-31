@@ -1,4 +1,17 @@
-from .email_controller import EmailController, SendEmailAPIView, SendBulkEmailAPIView
+from .email_controller import (
+    EmailController,
+    SendEmailAPIView,
+    SendBulkEmailAPIView,
+    QueueEmailAPIView,
+    EmailJobStatusAPIView,
+)
 
-__all__ = ['EmailController', 'SendEmailAPIView', 'SendBulkEmailAPIView']
+__all__ = [
+    'EmailController',
+    'SendEmailAPIView',
+    'SendBulkEmailAPIView',
+    'QueueEmailAPIView',
+    'EmailJobStatusAPIView',
+]
+
 

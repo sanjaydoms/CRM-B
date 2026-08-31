@@ -34,7 +34,8 @@ def _load_dotenv(path):
         if not line or line.startswith('#') or '=' not in line:
             continue
         key, _, value = line.partition('=')
-        os.environ.setdefault(key.strip(), value.strip())
+        os.environ.setdefault(key.strip(), value.strip().strip('\'"'))
+
 
 
 _load_dotenv(BASE_DIR / '.env')
@@ -658,5 +659,16 @@ DESIGN_STUDIO_INTELLIGENCE = os.environ.get(
 # the gallery as unavailable rather than failing a search.
 DESIGN_STUDIO_PINTEREST_TOKEN = os.environ.get('DESIGN_STUDIO_PINTEREST_TOKEN', '')
 DESIGN_STUDIO_GOOGLE_API_KEY = os.environ.get('DESIGN_STUDIO_GOOGLE_API_KEY', '')
+
+# --- Upstash Redis Integration ------------------------------------------
+UPSTASH_REDIS_REST_URL = os.environ.get(
+    'UPSTASH_REDIS_REST_URL',
+    'https://charmed-mastiff-150004.upstash.io'
+)
+UPSTASH_REDIS_REST_TOKEN = os.environ.get(
+    'UPSTASH_REDIS_REST_TOKEN',
+    'gQAAAAAAAkn0AAIgcDFhMjY5MTkxMTQ5YzM0OTU2YTljZDMwNDQwNjNkYzc3Zg'
+)
+
 
 
