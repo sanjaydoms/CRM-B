@@ -59,6 +59,8 @@ const ar = {
     gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
     malayalamTitle: "മലയാളം (Malayalam)",
     malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
+    tamilTitle: "தமிழ் (Tamil)",
+    tamilDesc: "தமிழ் இடைமுகம் (TA)",
     systemSectionTitle: "معلومات النظام",
     systemSectionDesc: "نظرة عامة على مساحة العمل الحالية وإعدادات البيئة.",
     activeUser: "دور المستخدم النشط",

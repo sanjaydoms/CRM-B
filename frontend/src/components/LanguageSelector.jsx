@@ -43,6 +43,7 @@ export const LanguageSelector = () => {
         <option value="ar">العربية (AR)</option>
         <option value="gu">ગુજરાતી (GU)</option>
         <option value="ml">മലയാളം (ML)</option>
+        <option value="ta">தமிழ் (TA)</option>
       </select>
     </div>
   );

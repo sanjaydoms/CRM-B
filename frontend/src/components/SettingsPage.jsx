@@ -293,6 +293,35 @@ export const SettingsPage = ({ currentUser, boutiqueSettings }) => {
               </div>
               {language === 'ml' && <CheckCircle2 size={18} style={{ color: '#4F46E5' }} />}
             </div>
+
+            {/* Tamil Card */}
+            <div 
+              onClick={() => setLanguage('ta')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 16px',
+                borderRadius: '12px',
+                border: language === 'ta' ? '2px solid #4F46E5' : '1px solid var(--border-color, #e2e8f0)',
+                backgroundColor: language === 'ta' ? '#EEF2FF' : 'var(--bg-primary, #ffffff)',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '1.25rem' }}>🇮🇳</span>
+                <div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
+                    {t('settingsPage.tamilTitle', 'தமிழ் (Tamil)')}
+                  </div>
+                  <div style={{ fontSize: '0.775rem', color: 'var(--text-secondary, #64748b)' }}>
+                    {t('settingsPage.tamilDesc', 'தமிழ் இடைமுகம் (TA)')}
+                  </div>
+                </div>
+              </div>
+              {language === 'ta' && <CheckCircle2 size={18} style={{ color: '#4F46E5' }} />}
+            </div>
           </div>
         </div>
 

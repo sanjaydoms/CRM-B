@@ -62,6 +62,8 @@ const ml = {
     gujaratiDesc: "ഗുജറാത്തി ഇന്റർഫേസ് (GU)",
     malayalamTitle: "മലയാളം (Malayalam)",
     malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
+    tamilTitle: "தமிழ் (Tamil)",
+    tamilDesc: "தமிழ் இடைமுகம் (TA)",
     systemSectionTitle: "സിസ്റ്റം വിവരങ്ങൾ",
     systemSectionDesc: "നിങ്ങളുടെ നിലവിലെ വർക്ക്‌സ്‌പേസിന്റെയും എൻവയോൺമെന്റ് സെറ്റിംഗ്സിന്റെയും അവലോകനം.",
     activeUser: "സജീവ ഉപയോക്തൃ റോൾ",

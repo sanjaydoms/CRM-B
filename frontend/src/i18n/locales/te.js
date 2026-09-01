@@ -58,6 +58,8 @@ const te = {
     gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
     malayalamTitle: "മലയാളം (Malayalam)",
     malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
+    tamilTitle: "தமிழ் (Tamil)",
+    tamilDesc: "தமிழ் இடைமுகம் (TA)",
     systemSectionTitle: "సిస్టమ్ సమాచారం",
     systemSectionDesc: "మీ ప్రస్తుత వర్క్‌స్పేస్ మరియు వాతావరణ సెట్టింగ్‌ల అవలోకనం.",
     activeUser: "యాక్టివ్ యూజర్ పాత్ర",

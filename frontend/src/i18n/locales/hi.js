@@ -56,6 +56,8 @@ const hi = {
     gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
     malayalamTitle: "മലയാളം (Malayalam)",
     malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
+    tamilTitle: "தமிழ் (Tamil)",
+    tamilDesc: "தமிழ் இடைமுகம் (TA)",
     systemSectionTitle: "सिस्टम जानकारी",
     systemSectionDesc: "आपके वर्तमान वर्कस्पेस और पर्यावरण सेटिंग्स का अवलोकन।",
     activeUser: "सक्रिय उपयोगकर्ता भूमिका",

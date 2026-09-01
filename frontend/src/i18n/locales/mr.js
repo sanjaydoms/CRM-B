@@ -58,6 +58,8 @@ const mr = {
     gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
     malayalamTitle: "മലയാളം (Malayalam)",
     malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
+    tamilTitle: "தமிழ் (Tamil)",
+    tamilDesc: "தமிழ் இடைமுகம் (TA)",
     systemSectionTitle: "सिस्टीम माहिती",
     systemSectionDesc: "तुमच्या सध्याच्या वर्कस्पेस आणि वातावरणाची माहिती.",
     activeUser: "सक्रिय वापरकर्ता भूमिका",
