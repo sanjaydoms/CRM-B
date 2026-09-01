@@ -457,7 +457,6 @@ const TABS = [
 ];
 
 export default function StaffPanel({ currentUser }) {
-  const [tab, setTab] = useState('roster');
   // Mirrors the backend: the owner manages, a Master supervises (reads the team
   // without its pay), everyone else sees themselves. This is UX only -- every
   // one of these boundaries is enforced again server-side, and the buttons
@@ -466,16 +465,22 @@ export default function StaffPanel({ currentUser }) {
   const isSupervisor = currentUser?.role === 'Master';
   const canSeeTeam = isOwner || isSupervisor;
 
+  // A tailor opens this to record their hours, not to browse a roster of one.
+  // Managers open it on the team. Same screen, different first thing.
+  const [tab, setTab] = useState(canSeeTeam ? 'roster' : 'attendance');
+
   return (
     <>
       <header className="portal-header">
         <div className="portal-header-left">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-              Staff Management
+              {canSeeTeam ? 'Staff Management' : 'My Attendance'}
             </h1>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              Employment terms, attendance, payroll and performance for your team.
+              {canSeeTeam
+                ? 'Employment terms, attendance, payroll and performance for your team.'
+                : 'Check in and out, and see the hours recorded for you.'}
             </p>
           </div>
         </div>
@@ -486,7 +491,8 @@ export default function StaffPanel({ currentUser }) {
         borderBottom: '1px solid var(--border-color, rgba(255,255,255,0.08))',
         paddingBottom: '10px',
       }}>
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {(canSeeTeam ? TABS : TABS.filter((t) => t.key === 'attendance' || t.key === 'roster'))
+          .map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             type="button"
@@ -494,7 +500,7 @@ export default function StaffPanel({ currentUser }) {
             className={tab === key ? 'btn-primary' : 'btn-secondary'}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
-            <Icon size={14} /> {label}
+            <Icon size={14} /> {canSeeTeam || key !== 'roster' ? label : 'My details'}
           </button>
         ))}
       </div>
