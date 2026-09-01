@@ -68,6 +68,8 @@ const kn = {
     tamilDesc: "ತಮಿಳು ಇಂಟರ್ಫೇಸ್ (TA)",
     kannadaTitle: "ಕನ್ನಡ (Kannada)",
     kannadaDesc: "ಕನ್ನಡ ಇಂಟರ್ಫೇಸ್ (KN)",
+    spanishTitle: "Español (Spanish)",
+    spanishDesc: "ಸ್ಪ್ಯಾನಿಷ್ ಇಂಟರ್‌ಫೇಸ್ (ES)",
     systemSectionTitle: "ಸಿಸ್ಟಮ್ ಮಾಹಿತಿ",
     systemSectionDesc: "ನಿಮ್ಮ ಪ್ರಸ್ತುತ ಕೆಲಸದ ಸ್ಥಳ ಮತ್ತು ವಾತಾವರಣದ ಸೆಟ್ಟಿಂಗ್‌ಗಳ ಅವಲೋಕನ.",
     activeUser: "ಸಕ್ರಿಯ ಬಳಕೆದಾರರ ಪಾತ್ರ",

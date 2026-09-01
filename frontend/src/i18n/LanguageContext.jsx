@@ -8,9 +8,10 @@ import gu from './locales/gu.js';
 import ml from './locales/ml.js';
 import ta from './locales/ta.js';
 import kn from './locales/kn.js';
+import es from './locales/es.js';
 
 
-const dictionaries = { en, hi, te, mr, ar, gu, ml, ta, kn };
+const dictionaries = { en, hi, te, mr, ar, gu, ml, ta, kn, es };
 const STORAGE_KEY = 'app_language';
 
 const LanguageContext = createContext();

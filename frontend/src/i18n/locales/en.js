@@ -60,6 +60,8 @@ const en = {
     tamilDesc: "தமிழ் இடைமுகம் (TA)",
     kannadaTitle: "ಕನ್ನಡ (Kannada)",
     kannadaDesc: "ಕನ್ನಡ ಇಂಟರ್ಫೇಸ್ (KN)",
+    spanishTitle: "Español (Spanish)",
+    spanishDesc: "Spanish Interface (ES)",
     systemSectionTitle: "System Information",
     systemSectionDesc: "Overview of your current workspace and environment settings.",
     activeUser: "Active User Role",

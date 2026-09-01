@@ -62,6 +62,8 @@ const te = {
     tamilDesc: "தமிழ் இடைமுகம் (TA)",
     kannadaTitle: "ಕನ್ನಡ (Kannada)",
     kannadaDesc: "ಕನ್ನಡ ಇಂಟರ್ಫೇಸ್ (KN)",
+    spanishTitle: "Español (Spanish)",
+    spanishDesc: "స్పానిష్ ఇంటర్‌ಫేస్ (ES)",
     systemSectionTitle: "సిస్టమ్ సమాచారం",
     systemSectionDesc: "మీ ప్రస్తుత వర్క్‌స్పేస్ మరియు వాతావరణ సెట్టింగ్‌ల అవలోకనం.",
     activeUser: "యాక్టివ్ యూజర్ పాత్ర",
