@@ -1367,3 +1367,41 @@ Object.assign(api, {
   // Reports
   getInventoryReport: (name, params) => inventoryGet(`reports/${name}/`, params),
 });
+
+// --- Staff Management: employment terms ----------------------------------
+// The same shape as the inventory helpers above, with a PATCH they do not need.
+// Deliberately its own small set rather than additions to the tailor calls:
+// these responses carry pay rates, and keeping them on their own path makes it
+// obvious at the call site which requests are confidential.
+
+const staffUrl = (path, params = {}) => {
+  const url = new URL(`${BASE_URL}/staff/${path}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.append(key, value);
+    }
+  });
+  return url.toString();
+};
+
+const staffRequest = async (path, { method = 'GET', body } = {}, params) => {
+  const res = await fetch(staffUrl(path, params), {
+    method,
+    headers: getHeaders(),
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const raw = await res.text();
+  let data = null;
+  // A proxy or an error page can answer with HTML; describeApiError copes with
+  // a null body, so a parse failure is left as null rather than thrown.
+  try { data = raw ? JSON.parse(raw) : null; } catch { /* not JSON */ }
+  if (!res.ok) throw new Error(describeApiError(res, data));
+  return data;
+};
+
+Object.assign(api, {
+  getStaffProfiles: (params) => staffRequest('profiles/', {}, params),
+  createStaffProfile: (payload) => staffRequest('profiles/', { method: 'POST', body: payload }),
+  updateStaffProfile: (id, payload) =>
+    staffRequest(`profiles/${id}/`, { method: 'PATCH', body: payload }),
+});

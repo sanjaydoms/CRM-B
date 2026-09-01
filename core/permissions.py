@@ -140,6 +140,36 @@ class OwnerOnly(permissions.BasePermission):
         return resolve_user_role(request.user) == OWNER
 
 
+class StaffSelfOrOwner(permissions.BasePermission):
+    """Employment records: the owner writes them, a staff member reads their own.
+
+    Deliberately NOT RolePermission, which is the default for business
+    endpoints. That class grants every non-Owner staff member every safe
+    method -- correct for the order book, wrong here, because a GET on this
+    viewset is the whole boutique's pay rates and deposit terms. A colleague's
+    wage is the one thing on the floor that must not be readable by asking.
+
+    This is only half the rule. It decides what a caller may *do*; which rows
+    they may do it to is StaffProfileViewSet.get_queryset, which narrows a
+    non-Owner to their own profile. Both are needed and neither is sufficient:
+    this class alone would let a tailor read every row, and the queryset alone
+    would let them PATCH their own hourly rate.
+    """
+
+    message = "Only the boutique owner can manage employment details."
+
+    def has_permission(self, request, view):
+        role = resolve_user_role(request.user)
+        if role is None:
+            return False
+        if role == OWNER:
+            return True
+        # Read-only for everyone else. A staff member raising their own pay is
+        # the obvious thing to close, and it is closed here rather than by
+        # trusting the interface not to offer the button.
+        return request.method in permissions.SAFE_METHODS
+
+
 #: A stage nobody has finished with. The inverse of workflow.SETTLED_STATUSES,
 #: spelled here so this module does not import the engine just for a constant.
 UNSETTLED_STATUSES = ('NOT_STARTED', 'IN_PROGRESS', 'PAUSED')

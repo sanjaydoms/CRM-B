@@ -90,6 +90,15 @@ MODULES = {
         ('/api/tailors/',),
         'Tailors, masters and the specialist production roles.',
     ),
+    # Distinct from `tailors`, which is the roster. This is the employment
+    # layer over it: terms, attendance, payroll and performance. Switching it
+    # off leaves the roster and the whole production workflow untouched, which
+    # is why it can be its own switch at all.
+    'staff': (
+        'Staff Management',
+        ('/api/staff/',),
+        'Employment terms, attendance, payroll and staff performance.',
+    ),
     'notifications': (
         'Notifications',
         ('/api/notifications/',),

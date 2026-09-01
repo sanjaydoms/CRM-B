@@ -25,6 +25,7 @@ const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'))
 const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
+const StaffPanel = lazy(() => import('./features/staff/StaffPanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 import { MobileHeader } from './components/ui/MobileHeader';
@@ -2844,6 +2845,9 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> Manage Fabrics</a>
                   <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> Inventory</a>
                   <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> Manage Tailors</a>
+                  {/* Sits next to the roster it extends: Manage Tailors is who
+                      works here, this is their employment, time and pay. */}
+                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> Staff Management</a>
                   <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Manage Designs</a>
                   <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
                 </>
@@ -3668,6 +3672,12 @@ function App() {
             {dashboardTab === 'inventory' && (
               <Suspense fallback={<ScreenLoading />}>
                 <InventoryPanel currentUser={currentUser} />
+              </Suspense>
+            )}
+
+            {dashboardTab === 'staff' && (
+              <Suspense fallback={<ScreenLoading />}>
+                <StaffPanel currentUser={currentUser} />
               </Suspense>
             )}
 
