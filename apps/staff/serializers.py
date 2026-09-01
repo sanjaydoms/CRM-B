@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from core.roles import OWNER, resolve_user_role
 
-from .models import StaffProfile
+from .models import AttendanceSession, StaffProfile
 
 #: What only the owner may read on somebody ELSE's row.
 #:
@@ -109,3 +109,37 @@ class StaffProfileSerializer(serializers.ModelSerializer):
         """
         validated_data.pop('staff', None)
         return super().update(instance, validated_data)
+
+
+class AttendanceSessionSerializer(serializers.ModelSerializer):
+    """One shift, as the interface needs to draw it.
+
+    Every timestamp field is read-only. Attendance is stamped by the server on
+    check-in and check-out, and the two paths where a human supplies a time --
+    the owner entering a missed day, the owner correcting one -- go through
+    their own actions with their own validation and their own audit trail. A
+    writable `check_in` here would be a way round both.
+    """
+
+    staff_name = serializers.CharField(source='staff.name', read_only=True)
+    staff_role = serializers.CharField(source='staff.role', read_only=True)
+    is_open = serializers.BooleanField(read_only=True)
+    was_corrected = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AttendanceSession
+        fields = [
+            'id', 'staff', 'staff_name', 'staff_role', 'date',
+            'check_in', 'check_out', 'minutes', 'source', 'note',
+            'is_open', 'was_corrected',
+            'original_check_in', 'original_check_out',
+            'corrected_at', 'correction_reason',
+            'created_at', 'updated_at',
+        ]
+        # The whole record. Writes happen through the named actions, never by
+        # PUT/PATCHing a session directly.
+        read_only_fields = fields
+
+    def get_was_corrected(self, instance):
+        """Shown in the timesheet so an edited row is never mistaken for a stamped one."""
+        return instance.corrected_at is not None

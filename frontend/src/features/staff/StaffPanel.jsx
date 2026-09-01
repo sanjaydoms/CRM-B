@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Plus, Clock, Wallet, TrendingUp, Users } from 'lucide-react';
 
 import { api } from '../../services/api';
+import Attendance from './Attendance';
 
 const panel = {
   background: 'var(--card-bg, rgba(255,255,255,0.03))',
@@ -500,15 +501,12 @@ export default function StaffPanel({ currentUser }) {
 
       {tab === 'roster' && <Roster isOwner={isOwner} canSeeTeam={canSeeTeam} />}
       {tab === 'attendance' && (
-        <NotBuiltYet
-          title="Attendance is not switched on yet"
-          blurb="Check-in, check-out and weekly timesheets arrive in the next phase. Hours will be recorded here, not inferred from when someone was signed in."
-        />
+        <Attendance isOwner={isOwner} canSeeTeam={canSeeTeam} />
       )}
       {tab === 'payroll' && (
         <NotBuiltYet
           title="Payroll is not switched on yet"
-          blurb="Weekly pay runs, deposit recovery and payouts arrive once attendance is recording hours. Rates and deposit terms you set on the Staff tab are what payroll will use."
+          blurb="Weekly pay runs, deposit recovery and payouts arrive in the next phase. They will use the hours on the Attendance tab and the rates on the Staff tab."
         />
       )}
       {tab === 'performance' && (

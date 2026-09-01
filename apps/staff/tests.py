@@ -6,21 +6,27 @@ put in its own table instead of onto Tailor, and it is the assertion that will
 fail if a later phase ever publishes these columns through the roster.
 """
 
+from datetime import date, datetime, timezone as dt_timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.urls import reverse
+from django.utils import timezone
 from django_tenants.test.cases import TenantTestCase
 from django_tenants.utils import schema_context
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
+from apps.activities.models import UniversalActivity
+from core.formatting import tenant_timezone, to_local
 from crm_api.models import Tailor
 from tenants.models import BoutiqueTenant
 
-from .models import StaffProfile
+from .attendance import business_date
+from .models import AttendanceSession, StaffProfile
 from .serializers import CONFIDENTIAL_FIELDS
 
 
@@ -669,3 +675,539 @@ class CrossTenantStaffTests(TransactionTestCase):
         self.assertIn('111.11', body)
         self.assertNotIn('222.22', body)
         self.assertNotIn('Beta Tailor', body)
+
+
+class AttendanceTestCase(StaffProfileTestCase):
+    """Attendance rides on the same boutique, owner and two tailors."""
+
+    def setUp(self):
+        super().setUp()
+        self.master_user = User.objects.create_user(
+            username='mira', email='mira@staff.test', password='mirapass12345')
+        self.master = Tailor.objects.create(
+            name='Mira', specialty='Supervision', role='Master',
+            email='mira@staff.test', user=self.master_user)
+
+    @staticmethod
+    def _at(year, month, day, hour, minute):
+        """An aware instant in the boutique's own timezone."""
+        return datetime(year, month, day, hour, minute,
+                        tzinfo=tenant_timezone())
+
+
+class CheckInTests(AttendanceTestCase):
+    def test_a_tailor_checks_themselves_in(self):
+        response = self.client_for(self.anita_user).post(
+            reverse('staff-attendance-check-in'), {}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        session = AttendanceSession.objects.get()
+        self.assertEqual(session.staff, self.anita)
+        self.assertEqual(session.source, 'SELF')
+        self.assertIsNone(session.check_out)
+        self.assertIsNone(session.minutes)
+
+    def test_the_server_stamps_the_time_not_the_client(self):
+        """A check-in time sent by the client is ignored outright."""
+        before = timezone.now()
+        response = self.client_for(self.anita_user).post(
+            reverse('staff-attendance-check-in'),
+            {'check_in': '2001-01-01T04:00:00Z'}, format='json')
+        self.assertEqual(response.status_code, 201)
+        session = AttendanceSession.objects.get()
+        self.assertGreaterEqual(session.check_in, before)
+        self.assertNotEqual(session.check_in.year, 2001)
+
+    def test_a_second_check_in_is_refused_while_one_is_open(self):
+        client = self.client_for(self.anita_user)
+        self.assertEqual(client.post(reverse('staff-attendance-check-in'),
+                                     {}, format='json').status_code, 201)
+        second = client.post(reverse('staff-attendance-check-in'), {}, format='json')
+        self.assertEqual(second.status_code, 400)
+        self.assertIn('already checked in', second.data['error'])
+        self.assertEqual(AttendanceSession.objects.count(), 1)
+
+    def test_the_database_refuses_two_open_sessions(self):
+        """The partial unique index, not just the view's pre-check.
+
+        This is what holds when two taps race past the read.
+        """
+        AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 9, 0))
+        with self.assertRaises(IntegrityError):
+            AttendanceSession.objects.create(
+                staff=self.anita, date=date(2026, 9, 1),
+                check_in=self._at(2026, 9, 1, 10, 0))
+
+    def test_two_staff_may_both_be_checked_in(self):
+        """The constraint is per person, not per boutique."""
+        self.assertEqual(self.client_for(self.anita_user).post(
+            reverse('staff-attendance-check-in'), {}, format='json').status_code, 201)
+        self.assertEqual(self.client_for(self.balan_user).post(
+            reverse('staff-attendance-check-in'), {}, format='json').status_code, 201)
+        self.assertEqual(AttendanceSession.objects.count(), 2)
+
+    def test_an_account_off_the_roster_cannot_check_in(self):
+        stranger = User.objects.create_user(
+            username='ghost', email='ghost@staff.test', password='ghostpass12345')
+        response = self.client_for(stranger).post(
+            reverse('staff-attendance-check-in'), {}, format='json')
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(AttendanceSession.objects.count(), 0)
+
+    def test_checking_in_requires_signing_in(self):
+        anonymous = APIClient()
+        anonymous.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
+        response = anonymous.post(reverse('staff-attendance-check-in'), {}, format='json')
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_checking_in_writes_an_activity_row(self):
+        self.client_for(self.anita_user).post(
+            reverse('staff-attendance-check-in'), {}, format='json')
+        entry = UniversalActivity.objects.get(module='staff')
+        self.assertEqual(entry.action, 'CHECKED_IN')
+        self.assertIn('Anita', entry.title)
+
+
+class CheckOutTests(AttendanceTestCase):
+    def test_a_tailor_checks_themselves_out(self):
+        client = self.client_for(self.anita_user)
+        client.post(reverse('staff-attendance-check-in'), {}, format='json')
+        response = client.post(reverse('staff-attendance-check-out'), {}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        session = AttendanceSession.objects.get()
+        self.assertIsNotNone(session.check_out)
+        self.assertIsNotNone(session.minutes)
+        self.assertGreaterEqual(session.minutes, 0)
+
+    def test_checking_out_with_no_open_session_is_refused(self):
+        response = self.client_for(self.anita_user).post(
+            reverse('staff-attendance-check-out'), {}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('not checked in', response.data['error'])
+
+    def test_checking_out_twice_is_refused(self):
+        client = self.client_for(self.anita_user)
+        client.post(reverse('staff-attendance-check-in'), {}, format='json')
+        self.assertEqual(client.post(reverse('staff-attendance-check-out'),
+                                     {}, format='json').status_code, 200)
+        second = client.post(reverse('staff-attendance-check-out'), {}, format='json')
+        self.assertEqual(second.status_code, 400)
+
+    def test_the_duration_is_the_gap_between_the_stamps(self):
+        session = AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 9, 5),
+            check_out=self._at(2026, 9, 1, 18, 30))
+        self.assertEqual(session.duration_minutes(), 565)
+
+    def test_an_overnight_shift_spans_midnight(self):
+        """23:00 to 07:00 is eight hours, not a negative number or a rejection."""
+        session = AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 23, 0),
+            check_out=self._at(2026, 9, 2, 7, 0))
+        session.minutes = session.duration_minutes()
+        self.assertEqual(session.minutes, 480)
+        # It belongs to the night it STARTED on.
+        self.assertEqual(session.date, date(2026, 9, 1))
+
+    def test_an_open_session_has_no_duration_yet(self):
+        session = AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 9, 0))
+        self.assertIsNone(session.duration_minutes())
+        self.assertTrue(session.is_open)
+
+    def test_the_database_refuses_a_shift_that_ends_before_it_starts(self):
+        with self.assertRaises(IntegrityError):
+            AttendanceSession.objects.create(
+                staff=self.anita, date=date(2026, 9, 1),
+                check_in=self._at(2026, 9, 1, 18, 0),
+                check_out=self._at(2026, 9, 1, 9, 0))
+
+
+class BusinessDateTests(AttendanceTestCase):
+    def test_the_shift_is_filed_under_the_boutiques_own_date(self):
+        """A morning start in Kolkata must not land on yesterday.
+
+        05:30 in Asia/Kolkata is 00:00 UTC the same day; 00:30 local is 19:00
+        UTC the day BEFORE. Filing by the UTC date would move that shift to the
+        wrong day of the timesheet, and the week it is paid in.
+        """
+        self.tenant.timezone = 'Asia/Kolkata'
+        self.tenant.save()
+        local_midnight_thirty = datetime(
+            2026, 9, 2, 0, 30, tzinfo=ZoneInfo('Asia/Kolkata'))
+        self.assertEqual(local_midnight_thirty.astimezone(dt_timezone.utc).date(),
+                         date(2026, 9, 1))
+        self.assertEqual(business_date(local_midnight_thirty), date(2026, 9, 2))
+
+
+class OwnerRecordedAttendanceTests(AttendanceTestCase):
+    def test_owner_records_a_missed_day(self):
+        response = self.client_for(self.owner).post(
+            reverse('staff-attendance-record'),
+            {'staff': self.anita.id,
+             'check_in': '2026-09-01T09:10:00',
+             'check_out': '2026-09-01T18:20:00',
+             'note': 'Forgot to check in'}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        session = AttendanceSession.objects.get()
+        self.assertEqual(session.source, 'OWNER')
+        self.assertEqual(session.minutes, 550)
+
+    def test_an_owner_entry_is_distinguishable_from_a_self_check_in(self):
+        self.client_for(self.owner).post(
+            reverse('staff-attendance-record'),
+            {'staff': self.anita.id, 'check_in': '2026-09-01T09:00:00',
+             'check_out': '2026-09-01T17:00:00'}, format='json')
+        self.client_for(self.balan_user).post(
+            reverse('staff-attendance-check-in'), {}, format='json')
+        self.assertEqual(
+            AttendanceSession.objects.get(staff=self.anita).source, 'OWNER')
+        self.assertEqual(
+            AttendanceSession.objects.get(staff=self.balan).source, 'SELF')
+
+    def test_a_naive_time_is_read_in_the_boutiques_timezone(self):
+        """09:10 typed by an Indian boutique is 09:10 there, not 09:10 UTC."""
+        self.tenant.timezone = 'Asia/Kolkata'
+        self.tenant.save()
+        self.client_for(self.owner).post(
+            reverse('staff-attendance-record'),
+            {'staff': self.anita.id, 'check_in': '2026-09-01T09:10:00',
+             'check_out': '2026-09-01T18:20:00'}, format='json')
+        session = AttendanceSession.objects.get()
+        self.assertEqual(to_local(session.check_in).hour, 9)
+        self.assertEqual(to_local(session.check_in).minute, 10)
+        self.assertEqual(session.date, date(2026, 9, 1))
+
+    def test_a_tailor_cannot_record_attendance_for_anyone(self):
+        response = self.client_for(self.anita_user).post(
+            reverse('staff-attendance-record'),
+            {'staff': self.balan.id, 'check_in': '2026-09-01T09:00:00'},
+            format='json')
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(AttendanceSession.objects.count(), 0)
+
+    def test_a_master_cannot_record_attendance(self):
+        response = self.client_for(self.master_user).post(
+            reverse('staff-attendance-record'),
+            {'staff': self.anita.id, 'check_in': '2026-09-01T09:00:00'},
+            format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_a_checkout_before_the_check_in_is_refused(self):
+        response = self.client_for(self.owner).post(
+            reverse('staff-attendance-record'),
+            {'staff': self.anita.id, 'check_in': '2026-09-01T18:00:00',
+             'check_out': '2026-09-01T09:00:00'}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('before', response.data['error'])
+
+    def test_an_unparseable_time_is_refused(self):
+        response = self.client_for(self.owner).post(
+            reverse('staff-attendance-record'),
+            {'staff': self.anita.id, 'check_in': 'yesterday morning'},
+            format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_recording_for_an_unknown_staff_member_is_a_404(self):
+        response = self.client_for(self.owner).post(
+            reverse('staff-attendance-record'),
+            {'staff': 999999, 'check_in': '2026-09-01T09:00:00'}, format='json')
+        self.assertEqual(response.status_code, 404)
+
+
+class AttendanceCorrectionTests(AttendanceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.session = AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 9, 45),
+            check_out=self._at(2026, 9, 1, 18, 0),
+            minutes=495)
+
+    def _correct(self, client, **payload):
+        return client.post(
+            reverse('staff-attendance-correct', args=[self.session.id]),
+            payload, format='json')
+
+    def test_owner_corrects_a_check_in_and_the_original_survives(self):
+        response = self._correct(
+            self.client_for(self.owner),
+            check_in='2026-09-01T09:05:00', reason='Forgot to check in')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.session.refresh_from_db()
+        self.assertEqual(to_local(self.session.check_in).hour, 9)
+        self.assertEqual(to_local(self.session.check_in).minute, 5)
+        # What it used to say is still on the row.
+        self.assertEqual(to_local(self.session.original_check_in).minute, 45)
+        self.assertEqual(self.session.correction_reason, 'Forgot to check in')
+        self.assertEqual(self.session.corrected_by, self.owner)
+        self.assertIsNotNone(self.session.corrected_at)
+
+    def test_the_duration_is_recalculated(self):
+        self._correct(self.client_for(self.owner),
+                      check_in='2026-09-01T09:05:00', reason='Forgot to check in')
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.minutes, 535)
+
+    def test_a_reason_is_required(self):
+        response = self._correct(self.client_for(self.owner),
+                                 check_in='2026-09-01T09:05:00')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('reason', response.data['error'].lower())
+        self.session.refresh_from_db()
+        self.assertEqual(to_local(self.session.check_in).minute, 45)
+
+    def test_a_blank_reason_is_refused(self):
+        response = self._correct(self.client_for(self.owner),
+                                 check_in='2026-09-01T09:05:00', reason='   ')
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_first_original_survives_a_second_correction(self):
+        owner = self.client_for(self.owner)
+        self._correct(owner, check_in='2026-09-01T09:05:00', reason='First fix')
+        self._correct(owner, check_in='2026-09-01T09:00:00', reason='Second fix')
+        self.session.refresh_from_db()
+        # Still the value it had before ANY correction.
+        self.assertEqual(to_local(self.session.original_check_in).minute, 45)
+        self.assertEqual(self.session.correction_reason, 'Second fix')
+
+    def test_every_correction_is_on_the_activity_feed(self):
+        owner = self.client_for(self.owner)
+        self._correct(owner, check_in='2026-09-01T09:05:00', reason='First fix')
+        self._correct(owner, check_in='2026-09-01T09:00:00', reason='Second fix')
+        entries = UniversalActivity.objects.filter(
+            module='staff', action='ATTENDANCE_CORRECTED').order_by('timestamp')
+        self.assertEqual(entries.count(), 2)
+        self.assertIn('reason', entries[0].new_value)
+        self.assertIn('check_in', entries[0].old_value)
+
+    def test_a_correction_that_inverts_the_shift_is_refused(self):
+        response = self._correct(self.client_for(self.owner),
+                                 check_in='2026-09-01T20:00:00', reason='Typo')
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_tailor_cannot_correct_their_own_attendance(self):
+        response = self._correct(self.client_for(self.anita_user),
+                                 check_in='2026-09-01T06:00:00', reason='More hours')
+        self.assertEqual(response.status_code, 403)
+        self.session.refresh_from_db()
+        self.assertEqual(to_local(self.session.check_in).minute, 45)
+
+    def test_a_master_cannot_correct_attendance(self):
+        """Supervisors watch the floor; they do not edit what becomes wages."""
+        response = self._correct(self.client_for(self.master_user),
+                                 check_in='2026-09-01T06:00:00', reason='Adjust')
+        self.assertEqual(response.status_code, 403)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.minutes, 495)
+
+
+class AttendanceVisibilityTests(AttendanceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.anita_session = AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 9, 0),
+            check_out=self._at(2026, 9, 1, 17, 0), minutes=480)
+        self.balan_session = AttendanceSession.objects.create(
+            staff=self.balan, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 10, 0),
+            check_out=self._at(2026, 9, 1, 19, 0), minutes=540)
+
+    def test_owner_sees_the_whole_floor(self):
+        response = self.client_for(self.owner).get(reverse('staff-attendance-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 2)
+
+    def test_a_master_sees_the_team(self):
+        response = self.client_for(self.master_user).get(reverse('staff-attendance-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 2)
+
+    def test_a_tailor_sees_only_their_own_days(self):
+        response = self.client_for(self.anita_user).get(reverse('staff-attendance-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['staff_name'], 'Anita')
+
+    def test_a_tailor_cannot_ask_for_a_colleague_by_query_parameter(self):
+        """?staff= is simply not read on the staff branch."""
+        response = self.client_for(self.anita_user).get(
+            reverse('staff-attendance-list'), {'staff': self.balan.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['staff_name'], 'Anita')
+
+    def test_a_tailor_cannot_fetch_a_colleagues_session_by_id(self):
+        response = self.client_for(self.anita_user).get(
+            reverse('staff-attendance-detail', args=[self.balan_session.id]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_the_owner_can_filter_to_one_person(self):
+        response = self.client_for(self.owner).get(
+            reverse('staff-attendance-list'), {'staff': self.balan.id})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['staff_name'], 'Balan')
+
+    def test_attendance_cannot_be_written_through_the_router(self):
+        """No generic create: every write is a named action with its own rules."""
+        response = self.client_for(self.owner).post(
+            reverse('staff-attendance-list'),
+            {'staff': self.anita.id, 'check_in': '2026-09-01T09:00:00'},
+            format='json')
+        self.assertEqual(response.status_code, 405)
+
+
+class CurrentAttendanceStateTests(AttendanceTestCase):
+    def test_not_checked_in(self):
+        response = self.client_for(self.anita_user).get(
+            reverse('staff-attendance-current'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['state'], 'NOT_CHECKED_IN')
+        self.assertIsNone(response.data['session'])
+
+    def test_currently_working(self):
+        client = self.client_for(self.anita_user)
+        client.post(reverse('staff-attendance-check-in'), {}, format='json')
+        response = client.get(reverse('staff-attendance-current'))
+        self.assertEqual(response.data['state'], 'WORKING')
+        self.assertTrue(response.data['session']['is_open'])
+
+    def test_checked_out(self):
+        client = self.client_for(self.anita_user)
+        client.post(reverse('staff-attendance-check-in'), {}, format='json')
+        client.post(reverse('staff-attendance-check-out'), {}, format='json')
+        response = client.get(reverse('staff-attendance-current'))
+        self.assertEqual(response.data['state'], 'CHECKED_OUT')
+        self.assertFalse(response.data['session']['is_open'])
+
+    def test_an_account_off_the_roster_gets_a_plain_answer(self):
+        stranger = User.objects.create_user(
+            username='nobody', email='nobody@staff.test', password='nobodypw12345')
+        response = self.client_for(stranger).get(reverse('staff-attendance-current'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['state'], 'NOT_STAFF')
+
+
+class TimesheetTests(AttendanceTestCase):
+    def setUp(self):
+        super().setUp()
+        # Monday 31 Aug 2026 through Wednesday 2 Sep.
+        for day, start, end in ((31, 9, 18), (1, 9, 17), (2, 10, 19)):
+            month = 8 if day == 31 else 9
+            session = AttendanceSession.objects.create(
+                staff=self.anita, date=date(2026, month, day),
+                check_in=self._at(2026, month, day, start, 0),
+                check_out=self._at(2026, month, day, end, 0))
+            session.minutes = session.duration_minutes()
+            session.save()
+
+    def test_a_week_totals_its_sessions(self):
+        response = self.client_for(self.owner).get(
+            reverse('staff-timesheet'), {'staff': self.anita.id, 'week': '2026-09-01'})
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['week_start'], date(2026, 8, 31))
+        self.assertEqual(response.data['week_end'], date(2026, 9, 6))
+        self.assertEqual(len(response.data['sessions']), 3)
+        # 9h + 8h + 9h
+        self.assertEqual(response.data['total_minutes'], 540 + 480 + 540)
+
+    def test_an_empty_week_totals_zero(self):
+        response = self.client_for(self.owner).get(
+            reverse('staff-timesheet'), {'staff': self.anita.id, 'week': '2026-10-05'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['total_minutes'], 0)
+        self.assertEqual(response.data['sessions'], [])
+
+    def test_two_sessions_in_one_day_both_count(self):
+        extra = AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 3),
+            check_in=self._at(2026, 9, 3, 9, 0),
+            check_out=self._at(2026, 9, 3, 12, 0))
+        extra.minutes = extra.duration_minutes()
+        extra.save()
+        second = AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 3),
+            check_in=self._at(2026, 9, 3, 14, 0),
+            check_out=self._at(2026, 9, 3, 18, 0))
+        second.minutes = second.duration_minutes()
+        second.save()
+        response = self.client_for(self.owner).get(
+            reverse('staff-timesheet'), {'staff': self.anita.id, 'week': '2026-09-01'})
+        self.assertEqual(len(response.data['sessions']), 5)
+        self.assertEqual(response.data['total_minutes'], 1560 + 180 + 240)
+
+    def test_an_open_session_contributes_no_minutes(self):
+        """Otherwise the weekly total would change on every page refresh."""
+        AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 4),
+            check_in=self._at(2026, 9, 4, 9, 0))
+        response = self.client_for(self.owner).get(
+            reverse('staff-timesheet'), {'staff': self.anita.id, 'week': '2026-09-01'})
+        self.assertEqual(response.data['total_minutes'], 1560)
+        self.assertEqual(response.data['open_sessions'], 1)
+
+    def test_a_tailor_sees_their_own_timesheet_without_naming_themselves(self):
+        response = self.client_for(self.anita_user).get(reverse('staff-timesheet'),
+                                                        {'week': '2026-09-01'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['staff_name'], 'Anita')
+        self.assertEqual(response.data['total_minutes'], 1560)
+
+    def test_a_tailor_cannot_request_a_colleagues_timesheet(self):
+        """THE query-parameter attack: ?staff=<someone else>.
+
+        The parameter is ignored rather than refused, so the answer is the
+        caller's own week and nothing leaks about whether that id exists.
+        """
+        AttendanceSession.objects.create(
+            staff=self.balan, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 8, 0),
+            check_out=self._at(2026, 9, 1, 20, 0), minutes=720)
+        response = self.client_for(self.anita_user).get(
+            reverse('staff-timesheet'), {'staff': self.balan.id, 'week': '2026-09-01'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['staff_name'], 'Anita')
+        self.assertNotEqual(response.data['total_minutes'], 720)
+
+    def test_a_master_may_read_the_teams_timesheet(self):
+        response = self.client_for(self.master_user).get(
+            reverse('staff-timesheet'), {'staff': self.anita.id, 'week': '2026-09-01'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['staff_name'], 'Anita')
+
+    def test_the_timesheet_requires_signing_in(self):
+        anonymous = APIClient()
+        anonymous.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
+        response = anonymous.get(reverse('staff-timesheet'))
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_a_corrected_row_is_marked_as_corrected(self):
+        session = AttendanceSession.objects.filter(staff=self.anita).first()
+        self.client_for(self.owner).post(
+            reverse('staff-attendance-correct', args=[session.id]),
+            {'check_in': '2026-09-02T08:00:00', 'reason': 'Early start'},
+            format='json')
+        response = self.client_for(self.owner).get(
+            reverse('staff-timesheet'), {'staff': self.anita.id, 'week': '2026-09-01'})
+        corrected = [s for s in response.data['sessions'] if s['was_corrected']]
+        self.assertEqual(len(corrected), 1)
+
+
+class AttendanceStaysFinanciallyNeutralTests(AttendanceTestCase):
+    def test_attendance_never_reports_money(self):
+        """Phase 3 answers minutes. Multiplying them by a rate is Phase 4."""
+        self.terms_for(self.anita, hourly_rate=Decimal('120.00'))
+        session = AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 1),
+            check_in=self._at(2026, 9, 1, 9, 0),
+            check_out=self._at(2026, 9, 1, 17, 0), minutes=480)
+        response = self.client_for(self.owner).get(
+            reverse('staff-attendance-detail', args=[session.id]))
+        body = response.content.decode()
+        for money_word in ('hourly_rate', 'gross', 'earnings', 'net_pay', 'deduction'):
+            self.assertNotIn(money_word, body)

@@ -171,11 +171,28 @@ class StaffSelfOrOwner(permissions.BasePermission):
 
     message = "Only the boutique owner can manage employment details."
 
+    #: The writes a staff member performs ON THEMSELVES. Named actions rather
+    #: than "POST is allowed", mirroring RolePermission.STAFF_ORDER_ACTIONS --
+    #: which exists for the same reason: production staff need a few specific
+    #: writes as part of doing the job, and listing them is what stops that need
+    #: from opening every other write on the viewset.
+    #:
+    #: These are the METHOD names on the viewset (`check_in`), not the url_paths
+    #: (`check-in`); DRF sets view.action from the method. Getting that backwards
+    #: silently locks every staff member out of recording their own hours.
+    #:
+    #: Whose row is affected is not decided here -- the actions resolve the
+    #: caller's own staff profile from the token and never read a staff id from
+    #: the request body, so there is no id for anyone to substitute.
+    SELF_SERVICE_ACTIONS = frozenset({'check_in', 'check_out'})
+
     def has_permission(self, request, view):
         role = resolve_user_role(request.user)
         if role is None:
             return False
         if role == OWNER:
+            return True
+        if getattr(view, 'action', None) in self.SELF_SERVICE_ACTIONS:
             return True
         # Read-only for everyone else. A staff member raising their own pay is
         # the obvious thing to close, and it is closed here rather than by

@@ -1404,4 +1404,16 @@ Object.assign(api, {
   createStaffProfile: (payload) => staffRequest('profiles/', { method: 'POST', body: payload }),
   updateStaffProfile: (id, payload) =>
     staffRequest(`profiles/${id}/`, { method: 'PATCH', body: payload }),
+
+  // Attendance. Check-in and check-out send no timestamp on purpose -- the
+  // server stamps them, so a clock that is wrong (or a device whose owner set
+  // it back) cannot buy an extra hour.
+  getAttendance: (params) => staffRequest('attendance/', {}, params),
+  getCurrentAttendance: () => staffRequest('attendance/current/'),
+  checkIn: (payload) => staffRequest('attendance/check-in/', { method: 'POST', body: payload || {} }),
+  checkOut: () => staffRequest('attendance/check-out/', { method: 'POST', body: {} }),
+  recordAttendance: (payload) => staffRequest('attendance/record/', { method: 'POST', body: payload }),
+  correctAttendance: (id, payload) =>
+    staffRequest(`attendance/${id}/correct/`, { method: 'POST', body: payload }),
+  getTimesheet: (params) => staffRequest('timesheet/', {}, params),
 });
