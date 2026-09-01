@@ -688,6 +688,13 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false);
   // Logout asks first: one mis-tap on a phone menu ended the whole session,
   // and the POST behind it takes seconds with nothing on screen saying so.
+  // Getting-started checklist: dismissed per device+boutique, and it also
+  // disappears on its own once every step is genuinely done.
+  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(`onboarding_dismissed_${localStorage.getItem('tenant_id') || ''}`) === '1';
+    } catch { return false; }
+  });
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
 
@@ -2281,6 +2288,18 @@ function App() {
     );
   }
 
+
+  // Driven by real data, so it can never disagree with the boutique's actual
+  // state -- and it teaches the workflow in the order the work happens.
+  const onboardingSteps = [
+    { key: 'boutique', label: 'Create your boutique', done: true },
+    { key: 'customer', label: 'Add your first customer', done: customersList.length > 0, go: () => setView('order-selector') },
+    { key: 'order', label: 'Create your first order', done: ordersList.length > 0, go: () => setView('order-selector') },
+    { key: 'staff', label: 'Add your staff (tailors & designers)', done: tailors.length > 0, go: () => setDashboardTab('tailors') },
+    { key: 'fabrics', label: 'Set up your fabric library', done: fabrics.length > 0, go: () => setDashboardTab('fabrics') },
+    { key: 'production', label: 'Move an order through production', done: ordersList.some(o => o.order_status && o.order_status !== 'Received'), go: () => setDashboardTab('orders') },
+  ];
+  const showOnboarding = !loading && !onboardingDismissed && onboardingSteps.some(step => !step.done);
   return (
     <div className="app-container">
 
@@ -3307,6 +3326,59 @@ function App() {
                     </div>
                   </div>
                 </header>
+
+                {showOnboarding && (
+                  <section className="content-card" style={{ padding: '20px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
+                      <div>
+                        <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 500 }}>Getting started</h2>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          {onboardingSteps.filter(step => step.done).length} of {onboardingSteps.length} done — this is the order the work flows in.
+                        </p>
+                      </div>
+                      <button
+                        type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px' }}
+                        onClick={() => {
+                          setOnboardingDismissed(true);
+                          try {
+                            localStorage.setItem(`onboarding_dismissed_${localStorage.getItem('tenant_id') || ''}`, '1');
+                          } catch { /* per-device convenience only */ }
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {onboardingSteps.map((step, i) => (
+                        <button
+                          key={step.key}
+                          type="button"
+                          disabled={step.done || !step.go}
+                          onClick={step.go}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px',
+                            background: 'transparent', border: 'none', borderRadius: '6px', textAlign: 'left',
+                            cursor: step.done || !step.go ? 'default' : 'pointer', width: '100%',
+                            color: step.done ? 'var(--text-muted)' : 'var(--text-primary)',
+                          }}
+                        >
+                          <span style={{
+                            width: '20px', height: '20px', borderRadius: '50%', flexShrink: 0,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            border: step.done ? 'none' : '1.5px solid var(--border-color)',
+                            background: step.done ? '#10b981' : 'transparent', color: '#fff', fontSize: '12px',
+                          }}>
+                            {step.done ? <Check size={12} /> : i + 1}
+                          </span>
+                          <span style={{ fontSize: '13px', textDecoration: step.done ? 'line-through' : 'none' }}>
+                            {step.label}
+                          </span>
+                          {!step.done && step.go && <ArrowRight size={13} style={{ marginLeft: 'auto', opacity: 0.5 }} />}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 {/* Quick Action Grid */}
                 <section className="quick-action-button-grid">
@@ -6794,7 +6866,9 @@ function App() {
               )}
 
               <div className="selector-cards-grid">
-                {/* Option 1: Existing Customer */}
+                {/* Option 1: Existing Customer -- pointless (and confusing) until
+                    the boutique actually has one, so it waits for the first. */}
+                {customersList.length > 0 && (
                 <div className="selector-option-card" onClick={openExistingCustomerModal}>
                   <div className="selector-option-icon">
                     <Users size={32} />
@@ -6822,13 +6896,14 @@ function App() {
                     <ArrowRight size={14} />
                   </button>
                 </div>
+                )}
 
                 {/* Option 2: New Customer */}
                 <div className="selector-option-card" onClick={handleStartNewCustomer}>
                   <div className="selector-option-icon">
                     <User size={32} />
                   </div>
-                  <h3 className="selector-option-title">New Customer</h3>
+                  <h3 className="selector-option-title">{customersList.length === 0 ? 'Create Your First Customer' : 'New Customer'}</h3>
                   <p className="selector-option-desc">Create a new customer profile and input their measurements from scratch.</p>
 
                   <div className="selector-features-list">
@@ -6847,7 +6922,7 @@ function App() {
                   </div>
 
                   <button className="selector-card-btn">
-                    Create New Customer
+                    {customersList.length === 0 ? 'Create Your First Customer' : 'Create New Customer'}
                     <ArrowRight size={14} />
                   </button>
                 </div>
