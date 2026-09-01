@@ -46,6 +46,7 @@ export const LanguageSelector = () => {
         <option value="ta">தமிழ் (TA)</option>
         <option value="kn">ಕನ್ನಡ (KN)</option>
         <option value="es">Español (ES)</option>
+        <option value="de">German / Deutsch (DE)</option>
       </select>
     </div>
   );

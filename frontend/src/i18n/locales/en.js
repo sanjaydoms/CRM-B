@@ -62,6 +62,8 @@ const en = {
     kannadaDesc: "ಕನ್ನಡ ಇಂಟರ್ಫೇಸ್ (KN)",
     spanishTitle: "Español (Spanish)",
     spanishDesc: "Spanish Interface (ES)",
+    germanTitle: "Deutsch (German)",
+    germanDesc: "German Interface (DE)",
     systemSectionTitle: "System Information",
     systemSectionDesc: "Overview of your current workspace and environment settings.",
     activeUser: "Active User Role",

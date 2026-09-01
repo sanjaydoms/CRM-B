@@ -69,6 +69,8 @@ const ta = {
     kannadaDesc: "கன்னடம் இடைமுகம் (KN)",
     spanishTitle: "Español (Spanish)",
     spanishDesc: "ஸ்பானிஷ் இடைமுகம் (ES)",
+    germanTitle: "Deutsch (German)",
+    germanDesc: "ஜெர்மன் இடைமுகம் (DE)",
     systemSectionTitle: "அமைப்பு సమాచారం (System Info)",
     systemSectionDesc: "உங்கள் தற்போதைய பணியிட மற்றும் சூழல் அமைப்புகளின் மேலோட்டம்.",
     activeUser: "செயலில் உள்ள பயனர் பங்கு",

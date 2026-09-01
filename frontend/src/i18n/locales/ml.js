@@ -68,6 +68,8 @@ const ml = {
     kannadaDesc: "കന്നഡ ഇന്റർഫേസ് (KN)",
     spanishTitle: "Español (Spanish)",
     spanishDesc: "സ്പാനിഷ് ഇന്റർഫേസ് (ES)",
+    germanTitle: "Deutsch (German)",
+    germanDesc: "ജർമ്മൻ ഇന്റർഫേസ് (DE)",
     systemSectionTitle: "സിസ്റ്റം വിവരങ്ങൾ",
     systemSectionDesc: "നിങ്ങളുടെ നിലവിലെ വർക്ക്‌സ്‌പേസിന്റെയും എൻവയോൺമെന്റ് സെറ്റിംഗ്സിന്റെയും അവലോകനം.",
     activeUser: "സജീവ ഉപയോക്തൃ റോൾ",

@@ -67,6 +67,8 @@ const gu = {
     kannadaDesc: "ಕನ್ನಡ ઇન્ટરફેસ (KN)",
     spanishTitle: "Español (Spanish)",
     spanishDesc: "સ્પેનિશ ઇન્ટરફેસ (ES)",
+    germanTitle: "Deutsch (German)",
+    germanDesc: "જર્મન ઇન્ટરફેસ (DE)",
     systemSectionTitle: "સિસ્ટમ માહિતી",
     systemSectionDesc: "તમારા વર્તમાન વર્કસ્પેસ અને એન્વાયર્નમેન્ટ સેટિંગ્સની સમીક્ષા.",
     activeUser: "સક્રિય વપરાશકર્તા ભૂમિકા",

@@ -65,6 +65,8 @@ const ar = {
     kannadaDesc: "ಕನ್ನಡ ಇಂಟರ್ಫೇಸ್ (KN)",
     spanishTitle: "Español (Spanish)",
     spanishDesc: "الواجهة الإسبانية (ES)",
+    germanTitle: "Deutsch (German)",
+    germanDesc: "الواجهة الألمانية (DE)",
     systemSectionTitle: "معلومات النظام",
     systemSectionDesc: "نظرة عامة على مساحة العمل الحالية وإعدادات البيئة.",
     activeUser: "دور المستخدم النشط",

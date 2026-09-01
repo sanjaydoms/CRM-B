@@ -71,6 +71,8 @@ const es = {
     kannadaDesc: "Interfaz en kannada (KN)",
     spanishTitle: "Español (Spanish)",
     spanishDesc: "Interfaz en español (ES)",
+    germanTitle: "Deutsch (German)",
+    germanDesc: "Interfaz en alemán (DE)",
     systemSectionTitle: "Información del sistema",
     systemSectionDesc: "Resumen de su espacio de trabajo actual y configuración del entorno.",
     activeUser: "Rol de usuario activo",
