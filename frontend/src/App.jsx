@@ -397,6 +397,7 @@ function GarmentGallery({ order, onChanged }) {
   const [error, setError] = useState(null);
   const [view, setView] = useState('FRONT');
   const fileRef = useRef(null);
+  const cameraRef = useRef(null);
 
   const images = order.garment_images || [];
   const published = order.garment_images_published;
@@ -488,6 +489,16 @@ function GarmentGallery({ order, onChanged }) {
         </select>
 
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={onPick} />
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPick} />
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{ fontSize: '12px', padding: '6px 10px' }}
+          disabled={busy}
+          onClick={() => cameraRef.current?.click()}
+        >
+          {busy ? 'Working…' : '📷 Take photo'}
+        </button>
         <button
           type="button"
           className="btn-secondary"
@@ -495,7 +506,7 @@ function GarmentGallery({ order, onChanged }) {
           disabled={busy}
           onClick={() => fileRef.current?.click()}
         >
-          {busy ? 'Working…' : 'Add photo'}
+          {busy ? 'Working…' : 'Choose from gallery'}
         </button>
 
         <button
@@ -644,6 +655,162 @@ const normaliseDesignBrief = (brief) => {
   if (!brief) return null;
   return { ...brief, design: brief.design || brief.selected || null };
 };
+
+/**
+ * What this garment needs from the store room, shown the moment it is chosen.
+ *
+ * Reads the boutique's own recipe (the active BOM for the template) so the
+ * person taking the order knows BEFORE promising a date whether the racks can
+ * stitch it. Read-only and quiet: no recipe, no card.
+ */
+function MaterialsNeeded({ templateId }) {
+  const [bom, setBom] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.getBoms({ template: templateId })
+      .then((data) => {
+        const boms = (data.results || data || []).filter((b) => b.is_active);
+        if (!cancelled) setBom(boms[0] || null);
+      })
+      .catch(() => { /* no recipe is a fine answer */ });
+    return () => { cancelled = true; };
+  }, [templateId]);
+  if (!bom || !(bom.lines || []).length) return null;
+  return (
+    <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px dashed var(--border-color)', borderRadius: '8px', padding: '10px 12px', marginBottom: '16px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+        Materials this garment needs · {bom.name}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px' }}>
+        {bom.lines.map((line) => (
+          <span key={line.id} style={{ fontSize: '12.5px', color: 'var(--text-primary)' }}>
+            {line.material_name}
+            {line.quantity ? ` — ${line.quantity} ${line.unit_display || line.unit || ''}` : (line.quantity_formula ? ' — per measurements' : '')}
+            {line.is_optional ? ' (optional)' : ''}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The Master\'s gathering checklist for one order.
+ *
+ * Every material the order plans, each with: a tick that records who had it in
+ * hand and when, photographs of the actual bolt or spool (camera or gallery)
+ * that travel with the order for QC and future rework, and the consumption
+ * note once stitching has drawn it. Visibility for everyone; ticking and
+ * photographing are the Owner\'s and the Master\'s.
+ */
+function MaterialsChecklist({ orderId, role, onActivity }) {
+  const [plan, setPlan] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const [busyLineId, setBusyLineId] = useState(null);
+  const canEdit = role === 'Owner' || role === 'Master';
+
+  const refresh = () => api.getMaterialChecklist(orderId)
+    .then((data) => { setPlan(data.plan); setLoaded(true); })
+    .catch(() => setLoaded(true));
+  // Fetch only when someone opens the panel. The registry renders one of
+  // these per order card, and an on-mount fetch would fire the whole page's
+  // worth of requests at a cross-region API on every visit.
+  useEffect(() => { if (opened) refresh(); /* eslint-disable-next-line */ }, [opened, orderId]);
+
+  if (!opened) {
+    return (
+      <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px', marginTop: '8px' }} onClick={() => setOpened(true)}>
+        Show materials
+      </button>
+    );
+  }
+  if (!loaded) return <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '6px 0' }}>Loading materials…</div>;
+  if (!plan || !(plan.lines || []).length) {
+    return <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '6px 0' }}>No materials were planned on this order.</div>;
+  }
+  const remaining = plan.lines.filter((l) => !l.gathered_at).length;
+
+  const act = async (fn) => {
+    try { await fn(); await refresh(); if (onActivity) onActivity(); }
+    catch (err) { alert(err.message); }
+    finally { setBusyLineId(null); }
+  };
+
+  return (
+    <div style={{ marginTop: '8px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: remaining ? '#b45309' : '#10b981' }}>
+        {remaining ? `⚠ ${remaining} of ${plan.lines.length} still to gather` : `✓ All ${plan.lines.length} materials gathered`}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {plan.lines.map((line) => (
+          <div key={line.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: canEdit ? 'pointer' : 'default', flex: '1 1 auto' }}>
+                <input
+                  type="checkbox"
+                  checked={!!line.gathered_at}
+                  disabled={!canEdit || busyLineId === line.id}
+                  onChange={(e) => {
+                    setBusyLineId(line.id);
+                    act(() => api.gatherMaterialLine(plan.id, line.id, e.target.checked));
+                  }}
+                />
+                <span style={{ textDecoration: line.gathered_at ? 'line-through' : 'none' }}>
+                  {line.material_name} — {line.required_quantity} {line.unit_display || line.unit}
+                  {line.is_customer_supplied ? ' (customer\u2019s own)' : ''}
+                </span>
+              </label>
+              {canEdit && (
+                <span style={{ display: 'inline-flex', gap: '6px' }}>
+                  <label className="btn-secondary" style={{ fontSize: '11px', padding: '3px 8px', cursor: 'pointer' }}>
+                    📷
+                    <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+                      disabled={busyLineId === line.id}
+                      onChange={(e) => {
+                        const f = e.target.files[0];
+                        if (!f) return;
+                        setBusyLineId(line.id);
+                        act(() => api.addMaterialLinePhoto(plan.id, line.id, f));
+                        e.target.value = '';
+                      }} />
+                  </label>
+                  <label className="btn-secondary" style={{ fontSize: '11px', padding: '3px 8px', cursor: 'pointer' }}>
+                    🖼
+                    <input type="file" accept="image/*" style={{ display: 'none' }}
+                      disabled={busyLineId === line.id}
+                      onChange={(e) => {
+                        const f = e.target.files[0];
+                        if (!f) return;
+                        setBusyLineId(line.id);
+                        act(() => api.addMaterialLinePhoto(plan.id, line.id, f));
+                        e.target.value = '';
+                      }} />
+                  </label>
+                </span>
+              )}
+            </div>
+            {(line.gathered_at || Number(line.consumed_quantity) > 0 || (line.photos || []).length > 0) && (
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center' }}>
+                {line.gathered_at && (
+                  <span>Gathered by {line.gathered_by_name || 'staff'} · {new Date(line.gathered_at).toLocaleDateString()}</span>
+                )}
+                {Number(line.consumed_quantity) > 0 && (
+                  <span>{line.consumed_quantity} {line.unit_display || line.unit} used in stitching</span>
+                )}
+                {(line.photos || []).map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noreferrer">
+                    <img src={url} alt="material" style={{ width: '34px', height: '34px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-color)' }} />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * A thin bar across the very top whenever ANY api call is in flight.
@@ -3243,6 +3410,15 @@ function App() {
                               )}
                             </div>
 
+                            {/* The same gathering checklist, on the card the
+                                Master actually works from. */}
+                            <div style={{ marginTop: '12px', padding: '14px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'left' }}>
+                              <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                🧵 Raw Materials Checklist
+                              </h4>
+                              <MaterialsChecklist orderId={order.id} role={currentUser.role} />
+                            </div>
+
                             {/* Master Verification Checklist */}
                             {currentUser.role === 'Master' && (
                               <div style={{
@@ -3332,13 +3508,27 @@ function App() {
                                   </div>
                                   <div>
                                     <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Upload Completed Garment Photo</label>
-                                    <input 
-                                      type="file" 
+                                    <input
+                                      type="file"
                                       className="form-control"
                                       style={{ fontSize: '13px' }}
                                       id={`image-${order.id}`}
                                       accept="image/*"
                                     />
+                                    <input
+                                      type="file"
+                                      style={{ display: 'none' }}
+                                      id={`image-${order.id}-camera`}
+                                      accept="image/*"
+                                      capture="environment"
+                                    />
+                                    <label
+                                      htmlFor={`image-${order.id}-camera`}
+                                      className="btn-secondary"
+                                      style={{ display: 'inline-block', fontSize: '12px', padding: '6px 10px', marginTop: '6px', cursor: 'pointer' }}
+                                    >
+                                      📷 Take photo
+                                    </label>
                                     {order.completed_garment_image && (
                                       <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span style={{ fontSize: '11px', color: '#107c41', fontWeight: 600 }}>✓ Picture Uploaded</span>
@@ -3356,7 +3546,8 @@ function App() {
                                     if (submittingCompletionId) return;
                                     const commentVal = document.getElementById(`comments-${order.id}`).value;
                                     const fileInput = document.getElementById(`image-${order.id}`);
-                                    const file = fileInput.files[0];
+                                    const cameraInput = document.getElementById(`image-${order.id}-camera`);
+                                    const file = fileInput.files[0] || cameraInput?.files[0];
 
                                     setSubmittingCompletionId(order.id);
                                     try {
@@ -4593,6 +4784,16 @@ function App() {
                               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Est. Delivery</span>
                               <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : 'TBD'}</div>
                             </div>
+                          </div>
+
+                          {/* The gathering checklist: what the store room owes
+                              this order, who had it in hand, and the photos
+                              that ride down the roadmap. */}
+                          <div style={{ padding: '14px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'left' }}>
+                            <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              🧵 Raw Materials Checklist
+                            </h4>
+                            <MaterialsChecklist orderId={order.id} role={currentUser.role} />
                           </div>
 
                           {/* Master Verification Checklist in Orders Tab */}
@@ -6226,8 +6427,9 @@ function App() {
                         formData.append('address', form.boutiqueAddress.value);
                         formData.append('phone', form.boutiquePhone.value);
                         formData.append('email', form.boutiqueEmail.value);
-                        if (form.boutiqueLogo.files[0]) {
-                          formData.append('logo', form.boutiqueLogo.files[0]);
+                        const logoFile = form.boutiqueLogo.files[0] || form.boutiqueLogoCamera.files[0];
+                        if (logoFile) {
+                          formData.append('logo', logoFile);
                         }
                         formData.append('design_approval_required', form.designApprovalRequired.checked);
                         setSettingsSaving(true);
@@ -6302,12 +6504,27 @@ function App() {
                               style={{ width: '48px', height: '48px', borderRadius: '4px', objectFit: 'contain', background: '#f8fafc', border: '1px solid var(--border-color)' }} 
                             />
                           )}
-                          <input 
-                            type="file" 
+                          <input
+                            type="file"
                             name="boutiqueLogo"
                             accept="image/*"
-                            className="form-control" 
+                            className="form-control"
                           />
+                          <input
+                            type="file"
+                            name="boutiqueLogoCamera"
+                            id="boutique-logo-camera"
+                            accept="image/*"
+                            capture="environment"
+                            style={{ display: 'none' }}
+                          />
+                          <label
+                            htmlFor="boutique-logo-camera"
+                            className="btn-secondary"
+                            style={{ display: 'inline-block', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            📷 Take photo
+                          </label>
                         </div>
                       </div>
 
@@ -7257,12 +7474,23 @@ function App() {
                     </div>
                     <div className="photo-upload-actions">
                       <label className="upload-btn-label">
-                        Upload Photo
-                        <input 
-                          type="file" 
-                          id="profile-picker" 
-                          accept="image/*" 
-                          style={{ display: 'none' }} 
+                        📷 Take photo
+                        <input
+                          type="file"
+                          id="profile-picker-camera"
+                          accept="image/*"
+                          capture="environment"
+                          style={{ display: 'none' }}
+                          onChange={handleProfilePhotoChange}
+                        />
+                      </label>
+                      <label className="upload-btn-label">
+                        Choose from gallery
+                        <input
+                          type="file"
+                          id="profile-picker"
+                          accept="image/*"
+                          style={{ display: 'none' }}
                           onChange={handleProfilePhotoChange}
                         />
                       </label>
@@ -7567,6 +7795,7 @@ function App() {
                       </button>
                     </div>
 
+                    <MaterialsNeeded templateId={job.template.id} />
                     {['basic', 'measurements', 'style', 'materials', 'production'].map(sectionKey => {
                       const section = job.template.sections.find(s => s.key === sectionKey);
                       if (!section) return null;
@@ -7698,17 +7927,33 @@ function App() {
                           />
                         </div>
                       </div>
-                      <div className="drag-drop-zone" onClick={() => document.getElementById('design-picker').click()}>
+                      <div className="drag-drop-zone" onClick={(e) => { if (e.target.tagName === 'INPUT') return; document.getElementById('design-picker').click(); }}>
                         <div className="drag-drop-icon">
                           <Upload size={24} />
                         </div>
-                        <div className="drag-drop-text">Drag & drop images here or <span>Upload Images</span></div>
+                        <div className="drag-drop-text">Drag & drop images here or <span>Choose from gallery</span></div>
                         <div className="drag-drop-subtext">JPG, PNG up to 10MB each • You can upload up to 10 images</div>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ marginTop: '8px', fontSize: '12px', padding: '6px 12px' }}
+                          onClick={(e) => { e.stopPropagation(); document.getElementById('design-picker-camera').click(); }}
+                        >
+                          📷 Take photo
+                        </button>
                         <input
                           type="file"
                           id="design-picker"
                           multiple
                           accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={handleDesignFilesChange}
+                        />
+                        <input
+                          type="file"
+                          id="design-picker-camera"
+                          accept="image/*"
+                          capture="environment"
                           style={{ display: 'none' }}
                           onChange={handleDesignFilesChange}
                         />
@@ -7762,18 +8007,34 @@ function App() {
 
                   {fabricTab === 'my-fabric' ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      <div className="drag-drop-zone" onClick={() => document.getElementById('fabric-picker').click()}>
+                      <div className="drag-drop-zone" onClick={(e) => { if (e.target.tagName === 'INPUT') return; document.getElementById('fabric-picker').click(); }}>
                         <div className="drag-drop-icon">
                           <Upload size={24} />
                         </div>
-                        <div className="drag-drop-text">Upload Fabric Images</div>
+                        <div className="drag-drop-text">Upload Fabric Images — <span>Choose from gallery</span></div>
                         <div className="drag-drop-subtext">Upload clear, well-lit photos for accurate representation</div>
-                        <input 
-                          type="file" 
-                          id="fabric-picker" 
-                          multiple 
-                          accept="image/*" 
-                          style={{ display: 'none' }} 
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ marginTop: '8px', fontSize: '12px', padding: '6px 12px' }}
+                          onClick={(e) => { e.stopPropagation(); document.getElementById('fabric-picker-camera').click(); }}
+                        >
+                          📷 Take photo
+                        </button>
+                        <input
+                          type="file"
+                          id="fabric-picker"
+                          multiple
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={handleFabricFilesChange}
+                        />
+                        <input
+                          type="file"
+                          id="fabric-picker-camera"
+                          accept="image/*"
+                          capture="environment"
+                          style={{ display: 'none' }}
                           onChange={handleFabricFilesChange}
                         />
                       </div>
@@ -9796,13 +10057,28 @@ function App() {
 
               <div>
                 <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Upload Progress Photo</label>
-                <input 
-                  type="file" 
+                <input
+                  type="file"
                   className="form-control"
                   style={{ fontSize: '12px' }}
                   accept="image/*"
                   onChange={(e) => setStageReviewImage(e.target.files[0])}
                 />
+                <input
+                  type="file"
+                  id="stage-review-photo-camera"
+                  accept="image/*"
+                  capture="environment"
+                  style={{ display: 'none' }}
+                  onChange={(e) => setStageReviewImage(e.target.files[0])}
+                />
+                <label
+                  htmlFor="stage-review-photo-camera"
+                  className="btn-secondary"
+                  style={{ display: 'inline-block', fontSize: '12px', padding: '6px 10px', marginTop: '6px', cursor: 'pointer' }}
+                >
+                  📷 Take photo
+                </label>
               </div>
 
               {/* Action Buttons Panel */}

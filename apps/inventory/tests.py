@@ -2444,3 +2444,161 @@ class WriteOffWhileReservedTests(InventoryTestBase):
         self.assertEqual(item.current_stock, Decimal('6'))
         # The reservation cannot outlive the stock that backed it.
         self.assertEqual(item.reserved_stock, Decimal('6'))
+
+
+class GatheringChecklistTests(TenantTestCase):
+    """The Master's material checklist: created on first look, ticked with a
+    name on record, photographed for the road ahead."""
+
+    @classmethod
+    def setup_tenant(cls, tenant):
+        tenant.owner_email = "owner@checklist.test"
+        return tenant
+
+    def setUp(self):
+        super().setUp()
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        from django.contrib.auth.models import User
+        from rest_framework.authtoken.models import Token
+        from rest_framework.test import APIClient
+        from crm_api.models import Customer, Measurement, Tailor
+
+        self.owner = User.objects.create_user(
+            username="owner@checklist.test", email="owner@checklist.test",
+            password="pw12345678", first_name="Owner")
+        self.master_user = User.objects.create_user(
+            username="master@checklist.test", email="master@checklist.test",
+            password="pw12345678", first_name="Master")
+        Tailor.objects.create(name="M", specialty="x", role="Master",
+                              status="Available", user=self.master_user)
+        self.tailor_user = User.objects.create_user(
+            username="t@checklist.test", email="t@checklist.test",
+            password="pw12345678", first_name="T")
+        Tailor.objects.create(name="T", specialty="x", role="Tailor",
+                              status="Available", user=self.tailor_user)
+
+        self.customer = Customer.objects.create(
+            first_name="C", last_name="K", mobile_number="9811111111",
+            garment_type="Blouse")
+        Measurement.objects.create(customer=self.customer, bust=36, waist=30, hips=38)
+
+        def client_for(user):
+            c = APIClient()
+            token, _ = Token.objects.get_or_create(user=user)
+            c.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+            return c
+        self.client_for = client_for
+
+    def make_order_with_materials(self):
+        from apps.catalog.models import GarmentJob, GarmentTemplate, JobMaterial
+        from apps.inventory.models import CatalogItem, CatalogSection, InventoryItem
+        from domains.orders.services import OrderService
+
+        order = OrderService.create_order_for_customer(
+            self.customer, {"base_price": 9000}, user=self.owner)
+        template = GarmentTemplate.resolve("blouse")
+        job = GarmentJob.objects.create(order=order, template=template)
+        section = CatalogSection.objects.first() or CatalogSection.objects.create(
+            name="Fabrics", sequence=1)
+        cat_item = CatalogItem.objects.create(
+            section=section, name="Silk", item_type="FABRIC", default_unit="M")
+        item = InventoryItem.objects.create(
+            catalog_item=cat_item, name="Kanchipuram Silk", category="FABRIC",
+            unit="M", current_stock=20)
+        JobMaterial.objects.create(
+            job=job, field_key="main_fabric", inventory_item=item,
+            quantity=3, unit="M")
+        return order
+
+    def test_checklist_creates_plan_on_first_look(self):
+        order = self.make_order_with_materials()
+        res = self.client_for(self.master_user).get(
+            f"/api/inventory/material-plans/checklist/?order={order.id}")
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNotNone(res.data["plan"])
+        lines = res.data["plan"]["lines"]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0]["material_name"], "Kanchipuram Silk")
+        self.assertIsNone(lines[0]["gathered_at"])
+        # Second look finds the same plan rather than making another.
+        res2 = self.client_for(self.owner).get(
+            f"/api/inventory/material-plans/checklist/?order={order.id}")
+        self.assertEqual(res2.data["plan"]["id"], res.data["plan"]["id"])
+
+    def test_gather_is_supervisors_only_and_audited(self):
+        from crm_api.models import OrderActivity
+        order = self.make_order_with_materials()
+        plan = self.client_for(self.owner).get(
+            f"/api/inventory/material-plans/checklist/?order={order.id}").data["plan"]
+        line_id = plan["lines"][0]["id"]
+
+        refused = self.client_for(self.tailor_user).post(
+            f"/api/inventory/material-plans/{plan['id']}/gather/",
+            {"line_id": line_id}, format="json")
+        self.assertEqual(refused.status_code, 403)
+
+        ok = self.client_for(self.master_user).post(
+            f"/api/inventory/material-plans/{plan['id']}/gather/",
+            {"line_id": line_id}, format="json")
+        self.assertEqual(ok.status_code, 200)
+        self.assertIsNotNone(ok.data["gathered_at"])
+        self.assertEqual(ok.data["gathered_by_name"], "Master")
+        self.assertTrue(OrderActivity.objects.filter(
+            order=order, event_type="MATERIAL_GATHERED").exists())
+
+        undone = self.client_for(self.master_user).post(
+            f"/api/inventory/material-plans/{plan['id']}/gather/",
+            {"line_id": line_id, "gathered": False}, format="json")
+        self.assertIsNone(undone.data["gathered_at"])
+
+    def test_line_photo_appends_and_audits(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from crm_api.models import OrderActivity
+        order = self.make_order_with_materials()
+        plan = self.client_for(self.owner).get(
+            f"/api/inventory/material-plans/checklist/?order={order.id}").data["plan"]
+        line_id = plan["lines"][0]["id"]
+
+        photo = SimpleUploadedFile("silk.jpg", b"notreallyajpeg", content_type="image/jpeg")
+        res = self.client_for(self.master_user).post(
+            f"/api/inventory/material-plans/{plan['id']}/line-photo/",
+            {"line_id": line_id, "image": photo}, format="multipart")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.data["photos"]), 1)
+        self.assertIn("material_photos/", res.data["photos"][0])
+        self.assertTrue(OrderActivity.objects.filter(
+            order=order, event_type="MATERIAL_PHOTO").exists())
+
+        refused = self.client_for(self.tailor_user).post(
+            f"/api/inventory/material-plans/{plan['id']}/line-photo/",
+            {"line_id": line_id, "image": SimpleUploadedFile("x.jpg", b"z", content_type="image/jpeg")},
+            format="multipart")
+        self.assertEqual(refused.status_code, 403)
+
+    def test_checklist_read_does_not_create_for_tailor(self):
+        from apps.inventory.models import OrderMaterialPlan
+        order = self.make_order_with_materials()
+        # An order the tailor is not on is invisible to them -- the checklist
+        # answers with the same opaque 400 as a nonexistent order, and no
+        # plan comes into being on their account either way.
+        res = self.client_for(self.tailor_user).get(
+            f"/api/inventory/material-plans/checklist/?order={order.id}")
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(OrderMaterialPlan.objects.filter(order=order).exists())
+
+    def test_checklist_on_delivered_order_returns_history_not_a_blank(self):
+        from apps.inventory.models import OrderMaterialPlan
+        order = self.make_order_with_materials()
+        first = self.client_for(self.owner).get(
+            f"/api/inventory/material-plans/checklist/?order={order.id}").data["plan"]
+        # Delivery closes the plan; a later look must show that record, not
+        # conjure a fresh blank one.
+        OrderMaterialPlan.objects.filter(id=first["id"]).update(
+            status=OrderMaterialPlan.Status.COMPLETED)
+        order.order_status = "Delivered"
+        order.save(update_fields=["order_status"])
+        again = self.client_for(self.owner).get(
+            f"/api/inventory/material-plans/checklist/?order={order.id}").data["plan"]
+        self.assertEqual(again["id"], first["id"])
+        self.assertEqual(OrderMaterialPlan.objects.filter(order=order).count(), 1)

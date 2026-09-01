@@ -18,7 +18,8 @@ from .models import (
 from .serializers import (
     BillOfMaterialsSerializer, BomLineSerializer, CatalogItemSerializer,
     CatalogSectionSerializer, CustomerMaterialMovementSerializer,
-    CustomerMaterialSerializer, LocationStockSerializer, OrderMaterialPlanSerializer,
+    CustomerMaterialSerializer, LocationStockSerializer, OrderMaterialLineSerializer,
+    OrderMaterialPlanSerializer,
     StockLocationSerializer, UnitConversionSerializer,
     InventoryItemSerializer, InventoryItemSummarySerializer, PurchaseOrderSerializer,
     StockMovementSerializer, SupplierSerializer,
@@ -710,6 +711,130 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
                 OrderMaterialPlan.Status.DRAFT, OrderMaterialPlan.Status.RESERVED,
                 OrderMaterialPlan.Status.IN_PRODUCTION])
         return queryset
+
+    @action(detail=False, methods=['GET'], url_path='checklist')
+    def checklist(self, request):
+        """The Master's gathering checklist for one order.
+
+        Read-first: the order's most recent plan, whatever its status, so a
+        delivered order shows the historical record -- who gathered what, the
+        photographs -- rather than a freshly conjured blank. A plan is only
+        CREATED here when the order has never had one, the order is still in
+        play, and the caller is someone allowed to plan; anyone else just sees
+        what exists. The order lookup goes through visible_orders, the same
+        scoping every other order read uses.
+        """
+        from core.permissions import SUPERVISOR_ROLES, visible_orders
+        from core.roles import OWNER, resolve_user_role
+        from crm_api.models import Order
+        from . import order_materials
+
+        order = visible_orders(Order.objects.all(), request.user).filter(
+            pk=request.query_params.get('order')).first()
+        if order is None:
+            raise ValidationError({'order': 'No such order.'})
+
+        plan = (OrderMaterialPlan.objects
+                .filter(order=order).order_by('-created_at').first())
+        skipped = []
+        if plan is None:
+            role = resolve_user_role(request.user)
+            may_plan = role == OWNER or role in SUPERVISOR_ROLES
+            order_in_play = order.order_status not in ('Shipped', 'Delivered')
+            if may_plan and order_in_play:
+                try:
+                    plan, skipped = order_materials.ensure_plan(
+                        order, user=request.user)
+                except order_materials.MaterialPlanError as exc:
+                    return Response({'error': str(exc)},
+                                    status=status.HTTP_400_BAD_REQUEST)
+        if plan is None:
+            return Response({'plan': None, 'skipped': skipped})
+        return Response({'plan': OrderMaterialPlanSerializer(plan).data,
+                         'skipped': skipped})
+
+    @action(detail=True, methods=['POST'], url_path='gather')
+    def gather(self, request, pk=None):
+        """Tick or untick one line of the gathering checklist.
+
+        Owner or Master only -- the tick asserts the material is physically in
+        hand, and that assertion travels down the production line. It moves no
+        stock; reserve/consume stay the ledger's own explicit actions.
+        """
+        from core.permissions import SUPERVISOR_ROLES
+        from core.roles import OWNER, resolve_user_role
+        from crm_api.models import OrderActivity
+
+        role = resolve_user_role(request.user)
+        if role != OWNER and role not in SUPERVISOR_ROLES:
+            return Response(
+                {'error': f'Role {role} cannot update the gathering checklist. '
+                          f'That is the owner\'s or the Master\'s call.'},
+                status=status.HTTP_403_FORBIDDEN)
+
+        plan = self.get_object()
+        line = plan.lines.filter(id=request.data.get('line_id')).first()
+        if line is None:
+            raise ValidationError({'line_id': 'No such line on this plan.'})
+
+        gathered = bool(request.data.get('gathered', True))
+        if gathered:
+            line.gathered_at = timezone.now()
+            line.gathered_by_name = (
+                request.user.get_full_name() or request.user.username)
+        else:
+            line.gathered_at = None
+            line.gathered_by_name = ''
+        line.save(update_fields=['gathered_at', 'gathered_by_name'])
+
+        OrderActivity.objects.create(
+            order=plan.order,
+            event_type='MATERIAL_GATHERED' if gathered else 'MATERIAL_UNGATHERED',
+            user=request.user,
+            metadata={'material': line.material_name, 'line_id': str(line.id),
+                      'role': role})
+        return Response(OrderMaterialLineSerializer(line).data)
+
+    @action(detail=True, methods=['POST'], url_path='line-photo')
+    def line_photo(self, request, pk=None):
+        """Photograph the actual material gathered for this order.
+
+        The picture rides the line down the whole roadmap: QC comparing the
+        zari that went in, a rework months later matching the original bolt.
+        Stored under an unguessable path like every other upload here.
+        """
+        import uuid as uuid_module
+        from django.core.files.storage import default_storage
+        from core.permissions import SUPERVISOR_ROLES
+        from core.roles import OWNER, resolve_user_role
+        from crm_api.models import OrderActivity
+
+        role = resolve_user_role(request.user)
+        if role != OWNER and role not in SUPERVISOR_ROLES:
+            return Response(
+                {'error': f'Role {role} cannot add material photographs.'},
+                status=status.HTTP_403_FORBIDDEN)
+
+        plan = self.get_object()
+        line = plan.lines.filter(id=request.data.get('line_id')).first()
+        if line is None:
+            raise ValidationError({'line_id': 'No such line on this plan.'})
+        image = request.FILES.get('image')
+        if image is None:
+            raise ValidationError({'image': 'Attach the photograph as "image".'})
+
+        path = (f'material_photos/order_{plan.order_id}/'
+                f'{uuid_module.uuid4()}_{image.name}')
+        saved = default_storage.save(path, image)
+        url = request.build_absolute_uri(default_storage.url(saved))
+        line.photos = [*line.photos, url]
+        line.save(update_fields=['photos'])
+
+        OrderActivity.objects.create(
+            order=plan.order, event_type='MATERIAL_PHOTO', user=request.user,
+            metadata={'material': line.material_name, 'line_id': str(line.id),
+                      'photo': url, 'role': role})
+        return Response(OrderMaterialLineSerializer(line).data)
 
     @action(detail=False, methods=['POST'], url_path='plan')
     def plan(self, request):

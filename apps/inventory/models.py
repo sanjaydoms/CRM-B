@@ -836,6 +836,17 @@ class OrderMaterialLine(models.Model):
     is_customer_supplied = models.BooleanField(default=False, db_index=True)
     sequence = models.PositiveIntegerField(default=0)
 
+    # The Master's gathering checklist. Ticking a line says "this material is
+    # in hand for this order" -- a fact about the workroom, not the ledger, so
+    # it moves no stock. The name is a snapshot on purpose: the record of who
+    # gathered the zari must survive that person leaving the roster.
+    gathered_at = models.DateTimeField(null=True, blank=True)
+    gathered_by_name = models.CharField(max_length=150, blank=True, default='')
+    #: Photographs of the actual material gathered for this order -- the bolt,
+    #: the spool, the buttons -- carried down the production line so QC and any
+    #: future rework can see exactly what went in.
+    photos = models.JSONField(default=list, blank=True)
+
     class Meta:
         ordering = ['sequence', 'role']
 

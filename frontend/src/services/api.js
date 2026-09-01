@@ -1449,6 +1449,21 @@ Object.assign(api, {
 
   // Order material plans
   getMaterialPlans: (params) => inventoryGet('material-plans/', params),
+  // The Master's gathering checklist: created on first look, ticked with a
+  // name, photographed for the road ahead.
+  getMaterialChecklist: (orderId) => inventoryGet('material-plans/checklist/', { order: orderId }),
+  gatherMaterialLine: (planId, lineId, gathered) =>
+    inventoryPost(`material-plans/${planId}/gather/`, { line_id: lineId, gathered }),
+  async addMaterialLinePhoto(planId, lineId, imageFile) {
+    const formData = new FormData();
+    formData.append('line_id', lineId);
+    formData.append('image', imageFile);
+    const res = await guardedFetch(`${BASE_URL}/inventory/material-plans/${planId}/line-photo/`, {
+      method: 'POST', headers: getHeaders(true), body: formData,
+    });
+    if (!res.ok) await failWith(res, 'Could not attach the photograph.');
+    return res.json();
+  },
   planMaterials: (payload) => inventoryPost('material-plans/plan/', payload),
   getPlanAvailability: (id) => inventoryGet(`material-plans/${id}/availability/`),
   reservePlan: (id, payload) => inventoryPost(`material-plans/${id}/reserve/`, payload),

@@ -56,8 +56,12 @@ export default function DesignUpload({ onClose, onUploaded }) {
     return () => { cancelled = true; };
   }, [form.template_key]);
 
-  // Object URLs are revoked on unmount; without that every re-pick leaks one.
-  useEffect(() => () => previews.forEach(URL.revokeObjectURL), [previews]);
+  // Object URLs are revoked on unmount only. With append-only previews a
+  // per-change cleanup would revoke URLs that are still on screen; the ref
+  // keeps the latest list where the unmount closure can reach it.
+  const previewsRef = useRef(previews);
+  previewsRef.current = previews;
+  useEffect(() => () => previewsRef.current.forEach(URL.revokeObjectURL), []);
 
   const styleSection = useMemo(
     () => (template ? getSection(template, 'style') : null), [template]);
@@ -65,10 +69,14 @@ export default function DesignUpload({ onClose, onUploaded }) {
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
 
   const pickFiles = (e) => {
+    // Append, never replace: a camera shot arriving after gallery picks used
+    // to silently discard everything already chosen. Old previews stay live
+    // (their object URLs are still on screen), so nothing is revoked here.
     const chosen = [...e.target.files];
-    previews.forEach(URL.revokeObjectURL);
-    setFiles(chosen);
-    setPreviews(chosen.map(f => URL.createObjectURL(f)));
+    setFiles((prev) => [...prev, ...chosen]);
+    setPreviews((prev) => [...prev, ...chosen.map(f => URL.createObjectURL(f))]);
+    // Reset so retaking the identical photo fires change again.
+    e.target.value = '';
   };
 
   const addCollection = async () => {
@@ -144,14 +152,24 @@ export default function DesignUpload({ onClose, onUploaded }) {
           <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
         </div>
 
-        <div className="drag-drop-zone" onClick={() => document.getElementById('design-upload-input').click()}
+        <div className="drag-drop-zone" onClick={(e) => { if (e.target.tagName === 'INPUT') return; document.getElementById('design-upload-input').click(); }}
              style={{ marginBottom: '16px' }}>
           <div className="drag-drop-icon"><Upload size={22} /></div>
           <div className="drag-drop-text">
-            {files.length ? `${files.length} photograph${files.length === 1 ? '' : 's'} selected` : 'Upload photographs'}
+            {files.length ? `${files.length} photograph${files.length === 1 ? '' : 's'} selected` : 'Choose photographs from gallery'}
           </div>
           <div className="drag-drop-subtext">The first becomes the cover; the rest form the gallery.</div>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ marginTop: '8px', fontSize: '12px', padding: '6px 12px' }}
+            onClick={(e) => { e.stopPropagation(); document.getElementById('design-upload-input-camera').click(); }}
+          >
+            📷 Take photo
+          </button>
           <input id="design-upload-input" type="file" accept="image/*" multiple
+                 style={{ display: 'none' }} onChange={pickFiles} />
+          <input id="design-upload-input-camera" type="file" accept="image/*" capture="environment"
                  style={{ display: 'none' }} onChange={pickFiles} />
         </div>
 

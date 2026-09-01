@@ -56,6 +56,9 @@ class RolePermission(permissions.BasePermission):
     #: the owner or the master taking and publishing them, and publishing is
     #: what tells the customer their outfit is ready.
     SUPERVISOR_ORDER_ACTIONS = frozenset({
+        # The gathering checklist's writes: ticking a line and photographing
+        # the material are the Owner's and the Master's, like the rest here.
+        'gather', 'line_photo',
         'assign_stage', 'upload_garment_image', 'delete_garment_image',
         'publish_garment_images',
         # The Master's production checklist. It has its own narrow action
