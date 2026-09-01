@@ -1,23 +1,48 @@
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 /**
- * A 401 anywhere means this session is over -- stop pretending otherwise.
+ * A CONFIRMED 401 means this session is over -- stop pretending otherwise.
  *
- * Nothing in this file inspected status for 401, while the platform console's
- * own client does exactly this and says why. So signing out on a phone left the
- * shop desktop failing every request with an alert, still painting the customer
- * list, the order book and the money from whatever was last in React state --
- * indefinitely, and with no hint that what was on screen was stale.
- *
- * Reloading rather than routing: the token is gone, so every screen behind it
- * is invalid, and a reload is the one operation that cannot leave a fragment of
- * the previous session behind. Guarded so a burst of concurrent 401s -- the
- * dashboard opens by firing eight requests -- reloads once.
+ * Nothing in this file inspected status for 401 once, so signing out on a
+ * phone left the shop desktop painting stale state forever. But the first cure
+ * overshot: ANY single 401 wiped the session, so one stray response ejected
+ * the owner mid-order. Hence the middle path below: a 401 triggers one direct
+ * check of the token, and only the server's confirmed no ends the session.
+ * Guarded so a burst of concurrent 401s -- the dashboard opens by firing
+ * eight requests -- runs one check and reloads once.
  */
-let sessionEndedHandled = false;
-const handleSessionEnded = () => {
-  if (sessionEndedHandled) return;
-  sessionEndedHandled = true;
+let sessionCheckInFlight = false;
+const handleSessionEnded = async () => {
+  if (sessionCheckInFlight) return;
+  sessionCheckInFlight = true;
+  // One 401 is a claim, not proof. A blip mid-deploy, one flaky proxy
+  // response, or a single request racing a worker restart must not eject the
+  // owner mid-order -- that read as "the app logged me out by itself". So ask
+  // the server directly whether this token still stands, and end the session
+  // only on its confirmed no. A network failure keeps the session: offline is
+  // not signed out.
+  const token = localStorage.getItem('token');
+  if (token) {
+    try {
+      const tenantId = localStorage.getItem('tenant_id');
+      const res = await fetch(`${BASE_URL}/auth/me/`, {
+        headers: {
+          'Authorization': `Token ${token}`,
+          ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
+        },
+      });
+      if (res.status !== 401 && res.status !== 403) {
+        sessionCheckInFlight = false;  // stray 401; a later real one re-checks
+        return;
+      }
+    } catch {
+      sessionCheckInFlight = false;
+      return;
+    }
+  }
+  // Confirmed dead (or never had a token). Reloading rather than routing: the
+  // token is gone, so every screen behind it is invalid, and a reload is the
+  // one operation that cannot leave a fragment of the previous session behind.
   localStorage.removeItem('token');
   localStorage.removeItem('tenant_id');
   window.location.reload();
