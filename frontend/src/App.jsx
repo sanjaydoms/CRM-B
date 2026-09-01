@@ -2916,7 +2916,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(currentUser.first_name)}`} alt="Avatar" />
                       </div>
-                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                     </div>
                   </div>
                 </header>
@@ -3249,7 +3249,7 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        {language === 'hi' ? `वापसी पर स्वागत है, ${currentUser.first_name}! 👋` : `Welcome back, ${currentUser.first_name}! 👋`}
+                        {t('dashboard.welcomeBackUser', `Welcome back, ${currentUser.first_name}! 👋`, { name: currentUser.first_name })}
                       </h1>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('dashboard.subtitle')}</p>
                     </div>
@@ -3263,7 +3263,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                     </div>
                   </div>
                 </header>
@@ -3273,27 +3273,27 @@ function App() {
                   <div className="quick-action-item" onClick={() => setView('order-selector')}>
                     <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
                     <h4>{t('dashboard.newOrder')}</h4>
-                    <p>{language === 'hi' ? 'कस्टम ऑर्डर शुरू करें' : 'Start custom order'}</p>
+                    <p>{t('dashboard.startCustomOrder', 'Start custom order')}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('tailors')}>
                     <div className="quick-action-icon-box"><Scissors size={18} /></div>
-                    <h4>{language === 'hi' ? 'कर्मचारी प्रबंधित करें' : 'Manage Staff'}</h4>
-                    <p>{language === 'hi' ? 'दर्जी और स्थिति' : 'Tailors & status'}</p>
+                    <h4>{t('dashboard.manageStaff', 'Manage Staff')}</h4>
+                    <p>{t('dashboard.tailorsStatus', 'Tailors & status')}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('designs')}>
                     <div className="quick-action-icon-box"><Heart size={18} /></div>
-                    <h4>{language === 'hi' ? 'डिजाइन कैटलॉग' : 'Design Catalog'}</h4>
-                    <p>{language === 'hi' ? 'शैली संग्रह' : 'Style collections'}</p>
+                    <h4>{t('dashboard.designCatalog', 'Design Catalog')}</h4>
+                    <p>{t('dashboard.styleCollections', 'Style collections')}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('fabrics')}>
                     <div className="quick-action-icon-box"><Compass size={18} /></div>
-                    <h4>{language === 'hi' ? 'फैब्रिक लाइब्रेरी' : 'Fabric Library'}</h4>
-                    <p>{language === 'hi' ? 'फैब्रिक खोजें' : 'Explore fabrics'}</p>
+                    <h4>{t('dashboard.fabricLibrary', 'Fabric Library')}</h4>
+                    <p>{t('dashboard.exploreFabrics', 'Explore fabrics')}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setShowAppointmentModal(true)}>
                     <div className="quick-action-icon-box"><Calendar size={18} /></div>
-                    <h4>{language === 'hi' ? 'अपॉइंटमेंट बुक करें' : 'Book Appointment'}</h4>
-                    <p>{language === 'hi' ? 'स्टाइलिस्ट से परामर्श करें' : 'Consult with stylist'}</p>
+                    <h4>{t('dashboard.bookAppointment', 'Book Appointment')}</h4>
+                    <p>{t('dashboard.consultStylist', 'Consult with stylist')}</p>
                   </div>
                 </section>
 
@@ -3302,8 +3302,8 @@ function App() {
                   {/* Active Orders List */}
                   <div className="orders-list-panel">
                     <div className="panel-header-row">
-                      <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{language === 'hi' ? 'मेरे ऑर्डर' : 'My Orders'}</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>{language === 'hi' ? 'सभी ऑर्डर देखें →' : 'VIEW ALL ORDERS →'}</a>
+                      <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{t('dashboard.myOrders', 'My Orders')}</h3>
+                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAllOrders', 'VIEW ALL ORDERS →')}</a>
                     </div>
 
 
@@ -3692,7 +3692,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                     </div>
                   </div>
                 </header>
@@ -3798,7 +3798,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                     </div>
                   </div>
                 </header>
@@ -4088,7 +4088,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                     </div>
                   </div>
                 </header>
@@ -4534,7 +4534,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                     </div>
                   </div>
                 </header>
@@ -5389,7 +5389,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                     </div>
                   </div>
                 </header>
@@ -5683,7 +5683,7 @@ function App() {
                         <div className="user-avatar-circle">
                           <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                         </div>
-                        <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                        <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                       </div>
                     </div>
                   </header>
@@ -5941,7 +5941,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>{language === 'hi' ? `नमस्ते, ${currentUser.first_name}` : `Hi, ${currentUser.first_name}`}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUser.first_name}`, { name: currentUser.first_name })}</span>
                     </div>
                   </div>
                 </header>
