@@ -1875,3 +1875,222 @@ class ReassignmentTests(WorkflowTestBase):
                                      format='json')
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(Notification.objects.count(), before)
+
+
+class ReversalTests(WorkflowTestBase):
+    """The two sanctioned ways backwards: supervised reopen and QC-fail rework.
+
+    Everything else stays refused -- that is what makes a status a fact.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.designer_user = User.objects.create_user(
+            username="designer@workflow.test", email="designer@workflow.test",
+            password="designerpass123", first_name="Devi",
+        )
+        from apps.design_studio.models import Designer
+        Designer.objects.create(name="Devi", user=self.designer_user)
+
+    def reopen(self, order, key, user=None, reason="wrong button"):
+        from domains.orders.services import reopen_order_stage
+        return reopen_order_stage(order, key, user=user or self.owner, reason=reason)
+
+    def fail_qc(self, order, user=None, reason="hem is crooked"):
+        from domains.orders.services import fail_quality_check
+        return fail_quality_check(order, user=user or self.master_user, reason=reason)
+
+    # ---- supervised reopen ----
+
+    def test_owner_reopens_frontier_stage_with_reason(self):
+        order = self.make_order()
+        self.complete(order, "measurements_completed")
+        self.reopen(order, "measurements_completed", user=self.owner)
+        stage = self.stage(order, "measurements_completed")
+        self.assertEqual(stage.status, "IN_PROGRESS")
+        self.assertIsNone(stage.completed_at)
+        order.refresh_from_db()
+        self.assertEqual(order.production_status, "IN_PROGRESS")
+        self.assertEqual(order.current_stage_key, "measurements_completed")
+        # The record says who, what and why.
+        from crm_api.models import OrderActivity
+        event = OrderActivity.objects.filter(
+            order=order, event_type="STAGE_REOPENED").latest("timestamp")
+        self.assertEqual(event.metadata["reason"], "wrong button")
+        self.assertEqual(event.metadata["previous_status"], "COMPLETED")
+
+    def test_master_may_reopen_but_tailor_and_designer_may_not(self):
+        order = self.make_order()
+        self.complete(order, "measurements_completed")
+        for outsider in (self.tailor_user, self.designer_user):
+            with self.assertRaises(PermissionError):
+                self.reopen(order, "measurements_completed", user=outsider)
+        self.reopen(order, "measurements_completed", user=self.master_user)
+        self.assertEqual(
+            self.stage(order, "measurements_completed").status, "IN_PROGRESS")
+
+    def test_reopen_requires_a_reason(self):
+        order = self.make_order()
+        self.complete(order, "measurements_completed")
+        from domains.orders.workflow import TransitionError
+        with self.assertRaises(TransitionError):
+            self.reopen(order, "measurements_completed", reason="   ")
+
+    def test_only_the_frontier_stage_can_be_reopened(self):
+        order = self.make_order()
+        self.complete(order, "fabric_confirmed")
+        from domains.orders.workflow import TransitionError
+        with self.assertRaises(TransitionError):
+            self.reopen(order, "measurements_completed")
+        # The refused call changed nothing.
+        self.assertEqual(
+            self.stage(order, "measurements_completed").status, "COMPLETED")
+
+    def test_reopen_drops_client_status_to_what_remains_true(self):
+        order = self.make_order()
+        self.complete(order, "master_quality_check")
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Ready for Dispatch")
+        self.reopen(order, "master_quality_check")
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Quality Check")
+
+    def test_reopened_skipped_stage_returns_to_not_started(self):
+        order = self.make_order()
+        self.reach(order, "assigned_to_tailor")
+        self.assertEqual(self.stage(order, "maggam_work").status, "SKIPPED")
+        self.reopen(order, "maggam_work")
+        self.assertEqual(self.stage(order, "maggam_work").status, "NOT_STARTED")
+
+    # ---- QC-fail rework ----
+
+    def test_qc_fail_reopens_the_stitching_band(self):
+        order = self.make_order()
+        self.reach(order, "master_quality_check")
+        self.step(order, "master_quality_check", status="IN_PROGRESS",
+                  user=self.master_user)
+        self.fail_qc(order)
+        self.assertEqual(
+            self.stage(order, "stitching_in_progress").status, "IN_PROGRESS")
+        self.assertEqual(
+            self.stage(order, "stitching_completed").status, "NOT_STARTED")
+        self.assertEqual(self.stage(order, "finishing").status, "NOT_STARTED")
+        self.assertEqual(self.stage(order, "pressing").status, "NOT_STARTED")
+        qc = self.stage(order, "master_quality_check")
+        self.assertEqual(qc.status, "NOT_STARTED")
+        self.assertIn("QC FAILED: hem is crooked", qc.comments)
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Design & Creation")
+        self.assertEqual(order.current_stage_key, "stitching_in_progress")
+
+    def test_qc_fail_requires_reason_and_role(self):
+        order = self.make_order()
+        self.reach(order, "master_quality_check")
+        from domains.orders.workflow import TransitionError
+        with self.assertRaises(TransitionError):
+            self.fail_qc(order, reason="")
+        with self.assertRaises(PermissionError):
+            self.fail_qc(order, user=self.tailor_user)
+
+    def test_qc_master_can_fail_a_check(self):
+        qc_user = User.objects.create_user(
+            username="qc@workflow.test", email="qc@workflow.test",
+            password="qcpass123", first_name="Quill",
+        )
+        Tailor.objects.create(
+            name="Quill", specialty="QC", role="QC Master",
+            status="Available", user=qc_user,
+        )
+        order = self.make_order()
+        self.reach(order, "master_quality_check")
+        self.fail_qc(order, user=qc_user, reason="loose thread on sleeve")
+        self.assertEqual(
+            self.stage(order, "master_quality_check").status, "NOT_STARTED")
+
+    def test_qc_fail_refused_before_stitching_is_done(self):
+        order = self.make_order()
+        self.complete(order, "fabric_confirmed")
+        from domains.orders.workflow import TransitionError
+        with self.assertRaises(TransitionError):
+            self.fail_qc(order)
+
+    def test_qc_fail_refused_after_qc_passed(self):
+        order = self.make_order()
+        self.complete(order, "master_quality_check")
+        from domains.orders.workflow import TransitionError
+        with self.assertRaises(TransitionError):
+            self.fail_qc(order)
+
+    def test_rework_loop_can_run_forward_again(self):
+        """The loop closes: fail, re-stitch, pass, and the record is coherent."""
+        order = self.make_order()
+        self.reach(order, "master_quality_check")
+        self.fail_qc(order)
+        self.complete(order, "master_quality_check")
+        order.refresh_from_db()
+        self.assertEqual(order.order_status, "Ready for Dispatch")
+
+    # ---- the endpoints ----
+
+    def api(self, user):
+        client = APIClient()
+        token, _ = Token.objects.get_or_create(user=user)
+        client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+        return client
+
+    def test_reopen_endpoint_refuses_tailor_with_403(self):
+        order = self.make_order()
+        self.complete(order, "measurements_completed")
+        res = self.api(self.tailor_user).post(
+            f"/api/orders/{order.id}/reopen-stage/",
+            {"stage_key": "measurements_completed", "reason": "nope"},
+            format="json")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_reopen_endpoint_works_for_master(self):
+        order = self.make_order()
+        self.complete(order, "measurements_completed")
+        res = self.api(self.master_user).post(
+            f"/api/orders/{order.id}/reopen-stage/",
+            {"stage_key": "measurements_completed", "reason": "measured the wrong client"},
+            format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.stage(order, "measurements_completed").status, "IN_PROGRESS")
+
+    def test_fail_qc_endpoint_round_trip(self):
+        order = self.make_order()
+        self.reach(order, "master_quality_check")
+        res = self.api(self.master_user).post(
+            f"/api/orders/{order.id}/fail-qc/",
+            {"reason": "lining puckers at the waist"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["order_status"], "Design & Creation")
+
+    # ---- the closed backdoor and the honest read model ----
+
+    def test_settled_skipped_stage_refuses_backward_transition_for_everyone(self):
+        """The /transition/ route cannot reverse a settled stage -- not even for
+        the owner. That door is reopen-stage, which demands a reason."""
+        order = self.make_order()
+        self.reach(order, "assigned_to_tailor")
+        self.assertEqual(self.stage(order, "maggam_work").status, "SKIPPED")
+        from domains.orders.workflow import TransitionError
+        for actor in (self.owner, self.master_user, self.tailor_user):
+            with self.assertRaises(TransitionError):
+                self.step(order, "maggam_work", status="IN_PROGRESS", user=actor)
+        # Forward out of SKIPPED stays open: the optional work was done after all.
+        self.step(order, "maggam_work", status="COMPLETED", user=self.master_user)
+        self.assertEqual(self.stage(order, "maggam_work").status, "COMPLETED")
+
+    def test_reversals_keep_production_tasks_in_step(self):
+        from apps.production.models import ProductionTask
+        order = self.make_order()
+        self.reach(order, "master_quality_check")
+        self.fail_qc(order)
+        stitching_task = ProductionTask.objects.get(
+            order=order, stage_key="stitching_in_progress")
+        self.assertEqual(stitching_task.status, "IN_PROGRESS")
+        qc_task = ProductionTask.objects.get(
+            order=order, stage_key="master_quality_check")
+        self.assertEqual(qc_task.status, "PENDING")

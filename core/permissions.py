@@ -44,6 +44,11 @@ class RolePermission(permissions.BasePermission):
     STAFF_ORDER_ACTIONS = frozenset({
         'transition_stage', 'submit_completion', 'submit_stage_review',
         'update_status',
+        # Reversals reach the view for every staff member so the QC Master can
+        # fail a check; the precise role gates (Owner/Master for reopen,
+        # +QC Master for fail-qc) live in the services, where a refusal also
+        # explains itself.
+        'reopen_stage', 'fail_qc',
     })
 
     #: Handing work to someone else is a supervisor's call, not a tailor's.

@@ -1255,6 +1255,11 @@ function App() {
   const [savingProductionNotes, setSavingProductionNotes] = useState(false);
   const [selectedPerformerId, setSelectedPerformerId] = useState('');
   const [stageTransitionBusy, setStageTransitionBusy] = useState(false);
+  // The two sanctioned reversals, both behind a mandatory-reason dialog:
+  // {type: 'reopen'|'failqc'} while the dialog is open.
+  const [reversalPrompt, setReversalPrompt] = useState(null);
+  const [reversalReason, setReversalReason] = useState('');
+  const [reversalBusy, setReversalBusy] = useState(false);
   const [globalError, setGlobalError] = useState(null);
   // Names of the dashboard collections that failed to load, so the UI can say so
   // instead of rendering an empty directory as if the boutique had no clients.
@@ -9936,6 +9941,34 @@ function App() {
                     Skip Stage
                   </button>
                 )}
+
+                {/* Reversals. Forward-only is the rule; these are the two
+                    audited exceptions, supervisors only, reason required.
+                    The server enforces all of it -- these buttons only appear
+                    where they could succeed. */}
+                {selectedStageObj && (selectedStageObj.status === 'COMPLETED' || selectedStageObj.status === 'SKIPPED')
+                  && (currentUser?.role === 'Owner' || currentUser?.role === 'Master') && (
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '12px', padding: '8px', color: '#b45309', borderColor: '#b45309' }}
+                    disabled={reversalBusy}
+                    onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'reopen' }); }}
+                  >
+                    Reopen Stage…
+                  </button>
+                )}
+                {selectedStageObj && selectedStageObj.stage_key === 'master_quality_check'
+                  && selectedStageObj.status !== 'COMPLETED'
+                  && ['Owner', 'Master', 'QC Master'].includes(currentUser?.role) && (
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '12px', padding: '8px', color: '#b91c1c', borderColor: '#b91c1c' }}
+                    disabled={reversalBusy}
+                    onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'failqc' }); }}
+                  >
+                    Fail QC — Send for Rework…
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -10121,6 +10154,59 @@ function App() {
       )}
 
       <NetworkActivityBar />
+      {reversalPrompt && (
+        <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1300 }}>
+          <div className="search-modal-card" style={{ maxWidth: '420px', width: '100%', padding: '24px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)', marginBottom: '8px' }}>
+              {reversalPrompt.type === 'failqc' ? 'Fail this quality check?' : 'Reopen this stage?'}
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+              {reversalPrompt.type === 'failqc'
+                ? 'The stitching stages reopen for rework and the order drops back to Design & Creation. Say what was wrong — the tailor doing the rework reads this.'
+                : 'This goes on the order\u2019s record with your name. Say why the stage is being reopened.'}
+            </p>
+            <textarea
+              className="form-control"
+              rows={3}
+              autoFocus
+              placeholder={reversalPrompt.type === 'failqc' ? 'e.g. Hem is crooked on the left panel' : 'e.g. Completed on the wrong order'}
+              value={reversalReason}
+              onChange={(e) => setReversalReason(e.target.value)}
+              style={{ marginBottom: '16px' }}
+            />
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn-secondary" disabled={reversalBusy} onClick={() => setReversalPrompt(null)}>
+                Cancel
+              </button>
+              <button
+                type="button" className="btn-primary" disabled={reversalBusy || !reversalReason.trim()}
+                onClick={async () => {
+                  if (reversalBusy) return;
+                  setReversalBusy(true);
+                  try {
+                    if (reversalPrompt.type === 'failqc') {
+                      await api.failQualityCheck(activeReviewOrder.id, reversalReason.trim());
+                    } else {
+                      await api.reopenStage(activeReviewOrder.id, selectedStageObj.stage_key, reversalReason.trim());
+                    }
+                    setReversalPrompt(null);
+                    setActiveReviewStage(null);
+                    setActiveReviewOrder(null);
+                    setSelectedStageObj(null);
+                    fetchDashboardAndConfig();
+                  } catch (err) {
+                    alert(err.message);
+                  } finally {
+                    setReversalBusy(false);
+                  }
+                }}
+              >
+                {reversalBusy ? 'Recording…' : (reversalPrompt.type === 'failqc' ? 'Fail QC' : 'Reopen Stage')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Rendered at the root so both sidebars' Logout items reach it,
           whichever view is on screen. */}
       {showLogoutConfirm && (

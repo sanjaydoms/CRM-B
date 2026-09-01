@@ -571,6 +571,28 @@ export const api = {
     return res.json();
   },
 
+  // The two sanctioned reversals. Both demand a reason because the record of
+  // who moved a garment backwards, and why, is the entire point of them.
+  async reopenStage(orderId, stageKey, reason) {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/reopen-stage/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ stage_key: stageKey, reason }),
+    });
+    if (!res.ok) await failWith(res, 'Could not reopen that stage.');
+    return res.json();
+  },
+
+  async failQualityCheck(orderId, reason) {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/fail-qc/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) await failWith(res, 'Could not record the QC failure.');
+    return res.json();
+  },
+
   async transitionStage(orderId, stageKey, status, comments, imageFiles = [], performedById = null) {
     const formData = new FormData();
     formData.append('stage_key', stageKey);
