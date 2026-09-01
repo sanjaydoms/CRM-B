@@ -49,6 +49,8 @@ const te = {
     hindiDesc: "హిందీ ఇంటర్‌ఫేస్ (HI)",
     teluguTitle: "తెలుగు (Telugu)",
     teluguDesc: "తెలుగు ఇంటర్‌ఫేస్ (TE)",
+    marathiTitle: "मराठी (Marathi)",
+    marathiDesc: "मराठी इंटरफेस (MR)",
     systemSectionTitle: "సిస్టమ్ సమాచారం",
     systemSectionDesc: "మీ ప్రస్తుత వర్క్‌స్పేస్ మరియు వాతావరణ సెట్టింగ్‌ల అవలోకనం.",
     activeUser: "యాక్టివ్ యూజర్ పాత్ర",

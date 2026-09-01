@@ -48,6 +48,8 @@ const en = {
     hindiDesc: "हिंदी इंटरफ़ेस (HI)",
     teluguTitle: "తెలుగు (Telugu)",
     teluguDesc: "తెలుగు ఇంటర్‌ఫేస్ (TE)",
+    marathiTitle: "मराठी (Marathi)",
+    marathiDesc: "मराठी इंटरफेस (MR)",
     systemSectionTitle: "System Information",
     systemSectionDesc: "Overview of your current workspace and environment settings.",
     activeUser: "Active User Role",

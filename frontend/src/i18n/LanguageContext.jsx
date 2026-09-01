@@ -2,9 +2,10 @@ import { createContext, useContext, useState } from 'react';
 import en from './locales/en.js';
 import hi from './locales/hi.js';
 import te from './locales/te.js';
+import mr from './locales/mr.js';
 
 
-const dictionaries = { en, hi, te };
+const dictionaries = { en, hi, te, mr };
 const STORAGE_KEY = 'app_language';
 
 const LanguageContext = createContext();

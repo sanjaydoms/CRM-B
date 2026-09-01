@@ -39,6 +39,7 @@ export const LanguageSelector = () => {
         <option value="en">English (EN)</option>
         <option value="hi">हिंदी (HI)</option>
         <option value="te">తెలుగు (TE)</option>
+        <option value="mr">मराठी (MR)</option>
       </select>
     </div>
   );
