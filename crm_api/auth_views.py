@@ -17,8 +17,9 @@ from rest_framework.authtoken.models import Token
 from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
-from django.db import connection
+from django.db import connection, transaction
 from tenants.models import BoutiqueTenant, Domain
+from tenants.provision import provision_tenant
 from django_tenants.utils import schema_context
 from core.roles import OWNER, resolve_user_role
 
@@ -187,114 +188,128 @@ class SignupView(views.APIView):
             )
 
         try:
-            # A schema name is a Postgres identifier, not a display value, and
-            # making the email do both jobs caused three separate faults at
-            # once. The old `email.replace('@','_').replace('.','_')
-            # .replace('-','_')` flattened '@', '.', '-' and '_' onto the same
-            # character, so a.b@x.com and a-b@x.com collided on one schema;
-            # TenantMixin.schema_name is varchar(63) while an email can be far
-            # longer; and casing forked tenants (handled above). A slug plus a
-            # short random suffix fixes all three, because all three were the
-            # same mistake. Nothing derives the schema name from the address --
-            # login looks the tenant up by owner_email -- so this is free.
-            base = slugify(email).replace('-', '_')[:50].strip('_') or 'boutique'
-            if not base[0].isalpha():
-                base = f"b_{base}"[:50]
-            schema_name = f"{base}_{uuid.uuid4().hex[:8]}"
-            
-            # Create tenant (triggers migrations automatically)
-            tenant = BoutiqueTenant.objects.create(
-                schema_name=schema_name,
-                owner_email=email,
-                name=(request.data.get('business_name') or '').strip()
-                     or f"{first_name}'s Boutique"
-            )
-            
-            # Create domain
-            Domain.objects.create(
-                domain=f"{schema_name}.localhost",
-                tenant=tenant,
-                is_primary=True
-            )
-            
-            # The tenant middleware caches schema lookups, so a schema name that
-            # was probed before this boutique existed would keep resolving to
-            # "unknown tenant" until the cache expired.
-            from tenants.middleware import clear_tenant_cache
-            clear_tenant_cache()
-
-            # Switch connection to the tenant's new schema context
-            connection.set_tenant(tenant)
-
-            # demo=False: a real boutique starts empty.
+            # One transaction for the whole build-out: the tenant row, CREATE
+            # SCHEMA, every tenant migration, the domain, the settings row and
+            # the owner account commit together or not at all.
             #
-            # This used to seed four invented employees, five fabrics at another
-            # business's prices and eleven priced catalogue designs into every
-            # new boutique. The fabric prices are the part that matters: the
-            # order wizard computes fabric_price = price_per_meter * 3, so a
-            # day-one order could be assigned to a person who does not work
-            # there, priced at a rate the owner never set, and printed on an
-            # invoice for a customer.
-            #
-            # Still called rather than dropped: keeping one entry point means a
-            # future addition that a real tenant DOES need lands here without
-            # anyone having to remember this call site exists.
-            from crm_api.utils import seed_tenant_defaults
-            seed_tenant_defaults(demo=False)
-
-            # Give the boutique its own identity from what the owner just
-            # typed. Signup collected a mobile number and never used it, and no
-            # BoutiqueSettings row was created at all -- so the row was
-            # conjured later by get_or_create(id=1) carrying its defaults, and
-            # every boutique's printed invoice showed "+91 9999999999" and
-            # contact@scaleezy.com as its own contact details.
-            from crm_api.models import BoutiqueSettings
-            business_name = (request.data.get('business_name') or '').strip()
-            business_address = (request.data.get('business_address') or '').strip()
-            BoutiqueSettings.objects.update_or_create(
-                id=1,
-                defaults={
-                    'name': business_name or f"{first_name}'s Boutique",
-                    'email': email,
-                    **({'phone': mobile} if mobile else {}),
-                    **({'address': business_address} if business_address else {}),
-                },
-            )
-
-            # Create the tenant-specific user
-            user = User.objects.create_user(
-                username=email,
-                email=email,
-                password=password,
-                first_name=first_name,
-                last_name=last_name
-            )
+            # This is what test2gmailcom_7159be05 proved was missing: signup
+            # died mid-migrate_schemas (each migration used to commit on its
+            # own), leaving a registry row whose schema stopped before 0020 --
+            # unreadable by the console, unrepairable by retrying, and holding
+            # the email hostage via the duplicate check above. Under one
+            # transaction the same death rolls everything back, so the person
+            # can simply sign up again.
+            with transaction.atomic():
+                # A schema name is a Postgres identifier, not a display value, and
+                # making the email do both jobs caused three separate faults at
+                # once. The old `email.replace('@','_').replace('.','_')
+                # .replace('-','_')` flattened '@', '.', '-' and '_' onto the same
+                # character, so a.b@x.com and a-b@x.com collided on one schema;
+                # TenantMixin.schema_name is varchar(63) while an email can be far
+                # longer; and casing forked tenants (handled above). A slug plus a
+                # short random suffix fixes all three, because all three were the
+                # same mistake. Nothing derives the schema name from the address --
+                # login looks the tenant up by owner_email -- so this is free.
+                base = slugify(email).replace('-', '_')[:50].strip('_') or 'boutique'
+                if not base[0].isalpha():
+                    base = f"b_{base}"[:50]
+                schema_name = f"{base}_{uuid.uuid4().hex[:8]}"
             
-            # Create token
-            token, created = Token.objects.get_or_create(user=user)
+                # Clones the pre-migrated template schema in seconds when it
+                # has been provisioned (manage.py ensure_base_schema); replays
+                # every migration otherwise. See tenants/provision.py.
+                tenant = provision_tenant(
+                    schema_name=schema_name,
+                    owner_email=email,
+                    name=(request.data.get('business_name') or '').strip()
+                         or f"{first_name}'s Boutique"
+                )
             
-            return Response({
-                "token": token.key,
-                "tenant_id": tenant.schema_name,
-                "user": {
-                    "id": user.id,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                    "username": user.username,
-                    # Signup is the one payload of the three that omitted this,
-                    # and App.jsx sets currentUser straight from it without
-                    # re-fetching. A brand-new owner therefore had
-                    # currentUser.role undefined until their first reload,
-                    # which the strict owner gate at App.jsx:2677 read as
-                    # "not the owner" -- so they could not assign a production
-                    # stage for their whole first session. The signing-up user
-                    # is always the boutique owner, by construction.
-                    "role": OWNER,
-                    "tailor_id": None,
-                    "designer_id": None,
-                }
-            }, status=status.HTTP_201_CREATED)
+                # Create domain
+                Domain.objects.create(
+                    domain=f"{schema_name}.localhost",
+                    tenant=tenant,
+                    is_primary=True
+                )
+            
+                # The tenant middleware caches schema lookups, so a schema name that
+                # was probed before this boutique existed would keep resolving to
+                # "unknown tenant" until the cache expired.
+                from tenants.middleware import clear_tenant_cache
+                clear_tenant_cache()
+
+                # Switch connection to the tenant's new schema context
+                connection.set_tenant(tenant)
+
+                # demo=False: a real boutique starts empty.
+                #
+                # This used to seed four invented employees, five fabrics at another
+                # business's prices and eleven priced catalogue designs into every
+                # new boutique. The fabric prices are the part that matters: the
+                # order wizard computes fabric_price = price_per_meter * 3, so a
+                # day-one order could be assigned to a person who does not work
+                # there, priced at a rate the owner never set, and printed on an
+                # invoice for a customer.
+                #
+                # Still called rather than dropped: keeping one entry point means a
+                # future addition that a real tenant DOES need lands here without
+                # anyone having to remember this call site exists.
+                from crm_api.utils import seed_tenant_defaults
+                seed_tenant_defaults(demo=False)
+
+                # Give the boutique its own identity from what the owner just
+                # typed. Signup collected a mobile number and never used it, and no
+                # BoutiqueSettings row was created at all -- so the row was
+                # conjured later by get_or_create(id=1) carrying its defaults, and
+                # every boutique's printed invoice showed "+91 9999999999" and
+                # contact@scaleezy.com as its own contact details.
+                from crm_api.models import BoutiqueSettings
+                business_name = (request.data.get('business_name') or '').strip()
+                business_address = (request.data.get('business_address') or '').strip()
+                BoutiqueSettings.objects.update_or_create(
+                    id=1,
+                    defaults={
+                        'name': business_name or f"{first_name}'s Boutique",
+                        'email': email,
+                        **({'phone': mobile} if mobile else {}),
+                        **({'address': business_address} if business_address else {}),
+                    },
+                )
+
+                # Create the tenant-specific user
+                user = User.objects.create_user(
+                    username=email,
+                    email=email,
+                    password=password,
+                    first_name=first_name,
+                    last_name=last_name
+                )
+            
+                # Create token
+                token, created = Token.objects.get_or_create(user=user)
+            
+                return Response({
+                    "token": token.key,
+                    "tenant_id": tenant.schema_name,
+                    "user": {
+                        "id": user.id,
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "email": user.email,
+                        "username": user.username,
+                        # Signup is the one payload of the three that omitted this,
+                        # and App.jsx sets currentUser straight from it without
+                        # re-fetching. A brand-new owner therefore had
+                        # currentUser.role undefined until their first reload,
+                        # which the strict owner gate at App.jsx:2677 read as
+                        # "not the owner" -- so they could not assign a production
+                        # stage for their whole first session. The signing-up user
+                        # is always the boutique owner, by construction.
+                        "role": OWNER,
+                        "tailor_id": None,
+                        "designer_id": None,
+                    }
+                }, status=status.HTTP_201_CREATED)
         except Exception as e:
             # The exception text is LOGGED, never returned. It used to be sent
             # to the caller verbatim, so an unauthenticated request could be

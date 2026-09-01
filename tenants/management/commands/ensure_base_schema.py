@@ -1,0 +1,83 @@
+"""Provision or refresh the template schema that fast signup clones.
+
+One-time against a fresh database (slow: it replays every migration once --
+the last time anyone pays that cost), idempotent ever after: re-running
+re-migrates the base if code moved on and refreshes the clone_schema function.
+After the first successful run, signup switches to the clone path by itself.
+
+    python manage.py ensure_base_schema
+
+Against production, run it from anywhere with the database credentials
+exported (DB_PASSWORD etc.); expect the first run to take on the order of
+half an hour over a cross-region link. Deploys keep the base current after
+that, because the base is an ordinary registry row that migrate_schemas
+visits like any boutique.
+"""
+
+from django.conf import settings
+from django.core.management import call_command
+from django.core.management.base import BaseCommand
+from django.db import transaction
+
+from tenants.models import BoutiqueTenant
+from tenants.provision import (
+    BASE_NAME, BASE_OWNER_EMAIL, install_clone_function,
+)
+
+
+class Command(BaseCommand):
+    help = "Create or refresh the template schema signup clones (settings.TENANT_BASE_SCHEMA)."
+
+    def handle(self, *args, **options):
+        from django_tenants.utils import schema_exists
+
+        schema = settings.TENANT_BASE_SCHEMA
+        row = BoutiqueTenant.objects.filter(schema_name=schema).first()
+
+        # Everything inside one transaction, for the same reason signup is:
+        # a death mid-migrate must not leave a half-built base that the
+        # self-activating fast path would then happily clone.
+        with transaction.atomic():
+            if row is None:
+                row = BoutiqueTenant(
+                    schema_name=schema,
+                    owner_email=BASE_OWNER_EMAIL,
+                    name=BASE_NAME,
+                    is_active=False,  # never signs in, never serves requests
+                )
+                if schema_exists(schema):
+                    # Orphaned schema (its row was deleted): adopt it rather
+                    # than rebuild; the catch-up migrate below brings it
+                    # current.
+                    self.stdout.write(f"Adopting existing schema '{schema}'...")
+                    row.auto_create_schema = False
+                else:
+                    self.stdout.write(
+                        f"Creating base schema '{schema}' (full migrate -- slow, once)...")
+                row.save()
+            elif not schema_exists(schema):
+                # Registry row without a schema: a pre-atomic crash leftover.
+                self.stdout.write(f"Schema '{schema}' missing; rebuilding...")
+                row.create_schema(check_if_exists=True)
+
+            if row.is_active:
+                row.is_active = False
+                row.save(update_fields=['is_active'])
+
+            # Unconditional catch-up: a fast no-op right after a full build,
+            # and the healer for every divergence state above (adopted orphan,
+            # stale base, --keepdb leftovers).
+            call_command('migrate_schemas', tenant=True, schema_name=schema,
+                         interactive=False, verbosity=0)
+
+            install_clone_function()
+
+        # migrate_schemas leaves the connection pointed at the last schema it
+        # touched; put it back so whatever runs next isn't silently scoped to
+        # the base.
+        from django.db import connection
+        connection.set_schema_to_public()
+
+        self.stdout.write(self.style.SUCCESS(
+            f"Base '{schema}' ready; new signups will clone it in seconds."
+        ))
