@@ -235,6 +235,35 @@ export const SettingsPage = ({ currentUser, boutiqueSettings }) => {
               </div>
               {language === 'ar' && <CheckCircle2 size={18} style={{ color: '#4F46E5' }} />}
             </div>
+
+            {/* Gujarati Card */}
+            <div 
+              onClick={() => setLanguage('gu')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 16px',
+                borderRadius: '12px',
+                border: language === 'gu' ? '2px solid #4F46E5' : '1px solid var(--border-color, #e2e8f0)',
+                backgroundColor: language === 'gu' ? '#EEF2FF' : 'var(--bg-primary, #ffffff)',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '1.25rem' }}>🇮🇳</span>
+                <div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
+                    {t('settingsPage.gujaratiTitle', 'ગુજરાતી (Gujarati)')}
+                  </div>
+                  <div style={{ fontSize: '0.775rem', color: 'var(--text-secondary, #64748b)' }}>
+                    {t('settingsPage.gujaratiDesc', 'ગુજરાતી ઇન્ટરફેસ (GU)')}
+                  </div>
+                </div>
+              </div>
+              {language === 'gu' && <CheckCircle2 size={18} style={{ color: '#4F46E5' }} />}
+            </div>
           </div>
         </div>
 

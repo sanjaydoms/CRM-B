@@ -4,9 +4,10 @@ import hi from './locales/hi.js';
 import te from './locales/te.js';
 import mr from './locales/mr.js';
 import ar from './locales/ar.js';
+import gu from './locales/gu.js';
 
 
-const dictionaries = { en, hi, te, mr, ar };
+const dictionaries = { en, hi, te, mr, ar, gu };
 const STORAGE_KEY = 'app_language';
 
 const LanguageContext = createContext();

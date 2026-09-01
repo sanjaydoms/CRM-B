@@ -55,6 +55,8 @@ const ar = {
     marathiDesc: "الواجهة الماراثية (MR)",
     arabicTitle: "العربية (Arabic)",
     arabicDesc: "الواجهة العربية (AR)",
+    gujaratiTitle: "ગુજરાતી (Gujarati)",
+    gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
     systemSectionTitle: "معلومات النظام",
     systemSectionDesc: "نظرة عامة على مساحة العمل الحالية وإعدادات البيئة.",
     activeUser: "دور المستخدم النشط",
