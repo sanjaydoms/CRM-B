@@ -52,6 +52,8 @@ const mr = {
     teluguDesc: "तेलगू इंटरफेस (TE)",
     marathiTitle: "मराठी (Marathi)",
     marathiDesc: "मराठी इंटरफेस (MR)",
+    arabicTitle: "العربية (Arabic)",
+    arabicDesc: "الواجهة العربية (AR)",
     systemSectionTitle: "सिस्टीम माहिती",
     systemSectionDesc: "तुमच्या सध्याच्या वर्कस्पेस आणि वातावरणाची माहिती.",
     activeUser: "सक्रिय वापरकर्ता भूमिका",

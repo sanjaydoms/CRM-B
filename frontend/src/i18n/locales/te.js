@@ -51,6 +51,8 @@ const te = {
     teluguDesc: "తెలుగు ఇంటర్‌ఫేస్ (TE)",
     marathiTitle: "मराठी (Marathi)",
     marathiDesc: "मराठी इंटरफेस (MR)",
+    arabicTitle: "العربية (Arabic)",
+    arabicDesc: "الواجهة العربية (AR)",
     systemSectionTitle: "సిస్టమ్ సమాచారం",
     systemSectionDesc: "మీ ప్రస్తుత వర్క్‌స్పేస్ మరియు వాతావరణ సెట్టింగ్‌ల అవలోకనం.",
     activeUser: "యాక్టివ్ యూజర్ పాత్ర",

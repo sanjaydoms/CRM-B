@@ -50,6 +50,8 @@ const en = {
     teluguDesc: "తెలుగు ఇంటర్‌ఫేస్ (TE)",
     marathiTitle: "मराठी (Marathi)",
     marathiDesc: "मराठी इंटरफेस (MR)",
+    arabicTitle: "العربية (Arabic)",
+    arabicDesc: "الواجهة العربية (AR)",
     systemSectionTitle: "System Information",
     systemSectionDesc: "Overview of your current workspace and environment settings.",
     activeUser: "Active User Role",
