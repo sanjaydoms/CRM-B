@@ -63,6 +63,8 @@ const gu = {
     malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
     tamilTitle: "தமிழ் (Tamil)",
     tamilDesc: "தமிழ் இடைமுகம் (TA)",
+    kannadaTitle: "ಕನ್ನಡ (Kannada)",
+    kannadaDesc: "ಕನ್ನಡ ઇન્ટરફેસ (KN)",
     systemSectionTitle: "સિસ્ટમ માહિતી",
     systemSectionDesc: "તમારા વર્તમાન વર્કસ્પેસ અને એન્વાયર્નમેન્ટ સેટિંગ્સની સમીક્ષા.",
     activeUser: "સક્રિય વપરાશકર્તા ભૂમિકા",

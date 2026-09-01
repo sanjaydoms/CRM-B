@@ -65,6 +65,8 @@ const ta = {
     malayalamDesc: "மலையாளம் இடைமுகம் (ML)",
     tamilTitle: "தமிழ் (Tamil)",
     tamilDesc: "தமிழ் இடைமுகம் (TA)",
+    kannadaTitle: "ಕನ್ನಡ (Kannada)",
+    kannadaDesc: "கன்னடம் இடைமுகம் (KN)",
     systemSectionTitle: "அமைப்பு సమాచారం (System Info)",
     systemSectionDesc: "உங்கள் தற்போதைய பணியிட மற்றும் சூழல் அமைப்புகளின் மேலோட்டம்.",
     activeUser: "செயலில் உள்ள பயனர் பங்கு",
