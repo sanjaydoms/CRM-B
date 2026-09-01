@@ -1417,3 +1417,38 @@ Object.assign(api, {
     staffRequest(`attendance/${id}/correct/`, { method: 'POST', body: payload }),
   getTimesheet: (params) => staffRequest('timesheet/', {}, params),
 });
+
+// --- Payroll -------------------------------------------------------------
+// Its own base path because it is its own module and its own switch. Every one
+// of these is owner-only server-side; the interface hides them too, but the
+// hiding is convenience and the refusal is the control.
+
+const payrollUrl = (path, params = {}) => {
+  const url = new URL(`${BASE_URL}/payroll/${path}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.append(key, value);
+    }
+  });
+  return url.toString();
+};
+
+const payrollRequest = async (path, { method = 'GET', body } = {}, params) => {
+  const res = await fetch(payrollUrl(path, params), {
+    method,
+    headers: getHeaders(),
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const raw = await res.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { /* not JSON */ }
+  if (!res.ok) throw new Error(describeApiError(res, data));
+  return data;
+};
+
+Object.assign(api, {
+  getPayrollPeriods: (params) => payrollRequest('periods/', {}, params),
+  getPayrollPeriod: (id) => payrollRequest(`periods/${id}/`),
+  generatePayroll: (week) => payrollRequest('periods/generate/', { method: 'POST', body: { week } }),
+  approvePayroll: (id) => payrollRequest(`periods/${id}/approve/`, { method: 'POST', body: {} }),
+});

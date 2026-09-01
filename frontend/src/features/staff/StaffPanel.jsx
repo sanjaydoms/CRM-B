@@ -19,6 +19,7 @@ import { X, Plus, Clock, Wallet, TrendingUp, Users } from 'lucide-react';
 
 import { api } from '../../services/api';
 import Attendance from './Attendance';
+import Payroll from './Payroll';
 
 const panel = {
   background: 'var(--card-bg, rgba(255,255,255,0.03))',
@@ -491,7 +492,11 @@ export default function StaffPanel({ currentUser }) {
         borderBottom: '1px solid var(--border-color, rgba(255,255,255,0.08))',
         paddingBottom: '10px',
       }}>
-        {(canSeeTeam ? TABS : TABS.filter((t) => t.key === 'attendance' || t.key === 'roster'))
+        {(isOwner
+            ? TABS
+            : canSeeTeam
+              ? TABS.filter((t) => t.key !== 'payroll')
+              : TABS.filter((t) => t.key === 'attendance' || t.key === 'roster'))
           .map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -510,10 +515,14 @@ export default function StaffPanel({ currentUser }) {
         <Attendance isOwner={isOwner} canSeeTeam={canSeeTeam} />
       )}
       {tab === 'payroll' && (
-        <NotBuiltYet
-          title="Payroll is not switched on yet"
-          blurb="Weekly pay runs, deposit recovery and payouts arrive in the next phase. They will use the hours on the Attendance tab and the rates on the Staff tab."
-        />
+        // Owner-only, and only the owner can reach this tab at all: the Payroll
+        // button is not rendered for anyone else (see TABS filtering above).
+        isOwner ? <Payroll /> : (
+          <NotBuiltYet
+            title="Payroll is not yours to see"
+            blurb="Weekly pay runs are visible to the boutique owner only."
+          />
+        )
       )}
       {tab === 'performance' && (
         <NotBuiltYet
