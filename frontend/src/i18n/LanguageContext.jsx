@@ -31,9 +31,19 @@ export const LanguageProvider = ({ children }) => {
 
   /**
    * Helper function to get translation string by dot-notation key
-   * e.g. t('dashboard.title') or t('dashboard.welcome', { name: 'Aditi' })
+   * Supports both t('key', { name: 'Aditi' }) and t('key', 'Fallback string', { name: 'Aditi' })
    */
-  const t = (keyPath, params = {}) => {
+  const t = (keyPath, fallbackOrParams = {}, maybeParams) => {
+    let fallbackText = null;
+    let params = {};
+
+    if (typeof fallbackOrParams === 'string') {
+      fallbackText = fallbackOrParams;
+      params = maybeParams && typeof maybeParams === 'object' ? maybeParams : {};
+    } else if (fallbackOrParams && typeof fallbackOrParams === 'object') {
+      params = fallbackOrParams;
+    }
+
     const keys = keyPath.split('.');
     
     // Primary dictionary lookup
@@ -61,16 +71,19 @@ export const LanguageProvider = ({ children }) => {
       current = fallback;
     }
 
-    // If string still not found, return key path
+    // If string still not found, return fallbackText or keyPath
     if (typeof current !== 'string') {
-      return keyPath;
+      current = fallbackText || keyPath;
     }
 
     // Replace dynamic parameters e.g. {name}
     let result = current;
-    Object.keys(params).forEach((paramKey) => {
-      result = result.replace(new RegExp(`\\{${paramKey}\\}`, 'g'), params[paramKey]);
-    });
+    if (params && typeof params === 'object') {
+      Object.keys(params).forEach((paramKey) => {
+        const val = params[paramKey] !== undefined && params[paramKey] !== null ? params[paramKey] : '';
+        result = result.replace(new RegExp(`\\{${paramKey}\\}`, 'g'), val);
+      });
+    }
 
     return result;
   };
