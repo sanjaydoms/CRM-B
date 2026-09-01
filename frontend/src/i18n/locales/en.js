@@ -54,6 +54,8 @@ const en = {
     arabicDesc: "الواجهة العربية (AR)",
     gujaratiTitle: "ગુજરાતી (Gujarati)",
     gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
+    malayalamTitle: "മലയാളം (Malayalam)",
+    malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
     systemSectionTitle: "System Information",
     systemSectionDesc: "Overview of your current workspace and environment settings.",
     activeUser: "Active User Role",

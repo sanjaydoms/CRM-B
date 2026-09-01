@@ -56,6 +56,8 @@ const te = {
     arabicDesc: "الواجهة العربية (AR)",
     gujaratiTitle: "ગુજરાતી (Gujarati)",
     gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
+    malayalamTitle: "മലയാളം (Malayalam)",
+    malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
     systemSectionTitle: "సిస్టమ్ సమాచారం",
     systemSectionDesc: "మీ ప్రస్తుత వర్క్‌స్పేస్ మరియు వాతావరణ సెట్టింగ్‌ల అవలోకనం.",
     activeUser: "యాక్టివ్ యూజర్ పాత్ర",

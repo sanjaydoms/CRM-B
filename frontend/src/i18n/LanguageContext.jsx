@@ -5,9 +5,10 @@ import te from './locales/te.js';
 import mr from './locales/mr.js';
 import ar from './locales/ar.js';
 import gu from './locales/gu.js';
+import ml from './locales/ml.js';
 
 
-const dictionaries = { en, hi, te, mr, ar, gu };
+const dictionaries = { en, hi, te, mr, ar, gu, ml };
 const STORAGE_KEY = 'app_language';
 
 const LanguageContext = createContext();

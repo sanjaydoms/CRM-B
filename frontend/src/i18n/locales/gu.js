@@ -59,6 +59,8 @@ const gu = {
     arabicDesc: "અરબી ઇન્ટરફેસ (AR)",
     gujaratiTitle: "ગુજરાતી (Gujarati)",
     gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
+    malayalamTitle: "മലയാളം (Malayalam)",
+    malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
     systemSectionTitle: "સિસ્ટમ માહિતી",
     systemSectionDesc: "તમારા વર્તમાન વર્કસ્પેસ અને એન્વાયર્નમેન્ટ સેટિંગ્સની સમીક્ષા.",
     activeUser: "સક્રિય વપરાશકર્તા ભૂમિકા",

@@ -56,6 +56,8 @@ const mr = {
     arabicDesc: "الواجهة العربية (AR)",
     gujaratiTitle: "ગુજરાતી (Gujarati)",
     gujaratiDesc: "ગુજરાતી ઇન્ટરફેસ (GU)",
+    malayalamTitle: "മലയാളം (Malayalam)",
+    malayalamDesc: "മലയാളം ഇന്റർഫേസ് (ML)",
     systemSectionTitle: "सिस्टीम माहिती",
     systemSectionDesc: "तुमच्या सध्याच्या वर्कस्पेस आणि वातावरणाची माहिती.",
     activeUser: "सक्रिय वापरकर्ता भूमिका",
