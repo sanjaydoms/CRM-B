@@ -686,6 +686,10 @@ function App() {
   // sign-in form is the wrong shape for "that address is not valid".
   const [authError, setAuthError] = useState(null);
   const [authBusy, setAuthBusy] = useState(false);
+  // Logout asks first: one mis-tap on a phone menu ended the whole session,
+  // and the POST behind it takes seconds with nothing on screen saying so.
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
 
   // Signup Wizard State
   const [signupStep, setSignupStep] = useState(1); // 1: Account, 2: Verify, 3: Profile, 4: Prefs, 5: Complete
@@ -1664,9 +1668,16 @@ function App() {
   };
 
   const handleLogout = async () => {
-    await api.logout();
-    setCurrentUser(null);
-    setView('login');
+    if (logoutBusy) return;
+    setLogoutBusy(true);
+    try {
+      await api.logout();
+      setCurrentUser(null);
+      setView('login');
+      setShowLogoutConfirm(false);
+    } finally {
+      setLogoutBusy(false);
+    }
   };
 
   // Start Order Creation Flows
@@ -2895,7 +2906,7 @@ function App() {
                 <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
               )}
               <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> My Account</a>
-              <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> Logout</a>
+              <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> Logout</a>
             </nav>
 
             <div className="portal-sidebar-footer">
@@ -6701,7 +6712,7 @@ function App() {
                   order-selector sidebar three of five items silently did
                   nothing. Deleted rather than wired: each already has a real
                   home on the dashboard this screen returns to. */}
-              <a className="portal-menu-item" onClick={handleLogout}><User size={16} /> Logout</a>
+              <a className="portal-menu-item" onClick={() => setShowLogoutConfirm(true)}><User size={16} /> Logout</a>
             </nav>
           </aside>
 
@@ -9935,6 +9946,29 @@ function App() {
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Rendered at the root so both sidebars' Logout items reach it,
+          whichever view is on screen. */}
+      {showLogoutConfirm && (
+        <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1300 }}>
+          <div className="search-modal-card" style={{ maxWidth: '360px', width: '100%', padding: '24px', textAlign: 'center' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)', marginBottom: '8px' }}>
+              Log out?
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+              You will need to sign in again to open your boutique.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button type="button" className="btn-secondary" disabled={logoutBusy} onClick={() => setShowLogoutConfirm(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" disabled={logoutBusy} onClick={handleLogout}>
+                {logoutBusy ? 'Logging out…' : 'Logout'}
+              </button>
+            </div>
           </div>
         </div>
       )}
