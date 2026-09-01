@@ -19,6 +19,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import connection, transaction
 from tenants.models import BoutiqueTenant, Domain
+from tenants.provision import provision_tenant
 from django_tenants.utils import schema_context
 from core.roles import OWNER, resolve_user_role
 
@@ -214,8 +215,10 @@ class SignupView(views.APIView):
                     base = f"b_{base}"[:50]
                 schema_name = f"{base}_{uuid.uuid4().hex[:8]}"
             
-                # Create tenant (triggers migrations automatically)
-                tenant = BoutiqueTenant.objects.create(
+                # Clones the pre-migrated template schema in seconds when it
+                # has been provisioned (manage.py ensure_base_schema); replays
+                # every migration otherwise. See tenants/provision.py.
+                tenant = provision_tenant(
                     schema_name=schema_name,
                     owner_email=email,
                     name=(request.data.get('business_name') or '').strip()

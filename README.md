@@ -32,6 +32,17 @@ The backend uses **schema-based multi-tenancy**. Each boutique has its own isola
   Matches incoming requests via the `X-Tenant-ID` header (provided by frontend) or falls back to hostname domain resolution to switch database schemas dynamically.
 * **Public Schema:** Contains tenant registration metadata (`BoutiqueTenant` & `Domain` models).
 * **Tenant Schemas:** Contain customers, measurements, order histories, fabric libraries, and staff directories.
+* **Fast provisioning (`tenants/provision.py`):** signup clones the pre-migrated
+  `tenant_base` template schema in seconds instead of replaying every migration
+  (20-40 minutes over a cross-region link). Provision it once per environment:
+
+  ```
+  python manage.py ensure_base_schema
+  ```
+
+  Until that has run, signup falls back to the slow full-migrate path. The base
+  is an inactive registry row, so every deploy's `migrate_schemas` keeps it
+  current automatically.
 
 ### 2. Database Integration (Supabase PostgreSQL)
 * **Configuration Location:** `boutique_crm/settings.py`

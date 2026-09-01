@@ -370,6 +370,14 @@ DATABASE_ROUTERS = (
 TENANT_LIMIT_SET_CALLS = False
 
 TENANT_MODEL = 'tenants.BoutiqueTenant'
+
+# The template schema `manage.py ensure_base_schema` builds and signup clones
+# (tenants/provision.py) instead of replaying every migration per new boutique.
+# Cross-region, that replay is 20-40 minutes of round trips; the clone is one
+# server-side statement. Do NOT set django-tenants' own
+# TENANT_CREATION_FAKES_MIGRATIONS: its clone path commits mid-transaction,
+# which breaks signup's all-or-nothing guarantee.
+TENANT_BASE_SCHEMA = 'tenant_base'
 TENANT_DOMAIN_MODEL = 'tenants.Domain'
 
 # Refuse to point the connection at a schema that does not exist.
