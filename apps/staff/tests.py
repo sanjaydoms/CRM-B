@@ -10,14 +10,18 @@ from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.db import connection
+from django.test import TransactionTestCase
 from django.urls import reverse
 from django_tenants.test.cases import TenantTestCase
+from django_tenants.utils import schema_context
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 from crm_api.models import Tailor
+from tenants.models import BoutiqueTenant
 
 from .models import StaffProfile
+from .serializers import CONFIDENTIAL_FIELDS
 
 
 class StaffProfileTestCase(TenantTestCase):
@@ -345,3 +349,323 @@ class StaffTenantIsolationTests(TenantTestCase):
         StaffProfile.objects.create(staff=tailor, hourly_rate=Decimal('100.00'))
         self.assertEqual(StaffProfile.objects.count(), 1)
         self.assertNotEqual(connection.schema_name, 'public')
+
+
+class PermissionMatrixTests(StaffProfileTestCase):
+    """Every existing role string, against every Staff Management endpoint.
+
+    The matrix is written out per role rather than looped, because when one of
+    these fails the useful thing is the name of the test, not an index into a
+    table.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # A supervisor and a specialist, so the matrix covers the real role
+        # strings rather than just 'Tailor'.
+        self.master_user = User.objects.create_user(
+            username='mala', email='mala@staff.test', password='malapass12345')
+        self.master = Tailor.objects.create(
+            name='Mala', specialty='Supervision', role='Master',
+            email='mala@staff.test', user=self.master_user)
+
+        self.qc_user = User.objects.create_user(
+            username='qadir', email='qadir@staff.test', password='qadirpass12345')
+        self.qc = Tailor.objects.create(
+            name='Qadir', specialty='Inspection', role='QC Master',
+            email='qadir@staff.test', user=self.qc_user)
+
+        self.anita_terms = self.terms_for(self.anita)
+        self.balan_terms = self.terms_for(
+            self.balan, hourly_rate=Decimal('999.00'),
+            deposit_total=Decimal('7000.00'), deposit_weekly=Decimal('700.00'),
+            weekly_hours=Decimal('44.00'))
+        self.master_terms = self.terms_for(self.master, hourly_rate=Decimal('300.00'))
+
+    # ---- Owner -----------------------------------------------------------
+    def test_owner_lists_every_profile(self):
+        response = self.client_for(self.owner).get(reverse('staff-profile-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 3)
+
+    def test_owner_reads_every_confidential_field(self):
+        response = self.client_for(self.owner).get(
+            reverse('staff-profile-detail', args=[self.balan_terms.id]))
+        self.assertEqual(response.status_code, 200)
+        for field in CONFIDENTIAL_FIELDS:
+            self.assertIn(field, response.data)
+        self.assertEqual(response.data['hourly_rate'], '999.00')
+
+    def test_owner_creates_and_edits(self):
+        newcomer = Tailor.objects.create(
+            name='Nadia', specialty='Finishing', role='Finishing Master')
+        created = self.client_for(self.owner).post(
+            reverse('staff-profile-list'),
+            {'staff': newcomer.id, 'hourly_rate': '111.00'}, format='json')
+        self.assertEqual(created.status_code, 201, created.data)
+        edited = self.client_for(self.owner).patch(
+            reverse('staff-profile-detail', args=[created.data['id']]),
+            {'hourly_rate': '112.00'}, format='json')
+        self.assertEqual(edited.status_code, 200, edited.data)
+
+    # ---- Master (supervisor) ---------------------------------------------
+    def test_master_lists_the_team(self):
+        response = self.client_for(self.master_user).get(reverse('staff-profile-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 3)
+
+    def test_master_cannot_read_the_teams_pay(self):
+        """A supervisor sees who is on the floor, not what the floor is paid."""
+        response = self.client_for(self.master_user).get(
+            reverse('staff-profile-detail', args=[self.balan_terms.id]))
+        self.assertEqual(response.status_code, 200)
+        for field in CONFIDENTIAL_FIELDS:
+            self.assertNotIn(field, response.data)
+        self.assertNotIn('999.00', response.content.decode())
+        # What supervision legitimately needs is still there.
+        self.assertEqual(response.data['staff_name'], 'Balan')
+        self.assertIn('joined_at', response.data)
+
+    def test_master_reads_their_own_pay(self):
+        response = self.client_for(self.master_user).get(
+            reverse('staff-profile-detail', args=[self.master_terms.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['hourly_rate'], '300.00')
+
+    def test_the_master_listing_carries_no_colleague_pay(self):
+        body = self.client_for(self.master_user).get(
+            reverse('staff-profile-list')).content.decode()
+        self.assertNotIn('999.00', body)
+        self.assertNotIn('7000.00', body)
+        # Their own rate survives the same response.
+        self.assertIn('300.00', body)
+
+    def test_master_cannot_create_a_profile(self):
+        newcomer = Tailor.objects.create(
+            name='Omar', specialty='Pressing', role='Pressing Staff')
+        response = self.client_for(self.master_user).post(
+            reverse('staff-profile-list'),
+            {'staff': newcomer.id, 'hourly_rate': '100.00'}, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_master_cannot_change_a_rate(self):
+        response = self.client_for(self.master_user).patch(
+            reverse('staff-profile-detail', args=[self.balan_terms.id]),
+            {'hourly_rate': '1.00'}, format='json')
+        self.assertEqual(response.status_code, 403)
+        self.balan_terms.refresh_from_db()
+        self.assertEqual(self.balan_terms.hourly_rate, Decimal('999.00'))
+
+    def test_master_cannot_change_deposit_terms(self):
+        response = self.client_for(self.master_user).patch(
+            reverse('staff-profile-detail', args=[self.balan_terms.id]),
+            {'deposit_weekly': '5000.00'}, format='json')
+        self.assertEqual(response.status_code, 403)
+        self.balan_terms.refresh_from_db()
+        self.assertEqual(self.balan_terms.deposit_weekly, Decimal('700.00'))
+
+    def test_master_cannot_raise_their_own_pay(self):
+        response = self.client_for(self.master_user).patch(
+            reverse('staff-profile-detail', args=[self.master_terms.id]),
+            {'hourly_rate': '9000.00'}, format='json')
+        self.assertEqual(response.status_code, 403)
+        self.master_terms.refresh_from_db()
+        self.assertEqual(self.master_terms.hourly_rate, Decimal('300.00'))
+
+    def test_master_cannot_delete(self):
+        response = self.client_for(self.master_user).delete(
+            reverse('staff-profile-detail', args=[self.balan_terms.id]))
+        self.assertEqual(response.status_code, 403)
+
+    # ---- Tailor ----------------------------------------------------------
+    def test_tailor_sees_only_themselves(self):
+        response = self.client_for(self.anita_user).get(reverse('staff-profile-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['staff_name'], 'Anita')
+
+    def test_tailor_reads_their_own_terms_in_full(self):
+        response = self.client_for(self.anita_user).get(
+            reverse('staff-profile-detail', args=[self.anita_terms.id]))
+        self.assertEqual(response.status_code, 200)
+        for field in CONFIDENTIAL_FIELDS:
+            self.assertIn(field, response.data)
+
+    def test_tailor_gets_a_scoped_404_for_a_colleague(self):
+        response = self.client_for(self.anita_user).get(
+            reverse('staff-profile-detail', args=[self.balan_terms.id]))
+        self.assertEqual(response.status_code, 404)
+
+    # ---- Specialist ------------------------------------------------------
+    def test_specialist_is_not_a_supervisor(self):
+        """A QC Master is a specialist, not a Master. The names are close."""
+        response = self.client_for(self.qc_user).get(reverse('staff-profile-list'))
+        self.assertEqual(response.status_code, 200)
+        # No profile of their own, and no right to anyone else's.
+        self.assertEqual(len(response.data), 0)
+
+    def test_specialist_with_terms_sees_only_their_own(self):
+        qc_terms = self.terms_for(self.qc, hourly_rate=Decimal('210.00'))
+        response = self.client_for(self.qc_user).get(reverse('staff-profile-list'))
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['id'], str(qc_terms.id))
+        self.assertNotIn('999.00', response.content.decode())
+
+    def test_specialist_cannot_write(self):
+        qc_terms = self.terms_for(self.qc)
+        response = self.client_for(self.qc_user).patch(
+            reverse('staff-profile-detail', args=[qc_terms.id]),
+            {'hourly_rate': '900.00'}, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    # ---- Designer --------------------------------------------------------
+    def test_a_design_only_account_gets_no_staff_records(self):
+        """Designers have no Tailor row, so they match no employment record.
+
+        Left as an empty list rather than a refusal: the endpoint is not theirs
+        to be refused from, and returning nothing is the same answer the
+        queryset gives any account with no roster profile.
+        """
+        from apps.design_studio.models import Designer
+        designer_user = User.objects.create_user(
+            username='dia', email='dia@staff.test', password='diapass12345')
+        Designer.objects.create(name='Dia', email='dia@staff.test', user=designer_user)
+
+        response = self.client_for(designer_user).get(reverse('staff-profile-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 0)
+        self.assertNotIn('999.00', response.content.decode())
+
+    def test_a_designer_cannot_write_employment_terms(self):
+        from apps.design_studio.models import Designer
+        designer_user = User.objects.create_user(
+            username='dev', email='dev@staff.test', password='devpass12345')
+        Designer.objects.create(name='Dev', email='dev@staff.test', user=designer_user)
+        response = self.client_for(designer_user).patch(
+            reverse('staff-profile-detail', args=[self.balan_terms.id]),
+            {'hourly_rate': '1.00'}, format='json')
+        self.assertIn(response.status_code, (403, 404))
+        self.balan_terms.refresh_from_db()
+        self.assertEqual(self.balan_terms.hourly_rate, Decimal('999.00'))
+
+    # ---- Customer / anonymous -------------------------------------------
+    def test_a_customer_has_no_account_and_no_access(self):
+        anonymous = APIClient()
+        anonymous.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
+        for url in (reverse('staff-profile-list'),
+                    reverse('staff-profile-detail', args=[self.balan_terms.id])):
+            response = anonymous.get(url)
+            self.assertIn(response.status_code, (401, 403))
+
+
+class CrossTenantStaffTests(TransactionTestCase):
+    """Two real boutiques, two real schemas, and no way across.
+
+    Not a TenantTestCase: that builds ONE tenant, and one tenant cannot show
+    that a second is unreachable. This provisions two the way signup does, so
+    the isolation under test is the isolation production actually has --
+    django-tenants switching `search_path` per request from the X-Tenant-ID
+    header.
+
+    Expensive, and deliberately the only test here that is. Cross-tenant leakage
+    is the failure that would end a multi-boutique product, and it is not a
+    thing to infer from a frozenset.
+    """
+
+    def setUp(self):
+        connection.set_schema_to_public()
+        self.alpha = self._boutique('xt_alpha', 'owner@alpha.test', 'Alpha Atelier')
+        self.beta = self._boutique('xt_beta', 'owner@beta.test', 'Beta Boutique')
+
+        self.alpha_staff, self.alpha_terms = self._staff(
+            self.alpha, 'alphatailor@alpha.test', 'Alpha Tailor',
+            Decimal('111.11'), Decimal('1100.00'))
+        self.beta_staff, self.beta_terms = self._staff(
+            self.beta, 'betatailor@beta.test', 'Beta Tailor',
+            Decimal('222.22'), Decimal('2200.00'))
+        connection.set_schema_to_public()
+
+    def tearDown(self):
+        connection.set_schema_to_public()
+        for schema in ('xt_alpha', 'xt_beta'):
+            with connection.cursor() as c:
+                c.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+            BoutiqueTenant.objects.filter(schema_name=schema).delete()
+
+    @staticmethod
+    def _boutique(schema, owner_email, name):
+        tenant = BoutiqueTenant(schema_name=schema, owner_email=owner_email, name=name)
+        tenant.save()  # auto_create_schema runs every tenant migration
+        return tenant
+
+    @staticmethod
+    def _staff(tenant, email, name, rate, deposit):
+        with schema_context(tenant.schema_name):
+            user = User.objects.create_user(
+                username=email, email=email, password='crosstenantpw12345')
+            tailor = Tailor.objects.create(
+                name=name, specialty='Stitching', role='Tailor',
+                email=email, user=user)
+            terms = StaffProfile.objects.create(
+                staff=tailor, hourly_rate=rate, deposit_total=deposit)
+            Token.objects.get_or_create(user=user)
+        return tailor, terms
+
+    def _client(self, tenant, email):
+        with schema_context(tenant.schema_name):
+            token = Token.objects.get(user__email=email).key
+        api = APIClient()
+        api.credentials(HTTP_AUTHORIZATION=f'Token {token}',
+                        HTTP_X_TENANT_ID=tenant.schema_name)
+        return api
+
+    def test_each_boutique_sees_only_its_own_staff(self):
+        alpha = self._client(self.alpha, 'alphatailor@alpha.test')
+        response = alpha.get(reverse('staff-profile-list'))
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('111.11', body)
+        self.assertNotIn('222.22', body)
+        self.assertNotIn('Beta Tailor', body)
+
+    def test_a_token_from_one_boutique_is_not_a_token_in_another(self):
+        """Alpha's staff, pointed at Beta's schema, is simply not a user there.
+
+        The token table lives in each tenant schema, so the row backing this
+        credential does not exist in Beta -- authentication fails before any
+        staff code runs. That is the isolation, and it is the database's rather
+        than a filter anyone could forget to write.
+        """
+        with schema_context(self.alpha.schema_name):
+            stolen = Token.objects.get(user__email='alphatailor@alpha.test').key
+        api = APIClient()
+        api.credentials(HTTP_AUTHORIZATION=f'Token {stolen}',
+                        HTTP_X_TENANT_ID=self.beta.schema_name)
+        response = api.get(reverse('staff-profile-list'))
+        self.assertIn(response.status_code, (401, 403))
+        self.assertNotIn('222.22', response.content.decode())
+
+    def test_a_profile_id_from_another_boutique_is_not_found(self):
+        """Beta's row id, asked for with Alpha's credentials, must 404."""
+        alpha = self._client(self.alpha, 'alphatailor@alpha.test')
+        response = alpha.get(
+            reverse('staff-profile-detail', args=[self.beta_terms.id]))
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn('222.22', response.content.decode())
+
+    def test_an_owner_cannot_reach_the_other_boutiques_staff(self):
+        """Being an owner is a role inside one schema, not across the platform."""
+        with schema_context(self.alpha.schema_name):
+            owner = User.objects.create_user(
+                username='owner@alpha.test', email='owner@alpha.test',
+                password='alphaownerpw12345')
+            token = Token.objects.create(user=owner).key
+        api = APIClient()
+        api.credentials(HTTP_AUTHORIZATION=f'Token {token}',
+                        HTTP_X_TENANT_ID=self.alpha.schema_name)
+        response = api.get(reverse('staff-profile-list'))
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('111.11', body)
+        self.assertNotIn('222.22', body)
+        self.assertNotIn('Beta Tailor', body)

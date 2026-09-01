@@ -28,6 +28,18 @@ const panel = {
 const money = (n) =>
   `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
+/**
+ * Whether this row actually carries pay, as opposed to having had it removed.
+ *
+ * The API strips hourly_rate, deposit_total and deposit_weekly from anyone
+ * else's record for a non-owner, so a supervisor's copy of a colleague's row
+ * simply has no such keys. Rendering it anyway would put `money(undefined)`
+ * on screen -- and money() coerces to 0, so the card would state that a
+ * colleague earns ₹0 an hour. Absent is not zero, and saying so wrongly about
+ * someone's wage is worse than saying nothing.
+ */
+const showsPay = (terms) => terms?.hourly_rate !== undefined;
+
 const EMPLOYMENT_TYPES = [
   ['FULL_TIME', 'Full time'],
   ['PART_TIME', 'Part time'],
@@ -237,7 +249,7 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
   );
 }
 
-function Roster({ isOwner }) {
+function Roster({ isOwner, canSeeTeam }) {
   const [roster, setRoster] = useState([]);
   const [terms, setTerms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -252,7 +264,7 @@ function Roster({ isOwner }) {
       // Independent failures: a staff member may read their own terms but not
       // the roster, so one refusal must not blank the whole screen.
       const [people, profiles] = await Promise.all([
-        isOwner ? api.getTailors().catch(() => []) : Promise.resolve([]),
+        canSeeTeam ? api.getTailors().catch(() => []) : Promise.resolve([]),
         api.getStaffProfiles().catch(() => []),
       ]);
       setRoster(Array.isArray(people) ? people : []);
@@ -262,7 +274,7 @@ function Roster({ isOwner }) {
     } finally {
       setLoading(false);
     }
-  }, [isOwner]);
+  }, [canSeeTeam]);
 
   // Deferred rather than called straight from the effect body, matching
   // InventoryPanel: refresh() sets loading state synchronously, and doing that
@@ -280,7 +292,7 @@ function Roster({ isOwner }) {
 
   /** Owners see the roster; a staff member sees only the row their own terms name. */
   const rows = useMemo(() => {
-    const source = isOwner
+    const source = canSeeTeam
       ? roster.map((person) => ({ member: person, terms: termsByStaff.get(String(person.id)) }))
       : terms.map((t) => ({
           member: { id: t.staff, name: t.staff_name, role: t.staff_role },
@@ -290,7 +302,7 @@ function Roster({ isOwner }) {
     if (!needle) return source;
     return source.filter(({ member }) =>
       `${member.name} ${member.role}`.toLowerCase().includes(needle));
-  }, [isOwner, roster, terms, termsByStaff, search]);
+  }, [canSeeTeam, roster, terms, termsByStaff, search]);
 
   const withTerms = rows.filter((r) => r.terms).length;
 
@@ -310,7 +322,7 @@ function Roster({ isOwner }) {
         </div>
       )}
 
-      {isOwner && (
+      {canSeeTeam && (
         <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
           <div style={{ ...panel, padding: '16px 18px', flex: '1 1 170px' }}>
             <div style={{
@@ -334,7 +346,7 @@ function Roster({ isOwner }) {
         </div>
       )}
 
-      {isOwner && (
+      {canSeeTeam && (
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -345,7 +357,7 @@ function Roster({ isOwner }) {
 
       {rows.length === 0 ? (
         <div style={{ ...panel, padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-          {isOwner
+          {canSeeTeam
             ? 'No staff on the roster yet. Add people in Manage Tailors, then set up their employment details here.'
             : 'Your employment details have not been set up yet. Your boutique owner can add them.'}
         </div>
@@ -377,7 +389,7 @@ function Roster({ isOwner }) {
                 )}
               </div>
 
-              {t ? (
+              {t && showsPay(t) && (
                 <div
                   className="mobile-stack-grid"
                   style={{
@@ -399,7 +411,15 @@ function Roster({ isOwner }) {
                     <div style={{ fontWeight: 600 }}>{money(t.deposit_weekly)}</div>
                   </div>
                 </div>
-              ) : (
+              )}
+
+              {t && !showsPay(t) && (
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
+                  Employment set up. Pay details are visible to the boutique owner only.
+                </div>
+              )}
+
+              {!t && (
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
                   No employment details yet — this person works exactly as before.
                 </div>
@@ -437,7 +457,13 @@ const TABS = [
 
 export default function StaffPanel({ currentUser }) {
   const [tab, setTab] = useState('roster');
+  // Mirrors the backend: the owner manages, a Master supervises (reads the team
+  // without its pay), everyone else sees themselves. This is UX only -- every
+  // one of these boundaries is enforced again server-side, and the buttons
+  // hidden here are refused there too.
   const isOwner = !currentUser?.role || currentUser.role === 'Owner';
+  const isSupervisor = currentUser?.role === 'Master';
+  const canSeeTeam = isOwner || isSupervisor;
 
   return (
     <>
@@ -472,7 +498,7 @@ export default function StaffPanel({ currentUser }) {
         ))}
       </div>
 
-      {tab === 'roster' && <Roster isOwner={isOwner} />}
+      {tab === 'roster' && <Roster isOwner={isOwner} canSeeTeam={canSeeTeam} />}
       {tab === 'attendance' && (
         <NotBuiltYet
           title="Attendance is not switched on yet"

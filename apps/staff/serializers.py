@@ -1,6 +1,25 @@
 from rest_framework import serializers
 
+from core.roles import OWNER, resolve_user_role
+
 from .models import StaffProfile
+
+#: What only the owner may read on somebody ELSE's row.
+#:
+#: Everyone keeps these on their own record -- a tailor is entitled to know
+#: their own rate and what is coming off it. The list is what a colleague must
+#: never learn by asking, and it is `employment_type` as well as the money:
+#: knowing a person is on a CONTRACT rather than FULL_TIME is a fact about
+#: their terms, and terms are the thing being protected here.
+#:
+#: Deliberately NOT `phone`, `address` or `emergency_contact`. A Master
+#: supervising the floor needs to be able to reach their team, and an emergency
+#: contact that only the owner can see is an emergency contact nobody can use
+#: at seven in the evening.
+CONFIDENTIAL_FIELDS = (
+    'hourly_rate', 'weekly_hours', 'deposit_total', 'deposit_weekly',
+    'employment_type',
+)
 
 
 class StaffProfileSerializer(serializers.ModelSerializer):
@@ -31,6 +50,39 @@ class StaffProfileSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def to_representation(self, instance):
+        """Strip another person's terms before they leave the building.
+
+        The queryset already stops a tailor from reaching a colleague's row at
+        all, so for them this is a second lock on a door that is already shut.
+        It is the ONLY lock for a Master, who can legitimately list the team:
+        supervising the floor is not the same as being told what the floor is
+        paid, and the difference cannot be expressed by scoping rows.
+
+        Owner-writes-only lives in StaffSelfOrOwner, so nothing here has to
+        think about PATCH: a caller who could reach this with a write is the
+        owner, and the owner sees everything anyway.
+
+        No request in context -- a shell, a management command, a serializer
+        used server-side -- returns the full record. Those callers are already
+        inside the application and have the ORM; withholding here would break
+        them without protecting anything.
+        """
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request is None:
+            return data
+        if resolve_user_role(request.user) == OWNER:
+            return data
+
+        viewer = getattr(request.user, 'tailor_profile', None)
+        if viewer is not None and instance.staff_id == viewer.id:
+            return data
+
+        for field in CONFIDENTIAL_FIELDS:
+            data.pop(field, None)
+        return data
 
     def validate(self, attrs):
         """Dates that describe an employment that could not have happened.

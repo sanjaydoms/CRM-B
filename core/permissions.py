@@ -149,11 +149,24 @@ class StaffSelfOrOwner(permissions.BasePermission):
     viewset is the whole boutique's pay rates and deposit terms. A colleague's
     wage is the one thing on the floor that must not be readable by asking.
 
-    This is only half the rule. It decides what a caller may *do*; which rows
-    they may do it to is StaffProfileViewSet.get_queryset, which narrows a
-    non-Owner to their own profile. Both are needed and neither is sufficient:
-    this class alone would let a tailor read every row, and the queryset alone
-    would let them PATCH their own hourly rate.
+    This is one third of the rule. It decides what a caller may *do*; which
+    rows they may do it to is StaffProfileViewSet.get_queryset; which fields of
+    a visible row they may read is StaffProfileSerializer. All three are needed
+    and none is sufficient: this class alone would let a tailor read every row,
+    the queryset alone would let them PATCH their own hourly rate, and the two
+    together still could not let a Master see the team WITHOUT seeing its pay.
+
+    A supervisor reads, and only reads. Masters are given the roster by
+    get_queryset because supervising a floor means knowing who is on it -- but
+    the money on a colleague's row is removed by the serializer, and every
+    write stays here, with the owner.
+
+    THE FINANCIAL BOUNDARY, stated once so later phases inherit it: staff money
+    is Owner-only. Payroll generation, approval, payment, deposit and advance
+    movements, and any mutation of a rate are the owner's alone. A supervisor
+    approving the wages of the people they supervise is the conflict this line
+    exists to prevent. Later phases add endpoints, not exceptions -- anything
+    that moves money uses OwnerOnly, not this class.
     """
 
     message = "Only the boutique owner can manage employment details."
