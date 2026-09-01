@@ -17,18 +17,37 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
  * submit, wait, submit again -- still goes through; stopping that is the
  * job of the buttons' own pending states.
  */
+/**
+ * Tell the page how many API calls are in flight, so it can show a global
+ * activity bar. Every request against a database a region away takes seconds;
+ * a screen that does nothing during them reads as broken, and not every
+ * control can carry its own spinner. window events rather than React state so
+ * this module stays framework-free.
+ */
+let activeRequests = 0;
+const trackRequest = (promise) => {
+  activeRequests += 1;
+  window.dispatchEvent(new CustomEvent('api-activity', { detail: activeRequests }));
+  const settle = () => {
+    activeRequests -= 1;
+    window.dispatchEvent(new CustomEvent('api-activity', { detail: activeRequests }));
+  };
+  promise.then(settle, settle);
+  return promise;
+};
+
 const inFlightMutations = new Map();
 const guardedFetch = (url, options = {}) => {
   const method = (options.method || 'GET').toUpperCase();
   if (method === 'GET' || (options.body && typeof options.body !== 'string')) {
-    return fetch(url, options);
+    return trackRequest(fetch(url, options));
   }
   const key = `${method} ${url} ${options.body || ''}`;
   const pending = inFlightMutations.get(key);
   // clone() because a Response body can only be read once, and every caller
   // that shared this request will want to read it.
   if (pending) return pending.then((res) => res.clone());
-  const request = fetch(url, options);
+  const request = trackRequest(fetch(url, options));
   inFlightMutations.set(key, request);
   request.then(() => inFlightMutations.delete(key),
                () => inFlightMutations.delete(key));

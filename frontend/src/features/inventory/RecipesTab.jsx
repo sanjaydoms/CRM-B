@@ -124,14 +124,19 @@ function RecipeDetail({ bom, items, isOwner, onChanged }) {
   const [adding, setAdding] = useState(false);
   const [trying, setTrying] = useState(false);
   const [error, setError] = useState(null);
+  const [deletingLineId, setDeletingLineId] = useState(null);
 
   const remove = async (line) => {
+    if (deletingLineId) return;
     setError(null);
+    setDeletingLineId(line.id);
     try {
       await api.deleteBomLine(line.id);
       onChanged();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setDeletingLineId(null);
     }
   };
 
@@ -203,6 +208,7 @@ function RecipeDetail({ bom, items, isOwner, onChanged }) {
                     {isOwner && bom.is_active && (
                       <button type="button" className="btn-secondary"
                               style={{ fontSize: '11px', padding: '4px 8px' }}
+                              disabled={deletingLineId === line.id}
                               onClick={() => remove(line)}>
                         <Trash2 size={11} />
                       </button>

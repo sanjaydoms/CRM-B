@@ -645,6 +645,29 @@ const normaliseDesignBrief = (brief) => {
   return { ...brief, design: brief.design || brief.selected || null };
 };
 
+/**
+ * A thin bar across the very top whenever ANY api call is in flight.
+ *
+ * Every request pays seconds of cross-region latency, and not every control
+ * can carry its own spinner -- this is the app-wide answer to "is anything
+ * happening?". Driven by window events from services/api.js so the api module
+ * stays framework-free.
+ */
+function NetworkActivityBar() {
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    const onActivity = (e) => setActive(e.detail > 0);
+    window.addEventListener('api-activity', onActivity);
+    return () => window.removeEventListener('api-activity', onActivity);
+  }, []);
+  if (!active) return null;
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '3px', zIndex: 3000, overflow: 'hidden', background: 'rgba(15, 41, 30, 0.12)' }}>
+      <div style={{ position: 'absolute', top: 0, bottom: 0, width: '38%', background: 'var(--text-primary, #0f291e)', borderRadius: '3px', animation: 'apiActivitySweep 1.1s ease-in-out infinite' }} />
+    </div>
+  );
+}
+
 function App() {
   // The marketing site is static HTML at / and no longer a view in here -- see
   // frontend/index.html. This bundle is the workspace, served from /app, so it
@@ -700,6 +723,7 @@ function App() {
 
   // Signup Wizard State
   const [signupStep, setSignupStep] = useState(1); // 1: Account, 2: Verify, 3: Profile, 4: Prefs, 5: Complete
+
   const [signupForm, setSignupForm] = useState({
     first_name: '',
     last_name: '',
@@ -714,6 +738,18 @@ function App() {
 
   // Customer/Order Wizard State
   const [currentStep, setCurrentStep] = useState(1);
+  // Which garment tile is fetching its template right now: the load takes
+  // seconds against the remote database, and a silent tile invites re-clicks.
+  const [addingGarmentKey, setAddingGarmentKey] = useState(null);
+
+  // A wizard step lands read from the top, not wherever the previous step's
+  // Next button happened to leave the scroll.
+  useEffect(() => {
+    // Instant, not smooth: the new step's content is still mounting, and a
+    // smooth scroll gets cancelled by the layout shifting under it.
+    window.scrollTo(0, 0);
+  }, [view, currentStep, signupStep]);
+
   const [customerId, setCustomerId] = useState(null);
   const [customerForm, setCustomerForm] = useState(DEFAULT_CUSTOMER_DATA);
   const [profilePhoto, setProfilePhoto] = useState(null);
@@ -863,6 +899,8 @@ function App() {
 
   const addGarment = async (key) => {
     if (garmentJobs.some(job => job.key === key)) return;
+    if (addingGarmentKey) return;
+    setAddingGarmentKey(key);
     try {
       const template = await api.getGarmentTemplate(key);
       setGarmentJobs(prev => [...prev, {
@@ -877,6 +915,8 @@ function App() {
     } catch (err) {
       console.error(err);
       alert('Could not load that garment form.');
+    } finally {
+      setAddingGarmentKey(null);
     }
   };
 
@@ -1238,6 +1278,14 @@ function App() {
 
   const [notifications, setNotifications] = useState([]);
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
+  // In-flight guards, same shape as signupBusy/savingPaymentId: a boolean for
+  // the shared bell, an order/row id for per-row controls.
+  const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false);
+  const [updatingStatusOrderId, setUpdatingStatusOrderId] = useState(null);
+  const [savingVerificationOrderId, setSavingVerificationOrderId] = useState(null);
+  const [assigningWorkflowOrderId, setAssigningWorkflowOrderId] = useState(null);
+  const [deletingFabricId, setDeletingFabricId] = useState(null);
+  const [deletingDraftId, setDeletingDraftId] = useState(null);
 
   // `user` is passed explicitly by callers that have just signed in: setCurrentUser
   // has not committed yet at that point, so reading it from state would bail out
@@ -1466,12 +1514,16 @@ function App() {
   };
 
   const handleDeleteFabric = async (id) => {
+    if (deletingFabricId) return;
     if (window.confirm("Are you sure you want to delete this fabric?")) {
+      setDeletingFabricId(id);
       try {
         await api.deleteFabric(id);
         fetchDashboardAndConfig();
       } catch (err) {
         alert("Failed to delete fabric: " + err.message);
+      } finally {
+        setDeletingFabricId(null);
       }
     }
   };
@@ -1541,11 +1593,15 @@ function App() {
   };
 
   const handleAssignWorkflow = async (orderId, updates) => {
+    if (assigningWorkflowOrderId) return;
+    setAssigningWorkflowOrderId(orderId);
     try {
       await api.updateOrder(orderId, updates);
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to update staff assignment: " + err.message);
+    } finally {
+      setAssigningWorkflowOrderId(null);
     }
   };
 
@@ -2783,11 +2839,14 @@ function App() {
             onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
             onOpenNotifications={() => {
               setShowNotificationsDrawer(true);
+              if (markingNotificationsRead) return;
+              setMarkingNotificationsRead(true);
               api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
                 .then(() => fetchNotifications())
                     // Never let the bell take the app down: a refused or failed
                     // mark-read is not worth losing the session over.
-                    .catch(() => {});
+                    .catch(() => {})
+                    .finally(() => setMarkingNotificationsRead(false));
             }}
           />
 
@@ -2808,14 +2867,18 @@ function App() {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button 
+              <button
+                disabled={markingNotificationsRead}
                 onClick={() => {
                   setShowNotificationsDrawer(true);
+                  if (markingNotificationsRead) return;
+                  setMarkingNotificationsRead(true);
                   api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
                     .then(() => fetchNotifications())
                     // Never let the bell take the app down: a refused or failed
                     // mark-read is not worth losing the session over.
-                    .catch(() => {});
+                    .catch(() => {})
+                    .finally(() => setMarkingNotificationsRead(false));
                 }}
                 className="btn-secondary"
                 style={{ padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -2843,14 +2906,18 @@ function App() {
             </div>
 
             <div className="desktop-inbox-alert-btn" style={{ padding: '0 20px', marginBottom: '16px', marginTop: '16px' }}>
-              <button 
+              <button
+                disabled={markingNotificationsRead}
                 onClick={() => {
                   setShowNotificationsDrawer(true);
+                  if (markingNotificationsRead) return;
+                  setMarkingNotificationsRead(true);
                   api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
                     .then(() => fetchNotifications())
                     // Never let the bell take the app down: a refused or failed
                     // mark-read is not worth losing the session over.
-                    .catch(() => {});
+                    .catch(() => {})
+                    .finally(() => setMarkingNotificationsRead(false));
                 }}
                 className="btn-secondary"
                 style={{
@@ -3018,14 +3085,18 @@ function App() {
                                 <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
                                   {order.order_status}
                                 </span>
-                                <select 
+                                <select
                                   className="form-control"
                                   style={{ fontSize: '12px', padding: '4px 10px', width: '160px', margin: 0 }}
                                   value={order.order_status}
+                                  disabled={updatingStatusOrderId === order.id}
                                   onChange={(e) => {
+                                    if (updatingStatusOrderId) return;
+                                    setUpdatingStatusOrderId(order.id);
                                     api.updateOrderStatus(order.id, e.target.value)
                                       .then(() => fetchDashboardAndConfig())
-                                      .catch(err => alert("Failed to update status: " + err.message));
+                                      .catch(err => alert("Failed to update status: " + err.message))
+                                      .finally(() => setUpdatingStatusOrderId(null));
                                   }}
                                 >
                                   <option value="Received">Received</option>
@@ -3196,19 +3267,24 @@ function App() {
                                     const isChecked = order.master_verification?.[item.key] || false;
                                     return (
                                       <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                                        <input 
+                                        <input
                                           type="checkbox"
                                           checked={isChecked}
+                                          disabled={savingVerificationOrderId === order.id}
                                           onChange={async (e) => {
+                                            if (savingVerificationOrderId) return;
                                             const updatedVerification = {
                                               ...(order.master_verification || {}),
                                               [item.key]: e.target.checked
                                             };
+                                            setSavingVerificationOrderId(order.id);
                                             try {
                                               await api.saveMasterVerification(order.id, updatedVerification);
                                               fetchDashboardAndConfig();
                                             } catch (err) {
                                               alert("Failed to update verification check: " + err.message);
+                                            } finally {
+                                              setSavingVerificationOrderId(null);
                                             }
                                           }}
                                         />
@@ -3885,8 +3961,8 @@ function App() {
                             }}>
                               <Edit2 size={12} /> Edit
                             </button>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }} onClick={() => handleDeleteFabric(fabric.id)}>
-                              <Trash2 size={12} /> Delete
+                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }} disabled={deletingFabricId === fabric.id} onClick={() => handleDeleteFabric(fabric.id)}>
+                              {deletingFabricId === fabric.id ? 'Deleting…' : <><Trash2 size={12} /> Delete</>}
                             </button>
                           </div>
                         </div>
@@ -4112,10 +4188,11 @@ function App() {
                                   </span>
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                  <select 
+                                  <select
                                     className="form-control"
                                     style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
                                     value={order.master || ''}
+                                    disabled={assigningWorkflowOrderId === order.id}
                                     onChange={(e) => handleAssignWorkflow(order.id, { master: e.target.value || null })}
                                   >
                                     <option value="">Unassigned</option>
@@ -4125,10 +4202,11 @@ function App() {
                                   </select>
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                  <select 
+                                  <select
                                     className="form-control"
                                     style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
                                     value={order.tailor || ''}
+                                    disabled={assigningWorkflowOrderId === order.id}
                                     onChange={(e) => handleAssignWorkflow(order.id, { tailor: e.target.value || null })}
                                   >
                                     <option value="">Unassigned</option>
@@ -4434,14 +4512,18 @@ function App() {
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                               <span style={{ fontSize: '13px', fontWeight: 600 }}>Update Status:</span>
-                              <select 
+                              <select
                                 className="form-control"
                                 style={{ fontSize: '13px', padding: '6px 12px', width: '180px', margin: 0 }}
                                 value={order.order_status}
+                                disabled={updatingStatusOrderId === order.id}
                                 onChange={(e) => {
+                                  if (updatingStatusOrderId) return;
+                                  setUpdatingStatusOrderId(order.id);
                                   api.updateOrderStatus(order.id, e.target.value)
                                     .then(() => fetchDashboardAndConfig())
-                                    .catch(err => alert("Failed to update status: " + err.message));
+                                    .catch(err => alert("Failed to update status: " + err.message))
+                                    .finally(() => setUpdatingStatusOrderId(null));
                                 }}
                               >
                                 {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
@@ -4534,19 +4616,24 @@ function App() {
                                   const isChecked = order.master_verification?.[item.key] || false;
                                   return (
                                     <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                                      <input 
+                                      <input
                                         type="checkbox"
                                         checked={isChecked}
+                                        disabled={savingVerificationOrderId === order.id}
                                         onChange={async (e) => {
+                                          if (savingVerificationOrderId) return;
                                           const updatedVerification = {
                                             ...(order.master_verification || {}),
                                             [item.key]: e.target.checked
                                           };
+                                          setSavingVerificationOrderId(order.id);
                                           try {
                                             await api.saveMasterVerification(order.id, updatedVerification);
                                             fetchDashboardAndConfig();
                                           } catch (err) {
                                             alert("Failed to update verification check: " + err.message);
+                                          } finally {
+                                            setSavingVerificationOrderId(null);
                                           }
                                         }}
                                       />
@@ -6760,11 +6847,14 @@ function App() {
             onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
             onOpenNotifications={() => {
               setShowNotificationsDrawer(true);
+              if (markingNotificationsRead) return;
+              setMarkingNotificationsRead(true);
               api.markNotificationsAsRead(currentUser?.role || 'Owner', currentUser?.email)
                 .then(() => fetchNotifications())
                     // Never let the bell take the app down: a refused or failed
                     // mark-read is not worth losing the session over.
-                    .catch(() => {});
+                    .catch(() => {})
+                    .finally(() => setMarkingNotificationsRead(false));
             }}
           />
 
@@ -6838,7 +6928,9 @@ function App() {
                                       onClick={() => setDiscardingDraftId(null)}>
                                 Keep it
                               </button>
-                              <button type="button" className="btn-primary" onClick={async () => {
+                              <button type="button" className="btn-primary" disabled={deletingDraftId === draft.id} onClick={async () => {
+                                if (deletingDraftId) return;
+                                setDeletingDraftId(draft.id);
                                 try {
                                   await api.deleteOrderDraft(draft.id);
                                   setResumableDrafts(prev => prev.filter(d => d.id !== draft.id));
@@ -6847,9 +6939,10 @@ function App() {
                                   alert('Could not discard that order — it is still saved.');
                                 } finally {
                                   setDiscardingDraftId(null);
+                                  setDeletingDraftId(null);
                                 }
                               }}>
-                                Discard permanently
+                                {deletingDraftId === draft.id ? 'Discarding…' : 'Discard permanently'}
                               </button>
                             </div>
                           ) : (
@@ -7298,11 +7391,12 @@ function App() {
                             key={template.key}
                             type="button"
                             className={chosen ? 'btn-primary' : 'btn-secondary'}
-                            style={{ padding: '7px 14px', fontSize: '13px', borderRadius: '999px', gap: '6px' }}
+                            style={{ padding: '7px 14px', fontSize: '13px', borderRadius: '999px', gap: '6px', opacity: addingGarmentKey && addingGarmentKey !== template.key ? 0.6 : 1 }}
+                            disabled={!!addingGarmentKey}
                             onClick={() => (chosen ? removeGarment(template.key) : addGarment(template.key))}
                           >
-                            {chosen ? <Check size={13} /> : <Plus size={13} />}
-                            {template.name}
+                            {addingGarmentKey === template.key ? <span className="spin" style={{ width: '13px', height: '13px', border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block' }} /> : (chosen ? <Check size={13} /> : <Plus size={13} />)}
+                            {addingGarmentKey === template.key ? 'Loading…' : template.name}
                           </button>
                         );
                       })}
@@ -7486,6 +7580,7 @@ function App() {
                             quantityErrors={garmentQuantityErrors[job.key] || {}}
                             onQuantityChange={(fieldKey, quantity) =>
                               updateGarmentQuantity(job.key, fieldKey, quantity)}
+                            onGoToInventory={() => { setView('dashboard'); setDashboardTab('inventory'); }}
                           />
                         </div>
                       );
@@ -10025,6 +10120,7 @@ function App() {
         </div>
       )}
 
+      <NetworkActivityBar />
       {/* Rendered at the root so both sidebars' Logout items reach it,
           whichever view is on screen. */}
       {showLogoutConfirm && (
