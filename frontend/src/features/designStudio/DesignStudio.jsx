@@ -53,7 +53,8 @@ function NoPreview() {
   );
 }
 
-function DesignCard({ design, isShortlisted, onShortlist, onInspect }) {
+function DesignCard({ design, isShortlisted, shortlistingId, onShortlist, onInspect }) {
+  const busy = shortlistingId === `${design.source}:${design.source_ref}`;
   const image = resolveImage(design.image_url);
   // Catalogue rows and imported references both point at URLs that can rot.
   // Without this the browser renders the alt text, which escapes the tile and
@@ -96,8 +97,9 @@ function DesignCard({ design, isShortlisted, onShortlist, onInspect }) {
           className="btn-secondary"
           style={{ marginTop: '10px', width: '100%', fontSize: '11px', padding: '6px' }}
           onClick={() => onShortlist(design)}
+          disabled={busy}
         >
-          {isShortlisted ? 'Shortlisted' : 'Add to board'}
+          {busy ? 'Updating…' : (isShortlisted ? 'Shortlisted' : 'Add to board')}
         </button>
       </div>
     </div>
@@ -161,6 +163,9 @@ export default function DesignStudio({
   const [board, setBoard] = useState(null);
   const [items, setItems] = useState([]);
   const [inspecting, setInspecting] = useState(null);
+  const [shortlistingId, setShortlistingId] = useState(null);
+  const [selectingId, setSelectingId] = useState(null);
+  const [approving, setApproving] = useState(false);
 
   const shortlistedRefs = useMemo(
     () => new Set(items.map((item) => `${item.source}:${item.source_ref}`)),
@@ -300,6 +305,8 @@ export default function DesignStudio({
 
   const handleShortlist = async (design) => {
     if (draftMode) { draftToggle(design); return; }
+    if (shortlistingId) return;
+    setShortlistingId(`${design.source}:${design.source_ref}`);
     try {
       const target = await ensureBoard();
       const existing = items.find((i) => i.source === design.source && i.source_ref === design.source_ref);
@@ -312,27 +319,37 @@ export default function DesignStudio({
       setItems((prev) => [...prev, item]);
     } catch (err) {
       setError(err.message || 'Could not update the board');
+    } finally {
+      setShortlistingId(null);
     }
   };
 
   const handleSelect = async (item) => {
     if (draftMode) { draftSelect(item); return; }
+    if (selectingId) return;
+    setSelectingId(item.id);
     try {
       const updated = await api.selectBoardDesign(board.id, item.id);
       setBoard(updated);
       setItems(updated.items || []);
     } catch (err) {
       setError(err.message || 'Could not select that design');
+    } finally {
+      setSelectingId(null);
     }
   };
 
   const handleApprove = async () => {
+    if (approving) return;
+    setApproving(true);
     try {
       const updated = await api.approveDesignBoard(board.id);
       setBoard(updated);
       setItems(updated.items || []);
     } catch (err) {
       setError(err.message || 'Could not approve the board');
+    } finally {
+      setApproving(false);
     }
   };
 
@@ -469,6 +486,7 @@ export default function DesignStudio({
                 key={`${design.source}:${design.source_ref}`}
                 design={design}
                 isShortlisted={shortlistedRefs.has(`${design.source}:${design.source_ref}`)}
+                shortlistingId={shortlistingId}
                 onShortlist={handleShortlist}
                 onInspect={setInspecting}
               />
@@ -492,9 +510,9 @@ export default function DesignStudio({
             {items.map((item) => (
               <div
                 key={item.id}
-                onClick={() => handleSelect(item)}
+                onClick={() => { if (!selectingId) handleSelect(item); }}
                 style={{
-                  minWidth: '140px', cursor: 'pointer', borderRadius: '8px', padding: '8px',
+                  minWidth: '140px', cursor: selectingId ? 'wait' : 'pointer', borderRadius: '8px', padding: '8px',
                   border: `2px solid ${item.is_selected ? 'var(--text-primary)' : 'var(--border-color)'}`,
                   backgroundColor: item.is_selected ? '#fafbfc' : '#fff'
                 }}
@@ -505,7 +523,7 @@ export default function DesignStudio({
                 )}
                 <div style={{ fontSize: '11px', fontWeight: 600, marginTop: '6px' }}>{item.title || 'Untitled'}</div>
                 <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                  {item.is_selected ? 'Selected' : 'Tap to select'}
+                  {selectingId === item.id ? 'Selecting…' : (item.is_selected ? 'Selected' : 'Tap to select')}
                 </div>
               </div>
             ))}
@@ -514,10 +532,10 @@ export default function DesignStudio({
             <button
               type="button"
               className="btn-primary"
-              disabled={!selectedItem || board?.status === 'APPROVED'}
+              disabled={!selectedItem || board?.status === 'APPROVED' || approving}
               onClick={handleApprove}
             >
-              {board?.status === 'APPROVED' ? 'Design approved' : 'Approve selected design'}
+              {board?.status === 'APPROVED' ? 'Design approved' : (approving ? 'Approving…' : 'Approve selected design')}
             </button>
             {!selectedItem && (
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
@@ -555,6 +573,7 @@ function InspectPanel({ design, boardItem, onClose, onCustomise }) {
   const [attributes, setAttributes] = useState(boardItem?.attributes || design.attributes || {});
   const [instructions, setInstructions] = useState(boardItem?.tailor_instructions || '');
   const [customerNotes, setCustomerNotes] = useState(boardItem?.customer_notes || '');
+  const [saving, setSaving] = useState(false);
 
   return (
     <div className="content-card" style={{ padding: '16px', border: '2px solid var(--text-primary)' }}>
@@ -607,13 +626,22 @@ function InspectPanel({ design, boardItem, onClose, onCustomise }) {
               <button
                 type="button"
                 className="btn-primary"
-                onClick={() => onCustomise(boardItem, {
-                  attributes,
-                  customer_notes: customerNotes,
-                  tailor_instructions: instructions
-                })}
+                disabled={saving}
+                onClick={async () => {
+                  if (saving) return;
+                  setSaving(true);
+                  try {
+                    await onCustomise(boardItem, {
+                      attributes,
+                      customer_notes: customerNotes,
+                      tailor_instructions: instructions
+                    });
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
               >
-                Save customisation
+                {saving ? 'Saving…' : 'Save customisation'}
               </button>
             </>
           ) : (

@@ -775,6 +775,7 @@ function App() {
   // Fabrics CRUD State
   const [showFabricModal, setShowFabricModal] = useState(false);
   const [editingFabric, setEditingFabric] = useState(null);
+  const [fabricSaving, setFabricSaving] = useState(false);
   const [fabricForm, setFabricForm] = useState({
     name: '',
     material: '',
@@ -787,6 +788,7 @@ function App() {
   // Tailors CRUD State
   const [showTailorModal, setShowTailorModal] = useState(false);
   const [editingTailor, setEditingTailor] = useState(null);
+  const [tailorSaving, setTailorSaving] = useState(false);
   const [shareCredsTailor, setShareCredsTailor] = useState(null);
   // Recording a payment: which row is in flight, and what went wrong. Shown in
   // the Invoices header rather than through alert() -- a modal dialog over a
@@ -806,6 +808,7 @@ function App() {
   // Designs CRUD State
   const [showDesignModal, setShowDesignModal] = useState(false);
   const [editingDesign, setEditingDesign] = useState(null);
+  const [designSaving, setDesignSaving] = useState(false);
   const [designForm, setDesignForm] = useState({
     name: '',
     garment_type: 'Lehenga',
@@ -1140,6 +1143,7 @@ function App() {
 
   // Active Selected Dashboard Order for progress tracker
   const [selectedDashboardOrder, setSelectedDashboardOrder] = useState(null);
+  const [updatingOrderStatusId, setUpdatingOrderStatusId] = useState(null);
   const [expandedDna, setExpandedDna] = useState({});
   const [selectedDirectoryCustomer, setSelectedDirectoryCustomer] = useState(null);
   const [directoryDetailLoading, setDirectoryDetailLoading] = useState(false);
@@ -1148,6 +1152,7 @@ function App() {
   // wizard, so there was no way to answer "where is my dress?" from the profile.
   const [expandedCustomerOrderId, setExpandedCustomerOrderId] = useState(null);
   const [approvingDesignId, setApprovingDesignId] = useState(null);
+  const [submittingCompletionId, setSubmittingCompletionId] = useState(null);
   const [assigningStageKey, setAssigningStageKey] = useState(null);
 
   // Backend fetched collections
@@ -1183,6 +1188,7 @@ function App() {
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
   const [boutiqueSettings, setBoutiqueSettings] = useState(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [drapingLoading, setDrapingLoading] = useState(false);
   const [drapingCompleted, setDrapingCompleted] = useState(false);
   const [drapedImage, setDrapedImage] = useState('');
@@ -1197,6 +1203,7 @@ function App() {
   const [productionNotesDraft, setProductionNotesDraft] = useState('');
   const [savingProductionNotes, setSavingProductionNotes] = useState(false);
   const [selectedPerformerId, setSelectedPerformerId] = useState('');
+  const [stageTransitionBusy, setStageTransitionBusy] = useState(false);
   const [globalError, setGlobalError] = useState(null);
   // Names of the dashboard collections that failed to load, so the UI can say so
   // instead of rendering an empty directory as if the boutique had no clients.
@@ -1420,6 +1427,8 @@ function App() {
   // Catalog Management Handlers
   const handleSaveFabric = async (e) => {
     e.preventDefault();
+    if (fabricSaving) return;
+    setFabricSaving(true);
     try {
       const payload = {
         ...fabricForm,
@@ -1440,6 +1449,8 @@ function App() {
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save fabric: " + err.message);
+    } finally {
+      setFabricSaving(false);
     }
   };
 
@@ -1479,6 +1490,8 @@ function App() {
 
   const handleSaveTailor = async (e) => {
     e.preventDefault();
+    if (tailorSaving) return;
+    setTailorSaving(true);
     try {
       const payload = {
         ...tailorForm,
@@ -1500,6 +1513,8 @@ function App() {
       }
     } catch (err) {
       alert("Failed to save tailor: " + err.message);
+    } finally {
+      setTailorSaving(false);
     }
   };
 
@@ -1525,6 +1540,8 @@ function App() {
 
   const handleSaveDesign = async (e) => {
     e.preventDefault();
+    if (designSaving) return;
+    setDesignSaving(true);
     try {
       const payload = {
         ...designForm,
@@ -1547,6 +1564,8 @@ function App() {
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save design: " + err.message);
+    } finally {
+      setDesignSaving(false);
     }
   };
 
@@ -1565,11 +1584,13 @@ function App() {
   // Auth Action Handlers
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
+    if (authBusy) return;
     if (!loginEmail || !loginPassword) {
       alert("Please fill in all credentials.");
       return;
     }
     setAuthError(null);
+    setAuthBusy(true);
     try {
       const res = await api.login(loginEmail, loginPassword);
       setCurrentUser(res.user);
@@ -1593,6 +1614,8 @@ function App() {
       // still did -- worst on a phone, where the alert covers the form and
       // takes a second tap to clear before the password can be retyped.
       setAuthError(err.message || 'Invalid credentials.');
+    } finally {
+      setAuthBusy(false);
     }
   };
 
@@ -2352,8 +2375,8 @@ function App() {
                 </div>
               )}
 
-              <button type="submit" className="btn-primary" style={{ justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600, fontSize: '14px' }}>
-                Login to Workspace
+              <button type="submit" className="btn-primary" disabled={authBusy} style={{ justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600, fontSize: '14px', opacity: authBusy ? 0.6 : 1, cursor: authBusy ? 'wait' : 'pointer' }}>
+                {authBusy ? 'Signing in…' : 'Login to Workspace'}
               </button>
             </form>
 
@@ -3214,24 +3237,29 @@ function App() {
                                   </div>
                                 </div>
 
-                                <button 
-                                  className="btn-primary" 
+                                <button
+                                  className="btn-primary"
                                   style={{ alignSelf: 'flex-end', padding: '6px 16px', fontSize: '12px' }}
+                                  disabled={submittingCompletionId === order.id}
                                   onClick={async () => {
+                                    if (submittingCompletionId) return;
                                     const commentVal = document.getElementById(`comments-${order.id}`).value;
                                     const fileInput = document.getElementById(`image-${order.id}`);
                                     const file = fileInput.files[0];
-                                    
+
+                                    setSubmittingCompletionId(order.id);
                                     try {
                                       await api.submitCompletion(order.id, commentVal, file);
                                       alert("Completion report submitted successfully!");
                                       fetchDashboardAndConfig();
                                     } catch (err) {
                                       alert("Submission failed: " + err.message);
+                                    } finally {
+                                      setSubmittingCompletionId(null);
                                     }
                                   }}
                                 >
-                                  Submit & Send for Quality Check
+                                  {submittingCompletionId === order.id ? 'Submitting…' : 'Submit & Send for Quality Check'}
                                 </button>
                               </div>
                             )}
@@ -3548,16 +3576,21 @@ function App() {
                         <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontSize: '12px', fontWeight: 600 }}>Update Status:</span>
-                            <select 
-                              value={selectedDashboardOrder.order_status} 
+                            <select
+                              value={selectedDashboardOrder.order_status}
+                              disabled={updatingOrderStatusId === selectedDashboardOrder.id}
                               onChange={async (e) => {
+                                if (updatingOrderStatusId) return;
                                 const newStatus = e.target.value;
+                                setUpdatingOrderStatusId(selectedDashboardOrder.id);
                                 try {
                                   await api.updateOrderStatus(selectedDashboardOrder.id, newStatus);
                                   setSelectedDashboardOrder(prev => ({ ...prev, order_status: newStatus }));
                                   fetchDashboardAndConfig();
                                 } catch (err) {
                                   alert("Failed to update status: " + err.message);
+                                } finally {
+                                  setUpdatingOrderStatusId(null);
                                 }
                               }}
                               style={{
@@ -3577,25 +3610,30 @@ function App() {
                           </div>
                           
                           {selectedDashboardOrder.order_status !== 'Delivered' && (
-                            <button 
-                              className="btn-primary" 
+                            <button
+                              className="btn-primary"
                               style={{ fontSize: '12px', padding: '8px 12px', justifyContent: 'center', width: '100%' }}
+                              disabled={updatingOrderStatusId === selectedDashboardOrder.id}
                               onClick={async () => {
+                                if (updatingOrderStatusId) return;
                                 const stages = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
                                 const currentIndex = stages.indexOf(selectedDashboardOrder.order_status);
                                 if (currentIndex !== -1 && currentIndex < stages.length - 1) {
                                   const nextStatus = stages[currentIndex + 1];
+                                  setUpdatingOrderStatusId(selectedDashboardOrder.id);
                                   try {
                                     await api.updateOrderStatus(selectedDashboardOrder.id, nextStatus);
                                     setSelectedDashboardOrder(prev => ({ ...prev, order_status: nextStatus }));
                                     fetchDashboardAndConfig();
                                   } catch (err) {
                                     alert("Failed to update status: " + err.message);
+                                  } finally {
+                                    setUpdatingOrderStatusId(null);
                                   }
                                 }
                               }}
                             >
-                              Advance to Next Stage
+                              {updatingOrderStatusId === selectedDashboardOrder.id ? 'Updating…' : 'Advance to Next Stage'}
                             </button>
                           )}
                         </div>
@@ -5568,15 +5606,19 @@ function App() {
                             </td>
                             <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>{formatMoney(Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)))}</td>
                             <td style={{ padding: '16px' }}>
-                              <select 
+                              <select
                                 value={order.payment_status}
+                                disabled={savingPaymentId === order.id}
                                 onChange={async (e) => {
+                                  setSavingPaymentId(order.id);
                                   try {
                                     await api.updateOrder(order.id, { payment_status: e.target.value });
                                     fetchDashboardAndConfig();
                                   } catch (err) {
                                     e.target.value = order.payment_status;
                                     setPaymentError(`Could not update ${order.order_id} — ${err.message}`);
+                                  } finally {
+                                    setSavingPaymentId(null);
                                   }
                                 }}
                                 className="form-control"
@@ -6002,6 +6044,7 @@ function App() {
                       style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} 
                       onSubmit={async (e) => {
                         e.preventDefault();
+                        if (settingsSaving) return;
                         const form = e.target;
                         const formData = new FormData();
                         formData.append('name', form.boutiqueName.value);
@@ -6012,6 +6055,7 @@ function App() {
                           formData.append('logo', form.boutiqueLogo.files[0]);
                         }
                         formData.append('design_approval_required', form.designApprovalRequired.checked);
+                        setSettingsSaving(true);
                         try {
                           const updated = await api.updateBoutiqueSettings(formData);
                           setBoutiqueSettings(updated);
@@ -6019,6 +6063,8 @@ function App() {
                         } catch (err) {
                           console.error(err);
                           alert("Failed to update boutique settings");
+                        } finally {
+                          setSettingsSaving(false);
                         }
                       }}
                     >
@@ -6109,8 +6155,8 @@ function App() {
                         </label>
                       </div>
 
-                      <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-start', marginTop: '8px' }}>
-                        Save Changes
+                      <button type="submit" className="btn-primary" disabled={settingsSaving} style={{ alignSelf: 'flex-start', marginTop: '8px' }}>
+                        {settingsSaving ? 'Saving…' : 'Save Changes'}
                       </button>
                     </form>
                   </div>
@@ -6206,7 +6252,7 @@ function App() {
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Fabric</button>
+                    <button type="submit" className="btn-primary" disabled={fabricSaving}>{fabricSaving ? 'Saving…' : 'Save Fabric'}</button>
                   </div>
                 </form>
               </div>
@@ -6373,7 +6419,7 @@ function App() {
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Tailor</button>
+                    <button type="submit" className="btn-primary" disabled={tailorSaving}>{tailorSaving ? 'Saving…' : 'Save Tailor'}</button>
                   </div>
                 </form>
               </div>
@@ -6580,7 +6626,7 @@ function App() {
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Design</button>
+                    <button type="submit" className="btn-primary" disabled={designSaving}>{designSaving ? 'Saving…' : 'Save Design'}</button>
                   </div>
                 </form>
               </div>
@@ -7607,7 +7653,7 @@ function App() {
                               this component's state. The draft is on the server
                               before we navigate, so the work is waiting when
                               they come back. */}
-                          <button type="button" className="btn-secondary" onClick={async () => {
+                          <button type="button" className="btn-secondary" disabled={draftSaveState === 'saving'} onClick={async () => {
                             try {
                               await persistDraft({ step: 4 });
                             } catch (err) {
@@ -7618,7 +7664,7 @@ function App() {
                             setView('dashboard');
                             setDashboardTab('fabrics');
                           }}>
-                            Save &amp; add fabrics
+                            {draftSaveState === 'saving' ? 'Saving…' : <>Save &amp; add fabrics</>}
                           </button>
                         </div>
                       )}
@@ -9576,10 +9622,13 @@ function App() {
               {/* Action Buttons Panel */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginTop: '10px' }}>
                 {selectedStageObj && (selectedStageObj.status === 'NOT_STARTED' || selectedStageObj.status === 'PAUSED') && (
-                  <button 
-                    className="btn-primary" 
+                  <button
+                    className="btn-primary"
                     style={{ background: '#3b82f6', color: '#fff', fontSize: '12px', padding: '8px' }}
+                    disabled={stageTransitionBusy}
                     onClick={async () => {
+                      if (stageTransitionBusy) return;
+                      setStageTransitionBusy(true);
                       try {
                         await api.transitionStage(
                           activeReviewOrder.id,
@@ -9597,6 +9646,8 @@ function App() {
                         fetchDashboardAndConfig();
                       } catch (err) {
                         alert("Failed to transition: " + err.message);
+                      } finally {
+                        setStageTransitionBusy(false);
                       }
                     }}
                   >
@@ -9606,10 +9657,13 @@ function App() {
 
                 {selectedStageObj && selectedStageObj.status === 'IN_PROGRESS' && (
                   <>
-                    <button 
-                      className="btn-secondary" 
+                    <button
+                      className="btn-secondary"
                       style={{ background: '#f59e0b', color: '#fff', border: 'none', fontSize: '12px', padding: '8px' }}
+                      disabled={stageTransitionBusy}
                       onClick={async () => {
+                        if (stageTransitionBusy) return;
+                        setStageTransitionBusy(true);
                         try {
                           await api.transitionStage(
                             activeReviewOrder.id,
@@ -9627,15 +9681,20 @@ function App() {
                           fetchDashboardAndConfig();
                         } catch (err) {
                           alert("Failed to transition: " + err.message);
+                        } finally {
+                          setStageTransitionBusy(false);
                         }
                       }}
                     >
                       Pause Stage
                     </button>
-                    <button 
-                      className="btn-primary" 
+                    <button
+                      className="btn-primary"
                       style={{ background: '#10b981', color: '#fff', fontSize: '12px', padding: '8px' }}
+                      disabled={stageTransitionBusy}
                       onClick={async () => {
+                        if (stageTransitionBusy) return;
+                        setStageTransitionBusy(true);
                         try {
                           await api.transitionStage(
                             activeReviewOrder.id,
@@ -9653,6 +9712,8 @@ function App() {
                           fetchDashboardAndConfig();
                         } catch (err) {
                           alert("Failed to transition: " + err.message);
+                        } finally {
+                          setStageTransitionBusy(false);
                         }
                       }}
                     >
@@ -9662,10 +9723,13 @@ function App() {
                 )}
 
                 {selectedStageObj && selectedStageObj.status !== 'COMPLETED' && selectedStageObj.status !== 'SKIPPED' && (
-                  <button 
-                    className="btn-secondary" 
+                  <button
+                    className="btn-secondary"
                     style={{ fontSize: '12px', padding: '8px' }}
+                    disabled={stageTransitionBusy}
                     onClick={async () => {
+                      if (stageTransitionBusy) return;
+                      setStageTransitionBusy(true);
                       try {
                         await api.transitionStage(
                           activeReviewOrder.id,
@@ -9683,6 +9747,8 @@ function App() {
                         fetchDashboardAndConfig();
                       } catch (err) {
                         alert("Failed to transition: " + err.message);
+                      } finally {
+                        setStageTransitionBusy(false);
                       }
                     }}
                   >

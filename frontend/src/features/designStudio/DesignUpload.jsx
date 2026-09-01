@@ -26,6 +26,7 @@ export default function DesignUpload({ onClose, onUploaded }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [newCollection, setNewCollection] = useState('');
+  const [addingCollection, setAddingCollection] = useState(false);
   const inFlight = useRef(false);
 
   const [form, setForm] = useState({
@@ -71,7 +72,9 @@ export default function DesignUpload({ onClose, onUploaded }) {
   };
 
   const addCollection = async () => {
+    if (addingCollection) return;
     if (!newCollection.trim() || !form.designer_ref) return;
+    setAddingCollection(true);
     try {
       const created = await api.createCollection({
         designer: form.designer_ref, name: newCollection.trim(),
@@ -81,6 +84,8 @@ export default function DesignUpload({ onClose, onUploaded }) {
       setNewCollection('');
     } catch (err) {
       setError(`Could not create the collection — ${err.message}`);
+    } finally {
+      setAddingCollection(false);
     }
   };
 
@@ -220,8 +225,8 @@ export default function DesignUpload({ onClose, onUploaded }) {
                    value={newCollection} onChange={(e) => setNewCollection(e.target.value)}
                    placeholder="New collection name" />
             <button type="button" className="btn-secondary" style={{ padding: '5px 10px', fontSize: '12px' }}
-                    onClick={addCollection} disabled={!newCollection.trim()}>
-              <Plus size={12} /> Add collection
+                    onClick={addCollection} disabled={!newCollection.trim() || addingCollection}>
+              <Plus size={12} /> {addingCollection ? 'Adding…' : 'Add collection'}
             </button>
           </div>
         )}
