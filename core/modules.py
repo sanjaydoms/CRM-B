@@ -99,6 +99,15 @@ MODULES = {
         ('/api/staff/',),
         'Employment terms, attendance, payroll and staff performance.',
     ),
+    # Its own switch rather than a part of `staff`: a boutique may well want
+    # attendance and employment records without running its wages through the
+    # product, and payroll is the one surface where switching it off has to
+    # switch off everything -- generation, approval and every figure.
+    'payroll': (
+        'Payroll',
+        ('/api/payroll/',),
+        'Weekly staff payroll: hours, rates and approved gross earnings.',
+    ),
     'notifications': (
         'Notifications',
         ('/api/notifications/',),
