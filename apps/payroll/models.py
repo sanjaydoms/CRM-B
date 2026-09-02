@@ -100,6 +100,9 @@ class PayrollRecord(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'DRAFT', 'Draft'
         APPROVED = 'APPROVED', 'Approved'
+        #: Settled. Reached only from APPROVED, only by the owner, only through
+        #: payouts.record_payout, and never left again.
+        PAID = 'PAID', 'Paid'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     period = models.ForeignKey(
@@ -180,12 +183,50 @@ class PayrollRecord(models.Model):
     deposit_balance_after = models.DecimalField(
         max_digits=12, decimal_places=2, default=0)
 
-    #: Gross less the deposit recovery. Deliberately NOT called net pay: advances,
-    #: bonuses and other deductions are later phases, and a column named for a
-    #: payout it does not yet represent is a column somebody will pay from.
+    #: Gross less the deposit recovery. Kept under its Phase 5 name: the column
+    #: means "what is left for the next deduction to draw on", which is exactly
+    #: what advance recovery reads, and renaming a money column on approved
+    #: history is not a thing this app does.
     net_before_other_deductions = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True,
         validators=[MinValueValidator(0)])
+
+    # ---- Advance recovery, the second deduction, snapshotted like the first --
+    #
+    # Deduction order is fixed and documented in services.py: deposit first,
+    # then advance, each drawing only on what the previous one left. These
+    # columns record what THIS week did against ONE advance -- the oldest still
+    # outstanding, by rule -- so a recovery can always say which advance it
+    # reduced and what that advance's balance was on either side of it.
+    advance_recovered_from = models.ForeignKey(
+        'StaffAdvance', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='payroll_records')
+    advance_scheduled = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(0)],
+        help_text="What the advance's weekly rule called for, limited to what "
+                  "was still outstanding on it.")
+    advance_recovered = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(0)],
+        help_text="What was actually taken -- never more than the advance "
+                  "outstanding, never more than what the deposit left.")
+    advance_unrecovered = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(0)],
+        help_text="Scheduled advance recovery this week could not collect.")
+    advance_balance_before = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0)
+    advance_balance_after = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0)
+
+    #: The figure that is actually paid. Gross, less deposit, less advance.
+    #: This is the one column a payout may equal, and it may equal nothing else.
+    net_payable = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0)])
+
+    paid_at = models.DateTimeField(null=True, blank=True)
 
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.DRAFT, db_index=True)
@@ -224,6 +265,14 @@ class PayrollRecord(models.Model):
             models.CheckConstraint(
                 condition=models.Q(deposit_recovered__gte=0),
                 name='payroll_record_deposit_recovered_not_negative'),
+            models.CheckConstraint(
+                condition=models.Q(advance_recovered__gte=0),
+                name='payroll_record_advance_recovered_not_negative'),
+            # The final invariant, at the database: net pay is never negative.
+            models.CheckConstraint(
+                condition=models.Q(net_payable__isnull=True)
+                | models.Q(net_payable__gte=0),
+                name='payroll_record_net_payable_not_negative'),
         ]
 
     def __str__(self):
@@ -232,6 +281,10 @@ class PayrollRecord(models.Model):
     @property
     def rate_missing(self):
         return self.hourly_rate_snapshot is None
+
+    @property
+    def is_paid(self):
+        return self.status == self.Status.PAID
 
     @property
     def blocks_approval(self):
@@ -288,6 +341,15 @@ class StaffLedgerEntry(models.Model):
         #: "X was actually recovered from this payroll." Always tied to the
         #: approved payroll record that caused it.
         DEPOSIT_RECOVERY = 'DEPOSIT_RECOVERY', 'Security deposit recovered'
+        #: "The boutique gave this person X." Creates the obligation.
+        ADVANCE_ISSUED = 'ADVANCE_ISSUED', 'Advance issued'
+        #: "X of an advance was taken back from this payroll." Tied to both the
+        #: payroll record and the advance it reduced.
+        ADVANCE_RECOVERY = 'ADVANCE_RECOVERY', 'Advance recovered'
+        #: A reversal of an ADVANCE_ISSUED entered in error, permitted only
+        #: before anything has been recovered against it. An offset row rather
+        #: than a deletion: the mistake and its correction both stay readable.
+        ADVANCE_CANCELLED = 'ADVANCE_CANCELLED', 'Advance cancelled'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -318,6 +380,12 @@ class StaffLedgerEntry(models.Model):
     #: off this: it is what makes one payroll able to recover exactly once.
     payroll_record = models.ForeignKey(
         'PayrollRecord', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='ledger_entries')
+    #: The advance this row is about. Set on every ADVANCE_* row and on nothing
+    #: else, so an advance's whole history is one filter and a recovery can
+    #: never be ambiguous about which obligation it reduced.
+    advance = models.ForeignKey(
+        'StaffAdvance', on_delete=models.PROTECT, null=True, blank=True,
         related_name='ledger_entries')
 
     note = models.CharField(max_length=255, blank=True, default='')
@@ -353,8 +421,163 @@ class StaffLedgerEntry(models.Model):
                              payroll_record__isnull=False)
                     | ~models.Q(entry_type='DEPOSIT_RECOVERY')),
                 name='ledger_recovery_names_its_payroll'),
+            # ONE advance recovery per payroll record. The deduction rule takes
+            # from a single advance each week, so this is the whole double-
+            # recovery guard for advances, enforced where retries cannot reach.
+            models.UniqueConstraint(
+                fields=['payroll_record'],
+                condition=models.Q(entry_type='ADVANCE_RECOVERY'),
+                name='ledger_one_advance_recovery_per_payroll'),
+            # Every advance row names its advance; an advance recovery also
+            # names its payroll. Neither can be inferred later.
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(entry_type__in=['ADVANCE_ISSUED', 'ADVANCE_RECOVERY',
+                                              'ADVANCE_CANCELLED'])
+                    | models.Q(advance__isnull=False)),
+                name='ledger_advance_rows_name_their_advance'),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(entry_type='ADVANCE_RECOVERY')
+                    | models.Q(payroll_record__isnull=False)),
+                name='ledger_advance_recovery_names_its_payroll'),
+            # ONE reversal per advance. A double-tapped Cancel is decided here,
+            # not by whichever request happened to read ACTIVE first.
+            models.UniqueConstraint(
+                fields=['advance'],
+                condition=models.Q(entry_type='ADVANCE_CANCELLED'),
+                name='ledger_one_cancel_per_advance'),
         ]
 
     def __str__(self):
         return (f"{self.staff_name_snapshot} · {self.get_entry_type_display()} "
                 f"· {self.amount}")
+
+
+class StaffAdvance(models.Model):
+    """Money the boutique handed a staff member ahead of payroll.
+
+    Not salary, not a bonus, not the security deposit. It is an obligation the
+    OTHER way round from the deposit: the deposit is money the boutique holds
+    for the person, an advance is money the person holds for the boutique.
+    They are never netted against each other, and each has its own ledger rows,
+    its own recovery rule and its own balance.
+
+    The row here is the AGREEMENT -- amount, date, reason, weekly rule. What is
+    still outstanding is derived from ledger rows (ADVANCE_ISSUED minus
+    ADVANCE_RECOVERY minus ADVANCE_CANCELLED) and lives nowhere as a column.
+
+    Each advance is its own obligation rather than a running "advance balance"
+    per person, because the recovery rule is oldest-first and a single balance
+    cannot say which loan a rupee paid back. `weekly_recovery` belongs to the
+    advance, not the profile, for the same reason: two advances can carry two
+    different repayment terms.
+
+    `status` is deliberately only ACTIVE or CANCELLED. "Fully recovered" is a
+    fact about the ledger, not a state somebody sets, and storing it would be a
+    second answer that drifts.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = 'ACTIVE', 'Active'
+        CANCELLED = 'CANCELLED', 'Cancelled'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    staff = models.ForeignKey(
+        Tailor, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='advances')
+    staff_name_snapshot = models.CharField(max_length=150)
+
+    amount = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    #: The rule, changeable prospectively. Zero means "recover nothing yet".
+    weekly_recovery = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(0)])
+    issued_on = models.DateField(db_index=True)
+    reason = models.CharField(max_length=255, blank=True, default='')
+
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='advances_issued')
+    created_at = models.DateTimeField(auto_now_add=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='advances_cancelled')
+    cancel_reason = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        # Oldest first is the recovery order, so it is the default order too.
+        ordering = ['issued_on', 'created_at', 'pk']
+        constraints = [
+            # An advance of nothing is a data-entry error, not an obligation.
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name='advance_amount_positive'),
+            models.CheckConstraint(
+                condition=models.Q(weekly_recovery__gte=0),
+                name='advance_weekly_not_negative'),
+        ]
+
+    def __str__(self):
+        return f"{self.staff_name_snapshot} · advance {self.amount} on {self.issued_on}"
+
+    @property
+    def is_cancelled(self):
+        return self.status == self.Status.CANCELLED
+
+
+class Payout(models.Model):
+    """The record that an approved payroll was actually settled.
+
+    This product moves no money. There is no bank, no gateway, no UPI -- the
+    owner pays in cash or from their own banking app and records it here. The
+    row says "paid, this much, this way, this reference, by me, at this time",
+    and the interface says "payment recorded", never "transfer completed".
+
+    OneToOne with the payroll record IS the idempotency: a second payout for the
+    same payroll is a database error, not a rule the service remembers. And the
+    amount is never typed -- it is copied from the record's net_payable inside
+    the same transaction that marks it PAID, so what was paid and what was owed
+    cannot disagree.
+    """
+
+    class Method(models.TextChoices):
+        CASH = 'CASH', 'Cash'
+        BANK_TRANSFER = 'BANK_TRANSFER', 'Bank transfer'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    payroll_record = models.OneToOneField(
+        PayrollRecord, on_delete=models.PROTECT, related_name='payout')
+    staff = models.ForeignKey(
+        Tailor, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='payouts')
+    staff_name_snapshot = models.CharField(max_length=150)
+
+    amount = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    method = models.CharField(max_length=20, choices=Method.choices)
+    #: UTR, cash voucher number, or whatever the owner has. Free text, because
+    #: the reference space is theirs, and never invented by this system.
+    reference = models.CharField(max_length=120, blank=True, default='')
+    note = models.CharField(max_length=255, blank=True, default='')
+
+    paid_at = models.DateTimeField()
+    paid_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='payouts_recorded')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-paid_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gte=0),
+                name='payout_amount_not_negative'),
+        ]
+
+    def __str__(self):
+        return f"{self.staff_name_snapshot} · paid {self.amount} ({self.method})"

@@ -16,6 +16,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError, connection, transaction
 from django.test import TransactionTestCase
 from django.urls import reverse
+from django.utils import timezone
 from django_tenants.test.cases import TenantTestCase
 from django_tenants.utils import schema_context
 from rest_framework.authtoken.models import Token
@@ -656,10 +657,28 @@ class PayrollAccessTests(PayrollTestCase):
         for url in self._urls():
             self.assertEqual(owner.get(url).status_code, 200, url)
 
-    def test_a_master_is_refused_every_payroll_endpoint(self):
-        master = self.client_for(self.master_user)
+    def _refused_or_empty(self, client, who):
+        """The Phase 6 matrix (brief section 35).
+
+        Periods are Owner-only and answer 403. Records answer for the caller's
+        OWN rows only: a list is 200 and empty for someone with none, and a
+        colleague's detail is a scoped 404. In every case no wage figure may
+        appear in the body.
+        """
+        period_list, period_detail, record_list, record_detail = self._urls()
+        self.assertEqual(client.get(period_list).status_code, 403, who)
+        self.assertEqual(client.get(period_detail).status_code, 403, who)
+        listing = client.get(record_list)
+        self.assertEqual(listing.status_code, 200, who)
+        self.assertEqual(listing.data, [], who)
+        self.assertEqual(client.get(record_detail).status_code, 404, who)
         for url in self._urls():
-            self.assertEqual(master.get(url).status_code, 403, url)
+            body = client.get(url).content.decode()
+            self.assertNotIn('800.00', body, who)
+            self.assertNotIn('100.00', body, who)
+
+    def test_a_master_is_refused_every_payroll_endpoint(self):
+        self._refused_or_empty(self.client_for(self.master_user), 'master')
 
     def test_a_master_cannot_generate_or_approve(self):
         master = self.client_for(self.master_user)
@@ -673,9 +692,15 @@ class PayrollAccessTests(PayrollTestCase):
         self.assertEqual(self.period.status, 'DRAFT')
 
     def test_a_tailor_is_refused_every_payroll_endpoint(self):
+        """Anita OWNS the fixture record, so her list holds exactly her row."""
         tailor = self.client_for(self.anita_user)
-        for url in self._urls():
-            self.assertEqual(tailor.get(url).status_code, 403, url)
+        period_list, period_detail, record_list, record_detail = self._urls()
+        self.assertEqual(tailor.get(period_list).status_code, 403)
+        self.assertEqual(tailor.get(period_detail).status_code, 403)
+        listing = tailor.get(record_list)
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual([r['staff_name_snapshot'] for r in listing.data], ['Anita'])
+        self.assertEqual(tailor.get(record_detail).status_code, 200)
 
     def test_a_tailor_cannot_generate_payroll(self):
         response = self.client_for(self.anita_user).post(
@@ -697,9 +722,7 @@ class PayrollAccessTests(PayrollTestCase):
             username='dia@payroll.test', email='dia@payroll.test',
             password='diapass12345')
         Designer.objects.create(name='Dia', email='dia@payroll.test', user=user)
-        client = self.client_for(user)
-        for url in self._urls():
-            self.assertEqual(client.get(url).status_code, 403, url)
+        self._refused_or_empty(self.client_for(user), 'designer')
 
     def test_an_anonymous_caller_is_refused(self):
         anonymous = APIClient()
@@ -708,12 +731,16 @@ class PayrollAccessTests(PayrollTestCase):
             self.assertIn(anonymous.get(url).status_code, (401, 403), url)
 
     def test_no_wage_leaks_in_a_refusal_body(self):
-        for client in (self.client_for(self.master_user),
-                       self.client_for(self.anita_user)):
-            for url in self._urls():
-                body = client.get(url).content.decode()
-                self.assertNotIn('800.00', body)
-                self.assertNotIn('100.00', body)
+        """A Master learns nothing; Anita sees only her own figure."""
+        master = self.client_for(self.master_user)
+        for url in self._urls():
+            body = master.get(url).content.decode()
+            self.assertNotIn('800.00', body)
+            self.assertNotIn('100.00', body)
+        # Anita's own record is hers to read; nothing of anyone else's.
+        anita = self.client_for(self.anita_user)
+        body = anita.get(self._urls()[2]).content.decode()
+        self.assertNotIn('Balan', body)
 
     def test_payroll_is_not_reachable_through_the_staff_endpoints(self):
         """The roster and employment endpoints must not have grown a wage."""
@@ -1799,3 +1826,1020 @@ class DepositListIsLedgerDrivenTests(PayrollTestCase):
         self.profile(self.anita, '100.00')
         response = self.client_for(self.owner).get(reverse('payroll-deposit-list'))
         self.assertEqual(response.data, [])
+
+
+# =============================================================================
+# PHASE 6 -- advances, net payable, payouts
+# =============================================================================
+
+from . import advances, payouts  # noqa: E402
+from .models import Payout, StaffAdvance  # noqa: E402
+
+
+class AdvanceTestCase(PayrollTestCase):
+    """The Phase 5 fixtures plus an advance helper."""
+
+    def advance(self, tailor, amount, weekly='0.00', day=date(2026, 9, 2), reason='Emergency'):
+        return advances.issue(
+            tailor, Decimal(amount), user=self.owner, issued_on=day,
+            reason=reason, weekly_recovery=Decimal(weekly))
+
+    def deposit(self, tailor, total='5000.00', weekly='500.00', rate='100.00'):
+        profile = self.profile(tailor, rate, deposit_total=Decimal(total),
+                               deposit_weekly=Decimal(weekly))
+        if Decimal(total) > 0:
+            deposits.record_agreement(tailor, Decimal(total), user=self.owner)
+        return profile
+
+    def full_week(self, tailor):
+        """42h 30m = 2,550 minutes, the brief's figure."""
+        for d, e in ((1, 17), (2, 17), (3, 17), (4, 17)):
+            self.session(tailor, d, 9, e)                   # 4 x 480
+        self.session(tailor, 5, 9, 17, end_minute=30)       # 510
+        self.session(tailor, 6, 9, 11)                       # 120
+
+
+class AdvanceLedgerTests(AdvanceTestCase):
+    def test_issuing_an_advance_writes_the_obligation(self):
+        adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.assertEqual(adv.amount, Decimal('5000.00'))
+        entry = StaffLedgerEntry.objects.get(advance=adv)
+        self.assertEqual(entry.entry_type, 'ADVANCE_ISSUED')
+        self.assertEqual(entry.amount, Decimal('5000.00'))
+        self.assertEqual(advances.outstanding_for(adv), Decimal('5000.00'))
+
+    def test_a_negative_advance_is_refused(self):
+        with self.assertRaises(advances.AdvanceError):
+            self.advance(self.anita, '-100.00')
+        self.assertEqual(StaffAdvance.objects.count(), 0)
+
+    def test_a_zero_advance_is_refused(self):
+        with self.assertRaises(advances.AdvanceError):
+            self.advance(self.anita, '0.00')
+
+    def test_the_database_refuses_a_zero_advance(self):
+        with self.assertRaises(IntegrityError):
+            StaffAdvance.objects.create(
+                staff=self.anita, staff_name_snapshot='Anita',
+                amount=Decimal('0.00'), issued_on=date(2026, 9, 2))
+
+    def test_a_negative_amount_is_refused_over_the_api(self):
+        response = self.client_for(self.owner).post(
+            reverse('payroll-advance-list'),
+            {'staff': self.anita.id, 'amount': '-50.00', 'issued_on': '2026-09-02'},
+            format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(StaffAdvance.objects.count(), 0)
+
+    def test_outstanding_is_derived_from_the_ledger(self):
+        adv = self.advance(self.anita, '5000.00')
+        rec = PayrollRecord.objects.create(
+            period=PayrollPeriod.objects.create(
+                period_start=date(2020, 1, 6), period_end=date(2020, 1, 12)),
+            staff=self.anita, staff_name_snapshot='Anita',
+            worked_minutes=0, regular_minutes=0)
+        StaffLedgerEntry.objects.create(
+            staff=self.anita, staff_name_snapshot='Anita',
+            entry_type='ADVANCE_RECOVERY', amount=Decimal('1000.00'),
+            advance=adv, payroll_record=rec)
+        self.assertEqual(advances.recovered_for(adv), Decimal('1000.00'))
+        self.assertEqual(advances.outstanding_for(adv), Decimal('4000.00'))
+
+    def test_outstanding_never_goes_negative(self):
+        adv = self.advance(self.anita, '100.00')
+        rec = PayrollRecord.objects.create(
+            period=PayrollPeriod.objects.create(
+                period_start=date(2020, 1, 6), period_end=date(2020, 1, 12)),
+            staff=self.anita, staff_name_snapshot='Anita',
+            worked_minutes=0, regular_minutes=0)
+        StaffLedgerEntry.objects.create(
+            staff=self.anita, staff_name_snapshot='Anita',
+            entry_type='ADVANCE_RECOVERY', amount=Decimal('500.00'),
+            advance=adv, payroll_record=rec)
+        self.assertEqual(advances.outstanding_for(adv), Decimal('0.00'))
+
+    def test_the_advance_is_traceable(self):
+        adv = self.advance(self.anita, '5000.00', reason='Medical emergency')
+        self.assertEqual(adv.created_by, self.owner)
+        self.assertEqual(adv.reason, 'Medical emergency')
+        self.assertEqual(adv.issued_on, date(2026, 9, 2))
+        self.assertIsNotNone(adv.created_at)
+
+    def test_an_advance_row_must_name_its_advance(self):
+        with self.assertRaises(IntegrityError):
+            StaffLedgerEntry.objects.create(
+                staff=self.anita, staff_name_snapshot='Anita',
+                entry_type='ADVANCE_ISSUED', amount=Decimal('100.00'))
+
+
+class AdvanceCancellationTests(AdvanceTestCase):
+    def test_cancelling_reverses_without_deleting(self):
+        adv = self.advance(self.anita, '5000.00')
+        advances.cancel(adv, user=self.owner, reason='Typed 5000 for 500')
+        adv.refresh_from_db()
+        self.assertEqual(adv.status, 'CANCELLED')
+        self.assertEqual(advances.outstanding_for(adv), Decimal('0.00'))
+        types = list(StaffLedgerEntry.objects.filter(advance=adv)
+                     .order_by('created_at').values_list('entry_type', flat=True))
+        self.assertEqual(types, ['ADVANCE_ISSUED', 'ADVANCE_CANCELLED'])
+
+    def test_cancelling_needs_a_reason(self):
+        adv = self.advance(self.anita, '5000.00')
+        with self.assertRaises(advances.AdvanceError):
+            advances.cancel(adv, user=self.owner, reason='  ')
+
+    def test_a_partly_recovered_advance_cannot_be_cancelled(self):
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.session(self.anita, 1, 9, 17)
+        services.approve(self.generate(), user=self.owner)
+        self.assertEqual(advances.recovered_for(adv), Decimal('800.00'))
+        with self.assertRaises(advances.AdvanceError):
+            advances.cancel(adv, user=self.owner, reason='Too late')
+
+    def test_a_cancelled_advance_is_not_recovered(self):
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        advances.cancel(adv, user=self.owner, reason='Error')
+        self.session(self.anita, 1, 9, 17)
+        record = self.generate().records.get()
+        self.assertEqual(record.advance_recovered, Decimal('0.00'))
+        self.assertEqual(record.net_payable, Decimal('800.00'))
+
+    def test_there_is_no_delete_endpoint(self):
+        adv = self.advance(self.anita, '5000.00')
+        response = self.client_for(self.owner).delete(
+            reverse('payroll-advance-detail', args=[adv.id]))
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(StaffAdvance.objects.count(), 1)
+
+
+class DeductionOrderTests(AdvanceTestCase):
+    """The mandatory worked examples. Deposit first, advance second, net >= 0."""
+
+    def test_the_headline_example(self):
+        """4,250 gross, 500 deposit, 1,000 advance -> 2,750 net."""
+        self.deposit(self.anita)
+        self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.full_week(self.anita)
+        r = self.generate().records.get()
+        self.assertEqual(r.gross_earnings, Decimal('4250.00'))
+        self.assertEqual(r.deposit_recovered, Decimal('500.00'))
+        self.assertEqual(r.advance_recovered, Decimal('1000.00'))
+        self.assertEqual(r.net_payable, Decimal('2750.00'))
+        self.assertEqual(r.net_before_other_deductions, Decimal('3750.00'))
+
+    def test_no_deposit(self):
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.full_week(self.anita)
+        r = self.generate().records.get()
+        self.assertEqual(r.deposit_recovered, Decimal('0.00'))
+        self.assertEqual(r.advance_recovered, Decimal('1000.00'))
+        self.assertEqual(r.net_payable, Decimal('3250.00'))
+
+    def test_no_advance(self):
+        self.deposit(self.anita)
+        self.full_week(self.anita)
+        r = self.generate().records.get()
+        self.assertEqual(r.deposit_recovered, Decimal('500.00'))
+        self.assertEqual(r.advance_recovered, Decimal('0.00'))
+        self.assertEqual(r.net_payable, Decimal('3750.00'))
+
+    def test_low_gross_deposit_takes_everything_advance_gets_nothing(self):
+        """300 gross, 300 deposit due, 500 advance due -> advance 0, net 0."""
+        self.deposit(self.anita, weekly='300.00')
+        self.advance(self.anita, '5000.00', weekly='500.00')
+        self.session(self.anita, 1, 9, 12)   # 180 min = 300.00
+        r = self.generate().records.get()
+        self.assertEqual(r.gross_earnings, Decimal('300.00'))
+        self.assertEqual(r.deposit_recovered, Decimal('300.00'))
+        self.assertEqual(r.advance_recovered, Decimal('0.00'))
+        self.assertEqual(r.advance_unrecovered, Decimal('500.00'))
+        self.assertEqual(r.net_payable, Decimal('0.00'))
+
+    def test_partial_advance_from_what_the_deposit_left(self):
+        """1,000 gross, 200 deposit, 1,000 advance due -> advance 800, net 0."""
+        self.deposit(self.anita, weekly='200.00')
+        self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.session(self.anita, 1, 9, 19)   # 600 min = 1000.00
+        r = self.generate().records.get()
+        self.assertEqual(r.deposit_recovered, Decimal('200.00'))
+        self.assertEqual(r.advance_scheduled, Decimal('1000.00'))
+        self.assertEqual(r.advance_recovered, Decimal('800.00'))
+        self.assertEqual(r.advance_unrecovered, Decimal('200.00'))
+        self.assertEqual(r.net_payable, Decimal('0.00'))
+
+    def test_the_brief_section_44_example(self):
+        """500 gross, 300 deposit, 500 advance -> deposit 300, advance 200, net 0."""
+        self.deposit(self.anita, weekly='300.00')
+        self.advance(self.anita, '5000.00', weekly='500.00')
+        self.session(self.anita, 1, 9, 14)   # 300 min = 500.00
+        r = self.generate().records.get()
+        self.assertEqual(r.deposit_recovered, Decimal('300.00'))
+        self.assertEqual(r.advance_recovered, Decimal('200.00'))
+        self.assertEqual(r.net_payable, Decimal('0.00'))
+        self.assertEqual(r.advance_balance_after, Decimal('4800.00'))
+
+    def test_the_brief_section_47_example(self):
+        """10,000 owed, 2,000 weekly, 1,500 gross, 500 deposit -> advance 1,000, missed 1,000."""
+        self.deposit(self.anita)
+        self.advance(self.anita, '10000.00', weekly='2000.00')
+        self.session(self.anita, 1, 8, 23)   # 900 min = 1500.00
+        r = self.generate().records.get()
+        self.assertEqual(r.gross_earnings, Decimal('1500.00'))
+        self.assertEqual(r.deposit_recovered, Decimal('500.00'))
+        self.assertEqual(r.advance_recovered, Decimal('1000.00'))
+        self.assertEqual(r.advance_unrecovered, Decimal('1000.00'))
+        self.assertEqual(r.net_payable, Decimal('0.00'))
+
+    def test_zero_gross_recovers_nothing_anywhere(self):
+        self.deposit(self.anita)
+        self.advance(self.anita, '5000.00', weekly='1000.00')
+        AttendanceSession.objects.create(
+            staff=self.anita, date=date(2026, 9, 1), check_in=self.at(1, 9, month=9))
+        r = self.generate().records.get()
+        self.assertEqual(r.gross_earnings, Decimal('0.00'))
+        self.assertEqual(r.deposit_recovered, Decimal('0.00'))
+        self.assertEqual(r.advance_recovered, Decimal('0.00'))
+        self.assertEqual(r.net_payable, Decimal('0.00'))
+
+    def test_net_payable_is_never_negative_at_the_database(self):
+        self.deposit(self.anita)
+        self.session(self.anita, 1, 9, 17)
+        record = self.generate().records.get()
+        with self.assertRaises(IntegrityError):
+            PayrollRecord.objects.filter(pk=record.pk).update(
+                net_payable=Decimal('-1.00'))
+
+    def test_the_phase_4_gross_and_phase_5_deposit_are_unchanged(self):
+        """The advance layer only ever reads what the earlier layers left."""
+        self.deposit(self.balan)
+        self.deposit(self.anita)
+        self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.full_week(self.anita)
+        self.full_week(self.balan)
+        by = {r.staff_name_snapshot: r for r in self.generate().records.all()}
+        for name in ('Anita', 'Balan'):
+            self.assertEqual(by[name].gross_earnings, Decimal('4250.00'))
+            self.assertEqual(by[name].deposit_recovered, Decimal('500.00'))
+            self.assertEqual(by[name].net_before_other_deductions, Decimal('3750.00'))
+        self.assertEqual(by['Balan'].net_payable, Decimal('3750.00'))
+        self.assertEqual(by['Anita'].net_payable, Decimal('2750.00'))
+
+
+class MultipleAdvanceTests(AdvanceTestCase):
+    def test_oldest_advance_is_recovered_first(self):
+        """A 2,000 (Sep 1), B 3,000 (Sep 10); 1,500 available -> A 1,500, B 0."""
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        a = self.advance(self.anita, '2000.00', weekly='1500.00', day=date(2026, 9, 1))
+        b = self.advance(self.anita, '3000.00', weekly='1500.00', day=date(2026, 9, 10))
+        self.session(self.anita, 1, 8, 23)   # 1500.00 gross
+        r = self.generate().records.get()
+        self.assertEqual(r.advance_recovered_from_id, a.id)
+        self.assertEqual(r.advance_recovered, Decimal('1500.00'))
+        self.assertEqual(advances.outstanding_for(b), Decimal('3000.00'))
+
+    def test_a_is_finished_before_b_begins(self):
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        a = self.advance(self.anita, '2000.00', weekly='1500.00', day=date(2026, 9, 1))
+        b = self.advance(self.anita, '3000.00', weekly='1500.00', day=date(2026, 9, 10))
+
+        self.session(self.anita, 1, 8, 23)
+        services.approve(self.generate(), user=self.owner)
+        self.assertEqual(advances.outstanding_for(a), Decimal('500.00'))
+
+        self.session(self.anita, 8, 8, 23, month=9)
+        second = services.generate(date(2026, 9, 8), user=self.owner)
+        r = second.records.get()
+        # Only A's 500 remainder this week; B is untouched until A is done.
+        self.assertEqual(r.advance_recovered_from_id, a.id)
+        self.assertEqual(r.advance_recovered, Decimal('500.00'))
+        services.approve(second, user=self.owner)
+        self.assertEqual(advances.outstanding_for(a), Decimal('0.00'))
+        self.assertEqual(advances.outstanding_for(b), Decimal('3000.00'))
+
+        self.session(self.anita, 15, 8, 23, month=9)
+        third = services.generate(date(2026, 9, 15), user=self.owner)
+        self.assertEqual(third.records.get().advance_recovered_from_id, b.id)
+        self.assertEqual(third.records.get().advance_recovered, Decimal('1500.00'))
+
+    def test_recovery_order_is_by_issue_date_not_creation_order(self):
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        later = self.advance(self.anita, '3000.00', weekly='500.00', day=date(2026, 9, 10))
+        earlier = self.advance(self.anita, '2000.00', weekly='500.00', day=date(2026, 9, 1))
+        self.session(self.anita, 1, 9, 17)
+        r = self.generate().records.get()
+        self.assertEqual(r.advance_recovered_from_id, earlier.id)
+        self.assertNotEqual(r.advance_recovered_from_id, later.id)
+
+
+class AdvanceTermChangeTests(AdvanceTestCase):
+    def test_a_changed_weekly_rule_applies_only_to_future_weeks(self):
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.session(self.anita, 1, 9, 17)
+        first = self.generate()
+        services.approve(first, user=self.owner)
+        self.assertEqual(first.records.get().advance_recovered, Decimal('800.00'))
+
+        advances.set_weekly_recovery(adv, Decimal('500.00'), user=self.owner)
+
+        first.records.get().refresh_from_db()
+        self.assertEqual(first.records.get().advance_recovered, Decimal('800.00'))
+        self.session(self.anita, 8, 9, 17, month=9)
+        second = services.generate(date(2026, 9, 8), user=self.owner)
+        self.assertEqual(second.records.get().advance_recovered, Decimal('500.00'))
+
+    def test_only_the_weekly_rule_is_editable_over_the_api(self):
+        adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        response = self.client_for(self.owner).patch(
+            reverse('payroll-advance-detail', args=[adv.id]),
+            {'amount': '1.00', 'weekly_recovery': '250.00', 'issued_on': '2001-01-01'},
+            format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        adv.refresh_from_db()
+        self.assertEqual(adv.amount, Decimal('5000.00'))
+        self.assertEqual(adv.issued_on, date(2026, 9, 2))
+        self.assertEqual(adv.weekly_recovery, Decimal('250.00'))
+
+
+class AdvanceImmutabilityTests(AdvanceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.p = self.deposit(self.anita)
+        self.adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.full_week(self.anita)
+        self.period = self.generate()
+        services.approve(self.period, user=self.owner)
+        self.record = self.period.records.get()
+        self.before = (self.record.gross_earnings, self.record.deposit_recovered,
+                       self.record.advance_recovered, self.record.net_payable,
+                       self.record.hourly_rate_snapshot, self.record.worked_minutes)
+
+    def _unchanged(self):
+        self.record.refresh_from_db()
+        self.assertEqual(
+            (self.record.gross_earnings, self.record.deposit_recovered,
+             self.record.advance_recovered, self.record.net_payable,
+             self.record.hourly_rate_snapshot, self.record.worked_minutes),
+            self.before)
+
+    def test_changing_advance_terms_does_not_move_approved_payroll(self):
+        advances.set_weekly_recovery(self.adv, Decimal('1.00'), user=self.owner)
+        self._unchanged()
+
+    def test_changing_the_profile_does_not_move_approved_payroll(self):
+        self.p.hourly_rate = Decimal('999.00')
+        self.p.deposit_weekly = Decimal('1.00')
+        self.p.save()
+        self._unchanged()
+
+    def test_changing_deposit_terms_does_not_move_approved_payroll(self):
+        deposits.record_agreement(self.anita, Decimal('100.00'), user=self.owner)
+        self._unchanged()
+
+    def test_correcting_attendance_does_not_move_approved_payroll(self):
+        session = AttendanceSession.objects.filter(staff=self.anita).first()
+        self.client_for(self.owner).post(
+            reverse('staff-attendance-correct', args=[session.id]),
+            {'check_in': '2026-09-01T05:00:00', 'check_out': '2026-09-01T23:00:00',
+             'reason': 'must not reach approved payroll'}, format='json')
+        self._unchanged()
+
+    def test_the_ledger_names_the_payroll_and_the_advance(self):
+        entry = StaffLedgerEntry.objects.get(entry_type='ADVANCE_RECOVERY')
+        self.assertEqual(entry.payroll_record_id, self.record.id)
+        self.assertEqual(entry.advance_id, self.adv.id)
+        self.assertEqual(entry.balance_before, Decimal('5000.00'))
+        self.assertEqual(entry.balance_after, Decimal('4000.00'))
+
+    def test_history_survives_deleting_the_staff_member(self):
+        self.anita.delete()
+        self.record.refresh_from_db()
+        self.assertIsNone(self.record.staff)
+        self.assertEqual(self.record.staff_name_snapshot, 'Anita')
+        self.assertEqual(self.record.net_payable, Decimal('2750.00'))
+        entry = StaffLedgerEntry.objects.get(entry_type='ADVANCE_RECOVERY')
+        self.assertIsNone(entry.staff)
+        self.assertEqual(entry.staff_name_snapshot, 'Anita')
+        self.adv.refresh_from_db()
+        self.assertEqual(self.adv.staff_name_snapshot, 'Anita')
+
+
+class AdvanceIdempotencyTests(AdvanceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        self.adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.session(self.anita, 1, 9, 17)
+
+    def _recoveries(self):
+        return StaffLedgerEntry.objects.filter(entry_type='ADVANCE_RECOVERY').count()
+
+    def test_drafting_repeatedly_moves_no_money(self):
+        for _ in range(4):
+            self.generate()
+        self.assertEqual(self._recoveries(), 0)
+
+    def test_approving_writes_exactly_one_recovery(self):
+        services.approve(self.generate(), user=self.owner)
+        self.assertEqual(self._recoveries(), 1)
+
+    def test_a_second_approval_creates_no_second_recovery(self):
+        period = self.generate()
+        services.approve(period, user=self.owner)
+        with self.assertRaises(services.PayrollError):
+            services.approve(period, user=self.owner)
+        self.assertEqual(self._recoveries(), 1)
+        self.assertEqual(advances.recovered_for(self.adv), Decimal('800.00'))
+
+    def test_the_database_refuses_two_recoveries_for_one_payroll(self):
+        period = self.generate()
+        services.approve(period, user=self.owner)
+        with self.assertRaises(IntegrityError):
+            StaffLedgerEntry.objects.create(
+                staff=self.anita, staff_name_snapshot='Anita',
+                entry_type='ADVANCE_RECOVERY', amount=Decimal('1.00'),
+                advance=self.adv, payroll_record=period.records.get())
+
+    def test_a_stale_draft_is_refused_not_over_recovered(self):
+        period = self.generate()
+        # Someone else took most of it in the meantime.
+        StaffLedgerEntry.objects.create(
+            staff=self.anita, staff_name_snapshot='Anita',
+            entry_type='ADVANCE_RECOVERY', amount=Decimal('4900.00'),
+            advance=self.adv,
+            payroll_record=PayrollRecord.objects.create(
+                period=PayrollPeriod.objects.create(
+                    period_start=date(2019, 1, 7), period_end=date(2019, 1, 13)),
+                staff=self.anita, staff_name_snapshot='Anita',
+                worked_minutes=0, regular_minutes=0))
+        with self.assertRaises(services.PayrollError):
+            services.approve(period, user=self.owner)
+        period.refresh_from_db()
+        self.assertEqual(period.status, 'DRAFT')
+        self.assertEqual(self._recoveries(), 1)
+
+
+class PayoutTests(AdvanceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.deposit(self.anita)
+        self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.full_week(self.anita)
+        self.period = self.generate()
+        services.approve(self.period, user=self.owner)
+        self.record = self.period.records.get()
+
+    def test_marking_paid_records_the_approved_net_exactly(self):
+        payout = payouts.record_payout(
+            self.record, user=self.owner, method='BANK_TRANSFER', reference='UTR123')
+        self.assertEqual(payout.amount, Decimal('2750.00'))
+        self.assertEqual(payout.amount, self.record.net_payable)
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.status, 'PAID')
+        self.assertIsNotNone(self.record.paid_at)
+        self.assertEqual(payout.paid_by, self.owner)
+        self.assertEqual(payout.reference, 'UTR123')
+
+    def test_the_amount_is_never_taken_from_the_client(self):
+        response = self.client_for(self.owner).post(
+            reverse('payroll-record-payout', args=[self.record.id]),
+            {'method': 'cash', 'amount': '1.00', 'reference': 'V-1'}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(Payout.objects.get().amount, Decimal('2750.00'))
+
+    def test_a_draft_cannot_be_paid(self):
+        self.session(self.balan, 1, 9, 17)
+        self.deposit(self.balan, total='0.00', weekly='0.00')
+        draft = services.generate(date(2026, 9, 8), user=self.owner)
+        self.session(self.balan, 8, 9, 17, month=9)
+        draft = services.generate(date(2026, 9, 8), user=self.owner)
+        with self.assertRaises(payouts.PayoutError):
+            payouts.record_payout(draft.records.get(), user=self.owner, method='CASH')
+        self.assertEqual(Payout.objects.count(), 0)
+
+    def test_paying_twice_is_refused(self):
+        payouts.record_payout(self.record, user=self.owner, method='CASH')
+        with self.assertRaises(payouts.PayoutError):
+            payouts.record_payout(self.record, user=self.owner, method='CASH')
+        self.assertEqual(Payout.objects.count(), 1)
+
+    def test_three_mark_paid_requests_make_one_payout(self):
+        owner = self.client_for(self.owner)
+        url = reverse('payroll-record-payout', args=[self.record.id])
+        codes = [owner.post(url, {'method': 'cash'}, format='json').status_code
+                 for _ in range(3)]
+        self.assertEqual(codes, [200, 409, 409])
+        self.assertEqual(Payout.objects.count(), 1)
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.status, 'PAID')
+
+    def test_the_database_refuses_a_second_payout(self):
+        payouts.record_payout(self.record, user=self.owner, method='CASH')
+        # Inside its own atomic(): asserting an IntegrityError in a TestCase
+        # without one leaves the test transaction aborted, and every query
+        # after it -- including teardown -- errors out.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Payout.objects.create(
+                payroll_record=self.record, staff=self.anita,
+                staff_name_snapshot='Anita', amount=Decimal('1.00'),
+                method='CASH', paid_at=timezone.now())
+
+    def test_an_unknown_method_is_refused(self):
+        with self.assertRaises(payouts.PayoutError):
+            payouts.record_payout(self.record, user=self.owner, method='UPI')
+
+    def test_paid_payroll_is_locked(self):
+        payouts.record_payout(self.record, user=self.owner, method='CASH')
+        owner = self.client_for(self.owner)
+        for url in (reverse('payroll-record-detail', args=[self.record.id]),
+                    reverse('payroll-period-detail', args=[self.period.id])):
+            self.assertEqual(owner.patch(url, {'net_payable': '1.00'},
+                                         format='json').status_code, 405)
+            self.assertEqual(owner.delete(url).status_code, 405)
+        # Regenerating the week is refused (it is approved) and the record
+        # survives untouched.
+        with self.assertRaises(services.PayrollError):
+            self.generate()
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.status, 'PAID')
+        self.assertEqual(self.record.net_payable, Decimal('2750.00'))
+
+    def test_a_paid_record_cannot_be_deleted_from_under_its_payout(self):
+        payouts.record_payout(self.record, user=self.owner, method='CASH')
+        with self.assertRaises(Exception):
+            self.record.delete()
+
+    def test_payout_and_paid_state_are_atomic(self):
+        """If the payout insert fails, the record must not be left PAID.
+
+        A payout row planted by hand leaves status APPROVED. The service's
+        insert then collides with it; the collision is contained by the
+        service's own savepoint, reported as PayoutError, and the record must
+        still read APPROVED -- never PAID-without-a-real-payout.
+        """
+        with transaction.atomic():
+            Payout.objects.create(
+                payroll_record=self.record, staff=self.anita,
+                staff_name_snapshot='Anita', amount=Decimal('2750.00'),
+                method='CASH', paid_at=timezone.now())
+        with self.assertRaises(payouts.PayoutError):
+            payouts.record_payout(self.record, user=self.owner, method='CASH')
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.status, 'APPROVED')
+        self.assertEqual(Payout.objects.count(), 1)
+
+    def test_the_activity_feed_carries_no_amount(self):
+        self.client_for(self.owner).post(
+            reverse('payroll-record-payout', args=[self.record.id]),
+            {'method': 'bank_transfer'}, format='json')
+        for entry in UniversalActivity.objects.all():
+            blob = f"{entry.title} {entry.description} {entry.old_value} {entry.new_value}"
+            for figure in ('2750', '4250', '1000.00', '500.00'):
+                self.assertNotIn(figure, blob)
+
+
+class Phase6AccessTests(AdvanceTestCase):
+    """Owner everything; staff their own reads; Master nothing; nobody else."""
+
+    def setUp(self):
+        super().setUp()
+        self.deposit(self.anita)
+        self.deposit(self.balan)
+        self.adv_a = self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.adv_b = self.advance(self.balan, '3000.00', weekly='500.00')
+        self.full_week(self.anita)
+        self.full_week(self.balan)
+        self.period = self.generate()
+        services.approve(self.period, user=self.owner)
+        self.rec_a = self.period.records.get(staff=self.anita)
+        self.rec_b = self.period.records.get(staff=self.balan)
+        self.master_user = User.objects.create_user(
+            username='mira@payroll.test', email='mira@payroll.test',
+            password='mirapass12345')
+        Tailor.objects.create(name='Mira', specialty='Supervision', role='Master',
+                              email='mira@payroll.test', user=self.master_user)
+
+    def test_a_staff_member_reads_their_own_payslip(self):
+        response = self.client_for(self.anita_user).get(reverse('payroll-record-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['staff_name_snapshot'], 'Anita')
+        self.assertEqual(response.data[0]['net_payable'], '2750.00')
+
+    def test_a_staff_member_cannot_read_a_colleagues_payslip(self):
+        response = self.client_for(self.anita_user).get(
+            reverse('payroll-record-detail', args=[self.rec_b.id]))
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn('Balan', response.content.decode())
+
+    def test_the_staff_filter_is_not_honoured_for_staff(self):
+        response = self.client_for(self.anita_user).get(
+            reverse('payroll-record-list'), {'staff': self.balan.id})
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['staff_name_snapshot'], 'Anita')
+
+    def test_a_staff_member_reads_only_their_own_advances(self):
+        response = self.client_for(self.anita_user).get(reverse('payroll-advance-list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([a['staff_name_snapshot'] for a in response.data], ['Anita'])
+        detail = self.client_for(self.anita_user).get(
+            reverse('payroll-advance-detail', args=[self.adv_b.id]))
+        self.assertEqual(detail.status_code, 404)
+
+    def test_a_staff_member_cannot_issue_cancel_or_pay(self):
+        anita = self.client_for(self.anita_user)
+        self.assertEqual(anita.post(reverse('payroll-advance-list'),
+                                    {'staff': self.anita.id, 'amount': '10.00',
+                                     'issued_on': '2026-09-02'},
+                                    format='json').status_code, 403)
+        self.assertEqual(anita.post(reverse('payroll-advance-cancel', args=[self.adv_a.id]),
+                                    {'reason': 'x'}, format='json').status_code, 403)
+        self.assertEqual(anita.post(reverse('payroll-record-payout', args=[self.rec_a.id]),
+                                    {'method': 'cash'}, format='json').status_code, 403)
+        self.assertEqual(anita.patch(reverse('payroll-advance-detail', args=[self.adv_a.id]),
+                                     {'weekly_recovery': '0.00'},
+                                     format='json').status_code, 403)
+        self.assertEqual(Payout.objects.count(), 0)
+
+    def test_a_master_sees_no_payroll_and_no_advances(self):
+        master = self.client_for(self.master_user)
+        for url in (reverse('payroll-record-list'), reverse('payroll-advance-list')):
+            response = master.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data, [], url)
+        for url in (reverse('payroll-period-list'), reverse('payroll-deposit-list')):
+            self.assertEqual(master.get(url).status_code, 403, url)
+
+    def test_a_master_cannot_pay_or_issue(self):
+        master = self.client_for(self.master_user)
+        self.assertEqual(master.post(reverse('payroll-record-payout', args=[self.rec_a.id]),
+                                     {'method': 'cash'}, format='json').status_code, 403)
+        self.assertEqual(master.post(reverse('payroll-advance-list'),
+                                     {'staff': self.anita.id, 'amount': '10.00',
+                                      'issued_on': '2026-09-02'},
+                                     format='json').status_code, 403)
+
+    def test_no_wage_leaks_to_a_master_anywhere(self):
+        master = self.client_for(self.master_user)
+        for url in (reverse('payroll-record-list'), reverse('payroll-advance-list'),
+                    reverse('payroll-period-list'), reverse('payroll-deposit-list'),
+                    reverse('staff-profile-list'), '/api/activities/activities/'):
+            body = master.get(url).content.decode()
+            for figure in ('2750', '4250', '5000.00', '3000.00', '1000.00'):
+                self.assertNotIn(figure, body, url)
+
+    def test_anonymous_is_refused(self):
+        anonymous = APIClient()
+        anonymous.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
+        for url in (reverse('payroll-record-list'), reverse('payroll-advance-list')):
+            self.assertIn(anonymous.get(url).status_code, (401, 403))
+
+
+class ConcurrentPhase6Tests(TransactionTestCase):
+    """Real threads, real transactions: the races a single test transaction hides."""
+
+    SCHEMA = 'conc_p6'
+
+    def setUp(self):
+        connection.set_schema_to_public()
+        self.tenant = BoutiqueTenant(
+            schema_name=self.SCHEMA, owner_email='owner@conc6.test',
+            name='Concurrency Six', timezone='Asia/Kolkata')
+        self.tenant.save()
+        with schema_context(self.SCHEMA):
+            self.owner = User.objects.create_user(
+                username='owner@conc6.test', email='owner@conc6.test',
+                password='ownerpw12345')
+            self.staff = Tailor.objects.create(
+                name='Racer', specialty='Stitching', role='Tailor')
+            StaffProfile.objects.create(
+                staff=self.staff, hourly_rate=Decimal('100.00'))
+            self.adv = advances.issue(
+                self.staff, Decimal('800.00'), user=self.owner,
+                issued_on=date(2026, 9, 1), weekly_recovery=Decimal('500.00'))
+
+    def tearDown(self):
+        connection.set_schema_to_public()
+        with connection.cursor() as c:
+            c.execute(f'DROP SCHEMA IF EXISTS "{self.SCHEMA}" CASCADE')
+        BoutiqueTenant.objects.filter(schema_name=self.SCHEMA).delete()
+
+    def _week(self, start, recovered):
+        period = PayrollPeriod.objects.create(
+            period_start=start, period_end=start + timedelta(days=6))
+        return PayrollRecord.objects.create(
+            period=period, staff=self.staff, staff_name_snapshot='Racer',
+            hourly_rate_snapshot=Decimal('100.00'),
+            worked_minutes=480, regular_minutes=480,
+            gross_earnings=Decimal('800.00'),
+            net_before_other_deductions=Decimal('800.00'),
+            advance_recovered_from=self.adv,
+            advance_scheduled=recovered, advance_recovered=recovered,
+            advance_balance_before=Decimal('800.00'),
+            advance_balance_after=Decimal('800.00') - recovered,
+            net_payable=Decimal('800.00') - recovered)
+
+    def _run(self, fn, args_list):
+        import threading
+        barrier = threading.Barrier(len(args_list))
+        errors = []
+
+        def worker(args):
+            try:
+                with schema_context(self.SCHEMA):
+                    barrier.wait(timeout=10)
+                    fn(*args)
+            except Exception as exc:                # noqa: BLE001
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=worker, args=(a,)) for a in args_list]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        return errors
+
+    def test_two_weeks_approved_at_once_never_over_recover_an_advance(self):
+        with schema_context(self.SCHEMA):
+            periods = [self._week(date(2026, 8, 31), Decimal('500.00')).period,
+                       self._week(date(2026, 9, 7), Decimal('500.00')).period]
+
+        def approve(period_id):
+            services.approve(PayrollPeriod.objects.get(pk=period_id), user=self.owner)
+
+        self._run(approve, [(p.pk,) for p in periods])
+
+        with schema_context(self.SCHEMA):
+            taken = sum(e.amount for e in StaffLedgerEntry.objects.filter(
+                entry_type='ADVANCE_RECOVERY'))
+            self.assertLessEqual(taken, Decimal('800.00'),
+                                 f'over-recovered: {taken} against 800.00 owed')
+            self.assertEqual(advances.outstanding_for(self.adv),
+                             Decimal('800.00') - taken)
+
+    def test_two_payouts_at_once_produce_one(self):
+        with schema_context(self.SCHEMA):
+            record = self._week(date(2026, 8, 31), Decimal('500.00'))
+            services.approve(record.period, user=self.owner)
+
+        def pay(record_id):
+            payouts.record_payout(PayrollRecord.objects.get(pk=record_id),
+                                  user=self.owner, method='CASH')
+
+        errors = self._run(pay, [(record.pk,), (record.pk,)])
+
+        with schema_context(self.SCHEMA):
+            self.assertEqual(Payout.objects.count(), 1)
+            self.assertEqual(PayrollRecord.objects.get(pk=record.pk).status, 'PAID')
+        # Exactly one of the two must have been refused.
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], payouts.PayoutError)
+
+
+class Phase6ReviewFixTests(AdvanceTestCase):
+    """Regressions for what the adversarial review found after the tests passed."""
+
+    def test_a_paid_week_still_guards_against_paying_a_session_twice(self):
+        """PAID dropped out of already_paid_session_ids. It must not.
+
+        Approve, PAY, then correct the session across the week boundary: the
+        next week must not pick the same session up again.
+        """
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        session = self.session(self.anita, 6, 9, 17)      # Sunday of week 1
+        first = self.generate()
+        services.approve(first, user=self.owner)
+        payouts.record_payout(first.records.get(), user=self.owner, method='CASH')
+
+        session.check_in = self.at(7, 9, month=9)
+        session.check_out = self.at(7, 17, month=9)
+        session.date = date(2026, 9, 7)
+        session.save()
+
+        second = services.generate(date(2026, 9, 7), user=self.owner)
+        self.assertEqual(second.records.count(), 0,
+                         'a session paid in a PAID week must not be paid again')
+        self.assertIn(str(session.id), services.already_paid_session_ids(self.anita))
+
+    def test_weeks_approved_before_phase_6_are_payable_after_the_backfill(self):
+        """A pre-existing APPROVED row with net_payable NULL was a dead end."""
+        from .migrations import __name__ as _  # noqa: F401  (import guard)
+        import importlib
+        mod = importlib.import_module('apps.payroll.migrations.0006_backfill_net_payable')
+        self.deposit(self.anita)
+        self.session(self.anita, 1, 9, 17)
+        period = self.generate()
+        services.approve(period, user=self.owner)
+        record = period.records.get()
+        # Simulate a row from before the column existed.
+        PayrollRecord.objects.filter(pk=record.pk).update(net_payable=None)
+        with self.assertRaises(payouts.PayoutError):
+            payouts.record_payout(record, user=self.owner, method='CASH')
+
+        from django.apps import apps as django_apps
+        mod.backfill(django_apps, None)
+        record.refresh_from_db()
+        self.assertEqual(record.net_payable, record.net_before_other_deductions)
+        payout = payouts.record_payout(record, user=self.owner, method='CASH')
+        self.assertEqual(payout.amount, Decimal('300.00'))   # 800 gross - 500 dep
+
+    def test_backfill_falls_back_to_gross_for_phase_4_era_rows(self):
+        import importlib
+        mod = importlib.import_module('apps.payroll.migrations.0006_backfill_net_payable')
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        self.session(self.anita, 1, 9, 17)
+        period = self.generate()
+        services.approve(period, user=self.owner)
+        record = period.records.get()
+        PayrollRecord.objects.filter(pk=record.pk).update(
+            net_payable=None, net_before_other_deductions=None)
+        from django.apps import apps as django_apps
+        mod.backfill(django_apps, None)
+        record.refresh_from_db()
+        self.assertEqual(record.net_payable, Decimal('800.00'))
+
+    def test_a_second_cancel_is_refused_by_the_database(self):
+        adv = self.advance(self.anita, '5000.00')
+        advances.cancel(adv, user=self.owner, reason='Error')
+        with self.assertRaises(IntegrityError):
+            StaffLedgerEntry.objects.create(
+                staff=self.anita, staff_name_snapshot='Anita',
+                entry_type='ADVANCE_CANCELLED', amount=Decimal('1.00'),
+                advance=adv)
+
+    def test_a_cancelled_advance_is_refused_at_recovery_even_if_the_draft_predates_it(self):
+        """The draft was calculated against a live advance; it was cancelled since."""
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.session(self.anita, 1, 9, 17)
+        period = self.generate()
+        self.assertEqual(period.records.get().advance_recovered, Decimal('800.00'))
+        advances.cancel(adv, user=self.owner, reason='Entered in error')
+        with self.assertRaises(services.PayrollError):
+            services.approve(period, user=self.owner)
+        period.refresh_from_db()
+        self.assertEqual(period.status, 'DRAFT')
+        self.assertEqual(StaffLedgerEntry.objects.filter(
+            entry_type='ADVANCE_RECOVERY').count(), 0)
+
+    def test_a_race_loser_gets_a_conflict_not_a_server_error(self):
+        """AdvanceError inside approve() must surface as 409, not 500."""
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        adv = self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.session(self.anita, 1, 9, 17)
+        period = self.generate()
+        advances.cancel(adv, user=self.owner, reason='Entered in error')
+        response = self.client_for(self.owner).post(
+            reverse('payroll-period-approve', args=[period.id]), {}, format='json')
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertIn('cancelled', response.data['error'])
+
+    def test_a_parked_oldest_advance_does_not_freeze_a_newer_one(self):
+        """weekly_recovery 0 on advance A must not block recovery of advance B."""
+        self.deposit(self.anita, total='0.00', weekly='0.00')
+        a = self.advance(self.anita, '2000.00', weekly='0.00', day=date(2026, 9, 1))
+        b = self.advance(self.anita, '3000.00', weekly='500.00', day=date(2026, 9, 10))
+        self.session(self.anita, 1, 9, 17)
+        r = self.generate().records.get()
+        self.assertEqual(r.advance_recovered_from_id, b.id)
+        self.assertEqual(r.advance_recovered, Decimal('500.00'))
+        self.assertEqual(advances.outstanding_for(a), Decimal('2000.00'))
+
+    def test_a_draft_for_a_deleted_person_cannot_be_approved_with_money_on_it(self):
+        self.deposit(self.anita)
+        self.advance(self.anita, '5000.00', weekly='1000.00')
+        self.session(self.anita, 1, 9, 17)
+        period = self.generate()
+        self.assertGreater(period.records.get().advance_recovered, 0)
+        self.anita.delete()               # SET_NULL on the draft record
+        with self.assertRaises(services.PayrollError) as caught:
+            services.approve(period, user=self.owner)
+        self.assertIn('no longer on the roster', str(caught.exception))
+        period.refresh_from_db()
+        self.assertEqual(period.status, 'DRAFT')
+        self.assertEqual(StaffLedgerEntry.objects.filter(
+            entry_type__in=['DEPOSIT_RECOVERY', 'ADVANCE_RECOVERY']).count(), 0)
+
+    def test_non_string_payout_fields_are_a_4xx_not_a_500(self):
+        self.deposit(self.anita)
+        self.session(self.anita, 1, 9, 17)
+        period = self.generate()
+        services.approve(period, user=self.owner)
+        record = period.records.get()
+        owner = self.client_for(self.owner)
+        url = reverse('payroll-record-payout', args=[record.id])
+        for body in ({'method': 1}, {'method': ['cash']}, {'method': 'cash', 'reference': 5},
+                     {'method': 'cash', 'note': {'x': 1}}):
+            response = owner.post(url, body, format='json')
+            self.assertIn(response.status_code, (200, 400, 409), body)
+            if response.status_code == 200:
+                break  # first valid one pays; later ones must be 409, not 500
+
+    def test_the_activity_feed_names_no_colleague_for_advances(self):
+        adv = self.advance(self.anita, '5000.00')
+        owner = self.client_for(self.owner)
+        owner.post(reverse('payroll-advance-list'),
+                   {'staff': self.balan.id, 'amount': '10.00', 'issued_on': '2026-09-02'},
+                   format='json')
+        owner.post(reverse('payroll-advance-cancel', args=[adv.id]),
+                   {'reason': 'x'}, format='json')
+        for entry in UniversalActivity.objects.filter(entity_type='StaffAdvance'):
+            blob = f"{entry.title} {entry.description} {entry.new_value}"
+            self.assertNotIn('Anita', blob)
+            self.assertNotIn('Balan', blob)
+            self.assertNotIn('5000', blob)
+
+
+class ConcurrentCancelTests(TransactionTestCase):
+    """Cancel racing approval, and cancel racing cancel. Real threads."""
+
+    SCHEMA = 'conc_cancel'
+
+    def setUp(self):
+        connection.set_schema_to_public()
+        self.tenant = BoutiqueTenant(
+            schema_name=self.SCHEMA, owner_email='owner@cc.test',
+            name='Cancel Race', timezone='Asia/Kolkata')
+        self.tenant.save()
+        with schema_context(self.SCHEMA):
+            self.owner = User.objects.create_user(
+                username='owner@cc.test', email='owner@cc.test', password='pw12345678')
+            self.staff = Tailor.objects.create(name='Racer', specialty='S', role='Tailor')
+            StaffProfile.objects.create(staff=self.staff, hourly_rate=Decimal('100.00'))
+            self.adv = advances.issue(
+                self.staff, Decimal('5000.00'), user=self.owner,
+                issued_on=date(2026, 9, 1), weekly_recovery=Decimal('1000.00'))
+            period = PayrollPeriod.objects.create(
+                period_start=date(2026, 8, 31), period_end=date(2026, 9, 6))
+            self.record = PayrollRecord.objects.create(
+                period=period, staff=self.staff, staff_name_snapshot='Racer',
+                hourly_rate_snapshot=Decimal('100.00'),
+                worked_minutes=480, regular_minutes=480,
+                gross_earnings=Decimal('800.00'),
+                net_before_other_deductions=Decimal('800.00'),
+                advance_recovered_from=self.adv,
+                advance_scheduled=Decimal('800.00'), advance_recovered=Decimal('800.00'),
+                advance_balance_before=Decimal('5000.00'),
+                advance_balance_after=Decimal('4200.00'),
+                net_payable=Decimal('0.00'))
+
+    def tearDown(self):
+        connection.set_schema_to_public()
+        with connection.cursor() as c:
+            c.execute(f'DROP SCHEMA IF EXISTS "{self.SCHEMA}" CASCADE')
+        BoutiqueTenant.objects.filter(schema_name=self.SCHEMA).delete()
+
+    def _run(self, jobs):
+        import threading
+        barrier = threading.Barrier(len(jobs))
+        errors = []
+
+        def worker(fn):
+            try:
+                with schema_context(self.SCHEMA):
+                    barrier.wait(timeout=10)
+                    fn()
+            except Exception as exc:                # noqa: BLE001
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        ts = [threading.Thread(target=worker, args=(j,)) for j in jobs]
+        for t in ts: t.start()
+        for t in ts: t.join(timeout=30)
+        return errors
+
+    def test_cancel_and_approve_at_once_never_leave_a_recovery_on_a_cancelled_advance(self):
+        def approve():
+            services.approve(PayrollPeriod.objects.get(pk=self.record.period_id),
+                             user=self.owner)
+
+        def cancel():
+            advances.cancel(StaffAdvance.objects.get(pk=self.adv.pk),
+                            user=self.owner, reason='race')
+
+        self._run([approve, cancel])
+        with schema_context(self.SCHEMA):
+            adv = StaffAdvance.objects.get(pk=self.adv.pk)
+            recovered = StaffLedgerEntry.objects.filter(
+                entry_type='ADVANCE_RECOVERY', advance=adv).exists()
+            # Exactly one of the two outcomes, never both.
+            self.assertFalse(adv.is_cancelled and recovered,
+                             'a recovery was written against a cancelled advance')
+            self.assertTrue(adv.is_cancelled or recovered)
+
+    def test_two_cancels_at_once_write_one_reversal(self):
+        def cancel():
+            advances.cancel(StaffAdvance.objects.get(pk=self.adv.pk),
+                            user=self.owner, reason='double tap')
+
+        errors = self._run([cancel, cancel])
+        with schema_context(self.SCHEMA):
+            self.assertEqual(StaffLedgerEntry.objects.filter(
+                entry_type='ADVANCE_CANCELLED', advance=self.adv).count(), 1)
+        self.assertEqual(len(errors), 1)

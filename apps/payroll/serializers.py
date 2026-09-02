@@ -14,7 +14,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import PayrollPeriod, PayrollRecord, StaffLedgerEntry
+from .models import Payout, PayrollPeriod, PayrollRecord, StaffAdvance, StaffLedgerEntry
 
 
 class PayrollRecordSerializer(serializers.ModelSerializer):
@@ -23,6 +23,7 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
     rate_missing = serializers.BooleanField(read_only=True)
     blocks_approval = serializers.BooleanField(read_only=True)
     worked_hours = serializers.SerializerMethodField()
+    payout = serializers.SerializerMethodField()
 
     class Meta:
         model = PayrollRecord
@@ -35,8 +36,15 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
             'deposit_scheduled', 'deposit_recovered', 'deposit_unrecovered',
             'deposit_balance_before', 'deposit_balance_after',
             'net_before_other_deductions',
+            'advance_recovered_from', 'advance_scheduled', 'advance_recovered',
+            'advance_unrecovered', 'advance_balance_before', 'advance_balance_after',
+            'net_payable', 'paid_at', 'payout',
         ]
         read_only_fields = fields
+
+    def get_payout(self, instance):
+        payout = getattr(instance, 'payout', None)
+        return PayoutSerializer(payout).data if payout else None
 
     def get_worked_hours(self, instance):
         """Hours and minutes for display only.
@@ -120,3 +128,89 @@ class DepositSummarySerializer(serializers.Serializer):
     fully_recovered = serializers.BooleanField()
     weekly = serializers.DecimalField(max_digits=12, decimal_places=2)
     entries = StaffLedgerEntrySerializer(many=True)
+
+
+class PayoutSerializer(serializers.ModelSerializer):
+    """What was paid, how, and by whom. Read-only: the amount is never typed."""
+
+    method_display = serializers.CharField(source='get_method_display', read_only=True)
+
+    class Meta:
+        model = Payout
+        fields = ['id', 'payroll_record', 'staff', 'staff_name_snapshot', 'amount',
+                  'method', 'method_display', 'reference', 'note', 'paid_at',
+                  'created_at']
+        read_only_fields = fields
+
+
+class StaffAdvanceSerializer(serializers.ModelSerializer):
+    """An advance and its live position.
+
+    Writable only on creation, and only the terms: staff, amount, date, reason
+    and the weekly rule. Everything financial about it afterwards is read from
+    the ledger. `weekly_recovery` is the one field an owner may change later,
+    through the update path, and it applies to future weeks only.
+    """
+
+    issued = serializers.SerializerMethodField()
+    recovered = serializers.SerializerMethodField()
+    outstanding = serializers.SerializerMethodField()
+    entries = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffAdvance
+        fields = ['id', 'staff', 'staff_name_snapshot', 'amount', 'weekly_recovery',
+                  'issued_on', 'reason', 'status', 'created_at',
+                  'cancelled_at', 'cancel_reason',
+                  'issued', 'recovered', 'outstanding', 'entries']
+        read_only_fields = ['id', 'staff_name_snapshot', 'status', 'created_at',
+                            'cancelled_at', 'cancel_reason']
+
+    def _state(self, instance):
+        from .advances import advance_state
+        if not hasattr(instance, '_advance_state'):
+            instance._advance_state = advance_state(instance)
+        return instance._advance_state
+
+    def get_issued(self, instance):
+        return str(self._state(instance)['issued'])
+
+    def get_recovered(self, instance):
+        return str(self._state(instance)['recovered'])
+
+    def get_outstanding(self, instance):
+        return str(self._state(instance)['outstanding'])
+
+    def get_entries(self, instance):
+        # The full ledger only on a detail read; a list of forty advances must
+        # not fan out into forty ledger scans.
+        if not self.context.get('with_entries'):
+            return None
+        from .advances import ledger_for
+        return StaffLedgerEntrySerializer(ledger_for(instance), many=True).data
+
+    def validate_amount(self, value):
+        if value is None or value <= 0:
+            raise serializers.ValidationError('An advance must be a positive amount.')
+        return value
+
+    def validate_weekly_recovery(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError('Weekly recovery cannot be negative.')
+        return value
+
+    def update(self, instance, validated_data):
+        """Only the repayment rule may change, and only for the future.
+
+        Amount, date, staff and reason are the historical fact of the advance;
+        the ledger already holds them and a later edit would make the row and
+        the ledger disagree.
+        """
+        from .advances import AdvanceError, set_weekly_recovery
+        weekly = validated_data.get('weekly_recovery')
+        if weekly is None:
+            return instance
+        try:
+            return set_weekly_recovery(instance, weekly, user=self.context['request'].user)
+        except AdvanceError as exc:
+            raise serializers.ValidationError({'weekly_recovery': str(exc)})

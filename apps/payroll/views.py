@@ -7,6 +7,7 @@ wages, and the Phase 2 financial boundary said so before any of this existed.
 """
 
 from django.utils.dateparse import parse_date
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -15,14 +16,15 @@ from rest_framework.response import Response
 from apps.activities.models import UniversalActivity
 from apps.staff.attendance import business_date
 from apps.staff.models import StaffProfile
-from core.permissions import OwnerOnly
+from core.permissions import OwnerOnly, OwnerOrOwnFinancialRecord
+from core.roles import OWNER, resolve_user_role
 from crm_api.models import Tailor
 
-from . import deposits, services
-from .models import PayrollPeriod, PayrollRecord, StaffLedgerEntry
+from . import advances, deposits, payouts, services
+from .models import PayrollPeriod, PayrollRecord, StaffAdvance, StaffLedgerEntry
 from .serializers import (
-    DepositSummarySerializer, PayrollPeriodListSerializer, PayrollPeriodSerializer,
-    PayrollRecordSerializer,
+    DepositSummarySerializer, PayoutSerializer, PayrollPeriodListSerializer,
+    PayrollPeriodSerializer, PayrollRecordSerializer, StaffAdvanceSerializer,
 )
 
 
@@ -131,15 +133,29 @@ class PayrollPeriodViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(PayrollPeriodSerializer(period).data)
 
 
-class PayrollRecordViewSet(viewsets.ReadOnlyModelViewSet):
-    """Individual payslips. Read-only, owner-only, filterable by week."""
+def _own_staff(user):
+    return getattr(user, 'tailor_profile', None)
 
-    permission_classes = [OwnerOnly]
+
+class PayrollRecordViewSet(viewsets.ReadOnlyModelViewSet):
+    """Individual payslips.
+
+    The owner reads every one and records payouts. A staff member reads their
+    own -- and ONLY their own: the `staff` filter is not honoured for them,
+    because reading it would let a tailor name a colleague by id. A Master
+    resolves as a plain non-owner here and sees nothing that is not theirs.
+    """
+
+    permission_classes = [OwnerOrOwnFinancialRecord]
     serializer_class = PayrollRecordSerializer
     queryset = PayrollRecord.objects.all()
 
     def get_queryset(self):
-        queryset = PayrollRecord.objects.select_related('period', 'staff')
+        queryset = PayrollRecord.objects.select_related(
+            'period', 'staff', 'advance_recovered_from', 'payout')
+        if resolve_user_role(self.request.user) != OWNER:
+            mine = _own_staff(self.request.user)
+            return queryset.filter(staff=mine) if mine else queryset.none()
         period = self.request.query_params.get('period')
         if period:
             queryset = queryset.filter(period_id=period)
@@ -147,6 +163,36 @@ class PayrollRecordViewSet(viewsets.ReadOnlyModelViewSet):
         if staff:
             queryset = queryset.filter(staff_id=staff)
         return queryset
+
+    @action(detail=True, methods=['POST'], url_path='payout')
+    def payout(self, request, pk=None):
+        """Owner records that this approved payslip was paid.
+
+        Owner-only explicitly, over and above the class permission: a staff
+        member may READ their own record and must never be able to mark it
+        paid. The amount is never read from the body -- it is the record's own
+        net_payable, copied inside the payout transaction.
+        """
+        if resolve_user_role(request.user) != OWNER:
+            return Response({'error': 'Only the boutique owner can record a payout.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        record = self.get_object()
+        try:
+            payout = payouts.record_payout(
+                record, user=request.user,
+                method=request.data.get('method'),
+                reference=request.data.get('reference', ''),
+                note=request.data.get('note', ''))
+        except payouts.PayoutError as exc:
+            # 409 for "already paid" and "not approved": the request is well
+            # formed and the world is simply not in the state it assumed.
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        _log(request, 'PAYOUT_RECORDED', record.period,
+             f'Payroll payout recorded for week of {record.period.period_start}',
+             extra={'method': payout.method})
+        record.refresh_from_db()
+        return Response(PayrollRecordSerializer(record).data)
 
 
 class DepositViewSet(viewsets.ViewSet):
@@ -212,3 +258,94 @@ class DepositViewSet(viewsets.ViewSet):
             **state,
         }
         return Response(DepositSummarySerializer(payload).data)
+
+
+class StaffAdvanceViewSet(viewsets.ModelViewSet):
+    """Advances: money lent ahead of payroll, and what has come back.
+
+    The owner does everything. A staff member reads their own advances -- the
+    amount, what has been recovered, what is left -- and nothing about anyone
+    else's. Masters are non-owners here.
+
+    No destroy. An advance is history from the moment it is written; the way
+    to undo one entered in error is `cancel`, which writes a reversal row and
+    leaves the mistake readable.
+    """
+
+    permission_classes = [OwnerOrOwnFinancialRecord]
+    serializer_class = StaffAdvanceSerializer
+    queryset = StaffAdvance.objects.all()
+    http_method_names = ['get', 'post', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        queryset = StaffAdvance.objects.select_related('staff')
+        if resolve_user_role(self.request.user) != OWNER:
+            mine = _own_staff(self.request.user)
+            return queryset.filter(staff=mine) if mine else queryset.none()
+        staff = self.request.query_params.get('staff')
+        if staff:
+            queryset = queryset.filter(staff_id=staff)
+        if self.request.query_params.get('active') == 'true':
+            queryset = queryset.filter(status=StaffAdvance.Status.ACTIVE)
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['with_entries'] = self.action == 'retrieve'
+        return context
+
+    def perform_create(self, serializer):
+        """Owner issues an advance. Goes through the service, which writes the
+        ledger row in the same transaction -- the serializer never saves alone."""
+        staff = serializer.validated_data.get('staff')
+        if staff is None:
+            raise DRFValidationError({'staff': 'Name the staff member.'})
+        try:
+            advance = advances.issue(
+                staff, serializer.validated_data['amount'],
+                user=self.request.user,
+                issued_on=serializer.validated_data.get('issued_on'),
+                reason=serializer.validated_data.get('reason', ''),
+                weekly_recovery=serializer.validated_data.get('weekly_recovery') or 0)
+        except advances.AdvanceError as exc:
+            raise DRFValidationError({'error': str(exc)})
+        serializer.instance = advance
+        _log_advance(self.request, 'ADVANCE_ISSUED', advance, 'Advance issued')
+
+    @action(detail=True, methods=['POST'])
+    def cancel(self, request, pk=None):
+        """Reverse an advance entered in error, before anything is recovered."""
+        if resolve_user_role(request.user) != OWNER:
+            return Response({'error': 'Only the boutique owner can cancel an advance.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        advance = self.get_object()
+        try:
+            advance = advances.cancel(
+                advance, user=request.user, reason=request.data.get('reason', ''))
+        except advances.AdvanceError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        _log_advance(request, 'ADVANCE_CANCELLED', advance, 'Advance cancelled')
+        return Response(StaffAdvanceSerializer(
+            advance, context={'with_entries': True}).data)
+
+
+def _log_advance(request, action_name, advance, title):
+    """No amount and no name -- Masters read this feed.
+
+    Even "who got an advance" is a fact about a colleague's finances, so the
+    title says only that one was issued or cancelled; the entity_id lets the
+    owner open it.
+    """
+    user = request.user if request.user.is_authenticated else None
+    UniversalActivity.objects.create(
+        user=user,
+        user_name_snapshot=(
+            (user.get_full_name() or user.username) if user else 'System'),
+        module='staff',
+        entity_type='StaffAdvance',
+        entity_id=str(advance.id),
+        action=action_name,
+        title=title,
+        description='',
+        new_value={'status': advance.status},
+    )

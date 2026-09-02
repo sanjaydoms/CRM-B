@@ -38,7 +38,7 @@ from django.utils import timezone
 from apps.staff.attendance import week_start
 from apps.staff.models import AttendanceSession, StaffProfile
 
-from . import deposits
+from . import advances, deposits
 from .models import PayrollPeriod, PayrollRecord
 
 #: Two places, half up. The same money shape the rest of the product uses.
@@ -154,7 +154,7 @@ def _breakdown(sessions):
 
 
 def already_paid_session_ids(staff):
-    """Sessions an APPROVED payroll run has already paid this person for.
+    """Sessions a frozen (APPROVED or PAID) payroll has already paid for.
 
     Guards a real double-payment path rather than a theoretical one. A session's
     `date` is derived from its check-in, and an owner correction can move that
@@ -168,8 +168,13 @@ def already_paid_session_ids(staff):
     which is the only correct definition of "already paid".
     """
     paid = set()
+    # APPROVED *and* PAID. A record leaves APPROVED for PAID the moment it is
+    # settled, and the first version filtered on APPROVED alone -- so paying a
+    # week made every session it had paid for eligible again. Any frozen
+    # status counts; the only thing that must NOT count is a draft.
     for record in PayrollRecord.objects.filter(
-            staff=staff, status=PayrollRecord.Status.APPROVED):
+            staff=staff, status__in=[PayrollRecord.Status.APPROVED,
+                                     PayrollRecord.Status.PAID]):
         paid.update(entry.get('id') for entry in (record.session_breakdown or []))
     paid.discard(None)
     return paid
@@ -215,7 +220,14 @@ def _calculate_for(profile, start, end):
     # the recovery is then clamped against it. Nothing here can change what
     # somebody earned -- only what is taken from it.
     recovery = deposits.recovery_for(profile.staff, profile, gross)
-    net = None if gross is None else gross - recovery['recovered']
+    after_deposit = None if gross is None else gross - recovery['recovered']
+
+    # DEDUCTION ORDER: deposit, then advance. The advance layer is handed what
+    # the deposit LEFT, never the gross, so the two can never together take
+    # more than the week earned. Documented in advances.py and tested; the
+    # interface is not consulted about the order.
+    advance = advances.recovery_for(profile.staff, after_deposit)
+    net_payable = None if after_deposit is None else after_deposit - advance['recovered']
 
     return {
         'staff_name_snapshot': profile.staff.name,
@@ -232,7 +244,14 @@ def _calculate_for(profile, start, end):
         'deposit_unrecovered': recovery['unrecovered'],
         'deposit_balance_before': recovery['balance_before'],
         'deposit_balance_after': recovery['balance_after'],
-        'net_before_other_deductions': net,
+        'net_before_other_deductions': after_deposit,
+        'advance_recovered_from': advance['advance'],
+        'advance_scheduled': advance['scheduled'],
+        'advance_recovered': advance['recovered'],
+        'advance_unrecovered': advance['unrecovered'],
+        'advance_balance_before': advance['balance_before'],
+        'advance_balance_after': advance['balance_after'],
+        'net_payable': net_payable,
     }
 
 
@@ -292,7 +311,9 @@ def generate(day, *, user):
 
     # Someone whose attendance was removed, or who left before the week began,
     # should not linger from an earlier run. Only ever touches DRAFT rows.
-    PayrollRecord.objects.filter(period=period).exclude(pk__in=seen).delete()
+    PayrollRecord.objects.filter(
+        period=period, status=PayrollRecord.Status.DRAFT
+    ).exclude(pk__in=seen).delete()
 
     return period
 
@@ -340,16 +361,54 @@ def approve(period, *, user):
     # Refusing keeps the promise that approving means approving WHAT WAS SHOWN;
     # silently reducing it would break that promise in the direction of money.
     for record in locked.records.all():
-        if record.deposit_recovered <= 0:
-            continue
-        outstanding = deposits.deposit_state(record.staff)['remaining']
-        if record.deposit_recovered > outstanding:
+        # A draft can outlive the person on it: the roster row is deleted, the
+        # CASCADE takes their StaffProfile, and the draft row keeps its figures
+        # with staff=NULL. Approving that would freeze a recovery no ledger row
+        # can be written for. Refuse; regenerating drops the orphan.
+        if record.staff_id is None and (
+                record.deposit_recovered > 0 or record.advance_recovered > 0):
             raise PayrollError(
-                f"{record.staff_name_snapshot}'s security deposit has changed "
-                f"since this payroll was drafted. Generate it again so the "
-                f"recovery matches what is still owed.")
+                f"{record.staff_name_snapshot} is no longer on the roster but "
+                f"this draft still deducts from them. Generate it again.")
+        if record.deposit_recovered > 0:
+            outstanding = deposits.deposit_state(record.staff)['remaining']
+            if record.deposit_recovered > outstanding:
+                raise PayrollError(
+                    f"{record.staff_name_snapshot}'s security deposit has changed "
+                    f"since this payroll was drafted. Generate it again so the "
+                    f"recovery matches what is still owed.")
+        if record.advance_recovered > 0:
+            advance = record.advance_recovered_from
+            if advance is not None and advance.is_cancelled:
+                raise PayrollError(
+                    f"{record.staff_name_snapshot}'s advance was cancelled after "
+                    f"this payroll was drafted. Generate it again.")
+            owed = advances.outstanding_for(advance) if advance else Decimal('0.00')
+            if record.advance_recovered > owed:
+                raise PayrollError(
+                    f"{record.staff_name_snapshot}'s advance has changed since "
+                    f"this payroll was drafted. Generate it again so the "
+                    f"recovery matches what is still owed.")
 
     now = timezone.now()
+    # Everything below runs inside the approval transaction; a refusal raised
+    # by either recovery (the person-level lock re-checks the live balance)
+    # rolls the whole approval back. Re-raised as PayrollError so the view
+    # answers 409 rather than a 500 -- the caller lost a race, not the plot.
+    try:
+        _freeze_records(locked, user, now)
+    except ValueError as exc:
+        raise PayrollError(str(exc))
+
+    locked.status = PayrollPeriod.Status.APPROVED
+    locked.approved_at = now
+    locked.approved_by = user
+    locked.save(update_fields=['status', 'approved_at', 'approved_by'])
+    return locked
+
+
+def _freeze_records(locked, user, now):
+    """Stamp every record and take both recoveries. Called only from approve()."""
     # The ledger is written HERE, inside the approval transaction, and nowhere
     # else. Payroll approved without its recovery, or a recovery taken against a
     # payroll still in draft, are both states this ordering makes unreachable.
@@ -369,13 +428,15 @@ def approve(period, *, user):
             record.deposit_balance_before = entry.balance_before
             record.deposit_balance_after = entry.balance_after
             fields += ['deposit_balance_before', 'deposit_balance_after']
+        # Same transaction, same person-level lock (taken inside the deposit
+        # step and held). Approval, deposit recovery and advance recovery
+        # commit together or not at all.
+        advance_entry = advances.record_recovery(record, user=user)
+        if advance_entry is not None:
+            record.advance_balance_before = advance_entry.balance_before
+            record.advance_balance_after = advance_entry.balance_after
+            fields += ['advance_balance_before', 'advance_balance_after']
         record.save(update_fields=fields)
-
-    locked.status = PayrollPeriod.Status.APPROVED
-    locked.approved_at = now
-    locked.approved_by = user
-    locked.save(update_fields=['status', 'approved_at', 'approved_by'])
-    return locked
 
 
 def period_totals(period):
@@ -390,6 +451,10 @@ def period_totals(period):
         'total_deposit_unrecovered': sum((r.deposit_unrecovered for r in records), zero),
         'total_net': sum((r.net_before_other_deductions or zero for r in records),
                          zero),
+        'total_advance_recovered': sum((r.advance_recovered for r in records), zero),
+        'total_advance_unrecovered': sum((r.advance_unrecovered for r in records), zero),
+        'total_net_payable': sum((r.net_payable or zero for r in records), zero),
+        'paid_count': sum(1 for r in records if r.is_paid),
         'blocked_count': sum(1 for r in records if r.blocks_approval),
         'open_session_count': sum(r.open_session_count for r in records),
     }

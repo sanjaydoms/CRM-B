@@ -200,6 +200,34 @@ class StaffSelfOrOwner(permissions.BasePermission):
         return request.method in permissions.SAFE_METHODS
 
 
+class OwnerOrOwnFinancialRecord(permissions.BasePermission):
+    """Financial records: the owner does everything, a staff member reads their own.
+
+    For payslips and advances only. Everything that MOVES money -- generating,
+    approving, paying, issuing, cancelling -- stays with OwnerOnly. This class
+    exists because the Phase 6 access matrix lets a person read their own net
+    pay and their own advance, and RolePermission would let them read
+    everybody's.
+
+    As with StaffSelfOrOwner, this is one third of the rule: it decides what a
+    caller may DO. Which rows they may read is the viewset's get_queryset,
+    which narrows a non-owner to rows whose staff is their own Tailor profile.
+    A Master is a non-owner here -- supervising the floor grants nothing about
+    what the floor is paid, and this class does not know or care about
+    SUPERVISOR_ROLES.
+    """
+
+    message = "Only the boutique owner can manage payroll."
+
+    def has_permission(self, request, view):
+        role = resolve_user_role(request.user)
+        if role is None:
+            return False
+        if role == OWNER:
+            return True
+        return request.method in permissions.SAFE_METHODS
+
+
 #: A stage nobody has finished with. The inverse of workflow.SETTLED_STATUSES,
 #: spelled here so this module does not import the engine just for a constant.
 UNSETTLED_STATUSES = ('NOT_STARTED', 'IN_PROGRESS', 'PAUSED')
