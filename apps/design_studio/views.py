@@ -207,6 +207,25 @@ class DesignDiscoveryView(views.APIView):
             ) if value not in (None, '')
         })
 
+        import hashlib
+        from django.core.cache import cache
+
+        cache_raw = {
+            'user': request.user.id,
+            'customer_id': str(data.get('customer_id') or ''),
+            'draft_id': str(data.get('draft_id') or ''),
+            'garment_type': str(order_input.get('garment_type', '')),
+            'occasion': str(order_input.get('occasion', '')),
+            'budget': str(order_input.get('budget', '')),
+            'garment_key': str(data.get('garment_key', '')),
+            'keywords': data.get('keywords') or [],
+            'sources': data.get('sources') or [],
+        }
+        cache_key = f"design_disc:{hashlib.md5(json.dumps(cache_raw, sort_keys=True).encode()).hexdigest()}"
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
+
         outcome = services.discover(
             subject,
             order_input=order_input,
@@ -215,12 +234,14 @@ class DesignDiscoveryView(views.APIView):
             limit=data.get('limit', 40),
         )
 
-        return Response({
+        response_data = {
             'context': outcome['context'].to_dict(),
             'queries': outcome['queries'],
             'sources': outcome['sources'],
             'results': [candidate.to_dict() for candidate in outcome['results']],
-        })
+        }
+        cache.set(cache_key, response_data, timeout=300)
+        return Response(response_data)
 
 
 class DesignAssetViewSet(viewsets.ModelViewSet):

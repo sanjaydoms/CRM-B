@@ -1424,7 +1424,7 @@ class OrderDraftViewSet(viewsets.ViewSet):
 
         try:
             order = drafts.confirm(request.user, pk, create_order=build)
-        except ValueError as exc:
+        except (ValueError, Exception) as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if order is None:
             # Already confirmed, or never this user's. Either way there is no

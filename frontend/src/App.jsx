@@ -862,10 +862,6 @@ function App() {
       const template = await api.getGarmentTemplate(key);
       setGarmentJobs(prev => [...prev, {
         key, template, values: {}, quantities: {},
-        // A starting quote, not a price list: the owner edits these on the
-        // review step and the server persists what was confirmed. Add-ons
-        // start at zero -- pre-filling ₹7,500 of embroidery on every dress was
-        // the flat model's habit, and it billed work nobody had asked for.
         pricing: { base: GARMENT_PRICES[template.name] || 15000, fabric: 0,
                    embroidery: 0, customization: 0, tailoring: 0 },
       }]);
@@ -874,6 +870,12 @@ function App() {
       alert('Could not load that garment form.');
     }
   };
+
+  useEffect(() => {
+    if (view === 'wizard' && garmentJobs.length === 0 && garmentTemplates.length > 0) {
+      addGarment(garmentTemplates[0].key);
+    }
+  }, [view, garmentJobs.length, garmentTemplates]);
 
   // Pricing, the dashboard and the stage tracker still read the single
   // garment_type on the customer, so it follows the first dress on the order
@@ -7374,19 +7376,36 @@ function App() {
 
                   {designSourceTab === 'studio' && (
                     <Suspense fallback={<ScreenLoading />}>
-                      {/* One studio per dress. The order-level
-                          customerForm.garment_type used to drive this, so a
-                          Blouse + Lehenga order searched twice for whichever
-                          garment the profile happened to name and both dresses
-                          got the same suggestions. Each garment now carries its
-                          own context, keyed on its own spec.
+                      {/* Garment Selector on Step 1 */}
+                      <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '14px 16px', marginBottom: '20px', textAlign: 'left' }}>
+                        <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                          {t('wizard.dressesInOrder', 'Dresses in this Order')}
+                        </label>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                          Select garments to see AI design suggestions for each dress.
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {garmentTemplates.map(template => {
+                            const chosen = garmentJobs.some(job => job.key === template.key);
+                            return (
+                              <button
+                                key={template.key}
+                                type="button"
+                                className={chosen ? 'btn-primary' : 'btn-secondary'}
+                                style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '999px', gap: '6px' }}
+                                onClick={() => (chosen ? (garmentJobs.length > 1 && removeGarment(template.key)) : addGarment(template.key))}
+                              >
+                                {chosen ? <Check size={12} /> : <Plus size={12} />}
+                                {template.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
 
-                          `customerId` is null for a new customer and that is
-                          correct: the studio personalises from the draft until
-                          Confirm mints the customer. Nothing here creates one. */}
                       {garmentJobs.length === 0 ? (
                         <p style={{ color: 'var(--text-secondary)', padding: '20px 0' }}>
-                          Choose a garment on step one to see designs matched to it.
+                          Select a garment above to see AI designs matched to it.
                         </p>
                       ) : garmentJobs.map(job => (
                         <div key={job.key} style={{ marginBottom: '28px' }}>
