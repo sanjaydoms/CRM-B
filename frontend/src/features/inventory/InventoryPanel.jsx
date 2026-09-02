@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDownCircle, BarChart3, BookOpen, ClipboardList, History, MapPin, Package, Plus, Scissors, Search, Truck, X } from 'lucide-react';
 import { api } from '../../services/api';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import LanguageSelector from '../../components/LanguageSelector.jsx';
 import CatalogBrowser from './CatalogBrowser';
 import LocationsTab from './LocationsTab';
 import RecipesTab from './RecipesTab';
 import ReportsTab from './ReportsTab';
+
 
 // Movement types the UI offers, in the order an item actually travels.
 // `field` names the number the form asks for, because "adjust" asks for a
@@ -82,7 +85,9 @@ function Modal({ title, onClose, children, width = '520px' }) {
 }
 
 export default function InventoryPanel({ currentUser }) {
+  const { t } = useLanguage();
   const [tab, setTab] = useState('items');
+
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState(null);
   const [options, setOptions] = useState({ categories: [], units: [], default_unit_by_category: {} });
@@ -158,17 +163,17 @@ export default function InventoryPanel({ currentUser }) {
       <header className="portal-header">
         <div className="portal-header-left">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>Inventory</h1>
+            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>{t('inventoryPage.title')}</h1>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              Fabrics, trims and materials. Every change is recorded in the stock ledger.
+              {t('inventoryPage.subtitle')}
             </p>
           </div>
         </div>
-        <div className="portal-header-right">
+        <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {isOwner && (
             <button type="button" className="btn-primary" onClick={() => setEditingItem({})}>
               <Plus size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-              New Item
+              {t('inventoryPage.newItem')}
             </button>
           )}
         </div>
@@ -176,22 +181,22 @@ export default function InventoryPanel({ currentUser }) {
 
       {summary && (
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
-          <Stat label="Stock value" value={money(summary.inventory_value)} hint={`${summary.item_count} items tracked`} />
-          <Stat label="Out of stock" value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? '#ef4444' : undefined} />
-          <Stat label="Reorder due" value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? '#f59e0b' : undefined} />
-          <Stat label="Dead stock" value={summary.dead_stock_count} hint="No movement in 90 days" />
+          <Stat label={t('inventoryPage.stockValue')} value={money(summary.inventory_value)} hint={`${summary.item_count} ${t('inventoryPage.itemsTracked', 'items tracked')}`} />
+          <Stat label={t('inventoryPage.outOfStock')} value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? '#ef4444' : undefined} />
+          <Stat label={t('inventoryPage.reorderDue')} value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? '#f59e0b' : undefined} />
+          <Stat label={t('inventoryPage.deadStock')} value={summary.dead_stock_count} hint={t('inventoryPage.noMovement90Days', 'No movement in 90 days')} />
         </div>
       )}
 
       <div style={{ display: 'flex', gap: '12px', marginTop: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', flexWrap: 'wrap' }}>
         {[
-          { key: 'items', label: 'Items', icon: Package },
-          { key: 'catalog', label: 'Catalogue', icon: BookOpen },
-          { key: 'locations', label: 'Locations', icon: MapPin },
-          { key: 'recipes', label: 'Recipes', icon: Scissors },
-          { key: 'purchase', label: 'Purchase Orders', icon: Truck },
-          { key: 'suppliers', label: 'Suppliers', icon: ClipboardList },
-          { key: 'reports', label: 'Reports', icon: BarChart3 },
+          { key: 'items', label: t('inventoryPage.items'), icon: Package },
+          { key: 'catalog', label: t('inventoryPage.catalog'), icon: BookOpen },
+          { key: 'locations', label: t('inventoryPage.locations'), icon: MapPin },
+          { key: 'recipes', label: t('inventoryPage.recipes'), icon: Scissors },
+          { key: 'purchase', label: t('inventoryPage.purchaseOrders'), icon: Truck },
+          { key: 'suppliers', label: t('inventoryPage.suppliers'), icon: ClipboardList },
+          { key: 'reports', label: t('inventoryPage.reports'), icon: BarChart3 },
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -210,6 +215,7 @@ export default function InventoryPanel({ currentUser }) {
           </button>
         ))}
       </div>
+
 
       {loadError && (
         <div style={{ ...panel, padding: '32px', textAlign: 'center', marginTop: '20px', borderColor: 'rgba(220,38,38,0.3)' }}>
@@ -350,6 +356,7 @@ function ItemsTab({
   items, loading, search, setSearch, category, setCategory, reorderOnly, setReorderOnly,
   categories, categoryLabel, isOwner, onMove, onLedger, onEdit,
 }) {
+  const { t } = useLanguage();
   return (
     <>
       <div style={{ display: 'flex', gap: '12px', marginTop: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -358,38 +365,38 @@ function ItemsTab({
           <input
             type="text"
             className="form-control"
-            placeholder="Search items…"
+            placeholder={t('inventoryPage.searchPlaceholder', 'Search items…')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <select className="form-control" style={{ maxWidth: '200px' }} value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="">All categories</option>
+          <option value="">{t('inventoryPage.allCategories', 'All categories')}</option>
           {categories.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
           <input type="checkbox" checked={reorderOnly} onChange={(e) => setReorderOnly(e.target.checked)} />
-          Reorder due only
+          {t('inventoryPage.reorderDueOnly', 'Reorder due only')}
         </label>
       </div>
 
       {loading && items.length === 0 ? (
-        <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>Loading inventory…</div>
+        <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>{t('inventoryPage.loadingInventory', 'Loading inventory…')}</div>
       ) : items.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>
-          No items match these filters.
+          {t('inventoryPage.noMatchingItems', 'No items match these filters.')}
         </div>
       ) : (
         <div style={{ ...panel, marginTop: '20px', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '780px' }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                <th style={{ padding: '14px 12px' }}>Item</th>
-                <th style={{ padding: '14px 12px' }}>Category</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>In stock</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Reserved</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Available</th>
-                <th style={{ padding: '14px 12px' }}>Location</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableItem', 'Item')}</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableCategory', 'Category')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableInStock', 'In stock')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableReserved', 'Reserved')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableAvailable', 'Available')}</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableLocation', 'Location')}</th>
                 <th style={{ padding: '14px 12px' }}></th>
               </tr>
             </thead>
@@ -421,13 +428,13 @@ function ItemsTab({
                   <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{item.rack_location || '—'}</td>
                   <td style={{ padding: '12px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px', marginRight: '6px' }} onClick={() => onMove(item)}>
-                      <ArrowDownCircle size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />Move
+                      <ArrowDownCircle size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />{t('inventoryPage.move', 'Move')}
                     </button>
                     <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px', marginRight: '6px' }} onClick={() => onLedger(item)}>
-                      <History size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />History
+                      <History size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />{t('inventoryPage.history', 'History')}
                     </button>
                     {isOwner && (
-                      <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => onEdit(item)}>Edit</button>
+                      <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => onEdit(item)}>{t('inventoryPage.edit', 'Edit')}</button>
                     )}
                   </td>
                 </tr>
@@ -583,6 +590,7 @@ function MovementModal({ item, onClose, onDone }) {
 }
 
 function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
+  const { t } = useLanguage();
   const isNew = !item.id;
   const [form, setForm] = useState({
     item_code: item.item_code || '',
@@ -625,28 +633,28 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
   };
 
   return (
-    <Modal title={isNew ? 'New inventory item' : `Edit · ${item.name}`} onClose={onClose} width="600px">
+    <Modal title={isNew ? t('inventoryPage.newItemTitle', 'New inventory item') : `${t('inventoryPage.editTitle', 'Edit')} · ${item.name}`} onClose={onClose} width="600px">
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
-          <Field label="Item code" required value={form.item_code} onChange={(v) => set('item_code', v)} />
-          <Field label="Name" required value={form.name} onChange={(v) => set('name', v)} />
-          <SelectField label="Category" value={form.category} onChange={(v) => { set('category', v); set('unit', ''); }}
+          <Field label={t('inventoryPage.itemCode', 'Item code')} required value={form.item_code} onChange={(v) => set('item_code', v)} />
+          <Field label={t('inventoryPage.itemName', 'Name')} required value={form.name} onChange={(v) => set('name', v)} />
+          <SelectField label={t('inventoryPage.category', 'Category')} value={form.category} onChange={(v) => { set('category', v); set('unit', ''); }}
             options={options.categories} />
           <SelectField
-            label="Unit"
+            label={t('inventoryPage.unit', 'Unit')}
             value={form.unit || unitForCategory || ''}
             onChange={(v) => set('unit', v)}
             options={options.units}
-            hint={!form.unit && unitForCategory ? 'Default for this category' : ''}
+            hint={!form.unit && unitForCategory ? t('inventoryPage.defaultForCategory', 'Default for this category') : ''}
           />
-          <Field label="Colour" value={form.color} onChange={(v) => set('color', v)} />
-          <Field label="Rack location" value={form.rack_location} onChange={(v) => set('rack_location', v)} />
-          <Field label="Purchase price" type="number" value={form.purchase_price} onChange={(v) => set('purchase_price', v)} />
-          <Field label="Selling price" type="number" value={form.selling_price} onChange={(v) => set('selling_price', v)} />
-          <Field label="Reorder level" type="number" value={form.reorder_level} onChange={(v) => set('reorder_level', v)} />
-          <Field label="Minimum stock" type="number" value={form.minimum_stock} onChange={(v) => set('minimum_stock', v)} />
+          <Field label={t('inventoryPage.colour', 'Colour')} value={form.color} onChange={(v) => set('color', v)} />
+          <Field label={t('inventoryPage.rackLocation', 'Rack location')} value={form.rack_location} onChange={(v) => set('rack_location', v)} />
+          <Field label={t('inventoryPage.purchasePrice', 'Purchase price')} type="number" value={form.purchase_price} onChange={(v) => set('purchase_price', v)} />
+          <Field label={t('inventoryPage.sellingPrice', 'Selling price')} type="number" value={form.selling_price} onChange={(v) => set('selling_price', v)} />
+          <Field label={t('inventoryPage.reorderLevel', 'Reorder level')} type="number" value={form.reorder_level} onChange={(v) => set('reorder_level', v)} />
+          <Field label={t('inventoryPage.minimumStock', 'Minimum stock')} type="number" value={form.minimum_stock} onChange={(v) => set('minimum_stock', v)} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600 }}>Supplier</label>
+            <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('inventoryPage.supplier', 'Supplier')}</label>
             <select className="form-control" value={form.supplier || ''} onChange={(e) => set('supplier', e.target.value)}>
               <option value="">—</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -655,7 +663,7 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
         </div>
 
         <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: 0 }}>
-          Stock quantities are not set here — they only change through recorded movements.
+          {t('inventoryPage.stockNotSetHereHint', 'Stock quantities are not set here — they only change through recorded movements.')}
         </p>
 
         {error && (
@@ -663,8 +671,8 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
         )}
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save item'}</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
+          <button type="submit" className="btn-primary" disabled={saving}>{saving ? t('common.saving', 'Saving…') : t('inventoryPage.saveItem', 'Save item')}</button>
         </div>
       </form>
     </Modal>
@@ -696,20 +704,21 @@ function SelectField({ label, value, onChange, options, hint }) {
 }
 
 function PurchaseTab({ purchaseOrders, suppliers, items, isOwner, onReceive, onCreated }) {
+  const { t } = useLanguage();
   const [creating, setCreating] = useState(false);
   return (
     <>
       {isOwner && (
         <div style={{ marginTop: '20px' }}>
           <button type="button" className="btn-secondary" onClick={() => setCreating(true)}>
-            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />New purchase order
+            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />{t('inventoryPage.newPurchaseOrder', 'New purchase order')}
           </button>
         </div>
       )}
 
       {purchaseOrders.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '16px', color: 'var(--text-muted)' }}>
-          No purchase orders yet.
+          {t('inventoryPage.noPurchaseOrdersYet', 'No purchase orders yet.')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
@@ -726,7 +735,7 @@ function PurchaseTab({ purchaseOrders, suppliers, items, isOwner, onReceive, onC
                   </div>
                   {isOwner && outstanding && (
                     <button type="button" className="btn-secondary" style={{ fontSize: '12px' }} onClick={() => onReceive(po)}>
-                      Receive goods
+                      {t('inventoryPage.receiveGoods', 'Receive goods')}
                     </button>
                   )}
                 </div>
@@ -897,18 +906,19 @@ function ReceiveModal({ purchaseOrder, onClose, onDone }) {
 }
 
 function SuppliersTab({ suppliers, isOwner, onAdd }) {
+  const { t } = useLanguage();
   return (
     <>
       {isOwner && (
         <div style={{ marginTop: '20px' }}>
           <button type="button" className="btn-secondary" onClick={onAdd}>
-            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />New supplier
+            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />{t('inventoryPage.newSupplier', 'New supplier')}
           </button>
         </div>
       )}
       {suppliers.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '16px', color: 'var(--text-muted)' }}>
-          No suppliers yet.
+          {t('inventoryPage.noSuppliersYet', 'No suppliers yet.')}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px', marginTop: '16px' }}>

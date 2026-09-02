@@ -57,7 +57,130 @@
 
   var yr = document.getElementById('yr');
   if (yr) yr.textContent = new Date().getFullYear();
+
+  // Marketing Site Translation Dictionary & Switcher
+  var siteLangSelect = document.getElementById('site-lang-select');
+  if (siteLangSelect) {
+    var savedLang = localStorage.getItem('app_language') || 'en';
+    siteLangSelect.value = savedLang;
+    
+    siteLangSelect.addEventListener('change', function (e) {
+      var lang = e.target.value;
+      localStorage.setItem('app_language', lang);
+      location.reload();
+    });
+
+    if (savedLang === 'hi') {
+      var hiMap = {
+        "Bring one real order.": "एक वास्तविक ऑर्डर लाएं।",
+        "Book a demo": "डेमो बुक करें",
+        "Your name": "आपका नाम",
+        "Boutique name": "बुटीक का नाम",
+        "Email": "ईमेल",
+        "Phone or WhatsApp": "फोन या व्हाट्सएप",
+        "What do you make?": "आप क्या बनाते हैं?",
+        "Orders a month": "प्रति माह ऑर्डर",
+        "People on the floor": "फ्लोर पर कर्मचारी",
+        "Biggest problem right now": "वर्तमान में सबसे बड़ी समस्या",
+        "Request a demo": "डेमो के लिए अनुरोध करें",
+        "A better way to run the atelier": "एटेलियर चलाने का बेहतर तरीका",
+        "What the half hour covers": "आधे घंटे में क्या कवर किया जाता है",
+        "Three things that make it useful.": "तीन चीजें जो इसे उपयोगी बनाती हैं।",
+        "One live order": "एक लाइव ऑर्डर",
+        "Your stage names": "आपके स्टेज के नाम",
+        "Your costing sheet": "आपकी लागत शीट",
+        "What is Scaleezy Boutique?": "Scaleezy Boutique क्या है?",
+        "What it is": "यह क्या है",
+        "Who it is for": "यह किसके लिए है",
+        "Built for made-to-order, not off-the-rack.": "मेड-टू-ऑर्डर के लिए बनाया गया, रेडीमेड के लिए नहीं।",
+        "Bridal boutiques": "ब्राइडल बुटीक",
+        "Saree houses & blouse specialists": "साड़ी हाउस और ब्लाउज विशेषज्ञ",
+        "Lehenga & ethnic wear studios": "लहंगा और एथनिक वियर स्टूडियो",
+        "Designer ateliers": "डिजाइनर एटेलियर",
+        "Bespoke menswear": "बेस्पोक मेन्सवियर",
+        "Boutiques with a floor": "फ्लोर वाले बुटीक",
+        "How it differs": "यह कैसे अलग है",
+        "Why retail software does not fit a tailoring floor.": "रिटेल सॉफ़्टवेयर टेलरिंग फ़्लोर के लिए उपयुक्त क्यों नहीं है।",
+        "Built in": "इन-बिल्ट",
+        "Eight named stages with SLAs": "SLAs के साथ आठ नामित चरण",
+        "Explore the platform": "प्लेटफॉर्म एक्सप्लोर करें",
+        "Six modules. One connected atelier.": "छह मॉड्यूल। एक कनेक्टेड एटेलियर।",
+        "Clients & measurements": "ग्राहक और शारीरिक माप",
+        "Orders & lifecycle": "ऑर्डर और जीवन चक्र",
+        "Production floor": "उत्पादन फ्लोर (Production Floor)",
+        "Design studio": "डिजाइन स्टूडियो",
+        "Fabric & inventory": "फैब्रिक और इन्वेंटरी",
+        "Customer updates": "ग्राहक अपडेट",
+        "The flow": "फ्लो (The Flow)",
+        "Eight stages, from counter to doorstep.": "काउंटर से लेकर दरवाजे तक आठ चरण।",
+        "Received": "प्राप्त (Received)",
+        "Confirmed": "पुष्टि (Confirmed)",
+        "Stylist review": "स्टाइलिश समीक्षा",
+        "Design & creation": "डिजाइन और निर्माण",
+        "Quality check": "गुणवत्ता जांच (Quality Check)",
+        "Trial": "ट्रायल (Trial)",
+        "Ready for delivery": "डिलीवरी के लिए तैयार",
+        "Delivered": "डिलीवर किया गया",
+        "Software that knows a Maggam Master from a Cutting Master.": "सॉफ़्टवेयर जो मग्गम मास्टर और कटिंग मास्टर के अंतर को जानता है।",
+        "Nine roles": "नौ भूमिकाएं (Nine Roles)",
+        "Measurement Master": "मेज़रमेंट मास्टर",
+        "Pattern Master": "पैटर्न मास्टर",
+        "Cutting Master": "कटिंग मास्टर",
+        "Maggam Master": "मग्गम मास्टर (एमब्रॉयडरी)",
+        "Stitching Tailor": "स्टिचिंग टेलर (सिलाई दर्जी)",
+        "Finishing Master": "फिनिशिंग मास्टर",
+        "Pressing Staff": "प्रेसिंग स्टाफ",
+        "QC Master": "QC मास्टर (गुणवत्ता जांचकर्ता)",
+        "Master (generalist)": "मास्टर (सामान्यज्ञ)",
+        "For your customer": "आपके ग्राहक के लिए",
+        "She can check on her own lehenga.": "वह खुद अपने लहंगे का स्टेटस चेक कर सकती हैं।",
+        "Order tracking": "ऑर्डर ट्रैकिंग (Order Tracking)",
+        "A link, not an app.": "एक लिंक, ऐप नहीं।",
+        "Finished garment": "तैयार पोशाक (Finished Garment)",
+        "Published when you say so.": "पब्लिश करें जब आप चाहें।",
+        "Questions, answered plainly.": "प्रश्नों के स्पष्ट उत्तर।",
+        "Is Scaleezy Boutique only for custom tailoring?": "क्या Scaleezy Boutique केवल कस्टम सिलाई के लिए है?",
+        "Do my tailors need to use a computer?": "क्या मेरे दर्जियों को कंप्यूटर का उपयोग करने की आवश्यकता है?",
+        "Can my customer track her order without installing anything?": "क्या मेरी ग्राहक बिना कुछ इंस्टॉल किए अपना ऑर्डर ट्रैक कर सकती हैं?",
+        "Does it send WhatsApp messages automatically?": "क्या यह स्वचालित रूप से व्हाट्सएप संदेश भेजता है?",
+        "How is my boutique's data kept separate from other boutiques?": "मेरे बुटीक का डेटा अन्य बुटीक से अलग कैसे रखा जाता है?",
+        "Can I move my existing customers and measurements in?": "क्या मैं अपने मौजूदा ग्राहकों और मापों को इसमें ला सकता हूँ?",
+        "How long does it take to get running?": "इसे शुरू करने में कितना समय लगता है?",
+        "Running the floor, written down.": "फ्लोर संचालन, विस्तार से।",
+        "The product behind the writing": "इस लेखन के पीछे का उत्पाद",
+        "All of this, running by itself.": "यह सब, अपने आप चल रहा है।",
+        "What it is →": "यह क्या है →",
+        "Modules": "मॉड्यूल्स",
+        "Lifecycle": "जीवन चक्र (Lifecycle)",
+        "Your floor": "आपका फ्लोर",
+        "For customers": "ग्राहकों के लिए",
+        "Blog": "ब्लॉग",
+        "FAQ": "अक्सर पूछे जाने वाले प्रश्न (FAQ)",
+        "Sign in": "साइन इन करें"
+      };
+
+
+
+
+
+
+
+
+      document.addEventListener('DOMContentLoaded', function () {
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        var node;
+        while ((node = walker.nextNode())) {
+          var trimmed = node.nodeValue.trim();
+          if (hiMap[trimmed]) {
+            node.nodeValue = node.nodeValue.replace(trimmed, hiMap[trimmed]);
+          }
+        }
+      });
+    }
+  }
 </script>
+
+
 
 </body>
 </html>

@@ -1,0 +1,55 @@
+import { useLanguage } from '../i18n/LanguageContext.jsx';
+import { Globe } from 'lucide-react';
+
+export const LanguageSelector = () => {
+  const { language, setLanguage } = useLanguage();
+
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '5px 12px',
+        fontSize: '0.85rem',
+        fontWeight: 600,
+        borderRadius: '20px',
+        border: '1px solid var(--border-color, #e2e8f0)',
+        backgroundColor: 'var(--bg-secondary, #f8fafc)',
+        color: 'var(--text-primary, #0f172a)',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+      }}
+    >
+      <Globe size={16} style={{ color: '#6366f1', flexShrink: 0 }} />
+      <select
+        value={language}
+        onChange={(e) => setLanguage(e.target.value)}
+        aria-label="Select Language"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          outline: 'none',
+          color: 'var(--text-primary, #0f172a)',
+          fontWeight: 600,
+          fontSize: '0.85rem',
+          cursor: 'pointer',
+          paddingRight: '4px',
+        }}
+      >
+        <option value="en">English (EN)</option>
+        <option value="hi">हिंदी (HI)</option>
+        <option value="te">తెలుగు (TE)</option>
+        <option value="mr">मराठी (MR)</option>
+        <option value="ar">العربية (AR)</option>
+        <option value="gu">ગુજરાતી (GU)</option>
+        <option value="ml">മലയാളം (ML)</option>
+        <option value="ta">தமிழ் (TA)</option>
+        <option value="kn">ಕನ್ನಡ (KN)</option>
+        <option value="es">Español (ES)</option>
+        <option value="de">German / Deutsch (DE)</option>
+      </select>
+    </div>
+  );
+};
+
+export default LanguageSelector;

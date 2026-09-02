@@ -6,7 +6,7 @@ import {
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu,
-  PenTool
+  PenTool, Settings
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
@@ -28,7 +28,11 @@ const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 import { MobileHeader } from './components/ui/MobileHeader';
+import { useLanguage } from './i18n/LanguageContext.jsx';
+import LanguageSelector from './components/LanguageSelector.jsx';
+import SettingsPage from './components/SettingsPage.jsx';
 import { BottomNavigation } from './components/ui/BottomNavigation';
+
 import { BottomSheet } from './components/ui/BottomSheet';
 import { ResponsiveCard } from './components/ui/ResponsiveCard';
 import { ProgressiveAccordion } from './components/ui/ProgressiveAccordion';
@@ -393,6 +397,7 @@ const GARMENT_VIEWS = [
  * costs no extra request.
  */
 function GarmentGallery({ order, onChanged }) {
+  const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [view, setView] = useState('FRONT');
@@ -430,9 +435,9 @@ function GarmentGallery({ order, onChanged }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
         <Package size={14} />
-        <span style={{ fontSize: '13px', fontWeight: 600 }}>Finished garment photos</span>
+        <span style={{ fontSize: '13px', fontWeight: 600 }}>{t('ordersPage.finishedGarmentPhotos', 'Finished garment photos')}</span>
         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-          {published ? 'visible to the customer' : `${images.length} uploaded, not yet shared`}
+          {published ? t('ordersPage.visibleToCustomer', 'visible to the customer') : t('ordersPage.uploadedNotShared', '{count} uploaded, not yet shared', { count: images.length })}
         </span>
       </div>
 
@@ -467,7 +472,7 @@ function GarmentGallery({ order, onChanged }) {
                   borderRadius: '4px', cursor: 'pointer', width: '100%'
                 }}
               >
-                Remove
+                {t('ordersPage.remove', 'Remove')}
               </button>
             </figure>
           ))}
@@ -495,7 +500,7 @@ function GarmentGallery({ order, onChanged }) {
           disabled={busy}
           onClick={() => fileRef.current?.click()}
         >
-          {busy ? 'Working…' : 'Add photo'}
+          {busy ? 'Working…' : t('ordersPage.addPhoto', 'Add photo')}
         </button>
 
         <button
@@ -506,12 +511,12 @@ function GarmentGallery({ order, onChanged }) {
           title={missing.length ? `Still needs: ${missing.join(', ')}` : ''}
           onClick={() => run(() => api.publishGarmentImages(order.id, !published))}
         >
-          {published ? 'Hide from customer' : 'Share with customer'}
+          {published ? 'Hide from customer' : t('ordersPage.shareWithCustomer', 'Share with customer')}
         </button>
 
         {!published && missing.length > 0 && (
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            needs {missing.map((m) => m.toLowerCase()).join(' and ')}
+            {t('ordersPage.needsFrontAndBack', 'needs front and back')}
           </span>
         )}
       </div>
@@ -520,6 +525,7 @@ function GarmentGallery({ order, onChanged }) {
 }
 
 function StageTimeline({ stages, onSelectStage }) {
+  const { t } = useLanguage();
   // Fifteen stages in a strip about three-and-a-half stages wide: opening an
   // order on a phone put "Created" on screen and whatever actually needs doing
   // several swipes away. Centre the live stage (or the last one finished) so
@@ -551,7 +557,7 @@ function StageTimeline({ stages, onSelectStage }) {
         borderRadius: '8px', border: '1px solid var(--border-color)',
         fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center'
       }}>
-        No production stages recorded for this order.
+        {t('ordersPage.noProductionStages', 'No production stages recorded for this order.')}
       </div>
     );
   }
@@ -660,6 +666,9 @@ function App() {
     () => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login');
   const [dashboardTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs'
   const [currentUser, setCurrentUser] = useState(null);
+  const { t, language } = useLanguage();
+  const currentUserName = currentUser?.first_name || currentUser?.name || currentUser?.email?.split('@')[0] || 'User';
+
   
   // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
@@ -2249,8 +2258,8 @@ function App() {
 
   return (
     <div className="app-container">
-
       {/* 2. SIGN IN SCREEN (Image 2) */}
+
       {view === 'login' && (
         <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '88px 16px 40px' }}>
           
@@ -2328,13 +2337,6 @@ function App() {
               </div>
 
               <div className="auth-remember-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', margin: '6px 0 10px 0' }}>
-                {/* "Remember me" was uncontrolled, defaultChecked and read by
-                    nothing -- the token goes to localStorage either way, so the
-                    session always persisted and the box was decoration that
-                    implied a choice. Wiring it to sessionStorage would mean
-                    touching four api functions for a preference nobody asked
-                    for; saying nothing is more honest than a control that does
-                    not control anything. */}
                 <span />
                 <button
                   type="button"
@@ -2357,20 +2359,17 @@ function App() {
               </button>
             </form>
 
-            {/* "Continue with Google" and "Continue with Apple" used to sit
-                here. Neither had an onClick, and there is no OAuth anywhere in
-                this product -- no client id, no callback route, no social
-                account model. Two buttons that do nothing on the first screen
-                a new owner sees. Deleted rather than wired up: adding a second
-                identity provider is a feature with its own account-linking
-                questions, not a fix for a dead button. */}
-
             <div className="auth-card-footer" style={{ borderTop: '1px solid #eaecef', marginTop: '32px', paddingTop: '20px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
-              Don't have a boutique account? <a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600, textDecoration: 'none' }} onClick={() => { setSignupStep(1); setView('signup'); }}>Signup</a>
+              Don't have a boutique account?{' '}
+              <a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600, textDecoration: 'none' }} onClick={() => { setSignupStep(1); setView('signup'); }}>
+                Signup
+              </a>
             </div>
           </div>
         </div>
       )}
+
+
 
       {/* 3. SIGN UP SCREEN (Image 3) */}
       {/* Ask for a reset link. Reached from the login screen; leaves back to
@@ -2724,7 +2723,15 @@ function App() {
       {view === 'dashboard' && currentUser && (
         <div className="portal-layout">
           <MobileHeader
-            title={dashboardTab === 'overview' ? 'Dashboard' : dashboardTab.charAt(0).toUpperCase() + dashboardTab.slice(1)}
+            title={t(
+              dashboardTab === 'overview' ? 'nav.dashboard' :
+              dashboardTab === 'orders' ? 'nav.manageOrders' :
+              dashboardTab === 'fabrics' ? 'nav.manageFabrics' :
+              dashboardTab === 'tailors' ? 'nav.manageTailors' :
+              dashboardTab === 'designs' ? 'nav.manageDesigns' :
+              `nav.${dashboardTab}`,
+              dashboardTab.charAt(0).toUpperCase() + dashboardTab.slice(1)
+            )}
             currentUser={currentUser}
             notificationsCount={notifications.filter(n => !n.is_read).length}
             onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
@@ -2817,7 +2824,7 @@ function App() {
                 }}
               >
                 <Bell size={16} />
-                <span>Inbox Alerts</span>
+                <span>{t('common.inboxAlerts', 'Inbox Alerts')}</span>
                 {notifications.filter(n => !n.is_read).length > 0 && (
                   <span style={{
                     backgroundColor: '#ff4d4d',
@@ -2836,44 +2843,37 @@ function App() {
             <nav className="portal-menu">
               {(!currentUser.role || currentUser.role === 'Owner') ? (
                 <>
-                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Dashboard</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> Invoices</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> Analytics</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> Manage Fabrics</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> Inventory</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> Manage Tailors</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Manage Designs</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.dashboard')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> {t('nav.invoices')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> {t('nav.analytics')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> {t('nav.manageFabrics')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> {t('nav.inventory')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.manageTailors')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.manageDesigns')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
                 </>
               ) : currentUser.role === 'Master' ? (
                 <>
-                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
                 </>
               ) : currentUser.role === 'Designer' ? (
-                // A designer's account exists for exactly one thing: their own
-                // uploads and portfolio. No customer, order or financial nav
-                // item is offered, matching the module's permission matrix --
-                // see docs/design-management.md section 4 for the caveat that
-                // this is a UI restriction, not an API-level one.
                 <>
-                  {/* The work queue leads: a designer signs in to find what has
-                      been asked of them, not to browse their own upload folder.
-                      It carries no customer or financial data -- the API sends a
-                      designer a narrower payload than it sends the owner. */}
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> My Work</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Design Studio</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.myWork')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.designStudio')}</a>
                 </>
               ) : (
-                <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
+                <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
               )}
-              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> My Account</a>
-              <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> Logout</a>
+              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> {t('nav.account')}</a>
+              <a className={`portal-menu-item ${dashboardTab === 'settings' ? 'active' : ''}`} onClick={() => { setDashboardTab('settings'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Settings size={16} /> {t('nav.settings')}</a>
+              <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
             </nav>
+
 
             <div className="portal-sidebar-footer">
               {/* Opened wa.me/919876543210 -- an invented number belonging to
@@ -2908,16 +2908,16 @@ function App() {
                         My Assignments Dashboard
                       </h1>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        Logged in as {currentUser.first_name} ({currentUser.role}). View and manage your active orders.
+                        Logged in as {currentUserName} ({currentUser.role}). View and manage your active orders.
                       </p>
                     </div>
                   </div>
                   <div className="portal-header-right">
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(currentUser.first_name)}`} alt="Avatar" />
+                        <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(currentUserName)}`} alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
@@ -3250,21 +3250,21 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Welcome back, {currentUser.first_name}! 👋
+                        {t('dashboard.welcomeBackUser', `Welcome back, ${currentUserName}! 👋`, { name: currentUserName })}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Your custom creation journey starts here.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('dashboard.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button className="btn-primary" onClick={() => setView('order-selector')}>
                       <Sparkles size={16} />
-                      New Custom Order
+                      {t('dashboard.newOrder')}
                     </button>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
@@ -3273,32 +3273,28 @@ function App() {
                 <section className="quick-action-button-grid">
                   <div className="quick-action-item" onClick={() => setView('order-selector')}>
                     <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
-                    <h4>New Order</h4>
-                    <p>Start custom order</p>
+                    <h4>{t('dashboard.newOrder')}</h4>
+                    <p>{t('dashboard.startCustomOrder', 'Start custom order')}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('tailors')}>
                     <div className="quick-action-icon-box"><Scissors size={18} /></div>
-                    <h4>Manage Staff</h4>
-                    <p>Tailors & status</p>
+                    <h4>{t('dashboard.manageStaff', 'Manage Staff')}</h4>
+                    <p>{t('dashboard.tailorsStatus', 'Tailors & status')}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('designs')}>
                     <div className="quick-action-icon-box"><Heart size={18} /></div>
-                    <h4>Design Catalog</h4>
-                    <p>Style collections</p>
+                    <h4>{t('dashboard.designCatalog', 'Design Catalog')}</h4>
+                    <p>{t('dashboard.styleCollections', 'Style collections')}</p>
                   </div>
                   <div className="quick-action-item" onClick={() => setDashboardTab('fabrics')}>
                     <div className="quick-action-icon-box"><Compass size={18} /></div>
-                    <h4>Fabric Library</h4>
-                    <p>Explore fabrics</p>
+                    <h4>{t('dashboard.fabricLibrary', 'Fabric Library')}</h4>
+                    <p>{t('dashboard.exploreFabrics', 'Explore fabrics')}</p>
                   </div>
-                  {/* This tile was the one of five with no onClick at all --
-                      it looked identical to its four working siblings and did
-                      nothing when pressed. Booking now opens a real
-                      appointment against apps/scheduling. */}
                   <div className="quick-action-item" onClick={() => setShowAppointmentModal(true)}>
                     <div className="quick-action-icon-box"><Calendar size={18} /></div>
-                    <h4>Book Appointment</h4>
-                    <p>Consult with stylist</p>
+                    <h4>{t('dashboard.bookAppointment', 'Book Appointment')}</h4>
+                    <p>{t('dashboard.consultStylist', 'Consult with stylist')}</p>
                   </div>
                 </section>
 
@@ -3307,9 +3303,10 @@ function App() {
                   {/* Active Orders List */}
                   <div className="orders-list-panel">
                     <div className="panel-header-row">
-                      <h3 style={{ fontSize: '16px', fontWeight: 600 }}>My Orders</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>VIEW ALL ORDERS →</a>
+                      <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{t('dashboard.myOrders', 'My Orders')}</h3>
+                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAllOrders', 'VIEW ALL ORDERS →')}</a>
                     </div>
+
 
                     {loading ? (
                       <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
@@ -3337,9 +3334,9 @@ function App() {
                               />
                             </div>
                             <div className="order-row-desc">
-                              <div className="order-row-id">Order ID: {order.order_id}</div>
-                              <div className="order-row-name">{order.customer_name} • {order.order_status}</div>
-                              <div className="order-row-fabric">Tailor: {order.tailor_name || 'Unassigned'}</div>
+                              <div className="order-row-id">{t('dashboard.orderId', 'Order ID:')} {order.order_id}</div>
+                              <div className="order-row-name">{order.customer_name} • {order.order_status_display || t(`status.${order.order_status}`, order.order_status)}</div>
+                              <div className="order-row-fabric">{t('ordersPage.stitchingTailor', 'Tailor')}: {order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
                             </div>
                             <div className="order-row-status-box">
                               {/* Show the status the order is actually in. This
@@ -3351,9 +3348,9 @@ function App() {
                                   Green for the settled states, amber while the
                                   garment is still moving. */}
                               <span className={`order-row-badge ${['Confirmed', 'Shipped', 'Delivered'].includes(order.order_status) ? 'confirmed' : 'in_progress'}`}>
-                                {order.order_status || 'In Progress'}
+                                {order.order_status_display || t(`status.${order.order_status}`, order.order_status || 'In Progress')}
                               </span>
-                              <span className="order-row-date">Est. {new Date(order.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+                              <span className="order-row-date">{t('ordersPage.estDelivery', 'Est.')} {new Date(order.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
                             </div>
                           </div>
                         ))}
@@ -3364,25 +3361,25 @@ function App() {
                   {/* Order Live Tracker Sidebar */}
                   <div className="order-detail-progress-card">
                     <div className="panel-header-row">
-                      <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Order Progress</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>VIEW ALL</a>
+                      <h3 style={{ fontSize: '15px', fontWeight: 600 }}>{t('dashboard.orderProgress', 'Order Progress')}</h3>
+                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAll', 'VIEW ALL')}</a>
                     </div>
 
                     {selectedDashboardOrder ? (
                       <>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <div style={{ fontSize: '13px', fontWeight: 600 }}>{selectedDashboardOrder.customer_name}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Order ID: {selectedDashboardOrder.order_id}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('dashboard.orderId', 'Order ID:')} {selectedDashboardOrder.order_id}</div>
                         </div>
 
                         <div style={{ marginTop: '12px', marginBottom: '16px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                            <span>PRODUCTION PROGRESS</span>
+                            <span>{t('dashboard.productionProgress', 'PRODUCTION PROGRESS')}</span>
                             <span>{(() => {
                               const stages = selectedDashboardOrder.stages || [];
                               const completed = stages.filter(s => s.status === 'COMPLETED').length;
                               const pct = stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
-                              return `${pct}% (${completed}/${stages.length} Stages)`;
+                              return `${pct}% (${completed}/${stages.length} ${t('dashboard.stages', 'Stages')})`;
                             })()}</span>
                           </div>
                           <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
@@ -3465,7 +3462,7 @@ function App() {
                                         style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}
                                         onClick={e => e.stopPropagation()}
                                       >
-                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>Assign:</span>
+                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>{t('dashboard.assign', 'Assign:')}</span>
                                         <select
                                           className="form-control"
                                           style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
@@ -3475,7 +3472,7 @@ function App() {
                                             selectedDashboardOrder.id, stage.stage_key, e.target.value
                                           )}
                                         >
-                                          <option value="">Unassigned</option>
+                                          <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
                                           {eligibleStaffForStage(stage.stage_key).map(t => (
                                             <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
                                           ))}
@@ -3491,7 +3488,7 @@ function App() {
 
                         {/* Delivery Information */}
                         <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '12px' }}>
-                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>Delivery Method: {selectedDashboardOrder.delivery_method}</div>
+                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>{t('ordersPage.deliveryMethodLabel', 'Delivery Method:')} {selectedDashboardOrder.delivery_method_display || t(`deliveryMethod.${selectedDashboardOrder.delivery_method}`, selectedDashboardOrder.delivery_method)}</div>
                           {selectedDashboardOrder.delivery_method === 'Courier' && (
                             <div style={{ color: 'var(--text-secondary)' }}>
                               <strong>Carrier:</strong> {selectedDashboardOrder.courier_service || 'TBD'}<br />
@@ -3518,7 +3515,7 @@ function App() {
                           }}>
                             <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <Scissors size={12} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                              <span>Tailor Completion Notes</span>
+                              <span>{t('dashboard.tailorNotes', 'Tailor Completion Notes')}</span>
                             </div>
                             {selectedDashboardOrder.tailor_comments && (
                               <p style={{ color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
@@ -3547,7 +3544,7 @@ function App() {
 
                         <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '12px', fontWeight: 600 }}>Update Status:</span>
+                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('ordersPage.updateStatus', 'Update Status:')}</span>
                             <select 
                               value={selectedDashboardOrder.order_status} 
                               onChange={async (e) => {
@@ -3571,7 +3568,7 @@ function App() {
                               }}
                             >
                               {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
-                                <option key={status} value={status} style={{ background: '#222', color: '#fff' }}>{status}</option>
+                                <option key={status} value={status} style={{ background: '#222', color: '#fff' }}>{t(`status.${status}`, status)}</option>
                               ))}
                             </select>
                           </div>
@@ -3595,14 +3592,14 @@ function App() {
                                 }
                               }}
                             >
-                              Advance to Next Stage
+                              {t('dashboard.advanceStage', 'Advance to Next Stage')}
                             </button>
                           )}
                         </div>
                       </>
                     ) : (
                       <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        Select an order on the left to see progress details.
+                        {t('dashboard.selectOrderHint', 'Select an order on the left to see progress details.')}
                       </div>
                     )}
                   </div>
@@ -3611,7 +3608,7 @@ function App() {
                 {/* Upcoming Appointments & Style Inspiration Row */}
                 <div className="dashboard-row-layout">
                   <div>
-                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Upcoming Appointments</h3>
+                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>{t('dashboard.upcomingAppointments', 'Upcoming Appointments')}</h3>
                     {/* Real appointments. These were two literal cards naming
                         "Anya (Stylist)" and "Rohit (Master Tailor)" on fixed
                         dates -- shown to every boutique including one created
@@ -3622,7 +3619,7 @@ function App() {
                     <div className="appointments-section-panel">
                       {appointments.length === 0 ? (
                         <div style={{ padding: '16px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                          No appointments booked.
+                          {t('dashboard.noAppointments', 'No appointments booked.')}
                         </div>
                       ) : appointments.map(appt => {
                         const when = new Date(appt.scheduled_time);
@@ -3634,13 +3631,13 @@ function App() {
                             </div>
                             <div className="appt-info">
                               <span className="appt-title">
-                                {APPOINTMENT_TYPE_LABELS[appt.appointment_type] || 'Appointment'}
+                                {APPOINTMENT_TYPE_LABELS[appt.appointment_type] || t('dashboard.appointment', 'Appointment')}
                               </span>
                               <span className="appt-sub">
                                 {appt.customer_detail
                                   ? `${appt.customer_detail.first_name} ${appt.customer_detail.last_name}`
-                                  : 'Client'}
-                                {appt.assigned_staff_detail ? ` · with ${appt.assigned_staff_detail.name}` : ''}
+                                  : t('ordersPage.client', 'Client')}
+                                {appt.assigned_staff_detail ? t('dashboard.withStaff', ' · with {name}', { name: appt.assigned_staff_detail.name }) : ''}
                               </span>
                               <span className="appt-time">
                                 {when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
@@ -3678,28 +3675,29 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Fabric Library
+                        {t('fabricsPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Configure, add, or edit boutique catalog fabrics.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('fabricsPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button className="btn-primary" onClick={() => {
                       setEditingFabric(null);
                       setFabricForm({ name: '', material: '', color: '', price_per_meter: '', image_url: '', is_available: true });
                       setShowFabricModal(true);
                     }}>
                       <Plus size={16} />
-                      Add New Fabric
+                      {t('fabricsPage.addNewFabric')}
                     </button>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
+
 
                 <div className="fabric-manager-content" style={{ marginTop: '24px' }}>
                   <div className="fabrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
@@ -3783,28 +3781,29 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Tailoring Staff
+                        {t('tailorsPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Add, configure, or review in-house custom tailors.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('tailorsPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button className="btn-primary" onClick={() => {
                       setEditingTailor(null);
                       setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
                       setShowTailorModal(true);
                     }}>
                       <Plus size={16} />
-                      Add New Tailor
+                      {t('tailorsPage.addNewTailor')}
                     </button>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
+
 
                 <div className="tailor-manager-content" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
                   {/* Two separate panels for Master and Stitching staff */}
@@ -3819,12 +3818,12 @@ function App() {
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                         <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Master Tailors (Cutting & Supervision)</h3>
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.masterTailorsCategory', 'Master Tailors (Cutting & Supervision)')}</h3>
                       </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         {tailors.filter(t => t.role === 'Master').length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors registered yet.</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('tailorsPage.noMasterTailors', 'No Master Tailors registered yet.')}</p>
                         ) : (
                           tailors.filter(t => t.role === 'Master').map(tailor => (
                             <div key={tailor.id} style={{
@@ -3847,7 +3846,7 @@ function App() {
                               </div>
                               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                  {tailor.status}
+                                  {tailor.status === 'Available' ? t('tailorsPage.available', 'Available') : t('tailorsPage.busy', 'Busy')}
                                 </span>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
                                   if (!tailor.email) {
@@ -3856,7 +3855,7 @@ function App() {
                                   }
                                   setShareCredsTailor(tailor);
                                 }}>
-                                  <Lock size={12} /> Share
+                                  <Lock size={12} /> {t('tailorsPage.shareBtn', 'Share')}
                                 </button>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
                                   setEditingTailor(tailor);
@@ -3869,7 +3868,7 @@ function App() {
                                     role: tailor.role || 'Tailor'
                                   });
                                   setShowTailorModal(true);
-                                }}>Edit</button>
+                                }}>{t('tailorsPage.editBtn', 'Edit')}</button>
                               </div>
                             </div>
                           ))
@@ -3886,12 +3885,12 @@ function App() {
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                         <Scissors size={20} />
-                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Stitching Tailors (Assembly & Detailing)</h3>
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.stitchingTailorsCategory', 'Stitching Tailors (Assembly & Detailing)')}</h3>
                       </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         {stitchingStaff().length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors registered yet.</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('tailorsPage.noStitchingTailors', 'No Stitching Tailors registered yet.')}</p>
                         ) : (
                           stitchingStaff().map(tailor => (
                             <div key={tailor.id} style={{
@@ -3914,7 +3913,7 @@ function App() {
                               </div>
                               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                  {tailor.status}
+                                  {tailor.status === 'Available' ? t('tailorsPage.available', 'Available') : t('tailorsPage.busy', 'Busy')}
                                 </span>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
                                   if (!tailor.email) {
@@ -3923,7 +3922,7 @@ function App() {
                                   }
                                   setShareCredsTailor(tailor);
                                 }}>
-                                  <Lock size={12} /> Share
+                                  <Lock size={12} /> {t('tailorsPage.shareBtn', 'Share')}
                                 </button>
                                 <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
                                   setEditingTailor(tailor);
@@ -3936,7 +3935,7 @@ function App() {
                                     role: tailor.role || 'Tailor'
                                   });
                                   setShowTailorModal(true);
-                                }}>Edit</button>
+                                }}>{t('tailorsPage.editBtn', 'Edit')}</button>
                               </div>
                             </div>
                           ))
@@ -3955,24 +3954,24 @@ function App() {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                       <Sparkles size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Workflow Assignment & Supervision Control</h3>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.workflowSupervisionTitle', 'Workflow Assignment & Supervision Control')}</h3>
                     </div>
                     
                     <div style={{ overflowX: 'auto' }}>
                       <table className="portal-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ textAlign: 'left', borderBottom: '1.5px solid var(--border-color)' }}>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Order / Client</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Status</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Supervising Master</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Stitching Tailor</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.colOrderClient', 'Order / Client')}</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('common.status', 'Status')}</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.supervisingMaster', 'Supervising Master')}</th>
+                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.stitchingTailor', 'Stitching Tailor')}</th>
                           </tr>
                         </thead>
                         <tbody>
                           {ordersList.filter(o => ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped'].includes(o.order_status)).length === 0 ? (
                             <tr>
                               <td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                                No active orders in creation phase.
+                                {t('tailorsPage.noActiveOrdersInCreation', 'No active orders in creation phase.')}
                               </td>
                             </tr>
                           ) : (
@@ -3987,7 +3986,7 @@ function App() {
                                 </td>
                                 <td style={{ padding: '16px' }}>
                                   <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                    {order.order_status}
+                                    {t(`status.${order.order_status}`, order.order_status)}
                                   </span>
                                 </td>
                                 <td style={{ padding: '16px' }}>
@@ -3997,7 +3996,7 @@ function App() {
                                     value={order.master || ''}
                                     onChange={(e) => handleAssignWorkflow(order.id, { master: e.target.value || null })}
                                   >
-                                    <option value="">Unassigned</option>
+                                    <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
                                     {tailors.filter(t => t.role === 'Master').map(m => (
                                       <option key={m.id} value={m.id}>{m.name}</option>
                                     ))}
@@ -4010,7 +4009,7 @@ function App() {
                                     value={order.tailor || ''}
                                     onChange={(e) => handleAssignWorkflow(order.id, { tailor: e.target.value || null })}
                                   >
-                                    <option value="">Unassigned</option>
+                                    <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
                                     {stitchingStaff().map(s => (
                                       <option key={s.id} value={s.id}>{s.name}</option>
                                     ))}
@@ -4036,12 +4035,12 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Design Work
+                        {t('designWorkPage.title', 'Design Work')}
                       </h1>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                         {currentUser?.role === 'Designer'
-                          ? 'The garments you have been asked to design.'
-                          : 'Assign a garment to a designer, and review what comes back.'}
+                          ? t('designWorkPage.subtitleDesigner', 'The garments you have been asked to design.')
+                          : t('designWorkPage.subtitleSupervisor', 'Assign a garment to a designer, and review what comes back.')}
                       </p>
                     </div>
                   </div>
@@ -4061,17 +4060,12 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Design Collections
+                        {t('designsPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Add, edit, or remove catalog designs and AI suggestions.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('designsPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
-                    {/* This posts through the catalogue's own endpoint, which
-                        (unlike DesignAssetViewSet) has no per-design ownership
-                        check -- so it stays Owner-only rather than opened to a
-                        Designer the way the library's own upload flow below
-                        already is. */}
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {(!currentUser?.role || currentUser.role === 'Owner') && (
                       <button className="btn-primary" onClick={() => {
                         setEditingDesign(null);
@@ -4088,17 +4082,18 @@ function App() {
                         setShowDesignModal(true);
                       }}>
                         <Plus size={16} />
-                        Add New Design
+                        {t('designsPage.addNewDesign')}
                       </button>
                     )}
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
+
 
                 <div className="design-manager-content" style={{ marginTop: '24px' }}>
                   {/* Dashboard first: stats before images, so opening the module
@@ -4155,23 +4150,17 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Atelier Orders Registry
+                        {t('ordersPage.title')}
                       </h1>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        Search, filter, and track all custom creations and dispatch logistics.
+                        {t('ordersPage.subtitle')}
                       </p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
-                    {/* Owner-only. A Master reaches this registry -- they
-                        supervise the whole floor -- and was shown this button
-                        too, but taking an order means creating a customer and
-                        RolePermission refuses every non-Owner write outside the
-                        order actions. The wizard therefore 403'd on step 1,
-                        after the Master had filled the form in. */}
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {(!currentUser?.role || currentUser.role === 'Owner') && (
                       <button className="btn-primary" onClick={handleStartNewCustomer}>
-                        <Plus size={16} /> New Custom Order
+                        <Plus size={16} /> {t('ordersPage.newOrder')}
                       </button>
                     )}
                   </div>
@@ -4193,14 +4182,19 @@ function App() {
                     {/* Filter Tabs. Wrapping, not nowrap: four pills do not fit
                         one 320px row and "Delivered" was clipped off the end. */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                      {['All', 'Active', 'Shipped', 'Delivered'].map(statusTab => (
+                      {[
+                        { key: 'All', label: t('ordersPage.filterAll') },
+                        { key: 'Active', label: t('ordersPage.filterActive') },
+                        { key: 'Shipped', label: t('ordersPage.filterShipped') },
+                        { key: 'Delivered', label: t('ordersPage.filterDelivered') }
+                      ].map(({ key: statusTab, label }) => (
                         <button 
                           key={statusTab}
                           onClick={() => setOrdersFilterTab(statusTab)}
                           className={ordersFilterTab === statusTab ? 'btn-primary' : 'btn-secondary'}
                           style={{ padding: '6px 16px', fontSize: '13px' }}
                         >
-                          {statusTab}
+                          {label}
                         </button>
                       ))}
                     </div>
@@ -4210,13 +4204,14 @@ function App() {
                       <Search className="search-icon" size={16} />
                       <input 
                         type="text" 
-                        placeholder="Search by Order ID or Client..."
+                        placeholder={t('ordersPage.searchPlaceholder')}
                         className="search-input"
                         value={ordersSearch}
                         onChange={(e) => setOrdersSearch(e.target.value)}
                       />
                     </div>
                   </div>
+
 
                   {/* Orders List Grid */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -4261,15 +4256,15 @@ function App() {
                                 right. */}
                             {ordersList.length === 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No orders yet</div>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t('ordersPage.noOrdersYet', 'No orders yet')}</div>
                                 <div style={{ fontSize: '13px', maxWidth: '44ch', lineHeight: 1.5 }}>
-                                  Orders you create will appear here, with their production stage and who is working on them.
+                                  {t('ordersPage.noOrdersYetDesc', 'Orders you create will appear here, with their production stage and who is working on them.')}
                                 </div>
                                 <button className="btn-primary" onClick={() => setView('order-selector')}>
-                                  Create your first order
+                                  {t('ordersPage.createFirstOrder', 'Create your first order')}
                                 </button>
                               </div>
-                            ) : 'No orders found matching the criteria.'}
+                            ) : t('ordersPage.noOrdersMatching', 'No orders found matching the criteria.')}
                           </div>
                         );
                       }
@@ -4290,11 +4285,11 @@ function App() {
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <span style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-primary)' }}>{order.order_id}</span>
                                 <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
-                                  {order.order_status}
+                                  {order.order_status_display || t(`status.${order.order_status}`, order.order_status)}
                                 </span>
                               </div>
                               <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                Client: <strong>{order.customer_name}</strong> | Created: {fmtDate(order.order_date)}
+                                {t('ordersPage.client', 'Client:')} <strong>{order.customer_name}</strong> | {t('ordersPage.created', 'Created:')} {fmtDate(order.order_date)}
                               </div>
                               {(() => {
                                 const v = order.master_verification || {};
@@ -4303,7 +4298,7 @@ function App() {
                                 if (checked > 0) {
                                   return (
                                     <div style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(212,175,55,0.08)', padding: '2px 8px', borderRadius: '4px', marginTop: '4px' }}>
-                                      <span>👑 Master Verified: {checked}/{total} items ({Math.round((checked/total)*100)}%)</span>
+                                      <span>{t('ordersPage.masterVerified', '👑 Master Verified:')} {checked}/{total} items ({Math.round((checked/total)*100)}%)</span>
                                     </div>
                                   );
                                 }
@@ -4312,7 +4307,7 @@ function App() {
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <span style={{ fontSize: '13px', fontWeight: 600 }}>Update Status:</span>
+                              <span style={{ fontSize: '13px', fontWeight: 600 }}>{t('ordersPage.updateStatus', 'Update Status:')}</span>
                               <select 
                                 className="form-control"
                                 style={{ fontSize: '13px', padding: '6px 12px', width: '180px', margin: 0 }}
@@ -4324,7 +4319,7 @@ function App() {
                                 }}
                               >
                                 {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
-                                  <option key={status} value={status}>{status}</option>
+                                  <option key={status} value={status}>{t(`status.${status}`, status)}</option>
                                 ))}
                               </select>
                             </div>
@@ -4358,12 +4353,12 @@ function App() {
                             border: '1px solid var(--border-color)'
                           }}>
                             <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Supervising Master</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-text, #b07c40)' }}>{order.master_name || 'Unassigned'}</div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.supervisingMaster', 'Supervising Master')}</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-text, #b07c40)' }}>{order.master_name || t('ordersPage.unassigned', 'Unassigned')}</div>
                             </div>
                             <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Stitching Tailor</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || 'Unassigned'}</div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.stitchingTailor', 'Stitching Tailor')}</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
                             </div>
                             {/* The same guard the assignment card one screen
                                 earlier already applies to the identical figure.
@@ -4377,13 +4372,13 @@ function App() {
                                 customer tracking page and the whole registry. */}
                             {!isProductionStaff(currentUser.role) && (
                               <div>
-                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Value</span>
+                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.totalValue', 'Total Value')}</span>
                                 <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
                               </div>
                             )}
                             <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Est. Delivery</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : 'TBD'}</div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.estDelivery', 'Est. Delivery')}</span>
+                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : t('ordersPage.tbd', 'TBD')}</div>
                             </div>
                           </div>
 
@@ -4450,7 +4445,7 @@ function App() {
                             gap: '8px'
                           }}>
                             <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              Delivery Method: {order.delivery_method}
+                              {t('ordersPage.deliveryMethodLabel', 'Delivery Method:')} {order.delivery_method_display || t(`deliveryMethod.${order.delivery_method}`, order.delivery_method)}
                             </div>
                             {order.delivery_method === 'Courier' && (
                               <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -4519,17 +4514,17 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Customer Directory
+                        {t('customersPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>View client profiles, style files, and body measurements.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('customersPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div className="search-input-wrapper" style={{ margin: 0 }}>
                       <Search size={18} />
                       <input 
                         type="text" 
-                        placeholder="Search customers..." 
+                        placeholder={t('customersPage.searchPlaceholder')} 
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="form-control"
@@ -4540,14 +4535,19 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
 
                 {/* Customer Type Filters */}
                 <div style={{ display: 'flex', gap: '12px', marginTop: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                  {['All', 'Women', 'Men', 'Kids'].map(type => (
+                  {[
+                    { key: 'All', label: t('customersPage.filterAll') },
+                    { key: 'Women', label: t('customersPage.filterWomen') },
+                    { key: 'Men', label: t('customersPage.filterMen') },
+                    { key: 'Kids', label: t('customersPage.filterKids') }
+                  ].map(({ key: type, label }) => (
                     <button
                       key={type}
                       type="button"
@@ -4565,7 +4565,7 @@ function App() {
                         transition: 'all 0.2s ease'
                       }}
                     >
-                      {type}
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -4573,7 +4573,7 @@ function App() {
                 <div className="customers-list-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {loading && customersList.length === 0 ? (
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Loading customer directory…</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{t('common.loading')}</span>
                     </div>
                   ) : loadErrors.includes('customers') ? (
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(127,29,29,0.15)', borderRadius: '12px', border: '1px solid rgba(220,38,38,0.3)' }}>
@@ -4584,19 +4584,20 @@ function App() {
                     <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                       {customersList.length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                          <div style={{ fontWeight: 600 }}>No customers yet</div>
+                          <div style={{ fontWeight: 600 }}>{t('customersPage.noCustomersYet')}</div>
                           <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '44ch', lineHeight: 1.5 }}>
                             Everyone you take an order for is kept here, with their measurements, past orders and preferences.
                           </div>
                           <button className="btn-primary" onClick={handleStartNewCustomer}>
-                            Add your first customer
+                            {t('customersPage.addFirstCustomer')}
                           </button>
                         </div>
                       ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>No customers found matching current filters</span>
+                        <span style={{ color: 'var(--text-muted)' }}>{t('customersPage.noMatchingCustomers')}</span>
                       )}
                     </div>
                   ) : (
+
                     directoryCustomers.map(cust => (
                       <div key={cust.id} className="customer-detail-card responsive-customer-card" style={{
                         background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
@@ -4636,13 +4637,13 @@ function App() {
                             <div>📞 {formatMobile(cust.mobile_number)}</div>
                             {cust.email_address && <div>✉️ {cust.email_address}</div>}
                             {cust.address && <div>📍 {cust.address}, {cust.city_region}</div>}
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Registered: {fmtDate(cust.created_at)}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{t('customersPage.registered')} {fmtDate(cust.created_at)}</div>
                           </div>
                         </div>
 
                         {/* Measurements */}
                         <div style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', paddingLeft: '24px' }}>
-                          <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Body Measurements</h5>
+                          <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('customersPage.bodyMeasurements')}</h5>
                           {cust.measurements ? (
                             <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '13px' }}>
                               {(() => {
@@ -4668,13 +4669,13 @@ function App() {
 
                         {/* Preferences */}
                         <div style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', paddingLeft: '24px' }}>
-                          <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Bespoke Profile</h5>
+                          <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('customersPage.bespokeProfile')}</h5>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '12px' }}>
-                            <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Garment: {cust.garment_type}{cust.measurements?.additional_measurements?.stitch_parts?.length > 0 ? ` (${cust.measurements.additional_measurements.stitch_parts.join(', ')})` : ''}</span>
+                            <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>{t('customersPage.garment')} {cust.garment_type}{cust.measurements?.additional_measurements?.stitch_parts?.length > 0 ? ` (${cust.measurements.additional_measurements.stitch_parts.join(', ')})` : ''}</span>
                             {cust.neckline_style && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Neck: {cust.neckline_style}</span>}
                             {cust.sleeve_style && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Sleeve: {cust.sleeve_style}</span>}
                             {cust.silhouette && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Silhouette: {cust.silhouette}</span>}
-                            {cust.occasion && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Occasion: {cust.occasion}</span>}
+                            {cust.occasion && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>{t('customersPage.occasion')} {cust.occasion}</span>}
                           </div>
                           {cust.custom_requirements && (
                             <div style={{ marginTop: '12px' }}>
@@ -4708,8 +4709,9 @@ function App() {
                             }}
                           >
                             <Sparkles size={14} />
-                            {expandedDna[cust.id] ? 'Hide Style DNA' : 'View Style DNA'}
+                            {expandedDna[cust.id] ? t('common.cancel') : t('customersPage.viewStyleDna')}
                           </button>
+
                         </div>
 
                         {/* Expandable Style DNA Section */}
@@ -5378,9 +5380,9 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Invoices & Billing
+                        {t('invoicesPage.title', 'Invoices & Billing')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Manage invoices, verify billing payments, and print receipts.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('invoicesPage.subtitle', 'Manage invoices, verify billing payments, and print receipts.')}</p>
                     </div>
                   </div>
                   <div className="portal-header-right">
@@ -5388,7 +5390,7 @@ function App() {
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
@@ -5409,15 +5411,15 @@ function App() {
                   return (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginTop: '24px' }}>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Collected Revenue</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.totalCollectedRevenue', 'Total Collected Revenue')}</span>
                         <div style={{ fontSize: '24px', fontWeight: 700, color: '#107c41', marginTop: '8px' }}>{formatMoney(paidTotal)}</div>
                       </div>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Outstanding Balance</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.outstandingBalance', 'Outstanding Balance')}</span>
                         <div style={{ fontSize: '24px', fontWeight: 700, color: '#d4af37', marginTop: '8px' }}>{formatMoney(pendingTotal)}</div>
                       </div>
                       <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Invoiced Volume</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.totalInvoicedVolume', 'Total Invoiced Volume')}</span>
                         <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>{formatMoney(grandTotal)}</div>
                       </div>
                     </div>
@@ -5445,7 +5447,7 @@ function App() {
                         className={invoiceFilter === option ? 'btn-primary' : 'btn-secondary'}
                         style={{ padding: '6px 16px', fontSize: '13px' }}
                       >
-                        {option}
+                        {option === 'All' ? t('common.all', 'All') : option === 'Paid' ? t('invoicesPage.paid', 'Paid') : t('invoicesPage.pending', 'Pending')}
                       </button>
                     ))}
                   </div>
@@ -5454,7 +5456,7 @@ function App() {
                     <Search className="search-icon" size={16} />
                     <input 
                       type="text" 
-                      placeholder="Search Invoice ID or Client..."
+                      placeholder={t('invoicesPage.searchPlaceholder', 'Search Invoice ID or Client...')}
                       className="search-input"
                       value={invoiceSearch}
                       onChange={(e) => setInvoiceSearch(e.target.value)}
@@ -5473,15 +5475,15 @@ function App() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.015)' }}>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Invoice ID</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Billing Client</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Date</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Total Price</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Advance Paid</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Total Paid</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Balance Due</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Payment Status</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Action</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.invoiceId', 'Invoice ID')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.billingClient', 'Billing Client')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.date', 'Date')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.totalPrice', 'Total Price')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.advancePaid', 'Advance Paid')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.totalPaid', 'Total Paid')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.balanceDue', 'Balance Due')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.status', 'Payment Status')}</th>
+                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.actions', 'Action')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5504,8 +5506,8 @@ function App() {
                             <tr>
                               <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                 {ordersList.length === 0
-                                  ? 'Invoices appear here once you have created an order.'
-                                  : 'No invoices matching the criteria.'}
+                                  ? t('invoicesPage.emptyState', 'Invoices appear here once you have created an order.')
+                                  : t('invoicesPage.noMatchingInvoices', 'No invoices matching the criteria.')}
                               </td>
                             </tr>
                           );
@@ -5593,11 +5595,11 @@ function App() {
                                     puts the order there. Pending and Paid stay
                                     because both are unambiguous shortcuts:
                                     nothing received, and settled in full. */}
-                                <option value="Pending">Pending</option>
+                                <option value="Pending">{t('invoicesPage.pending', 'Pending')}</option>
                                 {order.payment_status === 'Partially Paid' && (
-                                  <option value="Partially Paid">Partially Paid</option>
+                                  <option value="Partially Paid">{t('invoicesPage.partiallyPaid', 'Partially Paid')}</option>
                                 )}
-                                <option value="Paid">Paid</option>
+                                <option value="Paid">{t('invoicesPage.paid', 'Paid')}</option>
                               </select>
                             </td>
                             <td style={{ padding: '16px' }}>
@@ -5605,7 +5607,7 @@ function App() {
                                 setConfirmedOrder(order);
                                 setShowInvoiceModal(true);
                               }}>
-                                <FileText size={12} /> View Invoice
+                                <FileText size={12} /> {t('invoicesPage.viewInvoice', 'View Invoice')}
                               </button>
                             </td>
                           </tr>
@@ -5672,9 +5674,9 @@ function App() {
                     <div className="portal-header-left">
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                          Business Analytics & Trends
+                          {t('analyticsPage.title', 'Business Analytics & Trends')}
                         </h1>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Summary of revenues, style preferences, and operations workload.</p>
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('analyticsPage.subtitle', 'Summary of revenues, style preferences, and operations workload.')}</p>
                       </div>
                     </div>
                     <div className="portal-header-right">
@@ -5682,7 +5684,7 @@ function App() {
                         <div className="user-avatar-circle">
                           <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                         </div>
-                        <span>Hi, {currentUser.first_name}</span>
+                        <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                       </div>
                     </div>
                   </header>
@@ -5703,11 +5705,11 @@ function App() {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Collected Revenue</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.collectedRevenue', 'Collected Revenue')}</span>
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: 'var(--accent-text, #b07c40)' }}>
                         ₹{paidRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>From paid customer orders</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.fromPaidOrders', 'From paid customer orders')}</span>
                     </div>
 
                     {/* Pending Bills Card */}
@@ -5720,11 +5722,11 @@ function App() {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Pending Invoices</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.pendingInvoices', 'Pending Invoices')}</span>
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#ffc107' }}>
                         ₹{pendingBill.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Awaiting full or partial payment</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.awaitingPayment', 'Awaiting full or partial payment')}</span>
                     </div>
 
                     {/* Average Order Value Card */}
@@ -5737,11 +5739,11 @@ function App() {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Average Ticket Size</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.avgTicketSize', 'Average Ticket Size')}</span>
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#4a90e2' }}>
                         ₹{aov.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Per bespoke order</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.perBespokeOrder', 'Per bespoke order')}</span>
                     </div>
 
                     {/* Total Registered Clients */}
@@ -5754,11 +5756,11 @@ function App() {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Client Base</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.clientBase', 'Client Base')}</span>
                       <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#2ec4b6' }}>
-                        {customersList.length} Clients
+                        {customersList.length} {customersList.length === 1 ? t('analyticsPage.clientSingle', 'Client') : t('analyticsPage.clientPlural', 'Clients')}
                       </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total boutique directory profiles</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.totalDirectoryProfiles', 'Total boutique directory profiles')}</span>
                     </div>
                   </div>
 
@@ -5773,13 +5775,13 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Popular Garment Types</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.popularGarmentTypes', 'Popular Garment Types')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {topGarmentsList.map(([garment, count], idx) => {
                             const pct = Math.round((count / garmentTotal) * 100) || 0;
                             return (
                               <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                                   <span>{garment}</span>
                                   <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
                                 </div>
@@ -5798,7 +5800,7 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Customer Segmentation</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.customerSegmentation', 'Customer Segmentation')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                           {(() => {
                             const vipCount = customersList.filter(c => c.segment === 'VIP').length;
@@ -5807,9 +5809,9 @@ function App() {
                             const total = customersList.length || 1;
 
                             return [
-                              { name: 'VIP (Very Important Customer)', count: vipCount, color: '#d4af37' },
-                              { name: 'HVC (High Value Customer)', count: hvcCount, color: '#a855f7' },
-                              { name: 'General Customers', count: generalCount, color: '#9ca3af' }
+                              { name: t('analyticsPage.vipCustomer', 'VIP (Very Important Customer)'), count: vipCount, color: '#d4af37' },
+                              { name: t('analyticsPage.hvcCustomer', 'HVC (High Value Customer)'), count: hvcCount, color: '#a855f7' },
+                              { name: t('analyticsPage.generalCustomers', 'General Customers'), count: generalCount, color: '#9ca3af' }
                             ].map((seg, idx) => {
                               const pct = Math.round((seg.count / total) * 100);
                               return (
@@ -5837,21 +5839,21 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Neckline & Sleeve Trends</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.necklineSleeveTrends', 'Neckline & Sleeve Trends')}</h3>
                         <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                           <div>
-                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Top Necklines</h4>
+                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topNecklines', 'Top Necklines')}</h4>
                             {topNecklinesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifycontent: 'space-between', padding: '4px 0' }}>
+                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
                                 <span style={{ fontWeight: 600 }}>{count}</span>
                               </div>
                             ))}
                           </div>
                           <div>
-                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Top Sleeves</h4>
+                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topSleeves', 'Top Sleeves')}</h4>
                             {topSleevesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifycontent: 'space-between', padding: '4px 0' }}>
+                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
                                 <span style={{ fontWeight: 600 }}>{count}</span>
                               </div>
@@ -5869,22 +5871,22 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Staff & Workload Overview</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.staffWorkloadOverview', 'Staff & Workload Overview')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Total Tailoring Team</span>
-                            <span style={{ fontWeight: 600 }}>{tailors.length} Tailors</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{t('analyticsPage.totalTailoringTeam', 'Total Tailoring Team')}</span>
+                            <span style={{ fontWeight: 600 }}>{tailors.length} {tailors.length === 1 ? t('analyticsPage.tailorSingle', 'Tailor') : t('analyticsPage.tailorPlural', 'Tailors')}</span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Busy / Assigned Tailors</span>
-                            <span style={{ fontWeight: 600, color: '#ffc107' }}>{busyTailors} Busy</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{t('analyticsPage.busyAssignedTailors', 'Busy / Assigned Tailors')}</span>
+                            <span style={{ fontWeight: 600, color: '#ffc107' }}>{busyTailors} {t('analyticsPage.busyStatus', 'Busy')}</span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Available Staff capacity</span>
-                            <span style={{ fontWeight: 600, color: '#2ec4b6' }}>{tailors.length - busyTailors} Free</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{t('analyticsPage.availableStaffCapacity', 'Available Staff capacity')}</span>
+                            <span style={{ fontWeight: 600, color: '#2ec4b6' }}>{tailors.length - busyTailors} {t('analyticsPage.freeStatus', 'Free')}</span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Atelier Average Rating</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{t('analyticsPage.atelierAvgRating', 'Atelier Average Rating')}</span>
                             <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                               ⭐ {avgTailorRating.toFixed(2)}
                             </span>
@@ -5898,14 +5900,14 @@ function App() {
                         borderRadius: '12px',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Order Status Breakdown</h3>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.orderStatusBreakdown', 'Order Status Breakdown')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {Object.entries(dashboardData?.stats?.status_distribution || {}).map(([status, count], idx) => {
                             const pct = Math.round((count / ordersList.length) * 100) || 0;
                             return (
                               <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
-                                  <span>{status}</span>
+                                  <span>{t(`status.${status}`, status)}</span>
                                   <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
                                 </div>
                                 <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
@@ -5930,20 +5932,21 @@ function App() {
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        My Account Settings
+                        {t('accountPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Manage your boutique profile and atelier details.</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('accountPage.subtitle')}</p>
                     </div>
                   </div>
-                  <div className="portal-header-right">
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
+
 
                 <div className="account-settings-container" style={{ marginTop: '24px', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '32px' }}>
                   {/* Left profile summary */}
@@ -5970,13 +5973,13 @@ function App() {
                     
                     <div style={{ alignSelf: 'stretch', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
                       <div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Tenant Domain</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>{t('accountPage.tenantDomain', 'Tenant Domain')}</div>
                         <div style={{ fontWeight: 600, color: 'var(--accent-text, #b07c40)' }}>
                           {localStorage.getItem('tenant_id') || '--'}
                         </div>
                       </div>
                       <div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Atelier Email</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>{t('accountPage.atelierEmail', 'Atelier Email')}</div>
                         <div style={{ fontWeight: 600 }}>{currentUser.email}</div>
                       </div>
                       {/* "Registered Since: June 2024" was a literal, shown to
@@ -5997,7 +6000,7 @@ function App() {
                       succeed should not be drawn. */}
                   {(!currentUser?.role || currentUser.role === 'Owner') && (
                   <div className="content-card">
-                    <h3 className="card-title">Edit Boutique Profile</h3>
+                    <h3 className="card-title">{t('accountPage.editProfile', 'Edit Boutique Profile')}</h3>
                     <form 
                       style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} 
                       onSubmit={async (e) => {
@@ -6023,7 +6026,7 @@ function App() {
                       }}
                     >
                       <div className="form-group">
-                        <label className="form-label">Boutique Name</label>
+                        <label className="form-label">{t('accountPage.boutiqueName', 'Boutique Name')}</label>
                         <input 
                           type="text" 
                           name="boutiqueName"
@@ -6035,7 +6038,7 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">Boutique Address</label>
+                        <label className="form-label">{t('accountPage.boutiqueAddress', 'Boutique Address')}</label>
                         <textarea 
                           name="boutiqueAddress"
                           className="form-control" 
@@ -6048,7 +6051,7 @@ function App() {
 
                       <div className="form-grid-2">
                         <div className="form-group">
-                          <label className="form-label">Boutique Phone</label>
+                          <label className="form-label">{t('accountPage.boutiquePhone', 'Boutique Phone')}</label>
                           <input 
                             type="text" 
                             name="boutiquePhone"
@@ -6059,7 +6062,7 @@ function App() {
                           />
                         </div>
                         <div className="form-group">
-                          <label className="form-label">Boutique Email</label>
+                          <label className="form-label">{t('accountPage.boutiqueEmail', 'Boutique Email')}</label>
                           <input 
                             type="email" 
                             name="boutiqueEmail"
@@ -6072,7 +6075,7 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">Boutique Logo</label>
+                        <label className="form-label">{t('accountPage.boutiqueLogo', 'Boutique Logo')}</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '4px' }}>
                           {boutiqueSettings?.logo && (
                             <img 
@@ -6101,22 +6104,27 @@ function App() {
                             defaultChecked={!!boutiqueSettings?.design_approval_required}
                           />
                           <span>
-                            <span style={{ fontWeight: 600 }}>Require approval for new designs</span>
+                            <span style={{ fontWeight: 600 }}>{t('accountPage.requireApproval', 'Require approval for new designs')}</span>
                             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                              When on, uploads from staff other than you wait for your review before appearing in the library.
+                              {t('accountPage.approvalHelp', 'When on, uploads from staff other than you wait for your review before appearing in the library.')}
                             </div>
                           </span>
                         </label>
                       </div>
 
                       <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-start', marginTop: '8px' }}>
-                        Save Changes
+                        {t('accountPage.saveChanges', 'Save Changes')}
                       </button>
                     </form>
                   </div>
                   )}
                 </div>
               </>
+            )}
+
+            {/* 9. SETTINGS TAB */}
+            {dashboardTab === 'settings' && (
+              <SettingsPage currentUser={currentUser} boutiqueSettings={boutiqueSettings} />
             )}
           </main>
 
@@ -6126,14 +6134,14 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingFabric ? 'Edit Fabric Details' : 'Add New Fabric to Catalog'}
+                    {editingFabric ? t('fabricsPage.editFabricDetails', 'Edit Fabric Details') : t('fabricsPage.addNewFabricTitle', 'Add New Fabric to Catalog')}
                   </h3>
                   <button className="close-btn" onClick={() => setShowFabricModal(false)}><X size={20} /></button>
                 </div>
                 
                 <form onSubmit={handleSaveFabric} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Fabric Name</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.fabricName', 'Fabric Name')}</label>
                     <input 
                       type="text" 
                       required 
@@ -6146,7 +6154,7 @@ function App() {
 
                   <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Material</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.material', 'Material')}</label>
                       <input 
                         type="text" 
                         required 
@@ -6157,7 +6165,7 @@ function App() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Color</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.color', 'Color')}</label>
                       <input 
                         type="text" 
                         required 
@@ -6170,7 +6178,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Price per Meter (₹)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}</label>
                     <input 
                       type="number" 
                       required 
@@ -6184,7 +6192,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Image URL (Optional)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}</label>
                     <input 
                       type="url" 
                       className="form-control" 
@@ -6201,12 +6209,12 @@ function App() {
                       checked={fabricForm.is_available}
                       onChange={e => setFabricForm({...fabricForm, is_available: e.target.checked})}
                     />
-                    <label htmlFor="fabricAvailable" style={{ fontSize: '13px', cursor: 'pointer' }}>Available in Inventory</label>
+                    <label htmlFor="fabricAvailable" style={{ fontSize: '13px', cursor: 'pointer' }}>{t('fabricsPage.availableInInventory', 'Available in Inventory')}</label>
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Fabric</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                    <button type="submit" className="btn-primary">{t('fabricsPage.saveFabric', 'Save Fabric')}</button>
                   </div>
                 </form>
               </div>
@@ -6285,14 +6293,14 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingTailor ? 'Edit Tailor Details' : 'Add New Tailor Profile'}
+                    {editingTailor ? t('tailorsPage.editTailorTitle', 'Edit Tailor Details') : t('tailorsPage.addTailorTitle', 'Add New Tailor Profile')}
                   </h3>
                   <button className="close-btn" onClick={() => setShowTailorModal(false)}><X size={20} /></button>
                 </div>
                 
                 <form onSubmit={handleSaveTailor} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Tailor Name</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.tailorName', 'Tailor Name')}</label>
                     <input 
                       type="text" 
                       required 
@@ -6304,7 +6312,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Email Address (for login)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.emailAddressLogin', 'Email Address (for login)')}</label>
                     <input 
                       type="email" 
                       required 
@@ -6316,7 +6324,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Specialty</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.specialty', 'Specialty')}</label>
                     <input 
                       type="text" 
                       required 
@@ -6329,7 +6337,7 @@ function App() {
 
                   <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Rating (1.0 — 5.0)</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.ratingLabel', 'Rating (1.0 — 5.0)')}</label>
                       <input 
                         type="number" 
                         required 
@@ -6343,20 +6351,20 @@ function App() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Status</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('common.status', 'Status')}</label>
                       <select 
                         className="form-control"
                         value={tailorForm.status}
                         onChange={e => setTailorForm({...tailorForm, status: e.target.value})}
                       >
-                        <option value="Available">Available</option>
-                        <option value="Busy">Busy</option>
+                        <option value="Available">{t('tailorsPage.available', 'Available')}</option>
+                        <option value="Busy">{t('tailorsPage.busy', 'Busy')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Staff Role</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.staffRole', 'Staff Role')}</label>
                     <select 
                       className="form-control"
                       value={tailorForm.role}
@@ -6372,8 +6380,8 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Tailor</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                    <button type="submit" className="btn-primary">{t('tailorsPage.saveTailorBtn', 'Save Tailor')}</button>
                   </div>
                 </form>
               </div>
@@ -6386,36 +6394,27 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    Share Login Credentials
+                    {t('tailorsPage.shareCredentialsTitle', 'Share Login Credentials')}
                   </h3>
                   <button className="close-btn" onClick={() => setShareCredsTailor(null)}><X size={20} /></button>
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Provide these credentials to <strong>{shareCredsTailor.name}</strong> so they can log in to view and manage their assignments.
+                    {t('tailorsPage.shareCredentialsHelp', 'Provide these credentials so they can log in to view and manage their assignments.')}
                   </p>
 
                   <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Login Portal URL</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.loginPortalUrl', 'Login Portal URL')}</span>
                       <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{window.location.origin}</div>
                     </div>
                     <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Username / Email</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.usernameEmail', 'Username / Email')}</span>
                       <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{shareCredsTailor.email}</div>
                     </div>
-                    {/* The password is generated per account and returned on
-                        the one response that created it -- it is never stored
-                        in readable form, so this panel can only show it in the
-                        moment it was made. Opened from the roster later, there
-                        is nothing to show, and saying so is the honest answer:
-                        this used to print a fixed literal that was in the
-                        repository and in this bundle, and which stopped being
-                        the real password the moment anyone set the override
-                        environment variable the code recommended. */}
                     <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Temporary Password</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.temporaryPassword', 'Temporary Password')}</span>
                       {shareCredsTailor.bootstrap_password ? (
                         <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', fontFamily: 'ui-monospace, monospace', letterSpacing: '.5px' }}>{shareCredsTailor.bootstrap_password}</div>
                       ) : (
@@ -6428,7 +6427,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShareCredsTailor(null)}>Close</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShareCredsTailor(null)}>{t('common.cancel', 'Close')}</button>
                     
                     {/* Copy to Clipboard */}
                     <button 
@@ -6443,7 +6442,7 @@ function App() {
                       }}
                       style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <Copy size={14} /> Copy
+                      <Copy size={14} /> {t('tailorsPage.copyBtn', 'Copy')}
                     </button>
 
                     {/* Share via WhatsApp */}
@@ -6458,7 +6457,7 @@ function App() {
                       }}
                       style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <MessageSquare size={14} /> Share WhatsApp
+                      <MessageSquare size={14} /> {t('tailorsPage.shareWhatsappBtn', 'Share WhatsApp')}
                     </button>
                   </div>
                 </div>
@@ -6472,14 +6471,14 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingDesign ? 'Edit Design Details' : 'Add New Design to Collection'}
+                    {editingDesign ? t('designsPage.editDesignDetails', 'Edit Design Details') : t('designsPage.addNewDesignTitle', 'Add New Design to Collection')}
                   </h3>
                   <button className="close-btn" onClick={() => setShowDesignModal(false)}><X size={20} /></button>
                 </div>
                 
                 <form onSubmit={handleSaveDesign} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Design Name</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.designName', 'Design Name')}</label>
                     <input 
                       type="text" 
                       required 
@@ -6492,36 +6491,36 @@ function App() {
 
                   <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Garment Category</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.garmentCategory', 'Garment Category')}</label>
                       <select 
                         className="form-control"
                         value={designForm.garment_type}
                         onChange={e => setDesignForm({...designForm, garment_type: e.target.value})}
                       >
-                        <option value="Lehenga">Lehenga</option>
-                        <option value="Gown">Gown</option>
-                        <option value="Saree">Saree</option>
-                        <option value="Kurti">Kurti</option>
-                        <option value="Sherwani">Sherwani</option>
-                        <option value="Anarkali">Anarkali</option>
+                        <option value="Lehenga">{t('designsPage.lehenga', 'Lehenga')}</option>
+                        <option value="Gown">{t('designsPage.gown', 'Gown')}</option>
+                        <option value="Saree">{t('designsPage.saree', 'Saree')}</option>
+                        <option value="Kurti">{t('designsPage.kurti', 'Kurti')}</option>
+                        <option value="Sherwani">{t('designsPage.sherwani', 'Sherwani')}</option>
+                        <option value="Anarkali">{t('designsPage.anarkali', 'Anarkali')}</option>
                       </select>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Design Type</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.designType', 'Design Type')}</label>
                       <select 
                         className="form-control"
                         value={designForm.is_boutique}
                         onChange={e => setDesignForm({...designForm, is_boutique: e.target.value === 'true' || e.target.value === true})}
                       >
-                        <option value="true">Boutique Catalog Collection</option>
-                        <option value="false">AI Suggestion Template</option>
+                        <option value="true">{t('designsPage.boutiqueCatalogCollection', 'Boutique Catalog Collection')}</option>
+                        <option value="false">{t('designsPage.aiSuggestionTemplate', 'AI Suggestion Template')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Neckline Style (Optional)</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.necklineStyleOptional', 'Neckline Style (Optional)')}</label>
                       <input 
                         type="text" 
                         className="form-control" 
@@ -6531,7 +6530,7 @@ function App() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Sleeve Style (Optional)</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.sleeveStyleOptional', 'Sleeve Style (Optional)')}</label>
                       <input 
                         type="text" 
                         className="form-control" 
@@ -6543,7 +6542,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Catalog Price (₹) - Only for Boutique Catalog</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.catalogPriceLabel', 'Catalog Price (₹) - Only for Boutique Catalog')}</label>
                     <input 
                       type="number" 
                       min="0"
@@ -6557,7 +6556,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Image URL (Optional)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.imageUrlOptional', 'Image URL (Optional)')}</label>
                     <input 
                       type="url" 
                       className="form-control" 
@@ -6568,7 +6567,7 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Description (Optional)</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.descriptionOptional', 'Description (Optional)')}</label>
                     <textarea 
                       className="form-control" 
                       placeholder="e.g. Hand-embroidered with gold thread, georgette base..." 
@@ -6579,8 +6578,8 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary">Save Design</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                    <button type="submit" className="btn-primary">{t('designsPage.saveDesign', 'Save Design')}</button>
                   </div>
                 </form>
               </div>
@@ -6649,21 +6648,45 @@ function App() {
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             
             <nav className="portal-menu">
-              <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); }}><Users size={16} /> Dashboard</a>
-              {/* My Orders / Appointments / Measurements sat here with no
-                  onClick and no href, between two links that work -- so on the
-                  order-selector sidebar three of five items silently did
-                  nothing. Deleted rather than wired: each already has a real
-                  home on the dashboard this screen returns to. */}
-              <a className="portal-menu-item" onClick={handleLogout}><User size={16} /> Logout</a>
+              {(!currentUser.role || currentUser.role === 'Owner') ? (
+                <>
+                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.dashboard')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> {t('nav.invoices')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> {t('nav.analytics')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> {t('nav.manageFabrics')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> {t('nav.inventory')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.manageTailors')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.manageDesigns')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
+                </>
+              ) : currentUser.role === 'Master' ? (
+                <>
+                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
+                </>
+              ) : currentUser.role === 'Designer' ? (
+                <>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.myWork')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.designStudio')}</a>
+                </>
+              ) : (
+                <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
+              )}
+              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> {t('nav.account')}</a>
+              <a className={`portal-menu-item ${dashboardTab === 'settings' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('settings'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Settings size={16} /> {t('nav.settings')}</a>
+              <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
             </nav>
           </aside>
 
           <main className="portal-main">
             <div className="selector-container">
               <div className="selector-header">
-                <h1 className="selector-title" style={{ fontFamily: 'var(--font-serif)', fontSize: '32px' }}>Create New Custom Order</h1>
-                <p className="selector-subtitle" style={{ color: 'var(--text-secondary)' }}>Choose how you would like to initiate this bespoke order creation.</p>
+                <h1 className="selector-title" style={{ fontFamily: 'var(--font-serif)', fontSize: '32px' }}>{t('entry.createOrderTitle', 'Create New Custom Order')}</h1>
+                <p className="selector-subtitle" style={{ color: 'var(--text-secondary)' }}>{t('entry.createOrderSubtitle', 'Choose how you would like to initiate this bespoke order creation.')}</p>
               </div>
 
               {/* Orders already being written. Offered, never resumed
@@ -6673,10 +6696,12 @@ function App() {
               {resumableDrafts.length > 0 && (
                 <div className="content-card" style={{ marginBottom: '20px' }}>
                   <div style={{ fontWeight: 600, marginBottom: '4px' }}>
-                    You have {resumableDrafts.length === 1 ? 'an order' : `${resumableDrafts.length} orders`} in progress
+                    {resumableDrafts.length === 1
+                      ? t('entry.orderInProgressOne', 'You have an order in progress')
+                      : t('entry.orderInProgressMany', `You have ${resumableDrafts.length} orders in progress`, { count: resumableDrafts.length })}
                   </div>
                   <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                    Saved automatically. Pick one up where you left it, or discard it.
+                    {t('entry.savedAutomaticallySub', 'Saved automatically. Pick one up where you left it, or discard it.')}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {resumableDrafts.map(draft => {
@@ -6688,26 +6713,25 @@ function App() {
                                                      paddingTop: '10px' }}>
                           <div style={{ flex: '1 1 260px' }}>
                             <div style={{ fontWeight: 600 }}>
-                              {draft.customer_name || 'Unnamed customer'}
+                              {draft.customer_name || t('entry.unnamedCustomer', 'Unnamed customer')}
                             </div>
                             <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                              {garments.length ? garments.join(', ') : 'No garment chosen yet'}
-                              {' · '}Step {draft.current_step} of 6
-                              {' · '}last saved {new Date(draft.updated_at).toLocaleString()}
+                              {garments.length ? garments.join(', ') : t('wizard.noGarmentChosen', 'No garment chosen yet')}
+                              {' · '}{t('entry.stepXofY', `Step ${draft.current_step} of 6`, { step: draft.current_step })}
+                              {' · '}{t('entry.lastSaved', 'last saved')} {new Date(draft.updated_at).toLocaleString()}
                             </div>
                           </div>
                           <button type="button" className="btn-primary" onClick={() => hydrateWizard(draft)}>
-                            Resume
+                            {t('entry.resume', 'Resume')}
                           </button>
                           {discardingDraftId === draft.id ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                                Discard this order? Nothing has been booked, but everything
-                                entered on it will be lost.
+                                {t('entry.discardConfirmDesc', 'Discard this order? Nothing has been booked, but everything entered on it will be lost.')}
                               </span>
                               <button type="button" className="btn-secondary"
                                       onClick={() => setDiscardingDraftId(null)}>
-                                Keep it
+                                {t('entry.keepIt', 'Keep it')}
                               </button>
                               <button type="button" className="btn-primary" onClick={async () => {
                                 try {
@@ -6720,13 +6744,13 @@ function App() {
                                   setDiscardingDraftId(null);
                                 }
                               }}>
-                                Discard permanently
+                                {t('entry.discardPermanently', 'Discard permanently')}
                               </button>
                             </div>
                           ) : (
                             <button type="button" className="btn-secondary"
                                     onClick={() => setDiscardingDraftId(draft.id)}>
-                              Discard
+                              {t('entry.discard', 'Discard')}
                             </button>
                           )}
                         </div>
@@ -6742,26 +6766,26 @@ function App() {
                   <div className="selector-option-icon">
                     <Users size={32} />
                   </div>
-                  <h3 className="selector-option-title">Existing Customer</h3>
-                  <p className="selector-option-desc">Select a client profile from your database and retrieve their measurements.</p>
+                  <h3 className="selector-option-title">{t('entry.existingCustomerTitle', 'Existing Customer')}</h3>
+                  <p className="selector-option-desc">{t('entry.existingCustomerDesc', 'Select a client profile from your database and retrieve their measurements.')}</p>
                   
                   <div className="selector-features-list">
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Use saved measurements</span>
+                      <span>{t('entry.useSavedMeasurements', 'Use saved measurements')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>View past orders & prefs</span>
+                      <span>{t('entry.viewPastOrdersPrefs', 'View past orders & prefs')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Faster order creation</span>
+                      <span>{t('entry.fasterOrderCreation', 'Faster order creation')}</span>
                     </div>
                   </div>
 
                   <button className="selector-card-btn">
-                    Select Existing Customer
+                    {t('entry.selectExistingCustomerBtn', 'Select Existing Customer')}
                     <ArrowRight size={14} />
                   </button>
                 </div>
@@ -6771,26 +6795,26 @@ function App() {
                   <div className="selector-option-icon">
                     <User size={32} />
                   </div>
-                  <h3 className="selector-option-title">New Customer</h3>
-                  <p className="selector-option-desc">Create a new customer profile and input their measurements from scratch.</p>
+                  <h3 className="selector-option-title">{t('entry.newCustomerTitle', 'New Customer')}</h3>
+                  <p className="selector-option-desc">{t('entry.newCustomerDesc', 'Create a new customer profile and input their measurements from scratch.')}</p>
 
                   <div className="selector-features-list">
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Add customer details</span>
+                      <span>{t('entry.addCustomerDetails', 'Add customer details')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Capture measurements</span>
+                      <span>{t('entry.captureMeasurements', 'Capture measurements')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Start custom journey</span>
+                      <span>{t('entry.startCustomJourney', 'Start custom journey')}</span>
                     </div>
                   </div>
 
                   <button className="selector-card-btn">
-                    Create New Customer
+                    {t('entry.createNewCustomerBtn', 'Create New Customer')}
                     <ArrowRight size={14} />
                   </button>
                 </div>
@@ -6798,65 +6822,65 @@ function App() {
 
               {/* Explanatory Flow Diagrams at the bottom */}
               <div className="selector-flow-explain-box">
-                <h4 className="selector-flow-explain-title">How the creation process works</h4>
+                <h4 className="selector-flow-explain-title">{t('entry.howProcessWorksTitle', 'How the creation process works')}</h4>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                   {/* Flow with Existing Customer */}
                   <div>
-                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>FLOW WITH EXISTING CUSTOMER:</h5>
+                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>{t('entry.flowExistingCustomerHeader', 'FLOW WITH EXISTING CUSTOMER:')}</h5>
                     <div className="flow-steps-visual">
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Users size={16} /></div>
-                        <span className="flow-step-node-title">Select Customer</span>
-                        <span className="flow-step-node-desc">Search and select client from database</span>
+                        <span className="flow-step-node-title">{t('entry.flowSelectCustomer', 'Select Customer')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowSelectCustomerDesc', 'Search and select client from database')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><FileText size={16} /></div>
-                        <span className="flow-step-node-title">Review Profile</span>
-                        <span className="flow-step-node-desc">Check sizes and preferences</span>
+                        <span className="flow-step-node-title">{t('entry.flowReviewProfile', 'Review Profile')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowReviewProfileDesc', 'Check sizes and preferences')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Sparkles size={16} /></div>
-                        <span className="flow-step-node-title">Create Order</span>
-                        <span className="flow-step-node-desc">Define styles, fabrics and details</span>
+                        <span className="flow-step-node-title">{t('entry.flowCreateOrder', 'Create Order')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowCreateOrderDesc', 'Define styles, fabrics and details')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Check size={16} /></div>
-                        <span className="flow-step-node-title">Proceed to Journey</span>
-                        <span className="flow-step-node-desc">Stitching and fitting commences</span>
+                        <span className="flow-step-node-title">{t('entry.flowProceedJourney', 'Proceed to Journey')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowProceedJourneyDesc', 'Stitching and fitting commences')}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Flow with New Customer */}
                   <div>
-                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>FLOW WITH NEW CUSTOMER:</h5>
+                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>{t('entry.flowNewCustomerHeader', 'FLOW WITH NEW CUSTOMER:')}</h5>
                     <div className="flow-steps-visual">
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><User size={16} /></div>
-                        <span className="flow-step-node-title">Add Personal Details</span>
-                        <span className="flow-step-node-desc">Input names and contact credentials</span>
+                        <span className="flow-step-node-title">{t('entry.flowAddPersonalDetails', 'Add Personal Details')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowAddPersonalDetailsDesc', 'Input names and contact credentials')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><Scissors size={16} /></div>
-                        <span className="flow-step-node-title">Capture Sizes</span>
-                        <span className="flow-step-node-desc">Log exact body dimensions</span>
+                        <span className="flow-step-node-title">{t('entry.flowCaptureSizes', 'Capture Sizes')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowCaptureSizesDesc', 'Log exact body dimensions')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><Compass size={16} /></div>
-                        <span className="flow-step-node-title">Style Preferences</span>
-                        <span className="flow-step-node-desc">Choose fabrics, cuts, necklines</span>
+                        <span className="flow-step-node-title">{t('entry.flowStylePreferences', 'Style Preferences')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowStylePreferencesDesc', 'Choose fabrics, cuts, necklines')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><ArrowRight size={16} /></div>
-                        <span className="flow-step-node-title">Proceed to Journey</span>
-                        <span className="flow-step-node-desc">Submit for creation workflow</span>
+                        <span className="flow-step-node-title">{t('entry.flowProceedJourney', 'Proceed to Journey')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowSubmitCreationWorkflowDesc', 'Submit for creation workflow')}</span>
                       </div>
                     </div>
                   </div>
@@ -6872,7 +6896,7 @@ function App() {
             <div className="existing-customer-search-modal">
               <div className="search-modal-card">
                 <div className="search-modal-header">
-                  <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Select Existing Customer</h3>
+                  <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{t('entry.selectExistingCustomerModalTitle', 'Select Existing Customer')}</h3>
                   <button className="close-btn" onClick={() => setShowSearchModal(false)}><X size={20} /></button>
                 </div>
                 
@@ -6880,7 +6904,7 @@ function App() {
                   <Search size={18} />
                   <input 
                     type="text" 
-                    placeholder="Search by customer name or mobile number..." 
+                    placeholder={t('entry.searchCustomerPlaceholder', 'Search by customer name or mobile number...')} 
                     value={searchModalQuery}
                     onChange={(e) => setSearchModalQuery(e.target.value)}
                     className="form-control"
@@ -6891,7 +6915,7 @@ function App() {
                 <div className="search-results-list">
                   {filteredSearchModalCustomers.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                      No customers found matching "{searchModalQuery}"
+                      {t('entry.noCustomersFoundMatching', 'No customers found matching')} "{searchModalQuery}"
                     </div>
                   ) : (
                     filteredSearchModalCustomers.map(cust => (
@@ -6923,22 +6947,14 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', maxWidth: '1280px', margin: '0 auto 16px' }}>
               <div className="brand-logo" style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '1px', color: 'var(--text-primary)' }}>SCALEEZY</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                {/* "Need help?" carried cursor:pointer and no handler --
-                    the wizard's own header inviting a click that does nothing.
-                    There is no help surface to point it at. */}
-                {/* Whether the work is safe. The wizard writes to a draft on
-                    the server as the owner moves through it, and they need to
-                    know that without being told to trust it. A conflict is
-                    called out separately because it needs a different action:
-                    not "try again" but "reload, someone else moved this on". */}
                 {draftSaveState !== 'idle' && (
                   <span style={{ fontSize: '12.5px',
                                  color: draftSaveState === 'conflict' || draftSaveState === 'failed'
                                         ? '#c0392b' : 'var(--text-secondary)' }}>
-                    {draftSaveState === 'saving' && 'Saving…'}
-                    {draftSaveState === 'saved' && '✓ Saved'}
-                    {draftSaveState === 'failed' && 'Could not save — your last change is not stored'}
-                    {draftSaveState === 'conflict' && 'Changed in another tab — reload before continuing'}
+                    {draftSaveState === 'saving' && t('wizard.saving')}
+                    {draftSaveState === 'saved' && t('wizard.saved')}
+                    {draftSaveState === 'failed' && t('wizard.couldNotSave')}
+                    {draftSaveState === 'conflict' && t('wizard.conflict')}
                   </span>
                 )}
                 <span style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} onClick={() => setView('dashboard')}>
@@ -6950,13 +6966,14 @@ function App() {
             {/* Stepper progress bar */}
             <div className="stepper-progress-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1000px', margin: '0 auto', position: 'relative' }}>
               {[
-                { number: 1, label: 'Personal details', sub: 'Completed' },
-                { number: 2, label: 'Measurements', sub: 'Completed' },
-                { number: 3, label: 'AI Design Studio', sub: 'Discover & approve design' },
-                { number: 4, label: 'Fabric Selection', sub: 'Choose fabrics' },
-                { number: 5, label: 'Tailor Assignment', sub: 'Assign tailor' },
-                { number: 6, label: 'Complete & Create Order', sub: 'review & confirm' }
+                { number: 1, label: t('wizard.personalDetails'), sub: t('wizard.reviewAndConfirm', 'review & confirm') },
+                { number: 2, label: t('wizard.measurements'), sub: t('wizard.completed', 'Completed') },
+                { number: 3, label: t('wizard.aiDesignStudio'), sub: t('wizard.subDiscoverDesign', 'Discover & approve design') },
+                { number: 4, label: t('wizard.fabricSelection'), sub: t('wizard.subChooseFabrics', 'Choose fabrics') },
+                { number: 5, label: t('wizard.tailorAssignment'), sub: t('wizard.subAssignTailor', 'Assign tailor') },
+                { number: 6, label: t('wizard.completeOrder'), sub: t('wizard.reviewAndConfirm', 'review & confirm') }
               ].map((step, index) => {
+
                 const stepNum = index + 1;
                 const isCompleted = currentStep > stepNum;
                 const isActive = currentStep === stepNum;
@@ -6983,7 +7000,7 @@ function App() {
                         {step.label}
                       </span>
                       <span style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                        {isActive ? 'review & confirm' : (isCompleted ? 'Completed' : step.sub)}
+                        {isActive ? t('wizard.reviewAndConfirm', 'review & confirm') : (isCompleted ? t('wizard.completed', 'Completed') : step.sub)}
                       </span>
                     </div>
                     {index < 5 && (
@@ -7007,14 +7024,14 @@ function App() {
             {currentStep === 1 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Create Customer</h1>
-                  <p className="page-subtitle">Onboard new clients into the Scaleezy ecosystem. Capture style preferences and measurements for a personalized atelier experience.</p>
+                  <h1 className="page-title">{t('wizard.createCustomerTitle', 'Create Customer')}</h1>
+                  <p className="page-subtitle">{t('wizard.createCustomerSubtitle', 'Onboard new clients into the Scaleezy ecosystem. Capture style preferences and measurements for a personalized atelier experience.')}</p>
                 </div>
 
                 <div className="content-card">
                   <div className="card-title">
                     <Users size={20} />
-                    Customer Profile
+                    {t('wizard.customerProfile', 'Customer Profile')}
                   </div>
 
                   <div className="profile-upload-widget">
@@ -7027,7 +7044,7 @@ function App() {
                     </div>
                     <div className="photo-upload-actions">
                       <label className="upload-btn-label">
-                        Upload Photo
+                        {t('wizard.uploadPhoto', 'Upload Photo')}
                         <input 
                           type="file" 
                           id="profile-picker" 
@@ -7036,13 +7053,13 @@ function App() {
                           onChange={handleProfilePhotoChange}
                         />
                       </label>
-                      <span className="upload-btn-sub">JPG, PNG up to 5MB</span>
+                      <span className="upload-btn-sub">{t('wizard.uploadPhotoSub', 'JPG, PNG up to 5MB')}</span>
                     </div>
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">First Name <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.firstName', 'First Name')} <span className="required">*</span></label>
                       <input 
                         type="text" 
                         value={customerForm.first_name}
@@ -7052,7 +7069,7 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Last Name <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.lastName', 'Last Name')} <span className="required">*</span></label>
                       <input 
                         type="text" 
                         value={customerForm.last_name}
@@ -7065,7 +7082,7 @@ function App() {
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Mobile Number <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.mobileNumber', 'Mobile Number')} <span className="required">*</span></label>
                       <div className="input-wrapper">
                         <span className="input-icon-left" style={{ fontSize: '14px', left: '12px' }}>🇮🇳 +91</span>
                         <input 
@@ -7078,7 +7095,7 @@ function App() {
                       </div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Email Address <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.emailAddress', 'Email Address')} <span className="required">*</span></label>
                       <input 
                         type="email" 
                         value={customerForm.email_address || ''}
@@ -7090,19 +7107,19 @@ function App() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Address <span className="required">*</span></label>
+                    <label className="form-label">{t('wizard.address', 'Address')} <span className="required">*</span></label>
                     <input 
                       type="text" 
                       value={customerForm.address || ''}
                       onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})}
                       className="form-control" 
-                      placeholder="Street name, Apartment, City, State, PIN code"
+                      placeholder={t('wizard.addressPlaceholder', 'Street name, Apartment, City, State, PIN code')}
                     />
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">City / Region</label>
+                      <label className="form-label">{t('wizard.cityRegion', 'City / Region')}</label>
                       <input 
                         type="text" 
                         value={customerForm.city_region || ''}
@@ -7112,31 +7129,31 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Source</label>
+                      <label className="form-label">{t('wizard.source', 'Source')}</label>
                       <select 
                         value={customerForm.source}
                         onChange={(e) => setCustomerForm({...customerForm, source: e.target.value})}
                         className="form-control"
                       >
-                        <option value="Walk In">Walk In</option>
-                        <option value="Instagram">Instagram</option>
-                        <option value="Referral">Referral</option>
-                        <option value="Website">Website</option>
+                        <option value="Walk In">{t('wizard.walkIn', 'Walk In')}</option>
+                        <option value="Instagram">{t('wizard.instagram', 'Instagram')}</option>
+                        <option value="Referral">{t('wizard.referral', 'Referral')}</option>
+                        <option value="Website">{t('wizard.website', 'Website')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Customer Type</label>
+                      <label className="form-label">{t('wizard.customerType', 'Customer Type')}</label>
                       <select 
                         value={customerForm.customer_type}
                         onChange={(e) => setCustomerForm({...customerForm, customer_type: e.target.value})}
                         className="form-control"
                       >
-                        <option value="Women">Women</option>
-                        <option value="Men">Men</option>
-                        <option value="Kids">Kids</option>
+                        <option value="Women">{t('wizard.women', 'Women')}</option>
+                        <option value="Men">{t('wizard.men', 'Men')}</option>
+                        <option value="Kids">{t('wizard.kids', 'Kids')}</option>
                       </select>
                     </div>
                   </div>
@@ -7153,10 +7170,10 @@ function App() {
                       each one opens its own form in the next step. */}
                   <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
                     <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                      Dresses in this Order <span className="required">*</span>
+                      {t('wizard.dressesInOrder', 'Dresses in this Order')} <span className="required">*</span>
                     </label>
                     <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                      Pick every garment being stitched. Each one gets its own measurements and options.
+                      {t('wizard.dressesInOrderSub', 'Pick every garment being stitched. Each one gets its own measurements and options.')}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       {garmentTemplates.map(template => {
@@ -7175,10 +7192,6 @@ function App() {
                         );
                       })}
                     </div>
-                    {/* An empty picker used to render as a blank box with no
-                        explanation, which looks identical to "the boutique has
-                        no garments" and leaves the order form unusable. Say what
-                        went wrong and offer the retry. */}
                     {garmentTemplates.length === 0 && (
                       <div style={{ fontSize: '12.5px', color: garmentTemplatesError ? '#c0392b' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span>
@@ -7192,55 +7205,55 @@ function App() {
                           style={{ padding: '4px 10px', fontSize: '12px' }}
                           onClick={loadGarmentTemplates}
                         >
-                          Retry
+                          {t('common.retry', 'Retry')}
                         </button>
                       </div>
                     )}
                     {garmentTemplates.length > 0 && garmentJobs.length === 0 && (
                       <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '12px' }}>
-                        No garment chosen yet.
+                        {t('wizard.noGarmentChosen', 'No garment chosen yet.')}
                       </div>
                     )}
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Pattern Style</label>
+                      <label className="form-label">{t('wizard.patternStyle', 'Pattern Style')}</label>
                       <select 
                         value={customerForm.pattern_style || ''}
                         onChange={(e) => setCustomerForm({...customerForm, pattern_style: e.target.value})}
                         className="form-control"
                       >
-                        <option value="">Select Pattern Style</option>
-                        <option value="Floral Prints">Floral Prints</option>
-                        <option value="Traditional Brocade">Traditional Brocade</option>
-                        <option value="Solid Plain">Solid Plain</option>
-                        <option value="Geometrical">Geometrical</option>
+                        <option value="">{t('wizard.selectPatternStyle', 'Select Pattern Style')}</option>
+                        <option value="Floral Prints">{t('wizard.floralPrints', 'Floral Prints')}</option>
+                        <option value="Traditional Brocade">{t('wizard.traditionalBrocade', 'Traditional Brocade')}</option>
+                        <option value="Solid Plain">{t('wizard.solidPlain', 'Solid Plain')}</option>
+                        <option value="Geometrical">{t('wizard.geometrical', 'Geometrical')}</option>
                       </select>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Occasion</label>
+                      <label className="form-label">{t('wizard.occasion', 'Occasion')}</label>
                       <select 
                         value={customerForm.occasion || ''}
                         onChange={(e) => setCustomerForm({...customerForm, occasion: e.target.value})}
                         className="form-control"
                       >
-                        <option value="">Select Occasion</option>
-                        <option value="Wedding / Bridal">Wedding / Bridal</option>
-                        <option value="Festive wear">Festive wear</option>
-                        <option value="Formal Event">Formal Event</option>
-                        <option value="Casual wear">Casual wear</option>
+                        <option value="">{t('wizard.selectOccasion', 'Select Occasion')}</option>
+                        <option value="Wedding / Bridal">{t('wizard.weddingBridal', 'Wedding / Bridal')}</option>
+                        <option value="Festive wear">{t('wizard.festiveWear', 'Festive wear')}</option>
+                        <option value="Formal Event">{t('wizard.formalEvent', 'Formal Event')}</option>
+                        <option value="Casual wear">{t('wizard.casualWear', 'Casual wear')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Custom Requirements</label>
+                    <label className="form-label">{t('wizard.customRequirements', 'Custom Requirements')}</label>
                     <textarea 
                       value={customerForm.custom_requirements || ''}
                       onChange={(e) => setCustomerForm({...customerForm, custom_requirements: e.target.value})}
                       className="form-control"
-                      placeholder="Specify custom preferences (e.g. padding, side zippers, extra margin)"
+                      placeholder={t('wizard.customReqPlaceholder', 'Specify custom preferences (e.g. padding, side zippers, extra margin)')}
                     />
                   </div>
                 </div>
@@ -7249,12 +7262,12 @@ function App() {
                 <div className="content-card">
                   <div className="card-title">
                     <FolderOpen size={20} />
-                    Additional Information
+                    {t('wizard.additionalInformation', 'Additional Information')}
                   </div>
 
                   <div className="form-grid-3">
                     <div className="form-group">
-                      <label className="form-label">Date of Birth</label>
+                      <label className="form-label">{t('wizard.dateOfBirth', 'Date of Birth')}</label>
                       <input 
                         type="date" 
                         value={customerForm.date_of_birth || ''}
@@ -7263,7 +7276,7 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Occupation</label>
+                      <label className="form-label">{t('wizard.occupation', 'Occupation')}</label>
                       <input 
                         type="text" 
                         value={customerForm.occupation || ''}
@@ -7273,26 +7286,26 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Preferred Communication</label>
+                      <label className="form-label">{t('wizard.preferredCommunication', 'Preferred Communication')}</label>
                       <select 
                         value={customerForm.preferred_communication}
                         onChange={(e) => setCustomerForm({...customerForm, preferred_communication: e.target.value})}
                         className="form-control"
                       >
                         <option value="WhatsApp">WhatsApp</option>
-                        <option value="Call">Phone Call</option>
+                        <option value="Call">{t('wizard.phoneCall', 'Phone Call')}</option>
                         <option value="Email">Email</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Notes</label>
+                    <label className="form-label">{t('wizard.notes', 'Notes')}</label>
                     <textarea 
                       value={customerForm.notes || ''}
                       onChange={(e) => setCustomerForm({...customerForm, notes: e.target.value})}
                       className="form-control"
-                      placeholder="Any additional notes about the customer..."
+                      placeholder={t('wizard.customerNotesPlaceholder', 'Any additional notes about the customer...')}
                     />
                   </div>
                 </div>
@@ -7649,7 +7662,7 @@ function App() {
                                 }}
                               >
                                 <div className="fabric-image-container">
-                                  <img src={resolvedImg} alt={f.name} onError={(e) => {
+                                  <img src={resolvedImg || 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400'} alt={f.name} onError={(e) => {
                                     e.target.src = 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400';
                                   }} />
                                   {selectedFabric?.id === f.id && (
@@ -7706,8 +7719,8 @@ function App() {
             {currentStep === 5 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Review & Staff Assignment</h1>
-                  <p className="page-subtitle">Assign a Master Tailor to supervise/cut and a Stitching Tailor for the assembly.</p>
+                  <h1 className="page-title">{t('wizard.reviewStaffAssignmentTitle', 'Review & Staff Assignment')}</h1>
+                  <p className="page-subtitle">{t('wizard.reviewStaffAssignmentDesc', 'Assign a Master Tailor to supervise/cut and a Stitching Tailor for the assembly.')}</p>
                 </div>
 
                 <div className="responsive-profile-grid" style={{ gap: '24px' }}>
@@ -7715,12 +7728,12 @@ function App() {
                   <div className="content-card" style={{ margin: 0 }}>
                     <div className="card-title">
                       <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                      1. Assign Master Tailor (Cutting & Supervision)
+                      {t('wizard.assignMasterTailorTitle', '1. Assign Master Tailor (Cutting & Supervision)')}
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {tailors.filter(t => t.role === 'Master').length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors available. Add one to continue:</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('wizard.noMasterTailorsAvailable', 'No Master Tailors available. Add one to continue:')}</div>
                           <button 
                             className="btn-primary" 
                             style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -7730,37 +7743,37 @@ function App() {
                               setShowTailorModal(true);
                             }}
                           >
-                            <Plus size={14} /> Add Master Tailor
+                            <Plus size={14} /> {t('wizard.addMasterTailorBtn', 'Add Master Tailor')}
                           </button>
                         </div>
                       ) : (
-                        tailors.filter(t => t.role === 'Master').map(t => (
+                        tailors.filter(t => t.role === 'Master').map(tailorItem => (
                           <div 
-                            key={t.id} 
-                            className={`tailor-row ${selectedMaster?.id === t.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedMaster(t)}
+                            key={tailorItem.id} 
+                            className={`tailor-row ${selectedMaster?.id === tailorItem.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedMaster(tailorItem)}
                             style={{
                               display: 'flex',
                               gap: '16px',
                               alignItems: 'center',
                               padding: '12px',
                               borderRadius: '8px',
-                              border: selectedMaster?.id === t.id ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)',
-                              background: selectedMaster?.id === t.id ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
+                              border: selectedMaster?.id === tailorItem.id ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)',
+                              background: selectedMaster?.id === tailorItem.id ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
                               cursor: 'pointer'
                             }}
                           >
                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailorItem.name)}`} alt={tailorItem.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
                             <div className="tailor-info" style={{ flex: 1 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
-                                <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
-                                  {t.status}
+                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailorItem.name}</span>
+                                <span className={`order-row-badge ${tailorItem.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                  {tailorItem.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
                                 </span>
                               </div>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailorItem.specialty}</span>
                             </div>
                           </div>
                         ))
@@ -7772,12 +7785,12 @@ function App() {
                   <div className="content-card" style={{ margin: 0 }}>
                     <div className="card-title">
                       <Scissors size={20} />
-                      2. Assign Stitching Tailor (Sewing & Details)
+                      {t('wizard.assignStitchingTailorTitle', '2. Assign Stitching Tailor (Sewing & Details)')}
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {stitchingStaff().length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors available. Add one to continue:</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('wizard.noStitchingTailorsAvailable', 'No Stitching Tailors available. Add one to continue:')}</div>
                           <button 
                             className="btn-primary" 
                             style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -7787,37 +7800,37 @@ function App() {
                               setShowTailorModal(true);
                             }}
                           >
-                            <Plus size={14} /> Add Stitching Tailor
+                            <Plus size={14} /> {t('wizard.addStitchingTailorBtn', 'Add Stitching Tailor')}
                           </button>
                         </div>
                       ) : (
-                        stitchingStaff().map(t => (
+                        stitchingStaff().map(tailorItem => (
                           <div 
-                            key={t.id} 
-                            className={`tailor-row ${selectedTailor?.id === t.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedTailor(t)}
+                            key={tailorItem.id} 
+                            className={`tailor-row ${selectedTailor?.id === tailorItem.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedTailor(tailorItem)}
                             style={{
                               display: 'flex',
                               gap: '16px',
                               alignItems: 'center',
                               padding: '12px',
                               borderRadius: '8px',
-                              border: selectedTailor?.id === t.id ? '2px solid var(--border-color)' : '1px solid var(--border-color)',
-                              background: selectedTailor?.id === t.id ? 'rgba(0, 0, 0, 0.03)' : 'transparent',
+                              border: selectedTailor?.id === tailorItem.id ? '2px solid var(--border-color)' : '1px solid var(--border-color)',
+                              background: selectedTailor?.id === tailorItem.id ? 'rgba(0, 0, 0, 0.03)' : 'transparent',
                               cursor: 'pointer'
                             }}
                           >
                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailorItem.name)}`} alt={tailorItem.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
                             <div className="tailor-info" style={{ flex: 1 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
-                                <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
-                                  {t.status}
+                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailorItem.name}</span>
+                                <span className={`order-row-badge ${tailorItem.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                  {tailorItem.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
                                 </span>
                               </div>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailorItem.specialty}</span>
                             </div>
                           </div>
                         ))
@@ -7830,7 +7843,7 @@ function App() {
                 <div className="content-card" style={{ margin: '24px 0 0 0' }}>
                   <div className="card-title">
                     <Compass size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                    3. Delivery Method Configuration
+                    {t('wizard.deliveryMethodConfigTitle', '3. Delivery Method Configuration')}
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
@@ -7843,7 +7856,7 @@ function App() {
                           checked={deliveryMethod === 'Direct Pickup'}
                           onChange={() => setDeliveryMethod('Direct Pickup')}
                         />
-                        Direct Boutique Pickup
+                        {t('wizard.directBoutiquePickup', 'Direct Boutique Pickup')}
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
                         <input 
@@ -7853,14 +7866,14 @@ function App() {
                           checked={deliveryMethod === 'Courier'}
                           onChange={() => setDeliveryMethod('Courier')}
                         />
-                        Courier Delivery
+                        {t('wizard.courierDeliveryOption', 'Courier Delivery')}
                       </label>
                     </div>
 
                     {deliveryMethod === 'Courier' && (
                       <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', background: 'rgba(0,0,0,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '8px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Courier Service Provider</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.courierServiceProvider', 'Courier Service Provider')}</label>
                           <input 
                             type="text" 
                             className="form-control"
@@ -7871,7 +7884,7 @@ function App() {
                           />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Tracking Reference Number</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.trackingReferenceNumber', 'Tracking Reference Number')}</label>
                           <input 
                             type="text" 
                             className="form-control"
@@ -7881,7 +7894,7 @@ function App() {
                           />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', gridColumn: 'span 2' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Shipping / Delivery Address</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.shippingDeliveryAddress', 'Shipping / Delivery Address')}</label>
                           <textarea 
                             className="form-control"
                             rows="3"
@@ -8438,28 +8451,28 @@ function App() {
                 <div className="sidebar-card">
                   <div className="sidebar-card-title">
                     <Sparkles size={16} />
-                    How it works
+                    {t('wizard.howItWorks', 'How it works')}
                   </div>
                   <div className="instruction-steps">
                     <div className="instruction-step">
                       <div className="step-num-badge">1</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Enter Profile Details</span>
-                        <span className="instruction-step-desc">Provide size tags and contact channels.</span>
+                        <span className="instruction-step-title">{t('wizard.enterProfileDetails', 'Enter Profile Details')}</span>
+                        <span className="instruction-step-desc">{t('wizard.provideSizeTagsDesc', 'Provide size tags and contact channels.')}</span>
                       </div>
                     </div>
                     <div className="instruction-step">
                       <div className="step-num-badge">2</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Submit Measurements</span>
-                        <span className="instruction-step-desc">Collect 7 key body specifications.</span>
+                        <span className="instruction-step-title">{t('wizard.submitMeasurements', 'Submit Measurements')}</span>
+                        <span className="instruction-step-desc">{t('wizard.collectBodySpecsDesc', 'Collect 7 key body specifications.')}</span>
                       </div>
                     </div>
                     <div className="instruction-step">
                       <div className="step-num-badge">3</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Bespoke Design & Fabric</span>
-                        <span className="instruction-step-desc">Pick reference sketches and fabric rolls.</span>
+                        <span className="instruction-step-title">{t('wizard.bespokeDesignFabric', 'Bespoke Design & Fabric')}</span>
+                        <span className="instruction-step-desc">{t('wizard.pickRefSketchesDesc', 'Pick reference sketches and fabric rolls.')}</span>
                       </div>
                     </div>
                   </div>
@@ -8468,10 +8481,10 @@ function App() {
                 <div className="sidebar-card">
                   <div className="sidebar-card-title">
                     <ShieldCheck size={16} />
-                    Privacy Assured
+                    {t('wizard.privacyAssured', 'Privacy Assured')}
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    Customer details, style files, and measurement records are saved exclusively to the Scaleezy database cluster and never shared.
+                    {t('wizard.privacyAssuredDesc', 'Customer details, style files, and measurement records are saved exclusively to the Scaleezy database cluster and never shared.')}
                   </p>
                 </div>
               </>
@@ -8479,13 +8492,13 @@ function App() {
               <div className="sidebar-card">
                 <div className="sidebar-card-title">
                   <ShoppingBag size={18} />
-                  Order Summary
+                  {t('wizard.orderSummaryTitle', 'Order Summary')}
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 600 }}>{customerForm.customer_type} • {wizardGarmentLabel}</div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Fabric: {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer fabric'}
+                    {t('wizard.fabricLabel', 'Fabric:')} {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : t('wizard.customerFabricLabel', 'Customer fabric')}
                   </div>
                 </div>
 
@@ -8499,25 +8512,25 @@ function App() {
                     </div>
                   ))}
                   <div className="summary-item-row">
-                    <span>Packaging & Handling</span>
+                    <span>{t('wizard.packagingHandling', 'Packaging & Handling')}</span>
                     <span className="price-display">{formatMoney(quotePrices.packaging)}</span>
                   </div>
                   {parseFloat(quotePrices.discount || 0) > 0 && (
                     <div className="summary-item-row">
-                      <span>Discount</span>
+                      <span>{t('wizard.discount', 'Discount')}</span>
                       <span className="price-display">−{formatMoney(quotePrices.discount)}</span>
                     </div>
                   )}
                   <div className="summary-item-row" style={{ borderTop: '1px solid #f1f3f5', paddingTop: '10px' }}>
-                    <span>Subtotal</span>
+                    <span>{t('wizard.subtotal', 'Subtotal')}</span>
                     <span className="price-display">{formatMoney(getSubtotal())}</span>
                   </div>
                   <div className="summary-item-row">
-                    <span>Taxes (GST 5%)</span>
+                    <span>{t('wizard.taxesGst', 'Taxes (GST 5%)')}</span>
                     <span className="price-display">{formatMoney(getTaxes())}</span>
                   </div>
                   <div className="summary-item-row total">
-                    <span>Total Amount</span>
+                    <span>{t('wizard.totalAmount', 'Total Amount')}</span>
                     <span className="price-display total">{formatMoney(getTotalPrice())}</span>
                   </div>
                 </div>
@@ -8809,18 +8822,18 @@ function App() {
           <div className="footer-left-actions">
             <button className="btn-secondary" onClick={handleBack}>
               <ArrowLeft size={16} />
-              Back
+              {t('common.back', 'Back')}
             </button>
           </div>
           <div className="footer-right-actions">
             {/* Show Save as Draft only if they are creating a new customer profile (Step 1 or 2) */}
             {currentStep < 3 && (
               <button className="btn-secondary" onClick={handleSaveDraft} disabled={ctaBusy}>
-                Save as Draft
+                {t('wizard.saveAsDraft', 'Save as Draft')}
               </button>
             )}
             <button className="btn-primary" onClick={handleNext} disabled={ctaBusy} style={{ opacity: ctaBusy ? 0.6 : 1 }}>
-              {ctaBusy ? 'Working…' : <>{currentStep === 5 ? 'Confirm Order' : 'Next'}<ArrowRight size={16} /></>}
+              {ctaBusy ? t('wizard.working', 'Working…') : <>{currentStep === 5 ? t('wizard.confirmOrder', 'Confirm Order') : t('common.next', 'Next')}<ArrowRight size={16} /></>}
             </button>
           </div>
         </div>

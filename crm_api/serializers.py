@@ -181,6 +181,8 @@ class OrderSerializer(serializers.ModelSerializer):
     garment_jobs = serializers.SerializerMethodField()
     garments = serializers.SerializerMethodField()
     garment_label = serializers.SerializerMethodField()
+    order_status_display = serializers.SerializerMethodField()
+    delivery_method_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -190,16 +192,72 @@ class OrderSerializer(serializers.ModelSerializer):
             'customer_mobile', 'customer_email', 'customer_address', 'customer_type', 'customer_occasion',
             'customer_neckline_style', 'customer_sleeve_style', 'customer_back_style',
             'tailor', 'tailor_name', 'master', 'master_name',
-            'payment_status', 'order_status', 'base_price', 'fabric_price',
+            'payment_status', 'order_status', 'order_status_display', 'base_price', 'fabric_price',
             'embroidery_price', 'customization_price', 'tailoring_charges',
             'packaging_handling', 'discount', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
-            'delivery_method', 'courier_service', 'tracking_number', 'delivery_address',
+            'delivery_method', 'delivery_method_display', 'courier_service', 'tracking_number', 'delivery_address',
             'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image',
             'special_instructions',
             'master_verification', 'stage_histories', 'current_stage_key', 'production_status',
             'stages', 'activities', 'garment_images', 'garment_images_published',
             'garment_jobs',
         ]
+
+    def _get_lang(self):
+        request = self.context.get('request')
+        if request:
+            lang = request.headers.get('Accept-Language') or request.META.get('HTTP_ACCEPT_LANGUAGE', 'en')
+            if lang:
+                clean_lang = lang.split(',')[0].strip()[:2].lower()
+                if clean_lang in ('hi', 'en'):
+                    return clean_lang
+        return 'en'
+
+    def get_order_status_display(self, obj):
+        lang = self._get_lang()
+        status_val = obj.order_status or 'Received'
+        translations = {
+            'hi': {
+                'Received': 'प्राप्त हुआ',
+                'Confirmed': 'पुष्टि की गई',
+                'Stylist Review': 'स्टाइलिस्ट समीक्षा',
+                'Design & Creation': 'डिजाइन और निर्माण',
+                'Quality Check': 'गुणवत्ता जांच',
+                'Ready for Dispatch': 'डिस्पैच के लिए तैयार',
+                'Shipped': 'भेज दिया',
+                'Delivered': 'डिलीवर किया गया',
+            },
+            'en': {
+                'Received': 'Received',
+                'Confirmed': 'Confirmed',
+                'Stylist Review': 'Stylist Review',
+                'Design & Creation': 'Design & Creation',
+                'Quality Check': 'Quality Check',
+                'Ready for Dispatch': 'Ready for Dispatch',
+                'Shipped': 'Shipped',
+                'Delivered': 'Delivered',
+            }
+        }
+        return translations.get(lang, translations['en']).get(status_val, status_val)
+
+    def get_delivery_method_display(self, obj):
+        lang = self._get_lang()
+        method_val = obj.delivery_method or 'Direct Pickup'
+        translations = {
+            'hi': {
+                'Direct Pickup': 'प्रत्यक्ष पिकअप',
+                'Courier': 'कूरियर',
+                'Store Pickup': 'स्टोर पिकअप',
+                'प्रत्यक्ष पिकअप (Direct Pickup)': 'प्रत्यक्ष पिकअप',
+            },
+            'en': {
+                'Direct Pickup': 'Direct Pickup',
+                'Courier': 'Courier',
+                'Store Pickup': 'Store Pickup',
+                'प्रत्यक्ष पिकअप (Direct Pickup)': 'Direct Pickup',
+            }
+        }
+        return translations.get(lang, translations['en']).get(method_val, method_val)
 
     def get_customer_name(self, obj):
         if obj.customer:

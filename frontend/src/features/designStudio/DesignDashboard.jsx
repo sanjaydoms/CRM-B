@@ -3,6 +3,7 @@ import { Award, Clock, Image as ImageIcon, Key, UserPlus, Users } from 'lucide-r
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
 
 // The password now comes back from create-login, generated for that one
 // account and returned on that one response. The constant that used to live
@@ -238,6 +239,7 @@ function DesignerRoster() {
 }
 
 export default function DesignDashboard({ onOpenLibrary, canManageDesigners = false }) {
+  const { t } = useLanguage();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -253,23 +255,23 @@ export default function DesignDashboard({ onOpenLibrary, canManageDesigners = fa
       <div className="content-card" style={{ color: '#c0392b', fontSize: '13px' }}>
         The design dashboard could not be loaded — {error}
         <button className="btn-secondary" style={{ marginLeft: '10px', padding: '4px 10px', fontSize: '12px' }} onClick={load}>
-          Retry
+          {t('common.retry', 'Retry')}
         </button>
       </div>
     );
   }
 
-  if (!data) return <div className="content-card">Loading…</div>;
+  if (!data) return <div className="content-card">{t('common.loading', 'Loading…')}</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
-        <StatTile icon={ImageIcon} label="Total Designs" value={data.total_designs} />
-        <StatTile icon={Users} label="Designers" value={data.designers} />
-        <StatTile icon={Award} label="Collections" value={data.collections} />
+        <StatTile icon={ImageIcon} label={t('designsPage.totalDesigns', 'Total Designs')} value={data.total_designs} />
+        <StatTile icon={Users} label={t('designsPage.designers', 'Designers')} value={data.designers} />
+        <StatTile icon={Award} label={t('designsPage.collections', 'Collections')} value={data.collections} />
         <StatTile
           icon={Clock}
-          label="Pending Approval"
+          label={t('designsPage.pendingApproval', 'Pending Approval')}
           value={data.pending_approval}
           accent={data.pending_approval > 0}
         />
@@ -283,12 +285,12 @@ export default function DesignDashboard({ onOpenLibrary, canManageDesigners = fa
         </div>
       )}
 
-      <DesignStrip title="Recent Uploads" designs={data.recent_uploads} emptyText="Nothing uploaded yet." />
+      <DesignStrip title={t('designsPage.recentUploads', 'Recent Uploads')} designs={data.recent_uploads} emptyText="Nothing uploaded yet." />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
-        <DesignStrip title="Most Viewed" designs={data.most_viewed} metric="views" emptyText="No views recorded yet." />
-        <DesignStrip title="Most Ordered" designs={data.most_ordered} metric="orders" emptyText="No orders placed from the library yet." />
+        <DesignStrip title={t('designsPage.mostViewed', 'Most Viewed')} designs={data.most_viewed} metric="views" emptyText="No views recorded yet." />
+        <DesignStrip title={t('designsPage.mostOrdered', 'Most Ordered')} designs={data.most_ordered} metric="orders" emptyText="No orders placed from the library yet." />
       </div>
-      <DesignStrip title="Trending This Week" designs={data.trending} metric="views" emptyText="Nothing trending in the last 7 days." />
+      <DesignStrip title={t('designsPage.trendingThisWeek', 'Trending This Week')} designs={data.trending} metric="views" emptyText="Nothing trending in the last 7 days." />
 
       {canManageDesigners && <DesignerRoster />}
     </div>

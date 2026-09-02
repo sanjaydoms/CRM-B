@@ -36,6 +36,8 @@ const getHeaders = (isMultipart = false) => {
   if (tenantId) {
     headers['X-Tenant-ID'] = tenantId;
   }
+  const lang = localStorage.getItem('app_language') || 'en';
+  headers['Accept-Language'] = lang;
   return headers;
 };
 
@@ -105,6 +107,7 @@ export const api = {
     
     // Store token and tenant_id
     if (data.token) {
+      sessionEndedHandled = false;
       localStorage.setItem('token', data.token);
     }
     if (data.tenant_id) {

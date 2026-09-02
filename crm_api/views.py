@@ -193,7 +193,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 customer, request.data, user=request.user)
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
-        serializer = OrderSerializer(order)
+        serializer = OrderSerializer(order, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 class TailorViewSet(viewsets.ModelViewSet):
@@ -356,7 +356,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         merged.update({str(k): bool(v) for k, v in checks.items()})
         order.master_verification = merged
         order.save(update_fields=['master_verification'])
-        return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
+        return Response(OrderSerializer(order, context={'request': request}).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['PATCH'], url_path='update-status')
     def update_status(self, request, pk=None):
@@ -486,7 +486,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 f"finished garment here: {tracking_url(order)}",
             )
 
-        return Response(OrderSerializer(order).data)
+        return Response(OrderSerializer(order, context={'request': request}).data)
 
     @action(detail=False, methods=['GET'], url_path='customer-messages',
             permission_classes=[OwnerOnly])
@@ -550,7 +550,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = OrderSerializer(OrderRepository.get_by_id(order.pk))
+        serializer = OrderSerializer(OrderRepository.get_by_id(order.pk), context={'request': request})
         return Response(serializer.data)
 
     @action(detail=True, methods=['POST'], url_path='submit-stage-review')
@@ -581,7 +581,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 completed_by_name=performer,
             )
 
-        return Response(OrderSerializer(order).data)
+        return Response(OrderSerializer(order, context={'request': request}).data)
 
     @action(detail=True, methods=['POST'], url_path='assign-stage')
     def assign_stage(self, request, pk=None):
@@ -666,7 +666,10 @@ class OrderViewSet(viewsets.ModelViewSet):
                 files=request.FILES.getlist('images'),
                 request=request
             )
-            serializer = OrderSerializer(OrderRepository.get_by_id(updated_order.pk))
+            # Re-read: `order` was loaded with its stages prefetched, so the
+            # cache still holds the pre-transition rows and would serialise the
+            # stage as unchanged even though the write succeeded.
+            serializer = OrderSerializer(OrderRepository.get_by_id(updated_order.pk), context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
@@ -969,5 +972,5 @@ class OrderDraftViewSet(viewsets.ViewSet):
             return Response(
                 {'error': 'This draft has already been placed, or no longer exists.'},
                 status=status.HTTP_409_CONFLICT)
-        return Response(OrderSerializer(OrderRepository.get_by_id(order.pk)).data,
+        return Response(OrderSerializer(OrderRepository.get_by_id(order.pk), context={'request': request}).data,
                         status=status.HTTP_201_CREATED)
