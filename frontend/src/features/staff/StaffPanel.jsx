@@ -20,6 +20,7 @@ import { X, Plus, Clock, Wallet, TrendingUp, Users } from 'lucide-react';
 import { api } from '../../services/api';
 import Attendance from './Attendance';
 import Payroll from './Payroll';
+import Performance from './Performance';
 
 const panel = {
   background: 'var(--card-bg, rgba(255,255,255,0.03))',
@@ -691,7 +692,7 @@ export default function StaffPanel({ currentUser }) {
             ? TABS
             : canSeeTeam
               ? TABS.filter((t) => t.key !== 'payroll')
-              : TABS.filter((t) => t.key === 'attendance' || t.key === 'roster'))
+              : TABS.filter((t) => ['attendance', 'roster', 'performance'].includes(t.key)))
           .map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -720,10 +721,7 @@ export default function StaffPanel({ currentUser }) {
         )
       )}
       {tab === 'performance' && (
-        <NotBuiltYet
-          title="Performance is not switched on yet"
-          blurb="Completion rates, on-time delivery and rework are calculated from work already recorded against each person. Reviews arrive in a later phase."
-        />
+        <Performance isOwner={isOwner} canSeeTeam={canSeeTeam} />
       )}
     </>
   );

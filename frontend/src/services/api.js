@@ -1416,6 +1416,17 @@ Object.assign(api, {
   correctAttendance: (id, payload) =>
     staffRequest(`attendance/${id}/correct/`, { method: 'POST', body: payload }),
   getTimesheet: (params) => staffRequest('timesheet/', {}, params),
+
+  // Performance. Operational only -- this endpoint has no access to a rate, a
+  // payslip or a ledger, which is why a Master may read it.
+  getPerformance: (params) => staffRequest('performance/', {}, params),
+  getReviews: (params) => staffRequest('reviews/', {}, params),
+  createReview: (payload) => staffRequest('reviews/', { method: 'POST', body: payload }),
+  updateReview: (id, payload) =>
+    staffRequest(`reviews/${id}/`, { method: 'PATCH', body: payload }),
+  finaliseReview: (id) => staffRequest(`reviews/${id}/finalise/`, { method: 'POST', body: {} }),
+  acknowledgeReview: (id) =>
+    staffRequest(`reviews/${id}/acknowledge/`, { method: 'POST', body: {} }),
 });
 
 // --- Payroll -------------------------------------------------------------
