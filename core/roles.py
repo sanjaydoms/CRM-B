@@ -15,8 +15,14 @@ DesignerViewSet.create_login). A designer with no Tailor profile is not the
 boutique owner; they are a designer. Treating them as OWNER would hand a
 design-only account full access to customers, orders and financials -- exactly
 what the module's permission matrix promises never happens. So the fallback is
-no longer "no Tailor profile -> OWNER"; it is "check every kind of staff
-profile there is, and OWNER is what's left when none of them claim the user."
+no longer "no Tailor profile -> OWNER".
+
+Phase 8 finished that thought. Owner is now decided POSITIVELY and only
+positively -- by BoutiqueTenant.owner_email, the address signup puts on the
+tenant and on the owner's own User -- and an account that no profile claims and
+that is not the owner resolves to None, which every permission class denies.
+Ownership is never inferred from an absence, because the absences are reachable:
+deleting a staff row created one, and so did repointing an account's email.
 """
 
 OWNER = 'Owner'
@@ -78,19 +84,26 @@ def resolve_user_role(user):
     if designer_profile:
         return DESIGNER
 
-    # Nothing claims this account.
+    # Nothing claims this account, so it gets NOTHING.
     #
-    # This still answers OWNER, and that is a known weakness rather than a
-    # decision: an account orphaned of its profile is promoted to boutique
-    # owner. The clean fix is `return None`, and it works -- but it cannot be
-    # validated here, because django_tenants' TenantTestCase builds ONE tenant
-    # for the whole run, so only the first class's setup_tenant applies and
-    # every other class's owner then fails the positive check above. Rather
-    # than turn 600 tests red on a harness artefact, both ways an account can
-    # be orphaned are closed where they happen: DesignerViewSet.create_login
-    # refuses to attach a designer profile to the owner or to existing staff,
-    # and deleting a Designer deactivates the login it leaves behind.
+    # This answered OWNER until Phase 8, which made deleting a staff member an
+    # act of promotion: Tailor.user is SET_NULL, so removing somebody from the
+    # roster left their User with no profile of any kind, and their existing
+    # token -- password unchanged, never revoked -- resolved to boutique owner
+    # on the next request. Payroll, deposits, advances and payouts all opened.
+    # Firing someone was the exploit.
     #
-    # ponytail: owner-by-absence, closed at the two call sites instead. Make
-    # this `return None` once the test tenants are per-class.
-    return OWNER
+    # A MISSING PROFILE IS NOT PROOF OF OWNERSHIP. Owner is established
+    # positively above, from BoutiqueTenant.owner_email -- the address signup
+    # writes onto both the tenant and the owner's User, unique across the
+    # platform, and the same field LoginView already trusts to find a boutique.
+    # An account that matches nothing is unknown, and every permission class in
+    # core.permissions denies on None. Denial is the safe answer; ownership is
+    # not something to infer from an absence.
+    #
+    # The reason this was deferred through Phases 1-7 was recorded here as
+    # "TenantTestCase builds ONE tenant for the whole run". That is not true of
+    # this version: setUpClass constructs a fresh tenant and calls the class's
+    # own setup_tenant before saving, and tearDownClass drops it. Each class
+    # gets its own owner_email, so the positive check above fires for each.
+    return None

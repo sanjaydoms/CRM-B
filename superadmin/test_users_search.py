@@ -240,7 +240,12 @@ class UserActionTests(TransactionTestCase):
         """The only real sign-out this product has: DRF tokens never expire."""
         with temporary_tenant('sa_ua_tok', 'owner@tok3.test', 'Token Atelier'):
             with schema_context('sa_ua_tok'):
-                staff = User.objects.create_user(username='staff@tok3.test')
+                # Given the boutique's owner_email so the API answers at all:
+                # this test is about revoking a token, and it needs a call that
+                # succeeds BEFORE the revocation to have anything to prove.
+                # A profile-less account stopped being the owner in Phase 8.
+                staff = User.objects.create_user(
+                    username='staff@tok3.test', email='owner@tok3.test')
                 token, _ = Token.objects.get_or_create(user=staff)
                 key = token.key
 

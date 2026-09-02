@@ -7,6 +7,7 @@ from decimal import Decimal
 from django.utils import timezone
 from django.contrib.auth.models import User
 from rest_framework import viewsets, status, views
+from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -237,6 +238,42 @@ class TailorViewSet(viewsets.ModelViewSet):
         tailor = serializer.save()
         self._ensure_user_account(tailor)
 
+    def perform_destroy(self, instance):
+        """Removing someone from the roster must not leave a live login behind.
+
+        Tailor.user is SET_NULL, so deleting the row detached the account and
+        left it with no profile of any kind. Before Phase 8 that resolved to
+        OWNER, which made dismissing a staff member the act that promoted them:
+        their token still authenticated, and payroll, deposits, advances and
+        payouts all opened to it. core.roles now answers None for an unclaimed
+        account, so the escalation is closed at the root -- but a dismissed
+        person's token should stop working, not merely stop being privileged.
+
+        Deactivating rather than deleting the User, the same choice
+        DesignerViewSet.perform_destroy makes: DRF's TokenAuthentication
+        refuses an inactive user, so this revokes the token immediately, while
+        the row survives to keep the audit trail and the payroll, ledger,
+        payout and review history that points at it.
+        """
+        user = instance.user
+        super().perform_destroy(instance)
+        if user is None:
+            return
+        # One account, two jobs. A person can hold a Design Studio login AND a
+        # place on the production roster, and deactivating on the strength of
+        # one profile cuts off the role they still hold. Only an account that
+        # nothing claims any more is closed.
+        if getattr(user, 'designer_profile', None) is not None:
+            return
+        if user.is_active:
+            user.is_active = False
+            user.save(update_fields=['is_active'])
+        # Deactivation already makes DRF refuse the token, but the row is
+        # deleted rather than left inert: reinstating the person later
+        # reactivates the account, and a token minted before the dismissal must
+        # not come back to life with it.
+        Token.objects.filter(user=user).delete()
+
     def _ensure_user_account(self, tailor):
         if tailor.email:
             # Normalize on the way in. LoginView lowercases the whole input
@@ -246,6 +283,23 @@ class TailorViewSet(viewsets.ModelViewSet):
             # be signed in to -- the credentials were valid and nothing matched
             # them.
             tailor.email = tailor.email.strip().lower()
+
+            # Never point a staff account at the boutique owner's address.
+            # core.roles identifies the owner by comparing User.email to the
+            # tenant's owner_email, and Django's User.email is not unique, so
+            # putting the owner's address on a staff row -- which the block
+            # below then copies onto that row's OWN User -- made that staff
+            # login resolve as the owner. DesignerViewSet.create_login has
+            # refused the owner's address for this reason since designers got
+            # accounts; the roster never did.
+            #
+            # Left as a silent no-op on the account rather than an error: the
+            # roster row keeps whatever the owner typed, and the only thing
+            # refused is granting a login under it.
+            from django.db import connection as _conn
+            tenant_owner = (getattr(_conn.tenant, 'owner_email', '') or '').lower()
+            if tenant_owner and tailor.email == tenant_owner:
+                return
 
             # Repoint the account this staff member ALREADY has, rather than
             # hunting for one under the new address. Looking up by email meant
@@ -257,6 +311,16 @@ class TailorViewSet(viewsets.ModelViewSet):
             # opened and their notifications switched to the owner's feed.
             if tailor.user_id:
                 existing = tailor.user
+                # Never move the OWNER's account off the owner address. On a
+                # boutique that ran before Phase 8 the owner's own User can
+                # already be linked to a roster row (core/roles.py's docstring
+                # records how), and renaming it here breaks the only positive
+                # test for ownership -- permanently, because every screen that
+                # could undo it is then refused to them. The guard above stops
+                # a row being moved TO the owner's address; this stops the
+                # owner's account being moved away from it.
+                if (existing.email or '').lower() == tenant_owner:
+                    return
                 if existing.email != tailor.email:
                     existing.email = tailor.email
                     existing.username = self._unique_username(
@@ -265,6 +329,41 @@ class TailorViewSet(viewsets.ModelViewSet):
                 return
 
             user = User.objects.filter(email__iexact=tailor.email).first()
+
+            # An account already spoken for by ANOTHER roster row. Tailor.user
+            # is a OneToOne, so linking it raised IntegrityError -- after
+            # perform_create had already committed the Tailor row, leaving a
+            # 500 and an orphan. Refused the same way the owner's address is,
+            # and for the same reason: the row keeps what was typed, only the
+            # login is withheld.
+            if user is not None:
+                claimed = getattr(user, 'tailor_profile', None)
+                if claimed is not None and claimed.pk != tailor.pk:
+                    return
+
+            # A previously DELETED staff member, being taken back on.
+            #
+            # perform_destroy deactivates the login it detaches, so this User is
+            # inactive with a password nobody holds. Linking it as-is produced a
+            # roster row that looks healthy and an account that can never be
+            # signed into: authenticate() refuses an inactive user, and the
+            # password-reset endpoint answers the same generic 200 it gives an
+            # unknown address without sending anything. The owner had no way to
+            # see it and no way in the product to fix it.
+            #
+            # Re-hiring is therefore a re-issue: the account comes back with a
+            # NEW credential, printed once like any other. The old password and
+            # any token minted before the dismissal stay dead, which is the
+            # point -- coming back must not silently restore the credential the
+            # person left with.
+            if user is not None and not user.is_active:
+                bootstrap = secrets.token_urlsafe(9)
+                user.is_active = True
+                user.set_password(bootstrap)
+                user.save(update_fields=['is_active', 'password'])
+                Token.objects.filter(user=user).delete()
+                tailor._bootstrap_password = bootstrap
+
             if not user:
                 # One password, generated here, for this account only.
                 #

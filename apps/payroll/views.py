@@ -6,6 +6,8 @@ No new permission class: a Master supervises the floor and does not sign off its
 wages, and the Phase 2 financial boundary said so before any of this existed.
 """
 
+import uuid
+
 from django.utils.dateparse import parse_date
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from django.utils import timezone
@@ -88,7 +90,15 @@ class PayrollPeriodViewSet(viewsets.ReadOnlyModelViewSet):
         this safely repeatable -- there is no id to guess, and the same input
         always names the same week.
         """
-        requested = parse_date(request.data.get('week') or '')
+        # parse_date RAISES on a well-formed but impossible date and returns
+        # None only on a malformed one, so this was a 500 on {"week":
+        # "2026-02-30"}. The try/except below catches PayrollError only, and
+        # the raise happens before services.generate is ever reached.
+        try:
+            requested = parse_date(request.data.get('week') or '')
+        except ValueError:
+            return Response({'error': 'That is not a real date.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         day = requested or business_date(timezone.now())
         try:
             period = services.generate(day, user=request.user)
@@ -156,12 +166,24 @@ class PayrollRecordViewSet(viewsets.ReadOnlyModelViewSet):
         if resolve_user_role(self.request.user) != OWNER:
             mine = _own_staff(self.request.user)
             return queryset.filter(staff=mine) if mine else queryset.none()
+        # Parsed before the ORM sees them. `?staff=abc` reached
+        # IntegerField.get_prep_value and `?period=abc` reached UUIDField, and
+        # both raise exceptions DRF does not convert -- so a malformed query
+        # string on the payroll surface was a 500 rather than an empty page.
+        # Owner-only, so this was never an escalation; it is the "no security
+        # probe should produce an unexpected 500" rule.
         period = self.request.query_params.get('period')
         if period:
-            queryset = queryset.filter(period_id=period)
+            try:
+                queryset = queryset.filter(period_id=uuid.UUID(str(period)))
+            except (TypeError, ValueError, AttributeError):
+                return queryset.none()
         staff = self.request.query_params.get('staff')
         if staff:
-            queryset = queryset.filter(staff_id=staff)
+            try:
+                queryset = queryset.filter(staff_id=int(staff))
+            except (TypeError, ValueError):
+                return queryset.none()
         return queryset
 
     @action(detail=True, methods=['POST'], url_path='payout')
@@ -284,7 +306,10 @@ class StaffAdvanceViewSet(viewsets.ModelViewSet):
             return queryset.filter(staff=mine) if mine else queryset.none()
         staff = self.request.query_params.get('staff')
         if staff:
-            queryset = queryset.filter(staff_id=staff)
+            try:
+                queryset = queryset.filter(staff_id=int(staff))
+            except (TypeError, ValueError):
+                return queryset.none()
         if self.request.query_params.get('active') == 'true':
             queryset = queryset.filter(status=StaffAdvance.Status.ACTIVE)
         return queryset

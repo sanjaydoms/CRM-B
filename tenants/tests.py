@@ -46,8 +46,26 @@ def get_customers(token_schema, tenant_header):
     """
     from django.contrib.auth.models import User
     from rest_framework.authtoken.models import Token
+    from tenants.models import BoutiqueTenant
+
+    # The probe signs in as the boutique's OWN owner, by the address the
+    # registry row carries. It used to be a bare `probe@<schema>` with no email
+    # and no staff profile, which core.roles answered as OWNER simply because
+    # nothing claimed it -- the owner-by-absence rule Phase 8 removed. These
+    # tests are about tenant isolation and module gates, not about who owns the
+    # boutique, so the fix is to make the caller a real owner rather than to
+    # relax the rule they now trip over.
+    connection.set_schema_to_public()
+    owner_email = (BoutiqueTenant.objects
+                   .filter(schema_name=token_schema)
+                   .values_list('owner_email', flat=True)
+                   .first()) or f'probe@{token_schema}'
     with schema_context(token_schema):
-        user, _ = User.objects.get_or_create(username=f'probe@{token_schema}')
+        user, _ = User.objects.get_or_create(
+            username=owner_email, defaults={'email': owner_email})
+        if (user.email or '') != owner_email:
+            user.email = owner_email
+            user.save(update_fields=['email'])
         token, _ = Token.objects.get_or_create(user=user)
         key = token.key
     client = APIClient()
@@ -466,8 +484,25 @@ def tenant_client(schema_name):
     """
     from django.contrib.auth.models import User
     from rest_framework.authtoken.models import Token
+    from tenants.models import BoutiqueTenant
+
+    # Signed in as the boutique's own owner, for the reason get_customers()
+    # gives above: a bare probe account with no email and no staff profile was
+    # only ever admitted because core.roles used to answer OWNER for anything
+    # no profile claimed. The module gate is what these tests are about, and a
+    # 403 from the gate has to be distinguishable from a 403 for not being
+    # anybody -- which it is not if the caller is nobody.
+    connection.set_schema_to_public()
+    owner_email = (BoutiqueTenant.objects
+                   .filter(schema_name=schema_name)
+                   .values_list('owner_email', flat=True)
+                   .first()) or f'probe@{schema_name}'
     with schema_context(schema_name):
-        user, _ = User.objects.get_or_create(username=f'probe@{schema_name}')
+        user, _ = User.objects.get_or_create(
+            username=owner_email, defaults={'email': owner_email})
+        if (user.email or '') != owner_email:
+            user.email = owner_email
+            user.save(update_fields=['email'])
         token, _ = Token.objects.get_or_create(user=user)
         key = token.key
     client = APIClient()

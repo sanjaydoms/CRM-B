@@ -291,22 +291,21 @@ class StaffProfileAuthorizationTests(StaffProfileTestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(StaffProfile.objects.count(), 1)
 
-    def test_the_queryset_handles_an_account_with_no_roster_profile(self):
-        """A login attached to no Tailor row must not raise.
+    def test_an_account_with_no_roster_profile_is_refused(self):
+        """A login attached to no Tailor row gets nothing, and does not raise.
 
-        Pinned as a characterisation test, not an endorsement: such an account
-        resolves to OWNER today, because core.roles falls through to OWNER when
-        no profile claims a user. That is a PRE-EXISTING weakness its own
-        docstring records and closes at the two sites where an account can be
-        orphaned -- it is not introduced here and is not this phase's to fix.
-        What this asserts is that the staff queryset copes with the case at all
-        rather than throwing on a missing `tailor_profile`.
+        This was a characterisation test for the opposite answer: such an
+        account resolved to OWNER, so it got a 200 and the whole roster. Phase 8
+        made ownership positive -- an account nothing claims is nobody -- so the
+        answer is now a refusal. Both halves still matter: the refusal, and that
+        the queryset copes with a missing `tailor_profile` rather than throwing.
         """
         self.terms_for(self.anita)
         stranger = User.objects.create_user(
             username='stranger', email='stranger@staff.test', password='strangerpw123')
         response = self.client_for(stranger).get(reverse('staff-profile-list'))
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn(b'hourly_rate', response.content)
 
 
 class StaffModuleGateTests(StaffProfileTestCase):
@@ -1086,11 +1085,23 @@ class CurrentAttendanceStateTests(AttendanceTestCase):
         self.assertFalse(response.data['session']['is_open'])
 
     def test_an_account_off_the_roster_gets_a_plain_answer(self):
+        """Two different accounts are "off the roster", and they differ.
+
+        The OWNER is legitimately not staff, and asking what their day looks
+        like is a fair question with a plain answer. A stranger no profile
+        claims is nobody at all, and since Phase 8 is refused rather than
+        quietly treated as the owner. Neither is a crash, which is what this
+        test has always really been about.
+        """
+        owner_response = self.client_for(self.owner).get(
+            reverse('staff-attendance-current'))
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(owner_response.data['state'], 'NOT_STAFF')
+
         stranger = User.objects.create_user(
             username='nobody', email='nobody@staff.test', password='nobodypw12345')
         response = self.client_for(stranger).get(reverse('staff-attendance-current'))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data['state'], 'NOT_STAFF')
+        self.assertEqual(response.status_code, 403)
 
 
 class TimesheetTests(AttendanceTestCase):

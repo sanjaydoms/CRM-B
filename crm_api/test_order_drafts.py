@@ -49,9 +49,16 @@ class DraftTestBase(TenantTestCase):
         self.owner = User.objects.create_user(
             username="owner@drafts.test", email="owner@drafts.test",
             password="ownerpass123")
+        # A COLLEAGUE, not a nobody. The point of the intruder tests is that
+        # somebody legitimately signed in still cannot read another person's
+        # draft; before Phase 8 this account was silently the boutique owner
+        # (no profile, so core.roles fell through to OWNER), which made the
+        # assertion weaker than it looked. A Tailor profile makes it real staff.
         self.other = User.objects.create_user(
             username="other@drafts.test", email="other@drafts.test",
             password="otherpass123")
+        Tailor.objects.create(name='Other', specialty='Blouses', role='Tailor',
+                              user=self.other)
         BoutiqueSettings.objects.get_or_create(id=1)
         self.brocade = InventoryItem.objects.create(
             item_code='FAB-001', name='Maroon Brocade', category=Category.FABRIC,

@@ -200,12 +200,29 @@ class AttendanceSessionViewSet(viewsets.ReadOnlyModelViewSet):
         """
         queryset = AttendanceSession.objects.select_related('staff')
         if _can_see_team(self.request.user):
+            # Both filters go through the database as-is, so both used to turn a
+            # malformed query string into a 500: `?staff=abc` raises ValueError
+            # out of IntegerField.get_prep_value and `?date=abc` raises Django's
+            # own ValidationError, and DRF converts neither. A security probe
+            # should meet a controlled answer, not a traceback. A filter that
+            # cannot be understood narrows to nothing, which is the same
+            # convention StaffPerformanceReviewViewSet uses and cannot leak.
             staff_id = self.request.query_params.get('staff')
             if staff_id:
-                queryset = queryset.filter(staff_id=staff_id)
+                try:
+                    queryset = queryset.filter(staff_id=int(staff_id))
+                except (TypeError, ValueError):
+                    return queryset.none()
             day = self.request.query_params.get('date')
             if day:
-                queryset = queryset.filter(date=day)
+                parsed = None
+                try:
+                    parsed = parse_date(day)
+                except ValueError:
+                    parsed = None
+                if parsed is None:
+                    return queryset.none()
+                queryset = queryset.filter(date=parsed)
             return queryset
 
         profile = _staff_for(self.request.user)
@@ -299,13 +316,26 @@ class AttendanceSessionViewSet(viewsets.ReadOnlyModelViewSet):
                           'someone else.'},
                 status=status.HTTP_403_FORBIDDEN)
 
-        staff = Tailor.objects.filter(id=request.data.get('staff')).first()
+        # A BODY id, parsed like the query-string ones: IntegerField raises on
+        # 'abc' and TypeError on {}, and neither is a DRF exception, so a
+        # malformed body was a 500 rather than the 404 below.
+        try:
+            staff_id = int(request.data.get('staff'))
+        except (TypeError, ValueError):
+            staff_id = None
+        staff = (Tailor.objects.filter(id=staff_id).first()
+                 if staff_id is not None else None)
         if staff is None:
             return Response({'error': 'Staff member not found.'},
                             status=status.HTTP_404_NOT_FOUND)
 
-        check_in_at = parse_datetime(request.data.get('check_in') or '')
-        check_out_at = parse_datetime(request.data.get('check_out') or '')
+        # parse_datetime raises on an impossible-but-well-formed timestamp
+        # ('2026-02-30T09:00:00'), the same trap parse_date sets.
+        try:
+            check_in_at = parse_datetime(request.data.get('check_in') or '')
+            check_out_at = parse_datetime(request.data.get('check_out') or '')
+        except ValueError:
+            check_in_at = check_out_at = None
         if check_in_at is None:
             return Response({'error': 'A valid check-in time is required.'},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -345,12 +375,21 @@ class AttendanceSessionViewSet(viewsets.ReadOnlyModelViewSet):
         before = {'check_in': str(session.check_in),
                   'check_out': str(session.check_out),
                   'minutes': session.minutes}
+        # Same trap as `record` above: parse_datetime raises rather than
+        # returning None on an impossible-but-well-formed timestamp, and the
+        # except clause below catches AttendanceError only.
+        try:
+            corrected_in = parse_datetime(request.data.get('check_in') or '')
+            corrected_out = parse_datetime(request.data.get('check_out') or '')
+        except ValueError:
+            return Response({'error': 'That is not a real time.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         try:
             session = attendance.correct(
                 session, user=request.user,
                 reason=request.data.get('reason', ''),
-                check_in_at=_aware(parse_datetime(request.data.get('check_in') or '')),
-                check_out_at=_aware(parse_datetime(request.data.get('check_out') or '')))
+                check_in_at=_aware(corrected_in),
+                check_out_at=_aware(corrected_out))
         except attendance.AttendanceError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -378,8 +417,17 @@ class TimesheetView(views.APIView):
         requested = request.query_params.get('staff')
 
         if _can_see_team(request.user):
-            staff = (Tailor.objects.filter(id=requested).first() if requested
-                     else _staff_for(request.user))
+            # int() first: a non-numeric id reached IntegerField.get_prep_value
+            # and raised ValueError, which DRF does not convert, so `?staff=abc`
+            # was a 500 rather than the 400 below.
+            staff = None
+            if requested:
+                try:
+                    staff = Tailor.objects.filter(id=int(requested)).first()
+                except (TypeError, ValueError):
+                    staff = None
+            else:
+                staff = _staff_for(request.user)
             if staff is None:
                 return Response(
                     {'error': 'Name a staff member to see their timesheet.'},
@@ -394,7 +442,12 @@ class TimesheetView(views.APIView):
                 return Response({'error': 'Your account is not on the staff roster.'},
                                 status=status.HTTP_403_FORBIDDEN)
 
-        day = parse_date(request.query_params.get('week') or '')
+        # parse_date RAISES on a well-formed but impossible date ('2026-02-30');
+        # it returns None only on a malformed one. Both mean "no week given".
+        try:
+            day = parse_date(request.query_params.get('week') or '')
+        except ValueError:
+            day = None
         if day is None:
             day = attendance.business_date(timezone.now())
 

@@ -172,7 +172,11 @@ class SuspensionActionTests(TransactionTestCase):
     def test_suspend_then_reactivate_shuts_the_boutique_out_and_back_in(self):
         with temporary_tenant('sa_susp', 'owner@susp2.test', 'Suspendable') as tenant:
             with schema_context('sa_susp'):
-                staff = User.objects.create_user(username='probe@sa_susp')
+                # The boutique's own owner: this test is about suspension
+                # shutting the door, not about who is standing in it, and a
+                # profile-less account is no longer admitted by default.
+                staff = User.objects.create_user(
+                    username='probe@sa_susp', email='owner@susp2.test')
                 staff_token, _ = Token.objects.get_or_create(user=staff)
                 key = staff_token.key
 

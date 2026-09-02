@@ -54,9 +54,23 @@ def platform_admin(username='harden@admin.test', password='harden-admin-pw-1'):
 
 
 def boutique_client(schema_name, username, password='boutique-pw-1'):
-    """A signed-in boutique user, and a client carrying its token."""
+    """A signed-in boutique user, and a client carrying its token.
+
+    The account is given the boutique's OWN owner_email, whatever username the
+    caller passes. These tests are about suspension, module gates and ghost
+    schemas -- they need somebody the API will talk to, not a particular
+    person -- and before Phase 8 any profile-less account was handed OWNER by
+    default. core.roles now decides ownership positively, by matching this
+    address, so the fixture has to name the owner it was relying on being.
+    """
+    from tenants.models import BoutiqueTenant
+    connection.set_schema_to_public()
+    owner_email = (BoutiqueTenant.objects
+                   .filter(schema_name=schema_name)
+                   .values_list('owner_email', flat=True)
+                   .first()) or username
     with schema_context(schema_name):
-        user = User.objects.create_user(username=username, email=username,
+        user = User.objects.create_user(username=username, email=owner_email,
                                         password=password)
         key = Token.objects.get_or_create(user=user)[0].key
     client = APIClient()
