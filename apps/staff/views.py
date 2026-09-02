@@ -171,7 +171,7 @@ def _log(request, action, session, title, before=None, after=None):
         entity_id=str(session.id),
         action=action,
         title=title,
-        description=f"{session.staff.name} on {session.date}",
+        description=f"{session.staff_label} on {session.date}",
         old_value=before or {},
         new_value=after or {},
     )
@@ -394,7 +394,7 @@ class AttendanceSessionViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         _log(request, 'ATTENDANCE_CORRECTED', session,
-             f'Attendance corrected for {session.staff.name}',
+             f'Attendance corrected for {session.staff_label}',
              before=before,
              after={'check_in': str(session.check_in),
                     'check_out': str(session.check_out),

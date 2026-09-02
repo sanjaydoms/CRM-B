@@ -178,8 +178,34 @@ class AttendanceSession(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
+    #: SET_NULL, and the snapshot below is why it can be.
+    #:
+    #: This was CASCADE, so removing somebody from the roster deleted every
+    #: shift they had ever worked -- including the shifts an APPROVED, PAID
+    #: payslip was computed from. The payslip survived (PayrollRecord is
+    #: SET_NULL with its own snapshots, as is every other Phase 4-7 record) and
+    #: the hours behind it did not, so the boutique kept the money and lost the
+    #: evidence. Dismissing somebody destroyed the answer to "why was this
+    #: amount paid".
+    #:
+    #: Nulling instead keeps the row and detaches it, which is also what makes
+    #: an orphaned session unpayable for ever: every payroll query selects by
+    #: `staff=<profile>`, and a null matches no profile -- so a deleted-then-
+    #: rehired person cannot have their old hours swept into a new week.
     staff = models.ForeignKey(
-        Tailor, on_delete=models.CASCADE, related_name='attendance_sessions')
+        Tailor, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='attendance_sessions')
+
+    #: Who this shift belonged to, as at the moment it was recorded.
+    #:
+    #: The same trade PayrollRecord, StaffLedgerEntry, StaffAdvance, Payout and
+    #: StaffPerformanceReview all make: a nullable FK for the live link and a
+    #: frozen copy of the identity beside it, so the row still explains itself
+    #: once the roster row is gone. Written once, at creation, and never
+    #: rewritten -- a promotion or a change of name must not silently rewrite
+    #: what last March's timesheet says.
+    staff_name_snapshot = models.CharField(max_length=150, blank=True, default='')
+    staff_role_snapshot = models.CharField(max_length=50, blank=True, default='')
 
     #: The boutique-local day this shift belongs to. See the class docstring.
     date = models.DateField(db_index=True)
@@ -254,7 +280,37 @@ class AttendanceSession(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.staff.name} on {self.date}"
+        return f"{self.staff_label} on {self.date}"
+
+    @property
+    def staff_label(self):
+        """The live name while the roster row exists, the frozen one after.
+
+        Operational screens should say who somebody is NOW -- a rename should
+        show up on this week's timesheet -- so the live row wins while there is
+        one. The snapshot is the fallback that keeps a detached row readable,
+        and it is the column that must never change; which of the two is
+        DISPLAYED is a separate question from which is STORED.
+        """
+        if self.staff is not None:
+            return self.staff.name
+        return self.staff_name_snapshot or 'Former staff member'
+
+    def save(self, *args, **kwargs):
+        """Freeze the identity on the way in, once.
+
+        Only when it is not already set: re-saving a corrected session years
+        later must not restamp it with today's roster, which would quietly
+        rewrite history every time somebody edited a note.
+        """
+        if self.staff_id and not self.staff_name_snapshot:
+            self.staff_name_snapshot = self.staff.name
+            self.staff_role_snapshot = self.staff.role or ''
+            update_fields = kwargs.get('update_fields')
+            if update_fields is not None:
+                kwargs['update_fields'] = set(update_fields) | {
+                    'staff_name_snapshot', 'staff_role_snapshot'}
+        super().save(*args, **kwargs)
 
     @property
     def is_open(self):

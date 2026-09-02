@@ -123,15 +123,27 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
     writable `check_in` here would be a way round both.
     """
 
-    staff_name = serializers.CharField(source='staff.name', read_only=True)
-    staff_role = serializers.CharField(source='staff.role', read_only=True)
+    # Read through the model rather than by traversing `staff.name`: the FK is
+    # nullable from Phase 9 (a session outlives the roster row it belonged to),
+    # and a source that walks into None is an AttributeError on a historical
+    # row. `staff_label` gives the live name while there is one and the frozen
+    # snapshot afterwards.
+    staff_name = serializers.CharField(source='staff_label', read_only=True)
+    staff_role = serializers.SerializerMethodField()
     is_open = serializers.BooleanField(read_only=True)
     was_corrected = serializers.SerializerMethodField()
+
+    def get_staff_role(self, session):
+        """The role now if they are still on the roster, else the frozen one."""
+        if session.staff is not None:
+            return session.staff.role
+        return session.staff_role_snapshot or ''
 
     class Meta:
         model = AttendanceSession
         fields = [
-            'id', 'staff', 'staff_name', 'staff_role', 'date',
+            'id', 'staff', 'staff_name', 'staff_role',
+            'staff_name_snapshot', 'staff_role_snapshot', 'date',
             'check_in', 'check_out', 'minutes', 'source', 'note',
             'is_open', 'was_corrected',
             'original_check_in', 'original_check_out',
