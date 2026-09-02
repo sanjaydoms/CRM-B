@@ -1372,52 +1372,46 @@ function App() {
     setLoading(true);
     setLoadErrors([]);
 
-    const load = (label, request, apply) =>
-      request().then(apply, (err) => {
+    const load = async (label, request, apply) => {
+      try {
+        const data = await request();
+        if (apply && data !== undefined) apply(data);
+      } catch (err) {
         console.error(`Failed to load ${label}`, err);
         setLoadErrors((prev) => (prev.includes(label) ? prev : [...prev, label]));
-      });
+      }
+    };
 
-    const requests = [
-      load('dashboard', api.getDashboard, (data) => {
-        setDashboardData(data);
-        if (data.recent_orders?.length > 0) {
-          // Keep the user's chosen order selected, but re-read it from the fresh
-          // payload -- holding on to the old object left the stage tracker showing
-          // pre-change data after every refresh.
-          setSelectedDashboardOrder((current) => {
-            if (!current) return data.recent_orders[0];
-            return data.recent_orders.find(o => o.id === current.id) || current;
-          });
-        }
-      }),
-      load('customers', api.getCustomers, (data) => {
-        setCustomersList(data);
-        setAllCustomers(data);
-      }),
-      load('orders', api.getOrders, setOrdersList),
-      load('tailors', api.getTailors, setTailors),
-      load('appointments', api.getAppointments, setAppointments),
-      load('fabrics', api.getFabrics, setFabrics),
-      load('designs', api.getAllBoutiqueDesigns, setAllDesigns),
-      load('settings', api.getBoutiqueSettings, (data) => {
-        setBoutiqueSettings(data);
-        // Every date and time this session renders now uses the boutique's own
-        // clock, matching what the server prints on the customer's page.
-        setBoutiqueTimeZone(data?.timezone);
-      }),
-      load('notifications', () => fetchNotifications(user), () => {})
-    ];
+    await load('dashboard', api.getDashboard, (data) => {
+      setDashboardData(data);
+      if (data.recent_orders?.length > 0) {
+        setSelectedDashboardOrder((current) => {
+          if (!current) return data.recent_orders[0];
+          return data.recent_orders.find(o => o.id === current.id) || current;
+        });
+      }
+    });
 
-    // Owner-only endpoint: each queued message carries the order's tracking
-    // link, which reaches the order's totals without signing in. Asking for it
-    // as anyone else is a guaranteed 403 and would show them a load error for
-    // something they are not missing.
+    await load('customers', api.getCustomers, (data) => {
+      setCustomersList(data);
+      setAllCustomers(data);
+    });
+
+    await load('orders', api.getOrders, setOrdersList);
+    await load('tailors', api.getTailors, setTailors);
+    await load('appointments', api.getAppointments, setAppointments);
+    await load('fabrics', api.getFabrics, setFabrics);
+    await load('designs', api.getAllBoutiqueDesigns, setAllDesigns);
+    await load('settings', api.getBoutiqueSettings, (data) => {
+      setBoutiqueSettings(data);
+      setBoutiqueTimeZone(data?.timezone);
+    });
+    await load('notifications', () => fetchNotifications(user), () => {});
+
     if (!user?.role || user.role === 'Owner') {
-      requests.push(load('customer messages', api.getQueuedCustomerMessages, setQueuedMessages));
+      await load('customer messages', api.getQueuedCustomerMessages, setQueuedMessages);
     }
 
-    await Promise.all(requests);
     setLoading(false);
   };
 
