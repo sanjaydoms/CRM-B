@@ -1734,10 +1734,17 @@ function App() {
   };
 
   const saveStep1 = async () => {
-    // Name, email, phone and address are what the boutique needs to reach the
-    // customer and deliver to them. Everything else on this form is optional --
-    // city and source used to be starred but were never actually enforced, so
-    // the asterisks were telling staff something untrue.
+    // Step 1: AI Design Studio. Design choices & references ride on the draft.
+    return persistDraft({ step: 2 });
+  };
+
+  const saveStep2 = async () => {
+    // Step 2: Fabric Selection. Fabric choices ride on the draft.
+    return persistDraft({ step: 3 });
+  };
+
+  const saveStep3 = async () => {
+    // Step 3: Personal Details. Validate required contact information.
     const missing = [
       [!customerForm.first_name, 'First Name'],
       [!customerForm.last_name, 'Last Name'],
@@ -1750,28 +1757,12 @@ function App() {
       alert(`Please fill in: ${missing.join(', ')}.`);
       throw new Error("Validation failed");
     }
-    
-    // No customer is written here any more.
-    //
-    // This used to POST the client at step one, so abandoning at step four --
-    // which the step-four empty state actively invited, by offering "Add
-    // fabrics" as its only way forward -- left a customer nobody had asked
-    // for, with no order attached and no route back to the work. The details
-    // live in the draft until Confirm, which creates the client and the order
-    // together or neither.
-    return persistDraft({ step: 2 });
+
+    return persistDraft({ step: 4 });
   };
 
-  const saveStep2 = async () => {
-    // No customerId guard. There is deliberately no customer yet for a new
-    // client -- one is created at Confirm -- and returning early here meant
-    // step two never wrote to the draft at all, so every measurement and
-    // garment detail a new customer's order collected was still living only in
-    // this tab. The draft persisted at step one and then silently stopped.
-    // The customer record keeps the body measurements, which is what the
-    // directory, the measurement history and the design studio read. Per-dress
-    // numbers live on the garment job; these are the ones that describe the
-    // person, so the newest dress that carries them wins.
+  const saveStep4 = async () => {
+    // Step 4: Measurements & Garments. Collect body measurements.
     const body = { ...(customerForm.measurements || {}) };
     const CUSTOMER_KEYS = {
       chest: 'bust', waist: 'waist', hip: 'hips', shoulder: 'shoulder', neck: 'neck',
@@ -1783,19 +1774,7 @@ function App() {
         }
       });
     });
-    // Held on the draft; written to the customer at Confirm, along with
-    // everything else, in one transaction.
     setCustomerForm(prev => ({ ...prev, measurements: body }));
-    return persistDraft({ step: 3 });
-  };
-
-  const saveStep3 = async () => {
-    // Design choices ride on the draft. There is no customer to hang them on
-    // yet, and inventing one is the bug this replaced.
-    return persistDraft({ step: 4 });
-  };
-
-  const saveStep4 = async () => {
     return persistDraft({ step: 5 });
   };
 
@@ -1881,25 +1860,12 @@ function App() {
 
   const performNext = async () => {
     try {
-      // Checked on every step, not only the first. 'Reorder Style' drops the
-      // owner straight into step 3 without ever setting garmentJobs, so the
-      // step-1 guard was skipped entirely and the wizard happily booked an
-      // order with no dress on it -- saveGarmentJobs iterated an empty array
-      // and nobody found out until production. Guarding at the point of
-      // submission is the choke point; no entry point can route around it.
-      if (garmentJobs.length === 0) {
-        alert("Please choose at least one garment for this order.");
-        if (currentStep !== 1) setCurrentStep(1);
-        return;
-      }
       if (currentStep === 1) {
         await saveStep1();
         setCurrentStep(2);
       } else if (currentStep === 2) {
-        // The server validates this again on save; failing here first means the
-        // staff member sees which field is wrong instead of a rejected order.
-        if (!validateGarments()) {
-          alert("Some garment details are missing or invalid — see the highlighted fields.");
+        if (fabricTab === 'boutique' && !selectedFabric) {
+          alert("Please select a fabric from the catalog or upload your own fabric.");
           return;
         }
         await saveStep2();
@@ -1908,8 +1874,12 @@ function App() {
         await saveStep3();
         setCurrentStep(4);
       } else if (currentStep === 4) {
-        if (fabricTab === 'boutique' && !selectedFabric) {
-          alert("Please select a fabric from the catalog or upload your own fabric.");
+        if (garmentJobs.length === 0) {
+          alert("Please choose at least one garment for this order.");
+          return;
+        }
+        if (!validateGarments()) {
+          alert("Some garment details are missing or invalid — see the highlighted fields.");
           return;
         }
         await saveStep4();
@@ -6966,10 +6936,10 @@ function App() {
             {/* Stepper progress bar */}
             <div className="stepper-progress-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1000px', margin: '0 auto', position: 'relative' }}>
               {[
-                { number: 1, label: t('wizard.personalDetails'), sub: t('wizard.reviewAndConfirm', 'review & confirm') },
-                { number: 2, label: t('wizard.measurements'), sub: t('wizard.completed', 'Completed') },
-                { number: 3, label: t('wizard.aiDesignStudio'), sub: t('wizard.subDiscoverDesign', 'Discover & approve design') },
-                { number: 4, label: t('wizard.fabricSelection'), sub: t('wizard.subChooseFabrics', 'Choose fabrics') },
+                { number: 1, label: t('wizard.aiDesignStudio'), sub: t('wizard.subDiscoverDesign', 'Discover & approve design') },
+                { number: 2, label: t('wizard.fabricSelection'), sub: t('wizard.subChooseFabrics', 'Choose fabrics') },
+                { number: 3, label: t('wizard.personalDetails'), sub: t('wizard.reviewAndConfirm', 'review & confirm') },
+                { number: 4, label: t('wizard.measurements'), sub: t('wizard.completed', 'Completed') },
                 { number: 5, label: t('wizard.tailorAssignment'), sub: t('wizard.subAssignTailor', 'Assign tailor') },
                 { number: 6, label: t('wizard.completeOrder'), sub: t('wizard.reviewAndConfirm', 'review & confirm') }
               ].map((step, index) => {
@@ -7020,8 +6990,8 @@ function App() {
           </div>
           <div className="main-content" style={{ padding: '40px 24px 100px', maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
             <div className="workspace-panel">
-            {/* STEP 1: Personal Details */}
-            {currentStep === 1 && (
+            {/* STEP 3: Personal Details */}
+            {currentStep === 3 && (
               <>
                 <div className="page-title-group">
                   <h1 className="page-title">{t('wizard.createCustomerTitle', 'Create Customer')}</h1>
@@ -7312,8 +7282,8 @@ function App() {
               </>
             )}
 
-            {/* STEP 2: Measurements */}
-            {currentStep === 2 && (
+            {/* STEP 4: Measurements */}
+            {currentStep === 4 && (
               <>
                 <div className="page-title-group">
                   <h1 className="page-title">Garment Details</h1>
@@ -7376,8 +7346,8 @@ function App() {
               </>
             )}
 
-            {/* STEP 3: AI Design Studio */}
-            {currentStep === 3 && (
+            {/* STEP 1: AI Design Studio */}
+            {currentStep === 1 && (
               <>
                 <div className="page-title-group">
                   <h1 className="page-title">AI Design Studio</h1>
@@ -7517,8 +7487,8 @@ function App() {
               </>
             )}
 
-            {/* STEP 4: Fabric Selection */}
-            {currentStep === 4 && (
+            {/* STEP 2: Fabric Selection */}
+            {currentStep === 2 && (
               <>
                 <div className="page-title-group">
                   <h1 className="page-title">Fabric Selection</h1>
