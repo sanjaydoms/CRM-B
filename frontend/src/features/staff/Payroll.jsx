@@ -177,6 +177,43 @@ function RecordDetail({ record, onBack }) {
         </div>
       </div>
 
+      {Number(record.deposit_scheduled) > 0 && (
+        <div style={{ ...panel, padding: '16px 18px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '11px', letterSpacing: '0.08em',
+                        textTransform: 'uppercase', color: 'var(--text-muted)',
+                        marginBottom: '10px' }}>
+            Security deposit
+          </div>
+          {[
+            ['Scheduled this week', money(record.deposit_scheduled)],
+            ['Actually recovered', `−${money(record.deposit_recovered)}`],
+            ...(Number(record.deposit_unrecovered) > 0
+              ? [['Could not be recovered', money(record.deposit_unrecovered)]] : []),
+            ['Owed before', money(record.deposit_balance_before)],
+            ['Owed after', money(record.deposit_balance_after)],
+          ].map(([label, value]) => (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between',
+                                      fontSize: '13px', marginBottom: '4px' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+              <span style={{ fontWeight: 600 }}>{value}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between',
+                        fontSize: '14px', fontWeight: 600, marginTop: '10px',
+                        paddingTop: '10px',
+                        borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+            <span>Net before other deductions</span>
+            <span>{money(record.net_before_other_deductions)}</span>
+          </div>
+          {Number(record.deposit_unrecovered) > 0 && (
+            <div style={{ fontSize: '12px', color: '#a0691f', marginTop: '8px' }}>
+              This week&rsquo;s earnings could not cover the full scheduled
+              recovery. The remainder stays outstanding.
+            </div>
+          )}
+        </div>
+      )}
+
       {record.rate_missing && (
         <Banner icon={AlertTriangle}
                 text={`No hourly rate is set for ${record.staff_name_snapshot}. Set one on the Staff tab and generate again — payroll cannot be approved until then.`} />
@@ -379,6 +416,28 @@ export default function Payroll() {
                 <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                   {period.totals.staff_count} staff · {hoursText(period.totals.total_minutes)}
                 </div>
+                {Number(period.totals.total_deposit_recovered) > 0 && (
+                  <div style={{ marginTop: '10px', paddingTop: '10px',
+                                borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+                                fontSize: '13px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between',
+                                  gap: '20px' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        Less security deposit
+                      </span>
+                      <span>−{money(period.totals.total_deposit_recovered)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between',
+                                  gap: '20px', fontWeight: 600, marginTop: '3px' }}>
+                      <span>Net before other deductions</span>
+                      <span>{money(period.totals.total_net)}</span>
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-muted)',
+                                  marginTop: '5px' }}>
+                      Advances, bonuses and other deductions are not included yet.
+                    </div>
+                  </div>
+                )}
               </div>
               <StatusPill status={period.status} />
             </div>
@@ -470,6 +529,26 @@ export default function Payroll() {
                       </div>
                     </div>
                   </div>
+
+                  {Number(r.deposit_recovered) > 0 && (
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between',
+                      fontSize: '12.5px', marginTop: '10px', paddingTop: '10px',
+                      borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+                    }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        Less security deposit
+                      </span>
+                      <span>−{money(r.deposit_recovered)}</span>
+                    </div>
+                  )}
+                  {Number(r.deposit_recovered) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between',
+                                  fontSize: '13px', fontWeight: 600, marginTop: '4px' }}>
+                      <span>Net before other deductions</span>
+                      <span>{money(r.net_before_other_deductions)}</span>
+                    </div>
+                  )}
 
                   {r.blocks_approval && (
                     <div style={{ fontSize: '12px', color: '#c0392b', marginTop: '10px',

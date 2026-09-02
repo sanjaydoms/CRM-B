@@ -1451,4 +1451,6 @@ Object.assign(api, {
   getPayrollPeriod: (id) => payrollRequest(`periods/${id}/`),
   generatePayroll: (week) => payrollRequest('periods/generate/', { method: 'POST', body: { week } }),
   approvePayroll: (id) => payrollRequest(`periods/${id}/approve/`, { method: 'POST', body: {} }),
+  getDeposits: () => payrollRequest('deposits/'),
+  getDeposit: (staffId) => payrollRequest(`deposits/${staffId}/`),
 });

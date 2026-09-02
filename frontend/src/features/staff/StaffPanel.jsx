@@ -254,6 +254,9 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
 function Roster({ isOwner, canSeeTeam }) {
   const [roster, setRoster] = useState([]);
   const [terms, setTerms] = useState([]);
+  // Owner only. The endpoint refuses everyone else, so this stays empty for a
+  // Master and the deposit block simply does not render for them.
+  const [deposits, setDeposits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [search, setSearch] = useState('');
@@ -265,18 +268,20 @@ function Roster({ isOwner, canSeeTeam }) {
     try {
       // Independent failures: a staff member may read their own terms but not
       // the roster, so one refusal must not blank the whole screen.
-      const [people, profiles] = await Promise.all([
+      const [people, profiles, deposited] = await Promise.all([
         canSeeTeam ? api.getTailors().catch(() => []) : Promise.resolve([]),
         api.getStaffProfiles().catch(() => []),
+        isOwner ? api.getDeposits().catch(() => []) : Promise.resolve([]),
       ]);
       setRoster(Array.isArray(people) ? people : []);
       setTerms(Array.isArray(profiles) ? profiles : []);
+      setDeposits(Array.isArray(deposited) ? deposited : []);
     } catch (err) {
       setLoadError(err.message || 'Could not load the staff list.');
     } finally {
       setLoading(false);
     }
-  }, [canSeeTeam]);
+  }, [canSeeTeam, isOwner]);
 
   // Deferred rather than called straight from the effect body, matching
   // InventoryPanel: refresh() sets loading state synchronously, and doing that
@@ -285,6 +290,12 @@ function Roster({ isOwner, canSeeTeam }) {
     const t = setTimeout(refresh, 0);
     return () => clearTimeout(t);
   }, [refresh]);
+
+  const depositByStaff = useMemo(() => {
+    const map = new Map();
+    deposits.forEach((d) => map.set(String(d.staff), d));
+    return map;
+  }, [deposits]);
 
   const termsByStaff = useMemo(() => {
     const map = new Map();
@@ -413,6 +424,47 @@ function Roster({ isOwner, canSeeTeam }) {
                     <div style={{ fontWeight: 600 }}>{money(t.deposit_weekly)}</div>
                   </div>
                 </div>
+              )}
+
+              {t && showsPay(t) && depositByStaff.get(String(member.id)) && (
+                (() => {
+                  const d = depositByStaff.get(String(member.id));
+                  return (
+                    <div style={{
+                      marginTop: '12px', paddingTop: '12px',
+                      borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+                    }}>
+                      <div style={{ fontSize: '11px', letterSpacing: '0.08em',
+                                    textTransform: 'uppercase',
+                                    color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        Security deposit
+                      </div>
+                      <div
+                        className="mobile-stack-grid"
+                        style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+                                 gap: '10px' }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Agreed</div>
+                          <div style={{ fontWeight: 600 }}>{money(d.agreed)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Recovered</div>
+                          <div style={{ fontWeight: 600 }}>{money(d.recovered)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Remaining</div>
+                          <div style={{ fontWeight: 600 }}>{money(d.remaining)}</div>
+                        </div>
+                      </div>
+                      {d.fully_recovered && (
+                        <div style={{ fontSize: '12px', color: '#1e8a5c', marginTop: '8px' }}>
+                          Security deposit fully recovered.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
               )}
 
               {t && !showsPay(t) && (
