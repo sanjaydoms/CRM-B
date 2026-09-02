@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import status, views, viewsets
@@ -52,6 +53,58 @@ class StaffProfileViewSet(viewsets.ModelViewSet):
 
     serializer_class = StaffProfileSerializer
     permission_classes = [StaffSelfOrOwner]
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        profile = serializer.save()
+        self._record_deposit_agreement(profile, None)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        was = serializer.instance.deposit_total
+        profile = serializer.save()
+        self._record_deposit_agreement(profile, was)
+
+    def _record_deposit_agreement(self, profile, previous):
+        """Give a changed deposit figure a line in the staff ledger.
+
+        The agreement lives on this model because that is where the owner sets
+        it, but a number in a column cannot answer "why does this person owe
+        5,000, and since when". Writing a ledger row on the way past means the
+        history exists without the owner having to do anything extra, and
+        without a second screen for entering the same fact twice.
+
+        Only on an actual CHANGE: re-saving a profile to correct a phone number
+        must not append an identical agreement row, and a boutique that takes no
+        deposits should have no deposit history at all.
+
+        A change TO zero is a change, and writing it is the whole point. Setting
+        the agreed deposit to nothing is how an owner cancels one, and treating
+        that as "no deposit, nothing to record" would leave the ledger holding
+        the old agreement -- so payroll would go on recovering money against a
+        deposit the owner had just cancelled, with no way to stop it.
+
+        Atomic with the profile save (see the decorators above): a ledger write
+        that failed on its own would leave the terms changed with no history of
+        it, and the equality guard means no later save would ever repair that.
+
+        Writes are already Owner-only (StaffSelfOrOwner), so reaching this means
+        the owner did it.
+        """
+        from apps.payroll import deposits
+        current = profile.deposit_total or 0
+        if previous is None:
+            # Creation: only worth a row if there is actually a deposit.
+            if current <= 0:
+                return
+        elif previous == current:
+            return
+
+        deposits.record_agreement(
+            profile.staff, current, user=self.request.user,
+            note=('Security deposit agreed' if previous in (None, 0)
+                  else 'Security deposit cancelled' if current <= 0
+                  else 'Security deposit terms changed'))
 
     def get_queryset(self):
         """Owner and supervisors see the roster; everyone else sees their own row.

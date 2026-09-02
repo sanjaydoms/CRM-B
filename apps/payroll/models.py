@@ -149,6 +149,44 @@ class PayrollRecord(models.Model):
     #: after the underlying attendance has been corrected.
     session_breakdown = models.JSONField(default=list, blank=True)
 
+    # ---- Security deposit, snapshotted the same way the gross figures are ----
+    #
+    # Four numbers rather than one, because "we took 300" does not answer the
+    # question an owner asks three months later. Together these say: this is what
+    # the terms called for, this is what the week could actually bear, this is
+    # what was therefore missed, and this is where the obligation stood on either
+    # side of it. Deriving any of them from StaffProfile at read time would break
+    # the moment the terms changed.
+    deposit_scheduled = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(0)],
+        help_text="What this week was due to recover -- the weekly terms, "
+                  "already limited to what is still owed.")
+    deposit_recovered = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(0)],
+        help_text="What was actually taken -- never more than the obligation "
+                  "outstanding, and never more than the week's gross.")
+    #: Scheduled minus recovered. Kept as its own column rather than recomputed,
+    #: because it is the number nobody must be allowed to lose: a week that could
+    #: only bear 300 of a 500 recovery has missed 200, and quietly rewriting the
+    #: schedule to 300 would erase that fact from the record.
+    deposit_unrecovered = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        validators=[MinValueValidator(0)],
+        help_text="Scheduled recovery this week could not collect.")
+    deposit_balance_before = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0)
+    deposit_balance_after = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0)
+
+    #: Gross less the deposit recovery. Deliberately NOT called net pay: advances,
+    #: bonuses and other deductions are later phases, and a column named for a
+    #: payout it does not yet represent is a column somebody will pay from.
+    net_before_other_deductions = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0)])
+
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.DRAFT, db_index=True)
     approved_at = models.DateTimeField(null=True, blank=True)
@@ -176,6 +214,16 @@ class PayrollRecord(models.Model):
                 condition=models.Q(hourly_rate_snapshot__isnull=True)
                 | models.Q(hourly_rate_snapshot__gte=0),
                 name='payroll_record_rate_not_negative'),
+            # Wages cannot go negative. The service clamps the recovery to the
+            # week's gross, and this is the database refusing to store the
+            # result if that clamp is ever wrong.
+            models.CheckConstraint(
+                condition=models.Q(net_before_other_deductions__isnull=True)
+                | models.Q(net_before_other_deductions__gte=0),
+                name='payroll_record_net_not_negative'),
+            models.CheckConstraint(
+                condition=models.Q(deposit_recovered__gte=0),
+                name='payroll_record_deposit_recovered_not_negative'),
         ]
 
     def __str__(self):
@@ -194,3 +242,119 @@ class PayrollRecord(models.Model):
         sessions means paying twice for one hour.
         """
         return self.rate_missing or self.has_overlap
+
+
+class StaffLedgerEntry(models.Model):
+    """One immutable line of a staff member's financial history.
+
+    Modelled on the PRINCIPLES of inventory's StockMovement -- append-only, a
+    balance either side of the movement, an actor, a provenance reference -- and
+    on none of its stock-specific fields. What both share is the property that
+    matters: the current position is the sum of the history, never a column
+    somebody can edit.
+
+    WHY THE OBLIGATION IS NOT A COLUMN
+    ==================================
+    `StaffProfile.deposit_total` is the AGREEMENT -- what was promised. It is
+    emphatically not the balance. A boutique that stored "remaining" as a
+    mutable number would have two answers to "how much is still owed" the first
+    time a recovery was written without updating it, and no way to tell which
+    was right. Here the remaining obligation is `agreed - recovered`, both
+    derived from rows nobody edits.
+
+    HOW A CHANGE OF TERMS WORKS
+    ===========================
+    Every DEPOSIT_AGREED row carries the total as it stood FROM THAT MOMENT, and
+    the newest one wins. Changing 5,000 to 3,000 writes a second row; it does not
+    touch the first, and it does not touch a single recovery already taken. So a
+    staff member who had 2,000 recovered against a 5,000 agreement and is moved
+    to a 3,000 agreement now owes 1,000, and the ledger still shows exactly why.
+
+    Storing the new TOTAL rather than a delta is what keeps `amount` a magnitude
+    and lets the database refuse negatives outright. A delta would have to be
+    signed, and a signed amount column is one typo away from a recovery that
+    increases somebody's debt.
+
+    BUILT TO GROW
+    =============
+    Advances, bonuses, refunds and payouts are later phases and are deliberately
+    absent -- but they are all the same shape as these two rows, so they arrive
+    as new `entry_type` values against the same table rather than as a redesign.
+    """
+
+    class EntryType(models.TextChoices):
+        #: "The agreed deposit is now X." The newest one is the live agreement.
+        DEPOSIT_AGREED = 'DEPOSIT_AGREED', 'Security deposit agreed'
+        #: "X was actually recovered from this payroll." Always tied to the
+        #: approved payroll record that caused it.
+        DEPOSIT_RECOVERY = 'DEPOSIT_RECOVERY', 'Security deposit recovered'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    #: SET_NULL plus a name snapshot, matching PayrollRecord: deleting a roster
+    #: member already works everywhere else in this product, and financial
+    #: history must outlive the person it concerns.
+    staff = models.ForeignKey(
+        Tailor, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ledger_entries')
+    staff_name_snapshot = models.CharField(max_length=150)
+
+    entry_type = models.CharField(
+        max_length=24, choices=EntryType.choices, db_index=True)
+
+    #: Always a magnitude, never signed. The type says which direction it moves
+    #: the obligation, and the database refuses anything below zero.
+    amount = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+
+    #: The outstanding obligation either side of this row, so the history can be
+    #: read without re-deriving every earlier line -- and so a mistake in the
+    #: derivation is visible rather than silent.
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    #: The approved payroll this recovery came out of. Null for an agreement
+    #: row, which is not caused by a payroll. The unique constraint below hangs
+    #: off this: it is what makes one payroll able to recover exactly once.
+    payroll_record = models.ForeignKey(
+        'PayrollRecord', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='ledger_entries')
+
+    note = models.CharField(max_length=255, blank=True, default='')
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='staff_ledger_entries')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['staff', 'entry_type', 'created_at'],
+                         name='ledger_staff_type_time'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gte=0),
+                name='ledger_amount_not_negative'),
+            # ONE recovery per payroll record, at the database. Generation is
+            # repeatable and approval can be retried from two tabs, so "do not
+            # recover twice" cannot be a rule the service merely remembers.
+            # Agreement rows have a null payroll_record and are unaffected,
+            # because Postgres does not treat two nulls as equal.
+            models.UniqueConstraint(
+                fields=['payroll_record'],
+                condition=models.Q(entry_type='DEPOSIT_RECOVERY'),
+                name='ledger_one_recovery_per_payroll'),
+            # A recovery must name the payroll that caused it; an agreement must
+            # not pretend one did.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(entry_type='DEPOSIT_RECOVERY',
+                             payroll_record__isnull=False)
+                    | ~models.Q(entry_type='DEPOSIT_RECOVERY')),
+                name='ledger_recovery_names_its_payroll'),
+        ]
+
+    def __str__(self):
+        return (f"{self.staff_name_snapshot} · {self.get_entry_type_display()} "
+                f"· {self.amount}")

@@ -14,12 +14,15 @@ from rest_framework.response import Response
 
 from apps.activities.models import UniversalActivity
 from apps.staff.attendance import business_date
+from apps.staff.models import StaffProfile
 from core.permissions import OwnerOnly
+from crm_api.models import Tailor
 
-from . import services
-from .models import PayrollPeriod, PayrollRecord
+from . import deposits, services
+from .models import PayrollPeriod, PayrollRecord, StaffLedgerEntry
 from .serializers import (
-    PayrollPeriodListSerializer, PayrollPeriodSerializer, PayrollRecordSerializer,
+    DepositSummarySerializer, PayrollPeriodListSerializer, PayrollPeriodSerializer,
+    PayrollRecordSerializer,
 )
 
 
@@ -144,3 +147,68 @@ class PayrollRecordViewSet(viewsets.ReadOnlyModelViewSet):
         if staff:
             queryset = queryset.filter(staff_id=staff)
         return queryset
+
+
+class DepositViewSet(viewsets.ViewSet):
+    """Security deposit positions. Owner only, like everything else here.
+
+    Read-only by construction -- there is no create, update or destroy, because
+    a deposit is not something you type. An agreement appears when the owner sets
+    the terms on the employment profile; a recovery appears when a payroll is
+    approved. Both write the ledger as a consequence of an action that already
+    has its own rules and its own audit, which is what keeps the history
+    trustworthy.
+    """
+
+    permission_classes = [OwnerOnly]
+
+    def list(self, request):
+        """Every staff member who has a deposit, with what is left to recover."""
+        # Driven by the LEDGER, not by StaffProfile. Keying this on the profile
+        # would mean deleting somebody's employment terms hid an obligation they
+        # still owed -- the ledger is the authority on what is owed, so it is
+        # the ledger that decides who appears here.
+        staff_ids = (StaffLedgerEntry.objects
+                     .filter(entry_type=StaffLedgerEntry.EntryType.DEPOSIT_AGREED,
+                             staff__isnull=False)
+                     .values_list('staff_id', flat=True).distinct())
+        weekly_by_staff = dict(
+            StaffProfile.objects.filter(staff_id__in=staff_ids)
+            .values_list('staff_id', 'deposit_weekly'))
+
+        summaries = []
+        for staff in Tailor.objects.filter(id__in=staff_ids).order_by('name'):
+            state = deposits.deposit_state(staff)
+            if state['agreed'] <= 0 and state['recovered'] <= 0:
+                continue
+            summaries.append({
+                'staff': staff.id,
+                'staff_name': staff.name,
+                'weekly': weekly_by_staff.get(staff.id, 0),
+                'entries': [],
+                **state,
+            })
+        return Response(DepositSummarySerializer(summaries, many=True).data)
+
+    def retrieve(self, request, pk=None):
+        """One staff member's deposit, with the whole ledger behind it."""
+        # int() first: Tailor.id is an AutoField, so a non-numeric id reaches
+        # Postgres as a bad cast and surfaces as a 500 rather than the 404 it
+        # is. The same guard assign_stage already carries.
+        try:
+            staff = Tailor.objects.filter(pk=int(pk)).first()
+        except (TypeError, ValueError):
+            staff = None
+        if staff is None:
+            return Response({'error': 'Staff member not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        profile = getattr(staff, 'staff_profile', None)
+        state = deposits.deposit_state(staff)
+        payload = {
+            'staff': staff.id,
+            'staff_name': staff.name,
+            'weekly': profile.deposit_weekly if profile else 0,
+            'entries': deposits.ledger_for(staff),
+            **state,
+        }
+        return Response(DepositSummarySerializer(payload).data)

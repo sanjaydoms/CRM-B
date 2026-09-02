@@ -10,9 +10,11 @@ its own named actions, so a writable serializer would be a way to type a number
 into a record instead of earning it.
 """
 
+from decimal import Decimal
+
 from rest_framework import serializers
 
-from .models import PayrollPeriod, PayrollRecord
+from .models import PayrollPeriod, PayrollRecord, StaffLedgerEntry
 
 
 class PayrollRecordSerializer(serializers.ModelSerializer):
@@ -30,6 +32,9 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
             'worked_hours', 'gross_earnings',
             'open_session_count', 'has_overlap', 'rate_missing', 'blocks_approval',
             'session_breakdown', 'status', 'approved_at', 'created_at', 'updated_at',
+            'deposit_scheduled', 'deposit_recovered', 'deposit_unrecovered',
+            'deposit_balance_before', 'deposit_balance_after',
+            'net_before_other_deductions',
         ]
         read_only_fields = fields
 
@@ -60,10 +65,14 @@ class PayrollPeriodSerializer(serializers.ModelSerializer):
     def get_totals(self, instance):
         from .services import period_totals
         totals = period_totals(instance)
-        # Decimal is not JSON, and float would undo the exactness the whole
-        # module is built on. A string keeps the two places intact over the wire.
-        totals['total_gross'] = str(totals['total_gross'])
-        return totals
+        # EVERY Decimal, not just the gross. DRF's JSON encoder turns a Decimal
+        # it has not been told about into a float, so a total of 500.00 went
+        # over the wire as 500.0 -- binary floating point, in a payroll payload,
+        # in the one module built entirely on not doing that. Converting the
+        # whole set means a total added here later cannot quietly become a float
+        # because somebody forgot to name it.
+        return {key: str(value) if isinstance(value, Decimal) else value
+                for key, value in totals.items()}
 
 
 class PayrollPeriodListSerializer(PayrollPeriodSerializer):
@@ -75,3 +84,39 @@ class PayrollPeriodListSerializer(PayrollPeriodSerializer):
             'created_at', 'approved_at', 'totals',
         ]
         read_only_fields = fields
+
+
+class StaffLedgerEntrySerializer(serializers.ModelSerializer):
+    """One line of financial history. Read-only, always.
+
+    There is no write path to this model over HTTP and there must not be one.
+    Agreements are written as a side effect of the owner setting the terms;
+    recoveries are written by payroll approval. A ledger somebody can POST to is
+    not a ledger.
+    """
+
+    entry_type_display = serializers.CharField(
+        source='get_entry_type_display', read_only=True)
+
+    class Meta:
+        model = StaffLedgerEntry
+        fields = [
+            'id', 'staff', 'staff_name_snapshot', 'entry_type',
+            'entry_type_display', 'amount', 'balance_before', 'balance_after',
+            'payroll_record', 'note', 'created_at',
+        ]
+        read_only_fields = fields
+
+
+class DepositSummarySerializer(serializers.Serializer):
+    """One staff member's deposit position, as the panel draws it."""
+
+    staff = serializers.IntegerField()
+    staff_name = serializers.CharField()
+    agreed = serializers.DecimalField(max_digits=12, decimal_places=2)
+    recovered = serializers.DecimalField(max_digits=12, decimal_places=2)
+    remaining = serializers.DecimalField(max_digits=12, decimal_places=2)
+    over_recovered = serializers.DecimalField(max_digits=12, decimal_places=2)
+    fully_recovered = serializers.BooleanField()
+    weekly = serializers.DecimalField(max_digits=12, decimal_places=2)
+    entries = StaffLedgerEntrySerializer(many=True)

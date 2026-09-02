@@ -27,8 +27,8 @@ from core.formatting import tenant_timezone
 from crm_api.models import Customer, Order, Tailor
 from tenants.models import BoutiqueTenant
 
-from . import services
-from .models import PayrollPeriod, PayrollRecord
+from . import deposits, services
+from .models import PayrollPeriod, PayrollRecord, StaffLedgerEntry
 
 #: Monday 31 August 2026. Every fixture week in this file starts here.
 MONDAY = date(2026, 8, 31)
@@ -1002,3 +1002,800 @@ class NoDoublePaymentTests(PayrollTestCase):
         self.assertEqual(services.already_paid_session_ids(self.anita), set())
         self.assertEqual(self.generate().records.get().gross_earnings,
                          Decimal('800.00'))
+
+
+class DepositAgreementTests(PayrollTestCase):
+    """The agreement is ledger history, not a column somebody edits."""
+
+    def test_setting_a_deposit_writes_an_agreement_entry(self):
+        response = self.client_for(self.owner).post(
+            reverse('staff-profile-list'),
+            {'staff': self.anita.id, 'hourly_rate': '100.00',
+             'deposit_total': '5000.00', 'deposit_weekly': '500.00'},
+            format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        entry = StaffLedgerEntry.objects.get()
+        self.assertEqual(entry.entry_type, 'DEPOSIT_AGREED')
+        self.assertEqual(entry.amount, Decimal('5000.00'))
+        self.assertEqual(deposits.deposit_state(self.anita)['agreed'],
+                         Decimal('5000.00'))
+
+    def test_no_deposit_means_no_ledger_history(self):
+        self.client_for(self.owner).post(
+            reverse('staff-profile-list'),
+            {'staff': self.anita.id, 'hourly_rate': '100.00'}, format='json')
+        self.assertEqual(StaffLedgerEntry.objects.count(), 0)
+        self.assertEqual(deposits.deposit_state(self.anita)['agreed'], Decimal('0.00'))
+
+    def test_saving_an_unchanged_profile_does_not_append_a_duplicate(self):
+        owner = self.client_for(self.owner)
+        created = owner.post(
+            reverse('staff-profile-list'),
+            {'staff': self.anita.id, 'deposit_total': '5000.00'}, format='json')
+        owner.patch(reverse('staff-profile-detail', args=[created.data['id']]),
+                    {'phone': '9600000000'}, format='json')
+        self.assertEqual(StaffLedgerEntry.objects.count(), 1)
+
+    def test_changing_the_terms_appends_rather_than_rewrites(self):
+        owner = self.client_for(self.owner)
+        created = owner.post(
+            reverse('staff-profile-list'),
+            {'staff': self.anita.id, 'deposit_total': '5000.00'}, format='json')
+        owner.patch(reverse('staff-profile-detail', args=[created.data['id']]),
+                    {'deposit_total': '3000.00'}, format='json')
+        entries = list(StaffLedgerEntry.objects.order_by('created_at'))
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0].amount, Decimal('5000.00'))
+        self.assertEqual(entries[1].amount, Decimal('3000.00'))
+        # The newest agreement is the live one.
+        self.assertEqual(deposits.deposit_state(self.anita)['agreed'],
+                         Decimal('3000.00'))
+
+    def test_reducing_the_agreement_does_not_undo_past_recoveries(self):
+        """5,000 agreed, 2,000 recovered, reduced to 3,000 -> 1,000 still owed."""
+        profile = self.profile(self.anita, '100.00', deposit_total=Decimal('5000.00'),
+                               deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+        for _ in range(4):
+            StaffLedgerEntry.objects.create(
+                staff=self.anita, staff_name_snapshot='Anita',
+                entry_type='DEPOSIT_RECOVERY', amount=Decimal('500.00'),
+                payroll_record=self._throwaway_record())
+        self.assertEqual(deposits.deposit_state(self.anita)['recovered'],
+                         Decimal('2000.00'))
+
+        deposits.record_agreement(self.anita, Decimal('3000.00'), user=self.owner)
+        state = deposits.deposit_state(self.anita)
+        self.assertEqual(state['agreed'], Decimal('3000.00'))
+        self.assertEqual(state['recovered'], Decimal('2000.00'))
+        self.assertEqual(state['remaining'], Decimal('1000.00'))
+
+    def _throwaway_record(self):
+        """A distinct PayrollRecord, so each recovery satisfies the unique index."""
+        period = PayrollPeriod.objects.create(
+            period_start=date(2020, 1, 6) + timedelta(days=7 * self._seq()),
+            period_end=date(2020, 1, 12) + timedelta(days=7 * self._seq()))
+        return PayrollRecord.objects.create(
+            period=period, staff=self.anita, staff_name_snapshot='Anita',
+            worked_minutes=0, regular_minutes=0)
+
+    _counter = 0
+
+    def _seq(self):
+        type(self)._counter += 1
+        return type(self)._counter
+
+    def test_a_negative_deposit_is_refused_by_the_database(self):
+        with self.assertRaises(IntegrityError):
+            StaffLedgerEntry.objects.create(
+                staff=self.anita, staff_name_snapshot='Anita',
+                entry_type='DEPOSIT_AGREED', amount=Decimal('-1.00'))
+
+    def test_a_recovery_must_name_its_payroll(self):
+        with self.assertRaises(IntegrityError):
+            StaffLedgerEntry.objects.create(
+                staff=self.anita, staff_name_snapshot='Anita',
+                entry_type='DEPOSIT_RECOVERY', amount=Decimal('100.00'))
+
+
+class DepositRecoveryCalculationTests(PayrollTestCase):
+    """The clamps, in isolation from payroll."""
+
+    def setUp(self):
+        super().setUp()
+        self.p = self.profile(self.anita, '100.00',
+                              deposit_total=Decimal('5000.00'),
+                              deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+
+    def test_the_ordinary_week(self):
+        r = deposits.recovery_for(self.anita, self.p, Decimal('4250.00'))
+        self.assertEqual(r['scheduled'], Decimal('500.00'))
+        self.assertEqual(r['recovered'], Decimal('500.00'))
+        self.assertEqual(r['unrecovered'], Decimal('0.00'))
+        self.assertEqual(r['balance_after'], Decimal('4500.00'))
+
+    def test_a_thin_week_recovers_only_what_was_earned(self):
+        r = deposits.recovery_for(self.anita, self.p, Decimal('300.00'))
+        self.assertEqual(r['scheduled'], Decimal('500.00'))
+        self.assertEqual(r['recovered'], Decimal('300.00'))
+        self.assertEqual(r['unrecovered'], Decimal('200.00'))
+        self.assertEqual(r['balance_after'], Decimal('4700.00'))
+
+    def test_a_week_with_no_earnings_recovers_nothing(self):
+        r = deposits.recovery_for(self.anita, self.p, Decimal('0.00'))
+        self.assertEqual(r['recovered'], Decimal('0.00'))
+        self.assertEqual(r['unrecovered'], Decimal('500.00'))
+        self.assertEqual(r['balance_after'], Decimal('5000.00'))
+
+    def test_an_unpayable_record_recovers_nothing(self):
+        r = deposits.recovery_for(self.anita, self.p, None)
+        self.assertEqual(r['recovered'], Decimal('0.00'))
+
+    def test_the_final_week_takes_only_what_is_left(self):
+        StaffLedgerEntry.objects.create(
+            staff=self.anita, staff_name_snapshot='Anita',
+            entry_type='DEPOSIT_RECOVERY', amount=Decimal('4750.00'),
+            payroll_record=self._record())
+        r = deposits.recovery_for(self.anita, self.p, Decimal('2000.00'))
+        self.assertEqual(r['scheduled'], Decimal('250.00'))
+        self.assertEqual(r['recovered'], Decimal('250.00'))
+        self.assertEqual(r['balance_after'], Decimal('0.00'))
+
+    def test_a_fully_recovered_deposit_takes_nothing_more(self):
+        StaffLedgerEntry.objects.create(
+            staff=self.anita, staff_name_snapshot='Anita',
+            entry_type='DEPOSIT_RECOVERY', amount=Decimal('5000.00'),
+            payroll_record=self._record())
+        r = deposits.recovery_for(self.anita, self.p, Decimal('2000.00'))
+        self.assertEqual(r['scheduled'], Decimal('0.00'))
+        self.assertEqual(r['recovered'], Decimal('0.00'))
+        self.assertEqual(r['unrecovered'], Decimal('0.00'))
+        self.assertTrue(deposits.deposit_state(self.anita)['fully_recovered'])
+
+    def test_a_staff_member_with_no_deposit_recovers_nothing(self):
+        other = self.profile(self.balan, '100.00')
+        r = deposits.recovery_for(self.balan, other, Decimal('4000.00'))
+        self.assertEqual(r['scheduled'], Decimal('0.00'))
+        self.assertEqual(r['recovered'], Decimal('0.00'))
+
+    def test_a_zero_weekly_rule_recovers_nothing(self):
+        self.p.deposit_weekly = Decimal('0.00')
+        self.p.save()
+        r = deposits.recovery_for(self.anita, self.p, Decimal('4000.00'))
+        self.assertEqual(r['recovered'], Decimal('0.00'))
+
+    def test_remaining_never_goes_below_zero(self):
+        StaffLedgerEntry.objects.create(
+            staff=self.anita, staff_name_snapshot='Anita',
+            entry_type='DEPOSIT_RECOVERY', amount=Decimal('5000.00'),
+            payroll_record=self._record())
+        deposits.record_agreement(self.anita, Decimal('3000.00'), user=self.owner)
+        state = deposits.deposit_state(self.anita)
+        self.assertEqual(state['remaining'], Decimal('0.00'))
+        self.assertEqual(state['over_recovered'], Decimal('2000.00'))
+
+    _n = 0
+
+    def _record(self):
+        type(self)._n += 1
+        period = PayrollPeriod.objects.create(
+            period_start=date(2021, 1, 4) + timedelta(days=7 * type(self)._n),
+            period_end=date(2021, 1, 10) + timedelta(days=7 * type(self)._n))
+        return PayrollRecord.objects.create(
+            period=period, staff=self.anita, staff_name_snapshot='Anita',
+            worked_minutes=0, regular_minutes=0)
+
+
+class DepositPayrollIntegrationTests(PayrollTestCase):
+    """The mandatory worked examples, end to end through payroll."""
+
+    def _setup(self, rate='100.00', total='5000.00', weekly='500.00'):
+        profile = self.profile(self.anita, rate,
+                               deposit_total=Decimal(total),
+                               deposit_weekly=Decimal(weekly))
+        deposits.record_agreement(self.anita, Decimal(total), user=self.owner)
+        return profile
+
+    def test_the_headline_example(self):
+        """5,000 deposit, 500 weekly, 4,250 gross -> 500 taken, 3,750 net, 4,500 left."""
+        self._setup()
+        self.session(self.anita, 1, 9, 17)     # 480
+        self.session(self.anita, 2, 9, 17)     # 480
+        self.session(self.anita, 3, 9, 17)     # 480
+        self.session(self.anita, 4, 9, 17)     # 480
+        self.session(self.anita, 5, 9, 17, end_minute=30)   # 510  => 2430
+        self.session(self.anita, 6, 9, 11)     # 120  => 2550 = 42h30m
+        period = self.generate()
+        record = period.records.get()
+        self.assertEqual(record.gross_earnings, Decimal('4250.00'))
+        self.assertEqual(record.deposit_scheduled, Decimal('500.00'))
+        self.assertEqual(record.deposit_recovered, Decimal('500.00'))
+        self.assertEqual(record.net_before_other_deductions, Decimal('3750.00'))
+        self.assertEqual(record.deposit_balance_after, Decimal('4500.00'))
+
+        services.approve(period, user=self.owner)
+        self.assertEqual(deposits.deposit_state(self.anita)['remaining'],
+                         Decimal('4500.00'))
+
+    def test_the_low_earning_example(self):
+        """5,000 remaining, 500 weekly, 300 gross -> 300 taken, 0 net, 200 missed."""
+        self._setup()
+        self.session(self.anita, 1, 9, 12)     # 180 min at 100 = 300.00
+        record = self.generate().records.get()
+        self.assertEqual(record.gross_earnings, Decimal('300.00'))
+        self.assertEqual(record.deposit_scheduled, Decimal('500.00'))
+        self.assertEqual(record.deposit_recovered, Decimal('300.00'))
+        self.assertEqual(record.deposit_unrecovered, Decimal('200.00'))
+        self.assertEqual(record.net_before_other_deductions, Decimal('0.00'))
+        self.assertEqual(record.deposit_balance_after, Decimal('4700.00'))
+
+    def test_the_final_recovery_example(self):
+        """250 left, 500 weekly, 2,000 gross -> 250 taken, then nothing ever again."""
+        self._setup()
+        # Recover 4,750 through an earlier approved week.
+        self.session(self.anita, 1, 9, 17)
+        first = self.generate()
+        first.records.update(deposit_recovered=Decimal('4750.00'))
+        services.approve(first, user=self.owner)
+        self.assertEqual(deposits.deposit_state(self.anita)['remaining'],
+                         Decimal('250.00'))
+
+        self.session(self.anita, 8, 9, 17, month=9)
+        second = services.generate(date(2026, 9, 8), user=self.owner)
+        record = second.records.get()
+        self.assertEqual(record.deposit_scheduled, Decimal('250.00'))
+        self.assertEqual(record.deposit_recovered, Decimal('250.00'))
+        services.approve(second, user=self.owner)
+        self.assertEqual(deposits.deposit_state(self.anita)['remaining'],
+                         Decimal('0.00'))
+
+        # And the week after takes nothing.
+        self.session(self.anita, 15, 9, 17, month=9)
+        third = services.generate(date(2026, 9, 15), user=self.owner)
+        self.assertEqual(third.records.get().deposit_recovered, Decimal('0.00'))
+        self.assertEqual(third.records.get().deposit_scheduled, Decimal('0.00'))
+
+    def test_a_staff_member_without_a_deposit_is_unaffected(self):
+        self.profile(self.anita, '100.00')
+        self.session(self.anita, 1, 9, 17)
+        record = self.generate().records.get()
+        self.assertEqual(record.gross_earnings, Decimal('800.00'))
+        self.assertEqual(record.deposit_recovered, Decimal('0.00'))
+        self.assertEqual(record.net_before_other_deductions, Decimal('800.00'))
+
+    def test_net_pay_never_goes_negative(self):
+        self._setup(weekly='99999.00')
+        self.session(self.anita, 1, 9, 10)   # 60 min = 100.00 gross
+        record = self.generate().records.get()
+        self.assertEqual(record.net_before_other_deductions, Decimal('0.00'))
+        self.assertGreaterEqual(record.net_before_other_deductions, Decimal('0.00'))
+
+    def test_the_gross_calculation_is_untouched_by_the_deposit_layer(self):
+        """Phase 4's figures must be identical whether or not a deposit exists."""
+        self.profile(self.balan, '100.00')
+        self._setup()
+        self.session(self.anita, 1, 9, 17)
+        self.session(self.balan, 1, 9, 17)
+        by_name = {r.staff_name_snapshot: r
+                   for r in self.generate().records.all()}
+        self.assertEqual(by_name['Anita'].gross_earnings, Decimal('800.00'))
+        self.assertEqual(by_name['Balan'].gross_earnings, Decimal('800.00'))
+        self.assertEqual(by_name['Anita'].worked_minutes,
+                         by_name['Balan'].worked_minutes)
+
+
+class DepositIdempotencyTests(PayrollTestCase):
+    """A rupee is recovered exactly once."""
+
+    def setUp(self):
+        super().setUp()
+        self.profile(self.anita, '100.00', deposit_total=Decimal('5000.00'),
+                     deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+        self.session(self.anita, 1, 9, 17)
+
+    def test_drafting_repeatedly_moves_no_money(self):
+        for _ in range(4):
+            self.generate()
+        self.assertEqual(
+            StaffLedgerEntry.objects.filter(entry_type='DEPOSIT_RECOVERY').count(),
+            0)
+        self.assertEqual(deposits.deposit_state(self.anita)['recovered'],
+                         Decimal('0.00'))
+
+    def test_approval_writes_exactly_one_recovery(self):
+        services.approve(self.generate(), user=self.owner)
+        self.assertEqual(
+            StaffLedgerEntry.objects.filter(entry_type='DEPOSIT_RECOVERY').count(),
+            1)
+
+    def test_a_second_approval_creates_no_second_recovery(self):
+        period = self.generate()
+        services.approve(period, user=self.owner)
+        with self.assertRaises(services.PayrollError):
+            services.approve(period, user=self.owner)
+        self.assertEqual(
+            StaffLedgerEntry.objects.filter(entry_type='DEPOSIT_RECOVERY').count(),
+            1)
+        self.assertEqual(deposits.deposit_state(self.anita)['recovered'],
+                         Decimal('500.00'))
+
+    def test_a_second_approval_over_the_api_creates_no_second_recovery(self):
+        period = self.generate()
+        owner = self.client_for(self.owner)
+        url = reverse('payroll-period-approve', args=[period.id])
+        self.assertEqual(owner.post(url, {}, format='json').status_code, 200)
+        self.assertEqual(owner.post(url, {}, format='json').status_code, 409)
+        self.assertEqual(
+            StaffLedgerEntry.objects.filter(entry_type='DEPOSIT_RECOVERY').count(),
+            1)
+
+    def test_the_database_refuses_two_recoveries_for_one_payroll(self):
+        period = self.generate()
+        services.approve(period, user=self.owner)
+        record = period.records.get()
+        with self.assertRaises(IntegrityError):
+            StaffLedgerEntry.objects.create(
+                staff=self.anita, staff_name_snapshot='Anita',
+                entry_type='DEPOSIT_RECOVERY', amount=Decimal('500.00'),
+                payroll_record=record)
+
+    def test_approval_is_refused_if_the_obligation_shrank_under_the_draft(self):
+        """A stale draft must not collect more than is still owed."""
+        period = self.generate()
+        # Someone else's approval took the deposit down in the meantime.
+        StaffLedgerEntry.objects.create(
+            staff=self.anita, staff_name_snapshot='Anita',
+            entry_type='DEPOSIT_RECOVERY', amount=Decimal('4900.00'),
+            payroll_record=PayrollRecord.objects.create(
+                period=PayrollPeriod.objects.create(
+                    period_start=date(2019, 1, 7), period_end=date(2019, 1, 13)),
+                staff=self.anita, staff_name_snapshot='Anita',
+                worked_minutes=0, regular_minutes=0))
+        with self.assertRaises(services.PayrollError) as caught:
+            services.approve(period, user=self.owner)
+        self.assertIn('changed since', str(caught.exception))
+        period.refresh_from_db()
+        self.assertEqual(period.status, 'DRAFT')
+
+    def test_recovery_never_exceeds_the_obligation(self):
+        period = self.generate()
+        period.records.update(deposit_recovered=Decimal('99999.00'))
+        with self.assertRaises(services.PayrollError):
+            services.approve(period, user=self.owner)
+        self.assertEqual(
+            StaffLedgerEntry.objects.filter(entry_type='DEPOSIT_RECOVERY').count(),
+            0)
+
+
+class DepositImmutabilityTests(PayrollTestCase):
+    """Approved payroll and its recovery are history, not live values."""
+
+    def setUp(self):
+        super().setUp()
+        self.p = self.profile(self.anita, '100.00',
+                              deposit_total=Decimal('5000.00'),
+                              deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+        self.session(self.anita, 1, 9, 17)
+        self.period = self.generate()
+        services.approve(self.period, user=self.owner)
+        self.record = self.period.records.get()
+
+    def test_changing_the_terms_does_not_move_an_approved_week(self):
+        self.p.deposit_weekly = Decimal('50.00')
+        self.p.deposit_total = Decimal('1000.00')
+        self.p.save()
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.deposit_recovered, Decimal('500.00'))
+        self.assertEqual(self.record.gross_earnings, Decimal('800.00'))
+        self.assertEqual(self.record.net_before_other_deductions, Decimal('300.00'))
+
+    def test_correcting_attendance_afterwards_does_not_move_it_either(self):
+        session = AttendanceSession.objects.get()
+        self.client_for(self.owner).post(
+            reverse('staff-attendance-correct', args=[session.id]),
+            {'check_in': '2026-09-01T06:00:00', 'check_out': '2026-09-01T22:00:00',
+             'reason': 'Should not reach approved payroll'}, format='json')
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.gross_earnings, Decimal('800.00'))
+        self.assertEqual(self.record.deposit_recovered, Decimal('500.00'))
+
+    def test_the_recovery_names_the_payroll_that_caused_it(self):
+        entry = StaffLedgerEntry.objects.get(entry_type='DEPOSIT_RECOVERY')
+        self.assertEqual(entry.payroll_record_id, self.record.id)
+        self.assertEqual(entry.balance_before, Decimal('5000.00'))
+        self.assertEqual(entry.balance_after, Decimal('4500.00'))
+
+    def test_a_recovered_payroll_cannot_be_deleted_out_from_under_its_ledger(self):
+        with self.assertRaises(Exception):
+            self.record.delete()
+
+
+class DepositAccessTests(PayrollTestCase):
+    """Deposits are payroll, and payroll is Owner-only."""
+
+    def setUp(self):
+        super().setUp()
+        self.profile(self.anita, '100.00', deposit_total=Decimal('5000.00'),
+                     deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+        self.master_user = User.objects.create_user(
+            username='mira@payroll.test', email='mira@payroll.test',
+            password='mirapass12345')
+        self.master = Tailor.objects.create(
+            name='Mira', specialty='Supervision', role='Master',
+            email='mira@payroll.test', user=self.master_user)
+
+    def _urls(self):
+        return [reverse('payroll-deposit-list'),
+                reverse('payroll-deposit-detail', args=[self.anita.id])]
+
+    def test_owner_sees_the_deposit_position(self):
+        response = self.client_for(self.owner).get(
+            reverse('payroll-deposit-detail', args=[self.anita.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['agreed'], '5000.00')
+        self.assertEqual(response.data['remaining'], '5000.00')
+
+    def test_a_master_is_refused(self):
+        for url in self._urls():
+            self.assertEqual(
+                self.client_for(self.master_user).get(url).status_code, 403, url)
+
+    def test_a_tailor_is_refused_even_their_own(self):
+        """Self-service payslips are a later phase; nothing is exposed yet."""
+        for url in self._urls():
+            self.assertEqual(
+                self.client_for(self.anita_user).get(url).status_code, 403, url)
+
+    def test_an_anonymous_caller_is_refused(self):
+        anonymous = APIClient()
+        anonymous.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
+        for url in self._urls():
+            self.assertIn(anonymous.get(url).status_code, (401, 403), url)
+
+    def test_no_deposit_figure_leaks_in_a_refusal(self):
+        for url in self._urls():
+            body = self.client_for(self.master_user).get(url).content.decode()
+            self.assertNotIn('5000', body)
+
+    def test_a_master_reading_the_roster_sees_no_deposit_terms(self):
+        """The Phase 2 field-level rule still holds with a ledger behind it."""
+        body = self.client_for(self.master_user).get(
+            reverse('staff-profile-list')).content.decode()
+        self.assertNotIn('deposit_total', body)
+        self.assertNotIn('deposit_weekly', body)
+        self.assertNotIn('5000', body)
+
+    def test_the_activity_feed_carries_no_deposit_figures(self):
+        """Direct regression against the Phase 4 leak: Masters read this feed."""
+        owner = self.client_for(self.owner)
+        self.session(self.anita, 1, 9, 17)
+        owner.post(reverse('payroll-period-generate'), {'week': '2026-09-01'},
+                   format='json')
+        period = PayrollPeriod.objects.get()
+        owner.post(reverse('payroll-period-approve', args=[period.id]), {},
+                   format='json')
+
+        for entry in UniversalActivity.objects.all():
+            blob = (f"{entry.title} {entry.description} "
+                    f"{entry.old_value} {entry.new_value}")
+            for figure in ('5000', '4500', '500.00', '800.00'):
+                self.assertNotIn(figure, blob)
+
+        feed = self.client_for(self.master_user).get('/api/activities/activities/')
+        self.assertEqual(feed.status_code, 200)
+        body = feed.content.decode()
+        for figure in ('5000', '4500', '800.00'):
+            self.assertNotIn(figure, body)
+
+
+class CrossTenantDepositTests(TransactionTestCase):
+    """A deposit belongs to one boutique and cannot be read from another."""
+
+    def setUp(self):
+        connection.set_schema_to_public()
+        self.alpha = self._boutique('dep_alpha', 'owner@depalpha.test', 'Alpha')
+        self.beta = self._boutique('dep_beta', 'owner@depbeta.test', 'Beta')
+        self._deposit(self.alpha, 'alpha@depalpha.test', 'Alpha Tailor', '1111.00')
+        self._deposit(self.beta, 'beta@depbeta.test', 'Beta Tailor', '2222.00')
+        connection.set_schema_to_public()
+
+    def tearDown(self):
+        connection.set_schema_to_public()
+        for schema in ('dep_alpha', 'dep_beta'):
+            with connection.cursor() as c:
+                c.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+            BoutiqueTenant.objects.filter(schema_name=schema).delete()
+
+    @staticmethod
+    def _boutique(schema, owner_email, name):
+        tenant = BoutiqueTenant(schema_name=schema, owner_email=owner_email,
+                                name=name, timezone='Asia/Kolkata')
+        tenant.save()
+        return tenant
+
+    @staticmethod
+    def _deposit(tenant, email, name, amount):
+        with schema_context(tenant.schema_name):
+            owner = User.objects.create_user(
+                username=tenant.owner_email, email=tenant.owner_email,
+                password='ownerpw12345')
+            Token.objects.get_or_create(user=owner)
+            user = User.objects.create_user(
+                username=email, email=email, password='staffpw12345')
+            tailor = Tailor.objects.create(
+                name=name, specialty='Stitching', role='Tailor',
+                email=email, user=user)
+            StaffProfile.objects.create(
+                staff=tailor, hourly_rate=Decimal('100.00'),
+                deposit_total=Decimal(amount), deposit_weekly=Decimal('100.00'))
+            deposits.record_agreement(tailor, Decimal(amount), user=owner)
+
+    def _client(self, tenant):
+        with schema_context(tenant.schema_name):
+            token = Token.objects.get(user__email=tenant.owner_email).key
+        api = APIClient()
+        api.credentials(HTTP_AUTHORIZATION=f'Token {token}',
+                        HTTP_X_TENANT_ID=tenant.schema_name)
+        return api
+
+    def test_each_boutique_sees_only_its_own_deposits(self):
+        response = self._client(self.alpha).get(reverse('payroll-deposit-list'))
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('1111.00', body)
+        self.assertNotIn('2222.00', body)
+        self.assertNotIn('Beta Tailor', body)
+
+    def test_a_staff_id_from_another_boutique_is_not_found(self):
+        with schema_context(self.beta.schema_name):
+            beta_staff = Tailor.objects.get(name='Beta Tailor')
+        response = self._client(self.alpha).get(
+            reverse('payroll-deposit-detail', args=[beta_staff.id]))
+        body = response.content.decode()
+        self.assertNotIn('2222.00', body)
+
+    def test_ledger_entries_do_not_cross_schemas(self):
+        with schema_context(self.alpha.schema_name):
+            self.assertEqual(StaffLedgerEntry.objects.count(), 1)
+            self.assertEqual(StaffLedgerEntry.objects.get().amount,
+                             Decimal('1111.00'))
+        with schema_context(self.beta.schema_name):
+            self.assertEqual(StaffLedgerEntry.objects.count(), 1)
+            self.assertEqual(StaffLedgerEntry.objects.get().amount,
+                             Decimal('2222.00'))
+
+
+class DepositReviewFixTests(PayrollTestCase):
+    """Regressions for defects the adversarial review found after the tests passed."""
+
+    def test_cancelling_a_deposit_stops_recovery(self):
+        """Setting the agreed deposit to zero must reach the ledger.
+
+        The first version skipped a zero, so the ledger kept the old agreement
+        and payroll went on collecting against a deposit the owner had just
+        cancelled -- with nothing in the interface able to stop it.
+        """
+        owner = self.client_for(self.owner)
+        created = owner.post(
+            reverse('staff-profile-list'),
+            {'staff': self.anita.id, 'hourly_rate': '100.00',
+             'deposit_total': '5000.00', 'deposit_weekly': '500.00'},
+            format='json')
+        self.assertEqual(deposits.deposit_state(self.anita)['remaining'],
+                         Decimal('5000.00'))
+
+        owner.patch(reverse('staff-profile-detail', args=[created.data['id']]),
+                    {'deposit_total': '0.00'}, format='json')
+
+        state = deposits.deposit_state(self.anita)
+        self.assertEqual(state['agreed'], Decimal('0.00'))
+        self.assertEqual(state['remaining'], Decimal('0.00'))
+
+        self.session(self.anita, 1, 9, 17)
+        record = self.generate().records.get()
+        self.assertEqual(record.deposit_recovered, Decimal('0.00'))
+        self.assertEqual(record.net_before_other_deductions, Decimal('800.00'))
+
+    def test_a_deleted_staff_member_has_no_pooled_balance(self):
+        """staff=None must not match every orphaned ledger row at once."""
+        self.profile(self.anita, '100.00', deposit_total=Decimal('5000.00'),
+                     deposit_weekly=Decimal('500.00'))
+        self.profile(self.balan, '100.00', deposit_total=Decimal('3000.00'),
+                     deposit_weekly=Decimal('300.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+        deposits.record_agreement(self.balan, Decimal('3000.00'), user=self.owner)
+
+        self.anita.delete()
+        self.balan.delete()
+
+        # Both agreements are now orphaned. Asking about "no staff member" must
+        # answer nothing rather than summing them into one balance.
+        self.assertEqual(deposits.deposit_state(None)['agreed'], Decimal('0.00'))
+        self.assertEqual(deposits.deposit_state(None)['remaining'], Decimal('0.00'))
+        self.assertEqual(StaffLedgerEntry.objects.filter(staff__isnull=True).count(), 2)
+
+    def test_recovery_is_refused_rather_than_silently_reduced(self):
+        """A ledger that disagrees with its payroll record is worse than a failure."""
+        profile = self.profile(self.anita, '100.00',
+                               deposit_total=Decimal('5000.00'),
+                               deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('100.00'), user=self.owner)
+        self.session(self.anita, 1, 9, 17)
+        period = self.generate()
+        period.records.update(deposit_recovered=Decimal('500.00'))
+        record = period.records.get()
+        with self.assertRaises(ValueError):
+            deposits.record_recovery(record, user=self.owner)
+
+    def test_the_money_rounds_half_up_like_payroll(self):
+        self.assertEqual(deposits._money(Decimal('0.005')), Decimal('0.01'))
+        self.assertEqual(deposits._money(Decimal('0.015')), Decimal('0.02'))
+
+    def test_a_non_numeric_staff_id_is_a_404_not_a_500(self):
+        response = self.client_for(self.owner).get('/api/payroll/deposits/abc/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_totals_are_strings_not_floats(self):
+        """A float in a payroll payload undoes the whole point of Decimal."""
+        self.profile(self.anita, '100.00', deposit_total=Decimal('5000.00'),
+                     deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+        self.session(self.anita, 1, 9, 17)
+        self.generate()
+        period = PayrollPeriod.objects.get()
+        response = self.client_for(self.owner).get(
+            reverse('payroll-period-detail', args=[period.id]))
+        totals = response.data['totals']
+        for key in ('total_gross', 'total_deposit_recovered',
+                    'total_deposit_unrecovered', 'total_net'):
+            self.assertIsInstance(totals[key], str, key)
+
+    def test_approval_refreshes_stale_draft_balances(self):
+        """Two weeks drafted, then approved in turn: the second must not lie.
+
+        The second draft was calculated when 5,000 was owed. Approving the first
+        takes it to 4,500, so the second record's stored "owed before" would
+        otherwise still read 5,000 -- an obligation that was never true at the
+        moment its money moved.
+        """
+        self.profile(self.anita, '100.00', deposit_total=Decimal('5000.00'),
+                     deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+        self.session(self.anita, 1, 9, 17)
+        self.session(self.anita, 8, 9, 17, month=9)
+
+        first = self.generate()
+        second = services.generate(date(2026, 9, 8), user=self.owner)
+        self.assertEqual(second.records.get().deposit_balance_before,
+                         Decimal('5000.00'))
+
+        services.approve(first, user=self.owner)
+        services.approve(second, user=self.owner)
+
+        record = second.records.get()
+        self.assertEqual(record.deposit_balance_before, Decimal('4500.00'))
+        self.assertEqual(record.deposit_balance_after, Decimal('4000.00'))
+        self.assertEqual(deposits.deposit_state(self.anita)['remaining'],
+                         Decimal('4000.00'))
+
+
+class ConcurrentRecoveryTests(TransactionTestCase):
+    """Two weeks approved at the same instant must not over-recover.
+
+    The one test in this file that uses real threads and real transactions.
+    Everything else runs inside a single test transaction, where two "concurrent"
+    approvals are just two sequential calls -- which is exactly why the defect
+    this guards against survived a full suite of passing tests.
+
+    The defect: approve() locks the PayrollPeriod, so two DIFFERENT weeks take
+    two different locks and never block each other. Both read the same remaining
+    obligation, both write a recovery against it, and a staff member owing 800
+    has 1,000 taken. The fix locks the PERSON inside record_recovery, so any two
+    recoveries for the same staff member serialise whatever week they belong to.
+    """
+
+    def setUp(self):
+        connection.set_schema_to_public()
+        self.tenant = BoutiqueTenant(
+            schema_name='conc_dep', owner_email='owner@conc.test',
+            name='Concurrency Atelier', timezone='Asia/Kolkata')
+        self.tenant.save()
+        with schema_context('conc_dep'):
+            self.owner = User.objects.create_user(
+                username='owner@conc.test', email='owner@conc.test',
+                password='ownerpw12345')
+            self.staff = Tailor.objects.create(
+                name='Racer', specialty='Stitching', role='Tailor')
+            StaffProfile.objects.create(
+                staff=self.staff, hourly_rate=Decimal('100.00'),
+                deposit_total=Decimal('800.00'), deposit_weekly=Decimal('500.00'))
+            deposits.record_agreement(self.staff, Decimal('800.00'), user=self.owner)
+            self.periods = [self._week(d) for d in
+                            (date(2026, 8, 31), date(2026, 9, 7))]
+
+    def tearDown(self):
+        connection.set_schema_to_public()
+        with connection.cursor() as c:
+            c.execute('DROP SCHEMA IF EXISTS "conc_dep" CASCADE')
+        BoutiqueTenant.objects.filter(schema_name='conc_dep').delete()
+
+    def _week(self, start):
+        period = PayrollPeriod.objects.create(
+            period_start=start, period_end=start + timedelta(days=6))
+        PayrollRecord.objects.create(
+            period=period, staff=self.staff, staff_name_snapshot='Racer',
+            hourly_rate_snapshot=Decimal('100.00'),
+            worked_minutes=480, regular_minutes=480,
+            gross_earnings=Decimal('800.00'),
+            deposit_scheduled=Decimal('500.00'),
+            deposit_recovered=Decimal('500.00'),
+            deposit_balance_before=Decimal('800.00'),
+            deposit_balance_after=Decimal('300.00'),
+            net_before_other_deductions=Decimal('300.00'))
+        return period
+
+    def test_two_weeks_approved_at_once_never_over_recover(self):
+        import threading
+
+        barrier = threading.Barrier(2)
+        errors = []
+
+        def approve(period_id):
+            try:
+                with schema_context('conc_dep'):
+                    period = PayrollPeriod.objects.get(pk=period_id)
+                    barrier.wait(timeout=10)
+                    services.approve(period, user=self.owner)
+            except Exception as exc:            # noqa: BLE001 - recorded, asserted below
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=approve, args=(p.pk,))
+                   for p in self.periods]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        with schema_context('conc_dep'):
+            state = deposits.deposit_state(self.staff)
+            taken = sum(
+                e.amount for e in StaffLedgerEntry.objects.filter(
+                    entry_type='DEPOSIT_RECOVERY'))
+
+        # The whole point: never more than was owed, however the race resolved.
+        self.assertLessEqual(taken, Decimal('800.00'),
+                             f'over-recovered: {taken} against 800.00 owed')
+        self.assertEqual(state['over_recovered'], Decimal('0.00'))
+        self.assertLessEqual(state['recovered'], state['agreed'])
+
+
+class DepositListIsLedgerDrivenTests(PayrollTestCase):
+    def test_deleting_the_employment_terms_does_not_hide_an_obligation(self):
+        """The ledger decides who owes money, not the profile.
+
+        Keyed on StaffProfile, this list would have quietly dropped anybody
+        whose employment terms were deleted -- while the ledger went on saying
+        they owed 5,000.
+        """
+        profile = self.profile(self.anita, '100.00',
+                               deposit_total=Decimal('5000.00'),
+                               deposit_weekly=Decimal('500.00'))
+        deposits.record_agreement(self.anita, Decimal('5000.00'), user=self.owner)
+        profile.delete()
+
+        response = self.client_for(self.owner).get(reverse('payroll-deposit-list'))
+        self.assertEqual(response.status_code, 200)
+        names = [row['staff_name'] for row in response.data]
+        self.assertIn('Anita', names)
+        self.assertEqual(response.data[0]['remaining'], '5000.00')
+
+    def test_staff_with_no_deposit_are_not_listed(self):
+        self.profile(self.anita, '100.00')
+        response = self.client_for(self.owner).get(reverse('payroll-deposit-list'))
+        self.assertEqual(response.data, [])

@@ -38,6 +38,7 @@ from django.utils import timezone
 from apps.staff.attendance import week_start
 from apps.staff.models import AttendanceSession, StaffProfile
 
+from . import deposits
 from .models import PayrollPeriod, PayrollRecord
 
 #: Two places, half up. The same money shape the rest of the product uses.
@@ -207,16 +208,31 @@ def _calculate_for(profile, start, end):
     # got round to configuring.
     usable_rate = rate if (rate is not None and rate > 0) else None
 
+    gross = gross_for(minutes, usable_rate)
+
+    # The deposit layer sits ON TOP of the Phase 4 gross calculation and does
+    # not touch it: `gross_earnings` above is computed exactly as before, and
+    # the recovery is then clamped against it. Nothing here can change what
+    # somebody earned -- only what is taken from it.
+    recovery = deposits.recovery_for(profile.staff, profile, gross)
+    net = None if gross is None else gross - recovery['recovered']
+
     return {
         'staff_name_snapshot': profile.staff.name,
         'staff_role_snapshot': profile.staff.role or '',
         'hourly_rate_snapshot': usable_rate,
         'worked_minutes': minutes,
         'regular_minutes': minutes,
-        'gross_earnings': gross_for(minutes, usable_rate),
+        'gross_earnings': gross,
         'open_session_count': open_count,
         'has_overlap': _overlaps(completed),
         'session_breakdown': _breakdown(completed),
+        'deposit_scheduled': recovery['scheduled'],
+        'deposit_recovered': recovery['recovered'],
+        'deposit_unrecovered': recovery['unrecovered'],
+        'deposit_balance_before': recovery['balance_before'],
+        'deposit_balance_after': recovery['balance_after'],
+        'net_before_other_deductions': net,
     }
 
 
@@ -318,9 +334,43 @@ def approve(period, *, user):
             'There is nothing to approve for this week -- no staff member has '
             'any completed attendance.')
 
+    # The draft may be stale -- another week could have been approved since it
+    # was calculated, reducing what is still owed. Refuse rather than quietly
+    # collect a figure the owner reviewed but the obligation no longer supports.
+    # Refusing keeps the promise that approving means approving WHAT WAS SHOWN;
+    # silently reducing it would break that promise in the direction of money.
+    for record in locked.records.all():
+        if record.deposit_recovered <= 0:
+            continue
+        outstanding = deposits.deposit_state(record.staff)['remaining']
+        if record.deposit_recovered > outstanding:
+            raise PayrollError(
+                f"{record.staff_name_snapshot}'s security deposit has changed "
+                f"since this payroll was drafted. Generate it again so the "
+                f"recovery matches what is still owed.")
+
     now = timezone.now()
-    locked.records.update(
-        status=PayrollRecord.Status.APPROVED, approved_at=now, approved_by=user)
+    # The ledger is written HERE, inside the approval transaction, and nowhere
+    # else. Payroll approved without its recovery, or a recovery taken against a
+    # payroll still in draft, are both states this ordering makes unreachable.
+    for record in locked.records.all():
+        record.status = PayrollRecord.Status.APPROVED
+        record.approved_at = now
+        record.approved_by = user
+        entry = deposits.record_recovery(record, user=user)
+        fields = ['status', 'approved_at', 'approved_by']
+        if entry is not None:
+            # The draft's balances were calculated when it was drafted, which
+            # may have been before another week was approved. The RECOVERY is
+            # the figure the owner reviewed and is left alone; the balances
+            # either side of it are refreshed from the ledger row that actually
+            # moved the money, so an approved record cannot state an obligation
+            # that was never true.
+            record.deposit_balance_before = entry.balance_before
+            record.deposit_balance_after = entry.balance_after
+            fields += ['deposit_balance_before', 'deposit_balance_after']
+        record.save(update_fields=fields)
+
     locked.status = PayrollPeriod.Status.APPROVED
     locked.approved_at = now
     locked.approved_by = user
@@ -331,11 +381,15 @@ def approve(period, *, user):
 def period_totals(period):
     """The figures the confirmation dialog and the list header show."""
     records = list(period.records.all())
+    zero = Decimal('0.00')
     return {
         'staff_count': len(records),
         'total_minutes': sum(r.worked_minutes for r in records),
-        'total_gross': sum((r.gross_earnings or Decimal('0.00') for r in records),
-                           Decimal('0.00')),
+        'total_gross': sum((r.gross_earnings or zero for r in records), zero),
+        'total_deposit_recovered': sum((r.deposit_recovered for r in records), zero),
+        'total_deposit_unrecovered': sum((r.deposit_unrecovered for r in records), zero),
+        'total_net': sum((r.net_before_other_deductions or zero for r in records),
+                         zero),
         'blocked_count': sum(1 for r in records if r.blocks_approval),
         'open_session_count': sum(r.open_session_count for r in records),
     }
