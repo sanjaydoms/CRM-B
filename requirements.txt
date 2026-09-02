@@ -8,9 +8,4 @@ psycopg2-binary==2.9.12
 sqlparse==0.5.5
 requests
 gunicorn
-# Test-only. Django's parallel runner pickles tracebacks across worker
-# processes and cannot do it without tblib -- a failure under `--parallel`
-# then reports "cannot pickle 'traceback' object" instead of the actual
-# assertion, which sends you looking for a bug in the runner rather than in
-# the test. Nothing in the application imports it.
 tblib==3.2.2

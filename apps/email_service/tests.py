@@ -50,7 +50,6 @@ class MultiRecipientEmailAPITest(TenantTestCase):
         self.assertEqual(response.data["data"]["sent_count"], 5)
         self.assertEqual(response.data["data"]["total_recipients"], 5)
 
-        # Check mail outbox
         self.assertEqual(len(mail.outbox), 1)
         sent_mail = mail.outbox[0]
         self.assertEqual(sent_mail.subject, "Important Notification TESTING - #1005")
@@ -76,7 +75,6 @@ class MultiRecipientEmailAPITest(TenantTestCase):
         url = reverse('send-bulk-email')
         payload = {
             "recipients": ["user@example.com"],
-            # Missing subject and message
         }
 
         response = self.client.post(url, payload, format='json')

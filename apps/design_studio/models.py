@@ -1,21 +1,3 @@
-"""Persistence for the design library.
-
-DesignAsset is the boutique's whole library: uploads, saved favourites, imported
-references, and -- since the catalogue moved out of crm_api.BoutiqueDesign -- the
-boutique's own catalogue too. One table, so one set of filters, one attribution
-and one approval path covers every design rather than half of them.
-
-The earlier note here argued against *copying* catalogue rows in, on the grounds
-that two records would drift apart. That still holds, and it is why the rows were
-moved rather than duplicated: BoutiqueDesign stopped being written to in the same
-commit that moved them.
-
-Past orders are still projected by their provider rather than stored, because an
-order is not a library entry.
-
-A board is the unit of decision: references are collected on it, one item is
-selected, and once approved the board is what the order carries into production.
-"""
 
 import uuid
 
@@ -28,28 +10,10 @@ from crm_api.models import Customer, Order, Tailor
 
 
 class Designer(models.Model):
-    """Someone who contributes designs to the boutique.
-
-    Attribution came first: a designer started as a credit on a design, not an
-    account, and `user` stayed null through steps 1-6 -- nothing in the module
-    needed a login, so the security surface could wait. It cannot wait forever,
-    because the whole point of a designer role is a person who signs in and
-    uploads their own work. DesignerViewSet.create_login is what an Owner uses
-    to switch a credited designer on; core.roles.resolve_user_role is what makes
-    the resulting account a Designer rather than an accidental Owner.
-
-      `user`  null means credit only; set means the designer can sign in.
-      `staff` is set only when the designer is also on the production floor. Most
-              are not, and a designer is deliberately *not* a Tailor role: the
-              workflow asserts every staff role has a production stage it can
-              work on, and design work has no stage.
-    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=150, db_index=True)
     employee_id = models.CharField(max_length=50, blank=True, default='')
-    # Used to create the login, and to find a User that already exists under
-    # this address -- the same idempotency Tailor's own account bootstrap uses.
     email = models.EmailField(blank=True, default='')
 
     user = models.OneToOneField(
@@ -77,8 +41,6 @@ class Designer(models.Model):
     class Meta:
         ordering = ['name']
         constraints = [
-            # Two designers with the same name are almost certainly the same
-            # person entered twice, which splits a portfolio in half.
             models.UniqueConstraint(fields=['name'], name='designer_unique_name'),
         ]
 
@@ -87,13 +49,6 @@ class Designer(models.Model):
 
 
 class Collection(models.Model):
-    """A curated set of designs, owned by the designer who assembles it.
-
-    A collection is not a category. "Bridal 2026" and "Lehenga" answer different
-    questions -- one is what the boutique is presenting this season, the other is
-    what the garment is -- and a design belongs to one of each. Folding them into
-    a single list is what makes counts stop adding up.
-    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     designer = models.ForeignKey(
@@ -112,8 +67,6 @@ class Collection(models.Model):
     class Meta:
         ordering = ['sequence', 'name']
         constraints = [
-            # Two designers may both have a "Bridal 2026"; one designer with two
-            # is the same collection entered twice.
             models.UniqueConstraint(
                 fields=['designer', 'name'], name='collection_unique_per_designer'),
         ]
@@ -123,14 +76,12 @@ class Collection(models.Model):
 
 
 class DesignAsset(models.Model):
-    """A design reference the boutique stores in its own library."""
+
 
     SOURCE_UPLOAD = 'upload'
     SOURCE_FAVOURITE = 'favourite'
     SOURCE_PINTEREST = 'pinterest'
     SOURCE_GOOGLE = 'google'
-    # The two the boutique's own catalogue arrives as. They were BoutiqueDesign
-    # rows distinguished by an is_boutique flag; the flag is the source now.
     SOURCE_CATALOGUE = 'catalogue'
     SOURCE_SUGGESTION = 'suggestion'
     SOURCE_CHOICES = [
@@ -144,15 +95,10 @@ class DesignAsset(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_UPLOAD, db_index=True)
-    # The originating platform's own id, used to avoid importing the same pin
-    # or image twice. Blank for uploads, which have no upstream identity.
     external_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     title = models.CharField(max_length=200)
     image_url = models.CharField(max_length=500)
     source_url = models.CharField(max_length=500, blank=True, default='')
-    # The credit as the source gave it -- a Pinterest pin names its designer as
-    # free text and there is nobody to link to. Kept as the fallback and as the
-    # provenance of an import; `designer_ref` is what the portfolio counts.
     designer = models.CharField(max_length=150, blank=True, default='')
     designer_ref = models.ForeignKey(
         Designer, on_delete=models.SET_NULL, null=True, blank=True,
@@ -161,24 +107,14 @@ class DesignAsset(models.Model):
 
     garment_type = models.CharField(max_length=100, blank=True, default='', db_index=True)
     occasion = models.CharField(max_length=100, blank=True, default='', db_index=True)
-    # Structured garment attributes: neck_type, sleeve, fabric, embroidery,
-    # colour, fit, pattern. Kept as JSON because the useful set differs by
-    # garment and grows as new sources are added.
     attributes = models.JSONField(default=dict, blank=True)
     tags = models.JSONField(default=list, blank=True)
     colour_palette = models.JSONField(default=list, blank=True)
 
-    # The garment this design is for, as the catalogue defines it. A string
-    # here would be a second taxonomy: `garment_type` above says "Lehenga" and
-    # nothing guarantees it matches the template a customer's order was built
-    # from. See docs/design-management.md section 2.
     template = models.ForeignKey(
         GarmentTemplate, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='designs', db_index=True,
     )
-    # Template-vocabulary tags: {"sleeve_length": "elbow", "occasion": "wedding"}.
-    # Same shape and same values as GarmentJob.spec, which is what lets "designs
-    # matching this order" be a query rather than a fuzzy string comparison.
     spec_tags = models.JSONField(default=dict, blank=True)
 
     class Status(models.TextChoices):
@@ -191,8 +127,6 @@ class DesignAsset(models.Model):
         BOUTIQUE = 'BOUTIQUE', 'Whole boutique'
         DESIGNER_ONLY = 'DESIGNER_ONLY', 'Designer only'
 
-    # Existing rows are live work, so ACTIVE is the default; the approval queue
-    # in a later step is what starts putting uploads into PENDING.
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.ACTIVE, db_index=True)
     visibility = models.CharField(
@@ -208,9 +142,6 @@ class DesignAsset(models.Model):
 
     description = models.TextField(blank=True, default='')
     video_url = models.CharField(max_length=500, blank=True, default='')
-    # Extra images beyond image_url, which stays the one the cards show. A list
-    # rather than a table: a design has a handful of photographs, and they are
-    # only ever read together with the design.
     gallery = models.JSONField(default=list, blank=True)
 
     class Difficulty(models.TextChoices):
@@ -228,9 +159,6 @@ class DesignAsset(models.Model):
     popularity = models.IntegerField(default=0)
     is_favourite = models.BooleanField(default=False, db_index=True)
 
-    # Denormalised because the dashboard sorts on them. A COUNT(*) across the
-    # library on every page load is exactly what makes a gallery of thousands
-    # slow, so these are incremented at the point of the event instead.
     view_count = models.IntegerField(default=0)
     order_count = models.IntegerField(default=0)
 
@@ -248,10 +176,6 @@ class DesignAsset(models.Model):
             ),
         ]
         indexes = [
-            # Filtering the library by sleeve, neck or occasion is a containment
-            # query into spec_tags. Without this index that is a sequential scan
-            # of every design in the boutique, which is the slow gallery this
-            # module exists to avoid.
             GinIndex(fields=['spec_tags'], name='design_asset_spec_tags_gin'),
             models.Index(fields=['status', 'template'], name='design_asset_status_template'),
         ]
@@ -261,12 +185,6 @@ class DesignAsset(models.Model):
 
 
 class DesignApproval(models.Model):
-    """One review decision on a design. A log, not a status column.
-
-    Overwriting a `status` field loses the history: the second time a design is
-    submitted, there is no way to see why it was rejected in March. Each review
-    writes a new row here and DesignAsset.status is only ever the current state.
-    """
 
     class Decision(models.TextChoices):
         APPROVED = 'APPROVED', 'Approved'
@@ -290,7 +208,7 @@ class DesignApproval(models.Model):
 
 
 class DesignBoard(models.Model):
-    """The shortlist an owner builds for one customer during order creation."""
+
 
     STATUS_DRAFT = 'DRAFT'
     STATUS_SHORTLISTED = 'SHORTLISTED'
@@ -303,14 +221,10 @@ class DesignBoard(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='design_boards')
-    # Set when the board is saved to an order. A board starts before the order
-    # exists, so this stays null through the wizard.
     order = models.OneToOneField(Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='design_board')
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
     title = models.CharField(max_length=200, blank=True, default='')
     notes = models.TextField(blank=True, default='')
-    # The context snapshot the search ran against, kept so a board can be
-    # explained months later even after the customer's profile has moved on.
     context_snapshot = models.JSONField(default=dict, blank=True)
     search_queries = models.JSONField(default=list, blank=True)
 
@@ -332,26 +246,9 @@ class DesignBoard(models.Model):
 
 
 class DesignBoardItem(models.Model):
-    """One design on a board, stored as a snapshot rather than a reference.
-
-    Search results come from catalogue rows, past orders and external
-    platforms alike, so there is no single foreign key that could point at all
-    of them. Snapshotting also means an approved design keeps showing the tailor
-    what was agreed even if the catalogue entry is later edited or deleted.
-    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     board = models.ForeignKey(DesignBoard, on_delete=models.CASCADE, related_name='items')
-    # Which dress on the order this reference is for. Null for a board built
-    # before garments were priced and designed individually, and for an
-    # order-level reference that genuinely applies to the whole order.
-    #
-    # Deliberately on the ITEM and not the board: the board stays one per
-    # order, owned by one customer, with one lifecycle -- a second, draft-owned
-    # kind of board would have to be handled correctly by every query that
-    # reads boards, and missing one is how a shortlist shows up on a tailor's
-    # screen. A two-garment order is one board carrying items that each know
-    # their garment.
     garment_job = models.ForeignKey(
         'catalog.GarmentJob', on_delete=models.CASCADE, null=True, blank=True,
         related_name='design_items', db_index=True)
@@ -372,7 +269,6 @@ class DesignBoardItem(models.Model):
     is_selected = models.BooleanField(default=False, db_index=True)
     customer_notes = models.TextField(blank=True, default='')
     tailor_instructions = models.TextField(blank=True, default='')
-    # Master's notes, added after the owner has approved the design.
     production_notes = models.TextField(blank=True, default='')
     production_notes_by = models.ForeignKey(
         Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='design_notes')
@@ -382,11 +278,6 @@ class DesignBoardItem(models.Model):
     class Meta:
         ordering = ['position', '-match_score', 'created_at']
         constraints = [
-            # One selection per garment, not per board. The old rule was one
-            # per board, which was right while an order meant one dress and
-            # became wrong the moment it meant two: choosing the lehenga's
-            # design would have unselected the blouse's. Items with no garment
-            # keep the original one-per-board rule between them.
             models.UniqueConstraint(
                 fields=['board', 'garment_job'],
                 condition=models.Q(is_selected=True),
@@ -404,23 +295,6 @@ class DesignBoardItem(models.Model):
 
 
 class DesignAssignment(models.Model):
-    """One garment's design work, given to one designer.
-
-    Keyed on GarmentJob, not Order. A DesignBoard is per-order (OneToOne), which
-    was fine when an order meant one dress: the board *was* the design. It stops
-    being fine the moment an order carries a lehenga and its blouse, because one
-    board cannot say which of the two a design belongs to -- and a design that
-    cannot name its garment is a design that can be stitched onto the wrong one.
-    A job-keyed row makes that structural rather than a convention: there is no
-    field here in which a lehenga's design could be recorded against the blouse.
-
-    OneToOne rather than a list, because a garment has one design owner at a
-    time. Reassigning replaces the designer on the existing row and the activity
-    log carries the history -- see DesignApproval for the case where the history
-    is load-bearing enough to need its own table. It is not here: an assignment
-    has one live answer ("whose desk is this on?"), and the review verdict that
-    would need a log is the design's own, which DesignApproval already keeps.
-    """
 
     class Status(models.TextChoices):
         ASSIGNED = 'ASSIGNED', 'Assigned'
@@ -428,10 +302,6 @@ class DesignAssignment(models.Model):
         APPROVED = 'APPROVED', 'Approved'
         CHANGES_REQUESTED = 'CHANGES_REQUESTED', 'Changes requested'
 
-    # Everything short of approved. Work is "open" while it is on ANYONE's
-    # desk: the designer's (assigned, or sent back for changes) or the
-    # reviewer's (submitted). Leaving SUBMITTED out hid a design from the
-    # owner's default queue at the exact moment it was waiting on them.
     OPEN_STATUSES = (Status.ASSIGNED, Status.SUBMITTED, Status.CHANGES_REQUESTED)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -447,9 +317,6 @@ class DesignAssignment(models.Model):
         help_text='What the owner is asking for, beyond what the spec already says.')
     due_date = models.DateField(null=True, blank=True)
 
-    # The submitted work. Null until the designer submits; a library asset
-    # rather than a loose upload, so the design a garment carries is the same
-    # row the portfolio, the approval queue and the gallery already count.
     design = models.ForeignKey(
         DesignAsset, on_delete=models.PROTECT, null=True, blank=True,
         related_name='assignments')
@@ -471,8 +338,6 @@ class DesignAssignment(models.Model):
     class Meta:
         ordering = ['-assigned_at']
         indexes = [
-            # The designer's work queue: their own rows, open ones first. This
-            # is the one query the module runs on every designer page load.
             models.Index(fields=['designer', 'status'], name='design_assignment_queue'),
         ]
 

@@ -1,4 +1,3 @@
-# Super Admin — final security & production-readiness gate
 
 Third pass over the platform control plane. The first built it, the second
 hardened it, this one tried to break it before letting it near production.
@@ -13,7 +12,6 @@ console's guarantees depend on.
 
 ---
 
-## 1. Environment and baseline
 
 | | |
 |---|---|
@@ -27,7 +25,6 @@ console's guarantees depend on.
 
 ---
 
-## 2. P0 — Django admin was a complete platform escalation
 
 **What was wrong.** The public-schema pin covered `/api/superadmin/` only
 (`SUPERADMIN_PREFIX`). `/admin/` appeared only in `ALWAYS_ON`, which is a
@@ -75,7 +72,6 @@ where its business rules run, and read in the console's data browser.
 
 ---
 
-## 3. P0 — the platform administrator's password could be reset through a boutique flow
 
 **What was wrong.** `crm_api.auth_views.find_tenants_for_account` walks every
 registry row looking for an account, entering each schema with a bare
@@ -139,7 +135,6 @@ works).
 
 ---
 
-## 4. Other findings fixed
 
 | Severity | Finding | Fix |
 |---|---|---|
@@ -158,7 +153,6 @@ previous pass's fix.
 
 ---
 
-## 5. Data browser review (§3)
 
 `ALLOWED_FIELDS` covers **52 models**. Every model is a boutique-data model from
 `TENANT_APPS`; no shared/platform model is reachable. Field categories present
@@ -198,7 +192,6 @@ fixed — the second is a property of how media is served, not of the console.
 
 ---
 
-## 6. Audit logging (§4, §5, §6)
 
 **Coverage.** Every state-changing console operation writes a row: suspension,
 reactivation, module changes, user activate/deactivate, token revocation,
@@ -275,7 +268,6 @@ inside the agreed window, and write its own audit row recording what it removed.
 
 ---
 
-## 7. Authentication (§7)
 
 | Control | State | Classification |
 |---|---|---|
@@ -300,7 +292,6 @@ phase rather than an edit inside this gate.
 
 ---
 
-## 8. Everything else verified
 
 **Module control (§9).** Registry unchanged. Verified: normal URL, `.json`
 format suffix, missing trailing slash, nested endpoints, `inventory` vs
@@ -407,7 +398,6 @@ errors. Desktop layout unchanged.
 
 ---
 
-## 9. Production verification (§16, §17) — NOT DONE
 
 **Everything above was verified against a local PostgreSQL database with 8
 boutiques and against real gunicorn. None of it has been run against the
@@ -441,7 +431,6 @@ Required before production use, in order:
 
 ---
 
-## 10. Remaining risks
 
 **P0:** none known.
 
@@ -476,7 +465,6 @@ Required before production use, in order:
 
 ---
 
-## 11. Files changed in this pass
 
 | File | Change |
 |---|---|

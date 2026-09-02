@@ -1,22 +1,9 @@
-"""Loading the published catalogue into a tenant's database.
-
-Mirrors apps.catalog.services.sync_global_templates: a data migration passes in
-its historical models so old migrations stay replayable, and the function is
-safe to run repeatedly so a redeploy re-syncs rather than duplicating.
-
-Only catalogue rows are touched. An InventoryItem the boutique has created from
-a catalogue row is its own record and is never rewritten from here.
-"""
 
 from django.db import transaction
 
 from .catalog_definitions import CATALOG
 from .models import Category, ItemType
 
-#: Which of the eight legacy categories a section's items belong to. The legacy
-#: field stays because existing rows, screens and the garment templates in
-#: apps.catalog all key on it; this is the bridge, not a replacement for the
-#: section, which is what actually preserves the source taxonomy.
 _LEGACY_BY_SECTION = {
     'Base Fabrics': Category.FABRIC,
     'Fabrics': Category.FABRIC,
@@ -72,7 +59,7 @@ _LEGACY_BY_SECTION = {
 
 @transaction.atomic
 def sync_catalog(models=None):
-    """Create or update every published section and item. Returns a count dict."""
+
     if models is None:
         from . import models as live
         models = {'CatalogSection': live.CatalogSection, 'CatalogItem': live.CatalogItem}

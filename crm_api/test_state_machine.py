@@ -1,21 +1,3 @@
-"""The workflow is a state machine, and the backend is where it is enforced.
-
-The bug these exist for: `POST /transition/` accepted any stage in any order.
-An order sitting in pattern cutting could be moved straight to Ready for
-Dispatch with a 200, and the customer's tracking page said so while stitching,
-finishing, pressing and quality check were all NOT_STARTED. Hiding buttons in
-the UI does not fix that -- the request is what has to be refused.
-
-Two properties matter as much as the rules themselves, and both are tested
-here rather than assumed:
-
-  a rejected transition changes NOTHING -- not the stage, the order status,
-  stock, reservations, the activity log, the timestamps or the assignments;
-
-  a repeated transition changes nothing FURTHER -- a double-click, a retried
-  POST or a stale browser tab must not consume material twice, log twice or
-  message the customer twice.
-"""
 
 from decimal import Decimal
 from unittest import mock
@@ -33,7 +15,6 @@ from crm_api.models import (
 from domains.orders import workflow
 from domains.orders.services import OrderService
 
-#: The workflow in order, as get_default_workflow declares it.
 SEQUENCE = [
     'created', 'measurements_completed', 'fabric_confirmed', 'pattern_cutting',
     'maggam_work', 'assigned_to_tailor', 'stitching_in_progress',
@@ -110,7 +91,7 @@ class StateMachineTestBase(TenantTestCase):
             user=user or self.owner)
 
     def advance_to(self, stage_key, order=None):
-        """Walk the workflow properly up to (not including) a stage."""
+
         order = order or self.order
         for key in SEQUENCE[:SEQUENCE.index(stage_key)]:
             status = 'SKIPPED' if workflow.is_optional(
@@ -118,7 +99,7 @@ class StateMachineTestBase(TenantTestCase):
             self.move(key, status, order=order)
 
     def snapshot(self, order=None):
-        """Everything a rejected transition must leave untouched."""
+
         order = order or self.order
         order.refresh_from_db()
         self.brocade.refresh_from_db()
@@ -141,7 +122,7 @@ class StateMachineTestBase(TenantTestCase):
 class InvalidTransitionTests(StateMachineTestBase):
 
     def test_pattern_cutting_to_ready_for_dispatch_is_refused(self):
-        """The exact request that used to return 200 in production."""
+
         self.advance_to('maggam_work')          # through pattern cutting
         before = self.snapshot()
 
@@ -171,12 +152,11 @@ class InvalidTransitionTests(StateMachineTestBase):
         self.assertEqual(self.snapshot(), before)
 
     def test_an_optional_stage_may_be_skipped(self):
-        """`optional` is what licenses SKIPPED -- and only that."""
+
         self.advance_to('maggam_work')
         self.move('maggam_work', 'SKIPPED')
         self.assertEqual(
             self.order.stages.get(stage_key='maggam_work').status, 'SKIPPED')
-        # ...and the workflow continues past it.
         self.move('assigned_to_tailor')
         self.assertEqual(
             self.order.stages.get(stage_key='assigned_to_tailor').status, 'COMPLETED')
@@ -195,7 +175,7 @@ class InvalidTransitionTests(StateMachineTestBase):
         self.assertEqual(self.snapshot(), before)
 
     def test_a_completed_stage_cannot_be_reopened(self):
-        """Backward moves walked the whole order -- and the customer -- back."""
+
         self.advance_to('fabric_confirmed')
         self.move('fabric_confirmed')
         before = self.snapshot()
@@ -222,7 +202,7 @@ class InvalidTransitionTests(StateMachineTestBase):
         self.assertEqual(self.snapshot(), before)
 
     def test_an_unauthorised_role_is_refused(self):
-        """A tailor cannot pass the boutique's own quality check."""
+
         self.advance_to('master_quality_check')
         before = self.snapshot()
         with self.assertRaises(ValueError) as caught:
@@ -231,7 +211,7 @@ class InvalidTransitionTests(StateMachineTestBase):
         self.assertEqual(self.snapshot(), before)
 
     def test_a_stage_missing_its_required_data_is_refused(self):
-        """Ordering cannot express "somebody must be holding the garment"."""
+
         order = self._order(order_id="T2B-SM-NOTAILOR")
         order.tailor = None
         order.save(update_fields=['tailor'])
@@ -257,12 +237,9 @@ class ValidSequenceTests(StateMachineTestBase):
         self.assertEqual(self.order.current_stage_key, 'delivered')
 
     def test_each_stage_refuses_until_its_predecessor_is_done(self):
-        """Walk the workflow, checking the next-but-one is refused each time."""
+
         config = BoutiqueSettings.objects.get(id=1).workflow_config
         for index, key in enumerate(SEQUENCE[:-2]):
-            # Only assert the refusal when the stage in between is mandatory.
-            # Where it is optional the jump is legitimate -- that is what
-            # `optional` is for -- but the walk must still advance either way.
             if not workflow.is_optional(config, SEQUENCE[index + 1]):
                 later = SEQUENCE[index + 2]
                 with self.assertRaises(ValueError, msg=f'{later} should be refused'):
@@ -274,14 +251,13 @@ class ValidSequenceTests(StateMachineTestBase):
         self.advance_to('fabric_confirmed')
         self.move('fabric_confirmed')
         after = OrderActivity.objects.filter(order=self.order).count()
-        # created, measurements_completed, fabric_confirmed
         self.assertEqual(after - before, 3)
 
 
 class IdempotencyTests(StateMachineTestBase):
 
     def test_repeating_a_completed_transition_changes_nothing_further(self):
-        """Double-clicks, retried POSTs and stale tabs all land here."""
+
         self.advance_to('fabric_confirmed')
         self.move('fabric_confirmed')
         after_first = self.snapshot()
@@ -294,7 +270,7 @@ class IdempotencyTests(StateMachineTestBase):
                          'a retry must not reserve, log or message again')
 
     def test_repeating_stitching_completed_does_not_consume_twice(self):
-        """The case that now costs real stock if it goes wrong."""
+
         self.advance_to('stitching_completed')
         self.move('stitching_completed')
         after_first = self.snapshot()
@@ -311,13 +287,6 @@ class IdempotencyTests(StateMachineTestBase):
 
 
 class OwnerDropdownLiveRegressionTests(StateMachineTestBase):
-    """The whole business risk, over HTTP, on one order.
-
-    An owner picking 'Delivered' from the status dropdown must never cause the
-    system to manufacture a completed production and quality-check history. The
-    control advances one client-facing band; it does not walk an order from the
-    beginning to wherever it was pointed.
-    """
 
     def setUp(self):
         super().setUp()
@@ -339,28 +308,23 @@ class OwnerDropdownLiveRegressionTests(StateMachineTestBase):
     def test_the_dropdown_cannot_manufacture_a_delivered_order(self):
         before = self.snapshot()
 
-        # 1-3. Straight for the end, from the very beginning.
         response = self.set_status('Delivered')
         self.assertEqual(response.status_code, 400)
         self.assertIn('not completed', str(response.data))
 
-        # 4. Nothing moved. Not the order, not the ledger, not the audit trail.
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(before['reserved'], Decimal('0.000'))
         self.assertEqual(before['movements'], 0)
 
-        # 5. The legitimate route, one band at a time.
         for value in ['Received', 'Confirmed', 'Design & Creation']:
             self.assertEqual(self.set_status(value).status_code, 200,
                              f'{value} should be reachable in turn')
 
-        # Confirming fabric happened along the way, so the cloth is committed.
         mid = self.snapshot()
         self.assertEqual(mid['stages']['fabric_confirmed'], 'COMPLETED')
         self.assertEqual(mid['stages']['stitching_completed'], 'COMPLETED')
         self.assertGreater(mid['movements'], 0, 'materials followed production')
 
-        # 6. Quality check still cannot be jumped, even from here.
         refused = self.set_status('Ready for Dispatch')
         self.assertEqual(refused.status_code, 400)
         self.assertIn('Master Quality Check', str(refused.data))
@@ -368,7 +332,6 @@ class OwnerDropdownLiveRegressionTests(StateMachineTestBase):
             self.order.stages.get(stage_key='master_quality_check').status,
             'NOT_STARTED')
 
-        # 7. And only once it has actually run does the rest open up.
         self.assertEqual(self.set_status('Quality Check').status_code, 200)
         self.assertEqual(
             self.order.stages.get(stage_key='master_quality_check').status,
@@ -378,7 +341,6 @@ class OwnerDropdownLiveRegressionTests(StateMachineTestBase):
 
         self.order.refresh_from_db()
         self.assertEqual(self.order.order_status, 'Delivered')
-        # Every mandatory stage genuinely settled -- no gaps behind the claim.
         outstanding = list(
             self.order.stages.exclude(status__in=('COMPLETED', 'SKIPPED'))
             .values_list('stage_key', flat=True))
@@ -388,13 +350,6 @@ class OwnerDropdownLiveRegressionTests(StateMachineTestBase):
 class AtomicityTests(StateMachineTestBase):
 
     def test_a_failing_side_effect_rolls_the_whole_transition_back(self):
-        """State, stock and audit share one transaction, or the ledger lies.
-
-        Now that confirming fabric reserves material, a transition that half
-        succeeds would leave the order saying one thing and the store room
-        another -- the exact class of drift this whole change set exists to
-        end.
-        """
         self.advance_to('fabric_confirmed')
         before = self.snapshot()
 

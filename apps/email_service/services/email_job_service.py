@@ -18,10 +18,6 @@ class EmailJobService:
 
     @classmethod
     def enqueue_job(cls, payload: Dict[str, Any], auto_trigger: bool = True) -> Dict[str, Any]:
-        """Enqueues an email job into Upstash Redis for background execution.
-
-        Returns the initial job metadata including the job_id.
-        """
         job_id = str(uuid.uuid4())
         recipients = payload.get("recipients") or payload.get("recipient") or []
         if isinstance(recipients, str):
@@ -57,7 +53,6 @@ class EmailJobService:
         logger.info("Enqueued background email job %s to Redis with %d recipients", job_id, len(recipients))
 
         if auto_trigger:
-            # Spawn a background daemon thread to process the job immediately
             thread = threading.Thread(
                 target=cls._async_process_worker,
                 args=(job_id,),
@@ -69,7 +64,7 @@ class EmailJobService:
 
     @classmethod
     def _async_process_worker(cls, job_id: str) -> None:
-        """Internal daemon thread worker target."""
+
         try:
             cls.process_job(job_id)
         except Exception:
@@ -77,7 +72,7 @@ class EmailJobService:
 
     @classmethod
     def process_job(cls, job_id: str) -> Dict[str, Any]:
-        """Processes a single email job by job_id and updates its status in Upstash Redis."""
+
         job_key = f"{REDIS_JOB_PREFIX}{job_id}"
         job_data = RedisService.get(job_key, parse_json=True)
 
@@ -85,7 +80,6 @@ class EmailJobService:
             logger.error("Job %s not found in Redis", job_id)
             return {"error": "Job not found", "job_id": job_id}
 
-        # Update status to processing
         job_data["status"] = "processing"
         job_data["updated_at"] = datetime.now(timezone.utc).isoformat()
         RedisService.set(job_key, job_data, ex=JOB_TTL_SECONDS)
@@ -124,7 +118,7 @@ class EmailJobService:
 
     @classmethod
     def process_next_queued_job(cls) -> Optional[Dict[str, Any]]:
-        """Pops the next job_id from the queue and processes it."""
+
         job_id = RedisService.lpop(REDIS_QUEUE_KEY)
         if not job_id:
             return None
@@ -132,6 +126,6 @@ class EmailJobService:
 
     @classmethod
     def get_job_status(cls, job_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves current metadata and progress for a job_id from Redis."""
+
         job_key = f"{REDIS_JOB_PREFIX}{job_id}"
         return RedisService.get(job_key, parse_json=True)

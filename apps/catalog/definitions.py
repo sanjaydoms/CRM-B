@@ -1,12 +1,3 @@
-"""The garments the boutique stitches, as data.
-
-This is the source the seed migration loads. Editing a template here and bumping
-its version updates every boutique still on the global default; a boutique that
-has customised the garment keeps its own row (see GarmentTemplate.resolve).
-
-Options are written as plain labels and slugged into values, except where a tuple
-gives the value explicitly -- sizes like 11" cannot be slugged sensibly.
-"""
 
 import re
 
@@ -18,7 +9,7 @@ def _slug(label):
 
 
 def field(key, label, field_type, **kw):
-    """One template field. `options` accepts labels or (value, label) pairs."""
+
     options = kw.pop('options', None)
     return {
         'key': key,
@@ -39,7 +30,7 @@ def field(key, label, field_type, **kw):
 
 
 def measurement(key, label, **kw):
-    """Body and garment dimensions share one range: 0-120 inches, quarter inch."""
+
     kw.setdefault('validation', {'min': 0, 'max': 120, 'step': 0.25})
     return field(key, label, 'number', unit='in', **kw)
 
@@ -68,10 +59,6 @@ def not_one_of(f, values):
     return {'field': f, 'op': 'not_in', 'value': values}
 
 
-# --- fields shared by every garment ---------------------------------------
-#
-# Defined once and merged into every garment, so a change reaches every form
-# at once. These keys are reserved: a garment cannot redefine them.
 
 COMMON_BASIC = [
     field('occasion', 'Occasion', 'select', options=[
@@ -90,8 +77,6 @@ COMMON_BASIC = [
     field('design_reference_links', 'Reference Links', 'text', repeatable=True),
     field('trial_required', 'Trial Required', 'boolean'),
     field('trial_date', 'Trial Date', 'date', when=eq('trial_required', True)),
-    # Optional: a walk-in is often taken before a date is agreed, and blocking
-    # the order on it pushed staff into typing a placeholder they never revisit.
     field('delivery_date', 'Delivery Date', 'date'),
     field('urgency', 'Urgency', 'select', options=['Normal', 'Express'], default='normal'),
     field('priority', 'Priority', 'select', options=['Low', 'Medium', 'High'], default='medium'),
@@ -116,11 +101,6 @@ COMMON_PRODUCTION = [
 ]
 
 
-# --- reusable blocks -------------------------------------------------------
-#
-# Blouse and lehenga blouse deliberately share measurement and neck keys: the
-# cutting sheet, the measurement history and "reuse last measurements" all work
-# only because `armhole` means the same thing on both.
 
 def blouse_measurements():
     return [
@@ -158,7 +138,6 @@ def bottom_materials(extra=()):
     ]
 
 
-# --- the garments ----------------------------------------------------------
 
 TEMPLATES = [
     {
@@ -183,10 +162,6 @@ TEMPLATES = [
                 field('services', 'Services Required', 'multiselect', required=True, options=[
                     'Stitching', 'Fall', 'Pico', ('fall_pico', 'Fall + Pico'),
                     'Tassel Work', 'Saree Finishing', ('polishing', 'Polishing / Steam')]),
-                # Each option group belongs to a service. Asking about tassels
-                # on a fall-and-pico job, or about the border when nothing is
-                # being stitched, is a question with no answer -- so the group
-                # appears only once the service that needs it is ticked.
                 field('border', 'Border', 'select', options=[
                     ('with_border', 'With Border'), ('without_border', 'Without Border')],
                       when=one_of('services', ['stitching', 'saree_finishing'])),
@@ -212,9 +187,6 @@ TEMPLATES = [
                 material('lining', 'Lining', Inv.LINING),
                 material('fall_cloth', 'Fall Cloth', Inv.LINING,
                          when=one_of('services', ['fall', 'fall_pico'])),
-                # neq is true for an unanswered field, so this needs the service
-                # gate too -- otherwise the tassel material appeared on an order
-                # with no tassel work on it at all.
                 material('tassels_material', 'Tassels', Inv.EMBELLISHMENT,
                          when=all_of(one_of('services', ['tassel_work']),
                                      neq('tassels', 'no_tassels'))),
@@ -540,9 +512,6 @@ TEMPLATES = [
         },
     },
     {
-        # The kameez only. Its salwar or churidar and its dupatta are their own
-        # dresses on the order, which is what lets each carry its own
-        # measurements and go to a different tailor.
         'key': 'suit', 'name': 'Suit (Kameez)', 'sequence': 140,
         'sections': {
             'basic': [
@@ -579,7 +548,6 @@ TEMPLATES = [
         },
     },
     {
-        # Menswear. The pants or churidar worn with it are a separate dress.
         'key': 'sherwani', 'name': 'Sherwani', 'sequence': 150,
         'sections': {
             'basic': [
@@ -634,11 +602,6 @@ COMMON_BY_SECTION = {
 
 
 def build(definition):
-    """Expand one definition into the five sections, common fields merged in.
-
-    Garment fields come first within a section, common fields after, so the
-    garment-specific question is what the counter staff answer first.
-    """
     sections = []
     for index, (key, title) in enumerate(SECTION_TITLES):
         fields = list(definition['sections'].get(key, [])) + COMMON_BY_SECTION.get(key, [])

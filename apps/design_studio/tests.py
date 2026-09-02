@@ -1,10 +1,3 @@
-"""AI Design Studio.
-
-Covers the three things the feature promises and could quietly get wrong: that
-recommendations are explained and stable, that the design a tailor sees is the
-one the owner approved, and that the role split in the spec is actually
-enforced rather than assumed by the UI.
-"""
 
 import shutil
 import tempfile
@@ -54,7 +47,6 @@ class StudioTestCase(TenantTestCase):
         FabricSelection.objects.create(
             customer=self.customer, fabric_name="Maroon Silk", fabric_price=Decimal('4000'))
 
-        # The catalogue is part of the design library now (migration 0007).
         self.design = DesignAsset.objects.create(
             title="Maroon Bridal Lehenga", garment_type="Lehenga",
             source=DesignAsset.SOURCE_CATALOGUE,
@@ -96,8 +88,6 @@ class ContextEngineTests(StudioTestCase):
         self.assertIn("Maroon", context.favourite_colours)
 
     def test_in_flight_order_input_overrides_stored_defaults(self):
-        # The wizard's current selection describes the order being placed now,
-        # so it has to win over what the customer bought last time.
         context = build_context(subject_from_customer(self.customer), {'garment_type': 'Gown', 'occasion': 'Reception'})
         self.assertEqual(context.garment_type, "Gown")
         self.assertEqual(context.occasion, "Reception")
@@ -148,8 +138,6 @@ class IntelligenceTests(StudioTestCase):
         self.assertIn("budget", reasons.lower())
 
     def test_scores_are_bounded_and_repeatable(self):
-        # A confidence score that drifts between identical searches makes the
-        # gallery impossible to trust or to explain to a customer.
         candidates = [
             DesignCandidate(source="catalogue", source_ref=str(i), title=f"Lehenga {i}",
                             image_url="x.jpg", garment_type="Lehenga", occasion="Bridal",
@@ -165,9 +153,6 @@ class IntelligenceTests(StudioTestCase):
             self.assertLessEqual(score, 100)
 
     def test_signal_no_design_can_supply_does_not_depress_every_score(self):
-        # Catalogue rows carry no occasion. Scoring them against a denominator
-        # that includes the occasion weight capped a perfect catalogue match in
-        # the forties and made the whole gallery read as a poor fit.
         perfect = DesignCandidate(
             source="catalogue", source_ref="1", title="Maroon Bridal Lehenga",
             image_url="a.jpg", garment_type="Lehenga",
@@ -179,8 +164,6 @@ class IntelligenceTests(StudioTestCase):
         self.assertGreaterEqual(ranked[0].match_score, 95)
 
     def test_a_design_that_fails_an_evaluable_signal_still_scores_lower(self):
-        # The normalisation must not flatten real differences: here occasion is
-        # judgeable for both candidates, so missing it has to cost.
         hit = DesignCandidate(
             source="library", source_ref="1", title="Lehenga", image_url="a.jpg",
             garment_type="Lehenga", occasion="Bridal", tags=["Bridal"])
@@ -211,8 +194,6 @@ class IntelligenceTests(StudioTestCase):
         self.assertEqual(attributes['fabric'], "Silk")
         self.assertEqual(attributes['neck_type'], "Boat Neck")
         self.assertEqual(attributes['embroidery'], "Zari")
-        # The customer prefers a sweetheart neckline; the design does not have
-        # one, and the analysis must not invent it.
         self.assertNotEqual(attributes['neck_type'], "Sweetheart")
         self.assertEqual(attributes['sleeve'], "")
 
@@ -228,11 +209,6 @@ class DiscoveryTests(StudioTestCase):
         self.assertTrue(all(c.attributes for c in outcome['results']))
 
     def test_a_rejected_design_is_not_offered_again(self):
-        """Archiving is how an owner rejects a design. Discovery used to read
-        every row regardless of status, so a rejected design came straight back
-        into the gallery, could be shortlisted onto a board and approved, and
-        reached the tailor as the garment to stitch.
-        """
         self.design.status = DesignAsset.Status.ARCHIVED
         self.design.save(update_fields=['status'])
 
@@ -241,9 +217,6 @@ class DiscoveryTests(StudioTestCase):
         self.assertNotIn("Maroon Bridal Lehenga", [c.title for c in outcome['results']])
 
     def test_a_design_awaiting_approval_is_not_offered_either(self):
-        """PENDING means a Master uploaded it and the owner has not reviewed
-        it. Offering it for selection would route around the approval queue.
-        """
         self.design.status = DesignAsset.Status.PENDING
         self.design.save(update_fields=['status'])
 
@@ -341,9 +314,6 @@ class BoardTests(StudioTestCase):
                          "Reduce the border to two inches.")
 
     def test_saving_to_an_order_credits_the_library_design(self):
-        # The library's "most ordered" sort and a designer's own performance
-        # count on this: a dress does not silently stop being creditable to the
-        # design it came from once the customer says yes.
         self.assertEqual(self.design.order_count, 0)
         board, _ = self._board_with_selection()
         services.approve_board(board, self.owner)
@@ -355,9 +325,6 @@ class BoardTests(StudioTestCase):
         self.assertEqual(self.design.order_count, 1)
 
     def test_a_reference_with_no_matching_library_design_is_not_credited(self):
-        # source_ref="7" here is not a DesignAsset id -- it is what a raw,
-        # not-yet-imported external search result looks like. It must not be
-        # mistaken for a UUID that happens to resolve to someone else's design.
         board = DesignBoard.objects.create(customer=self.customer)
         item = DesignBoardItem.objects.create(board=board, source="pinterest", source_ref="7")
         services.select_item(board, item)
@@ -407,10 +374,6 @@ class BoardTests(StudioTestCase):
         self.assertEqual(approve.data['selected']['match_score'], 96)
 
     def test_select_response_shows_the_selection_in_its_items(self):
-        # The board is loaded with items prefetched. Serialising that cached
-        # list after the update sent back a board whose items all read
-        # is_selected=false, so the gallery could not tell which design had
-        # just been chosen and left the approve button disabled.
         board = DesignBoard.objects.create(customer=self.customer, created_by=self.owner)
         item = DesignBoardItem.objects.create(
             board=board, source="catalogue", source_ref="1", title="Chosen")
@@ -478,7 +441,6 @@ class PermissionTests(StudioTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['design']['tailor_instructions'], "Hand-finish the hem.")
-        # The brief is the decision, not the deliberation.
         self.assertNotIn('items', response.data)
 
     def test_tailor_cannot_write(self):
@@ -518,12 +480,6 @@ class PermissionTests(StudioTestCase):
 
 
 class DesignerAttributionTests(StudioTestCase):
-    """Designers as credits, not accounts.
-
-    The point of this step is that a portfolio is countable: every design a
-    person contributed hangs off one row, however the credit was originally
-    spelled or imported.
-    """
 
     def _asset(self, title, designer='', **kw):
         return DesignAsset.objects.create(
@@ -549,7 +505,6 @@ class DesignerAttributionTests(StudioTestCase):
             Designer.objects.create(name="Priya")
 
     def test_deleting_a_designer_keeps_the_designs(self):
-        # A portfolio being removed must not take the boutique's library with it.
         priya = Designer.objects.create(name="Priya")
         asset = self._asset("kept", designer="Priya", designer_ref=priya)
         priya.delete()
@@ -593,23 +548,16 @@ class DesignerAttributionTests(StudioTestCase):
         self.assertEqual(created.status_code, 403)
 
     def test_the_owner_can_add_a_designer(self):
-        """The counterpart to the 403 above, and the path the roster's own
-        "Add designer" form posts to. Until that form existed nothing called
-        this endpoint, so a boutique set up after the 0003 backfill had an
-        empty roster it could never fill."""
         response = self.client.post(
             '/api/design-studio/designers/',
             {'name': 'Meera', 'email': 'meera@studio.test'}, format='json')
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['name'], 'Meera')
-        # Credit only: adding a designer must not hand out a login on its own.
         self.assertFalse(response.data['has_login'])
         self.assertTrue(Designer.objects.filter(name='Meera', user__isnull=True).exists())
 
     def test_a_designer_can_be_added_without_an_email(self):
-        """Attribution comes first -- a name is the only thing required, and
-        the address can arrive later when the Owner grants the login."""
         response = self.client.post(
             '/api/design-studio/designers/', {'name': 'Ravi'}, format='json')
 
@@ -618,14 +566,12 @@ class DesignerAttributionTests(StudioTestCase):
 
 
 class DesignerBackfillTests(StudioTestCase):
-    """The migration that turns existing free-text credits into rows."""
+
 
     def _run_backfill(self):
         from .migrations import __name__ as _  # noqa: F401
         from importlib import import_module
         module = import_module('apps.design_studio.migrations.0003_backfill_designers')
-        # The migration works against historical models; the live ones are
-        # compatible here because no field it touches has changed since.
         class Apps:
             @staticmethod
             def get_model(app_label, name):
@@ -660,7 +606,7 @@ class DesignerBackfillTests(StudioTestCase):
 
 
 class DesignLibraryTests(StudioTestCase):
-    """Template linkage, tag filtering and the counters."""
+
 
     def setUp(self):
         super().setUp()
@@ -696,8 +642,6 @@ class DesignLibraryTests(StudioTestCase):
     def test_price_range_and_search(self):
         self._asset("cheap", estimated_price=Decimal('2000'))
         self._asset("dear", estimated_price=Decimal('9000'))
-        # The fixture's catalogue design is also in the library, so assert on
-        # membership rather than on the library being otherwise empty.
         response = self.client.get('/api/design-studio/assets/?price_min=5000')
         titles = [d['title'] for d in response.data]
         self.assertIn("dear", titles)
@@ -714,7 +658,6 @@ class DesignLibraryTests(StudioTestCase):
         self.assertEqual(asset.view_count, 2)
 
     def test_listing_does_not_count_views(self):
-        # Otherwise every gallery scroll inflates the "most viewed" leaderboard.
         asset = self._asset("listed")
         self.client.get('/api/design-studio/assets/')
         asset.refresh_from_db()
@@ -733,7 +676,7 @@ class DesignLibraryTests(StudioTestCase):
 
 
 class TemplateBackfillTests(StudioTestCase):
-    """The migration that links designs to templates and tags them."""
+
 
     def setUp(self):
         super().setUp()
@@ -773,8 +716,6 @@ class TemplateBackfillTests(StudioTestCase):
             attributes={'sleeve': 'Elbow', 'neck': 'Something Bespoke'})
         self._run()
         asset.refresh_from_db()
-        # 'Elbow' and 'Wedding' are real options; the freehand neck is not, and
-        # inventing a value for it would make the design unmatchable.
         self.assertEqual(asset.spec_tags, {'sleeve_length': 'elbow', 'occasion': 'wedding'})
 
     def test_existing_tags_are_not_overwritten(self):
@@ -787,7 +728,7 @@ class TemplateBackfillTests(StudioTestCase):
 
 
 class DesignCategoryTests(StudioTestCase):
-    """The library's section list."""
+
 
     def setUp(self):
         super().setUp()
@@ -806,13 +747,11 @@ class DesignCategoryTests(StudioTestCase):
         self.assertEqual(counts['blouse'], 0)
 
     def test_every_garment_appears_even_with_nothing_in_it(self):
-        # An empty category is information: it tells the owner what to fill.
         response = self.client.get('/api/design-studio/categories/')
         keys = {c['key'] for c in response.data['categories']}
         self.assertTrue({'saree', 'lehenga', 'churidar'} <= keys)
 
     def test_untagged_designs_are_still_reachable(self):
-        # self.design from the fixture has no template; it must not vanish.
         response = self.client.get('/api/design-studio/categories/')
         categories = {c['key']: c['count'] for c in response.data['categories']}
         self.assertGreaterEqual(categories.get('', 0), 1)
@@ -835,7 +774,7 @@ class DesignCategoryTests(StudioTestCase):
 
 
 class CollectionTests(StudioTestCase):
-    """Collections, and the upload that files a design into one."""
+
 
     def setUp(self):
         super().setUp()
@@ -862,7 +801,6 @@ class CollectionTests(StudioTestCase):
             Collection.objects.create(designer=self.priya, name="Bridal 2026")
 
     def test_removing_a_collection_keeps_its_designs(self):
-        # Unfiling a design must not delete the boutique's work.
         collection = Collection.objects.create(designer=self.priya, name="Summer")
         design = DesignAsset.objects.create(
             title="kept", image_url="https://example.test/k.jpg", collection=collection)
@@ -891,19 +829,11 @@ class CollectionTests(StudioTestCase):
 
 
 class DesignUploadTests(StudioTestCase):
-    """The upload flow."""
+
 
     def setUp(self):
         super().setUp()
 
-        # Storage goes to a temp directory, because media/ is tracked in git and
-        # otherwise every run of the suite leaves uploaded fixtures in the repo.
-        #
-        # Enabled here rather than as a class decorator: TenantTestCase does not
-        # run the class-level override machinery, so the decorator silently did
-        # nothing and the files kept landing in the working tree. And STORAGES
-        # has to be overridden alongside MEDIA_ROOT, because default_storage
-        # caches its location the first time it is built.
         media_root = tempfile.mkdtemp(prefix='design-upload-test-')
         override = override_settings(
             MEDIA_ROOT=media_root,
@@ -948,17 +878,6 @@ class DesignUploadTests(StudioTestCase):
         self.assertEqual(len(response.data['gallery']), 2)
 
     def test_a_photograph_too_large_to_buffer_in_memory_still_uploads(self):
-        # Django keeps a small upload in memory as a BytesIO, but spills
-        # anything over FILE_UPLOAD_MAX_MEMORY_SIZE to a TemporaryUploadedFile
-        # wrapping an open file handle. The view used to run request.data.copy()
-        # over that, and deep-copying a file handle raises
-        # "TypeError: cannot pickle 'BufferedRandom' instances", so every upload
-        # above the threshold returned a 500 before the view's own logic ran.
-        #
-        # The default threshold is 2.5MB and a photograph taken on a phone is
-        # always larger, so this broke every real camera upload while the
-        # kilobyte fixtures the tests above use stayed in memory and passed.
-        # Lowering the threshold reproduces it without a multi-megabyte fixture.
         with override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=1):
             response = self.client.post('/api/design-studio/assets/', {
                 'title': 'Straight off a phone camera',
@@ -969,9 +888,6 @@ class DesignUploadTests(StudioTestCase):
         self.assertIn('design_library/', response.data['image_url'])
 
     def test_an_upload_is_live_not_pending(self):
-        # The approval queue does not exist yet. Creating PENDING rows before
-        # there is a queue to clear them would hide every upload with no way to
-        # get it back.
         response = self.client.post('/api/design-studio/assets/', {
             'title': 'Straight to the library',
             'image_url': 'https://example.test/x.jpg',
@@ -1001,7 +917,7 @@ class DesignUploadTests(StudioTestCase):
 
 
 class ApprovalQueueTests(StudioTestCase):
-    """The upload gate and the review action."""
+
 
     def setUp(self):
         super().setUp()
@@ -1009,7 +925,6 @@ class ApprovalQueueTests(StudioTestCase):
         self.config, _ = BoutiqueSettings.objects.get_or_create(id=1)
 
     def test_approval_is_off_by_default(self):
-        # A small team should not hit a queue with nobody on the other end.
         self.assertFalse(self.config.design_approval_required)
         response = self.client.post('/api/design-studio/assets/', {
             'title': 'Straight in', 'image_url': 'https://example.test/x.jpg',
@@ -1058,8 +973,6 @@ class ApprovalQueueTests(StudioTestCase):
         self.assertIsNotNone(asset.approved_at)
 
     def test_rejecting_archives_rather_than_deletes(self):
-        # A rejected design is a decision worth keeping a record of, not a
-        # design that silently disappears.
         asset = DesignAsset.objects.create(
             title="rejected", image_url="https://example.test/r.jpg",
             status=DesignAsset.Status.PENDING)
@@ -1117,7 +1030,7 @@ class ApprovalQueueTests(StudioTestCase):
 
 
 class DesignDashboardTests(StudioTestCase):
-    """The module's landing counters, and the enriched portfolio."""
+
 
     def setUp(self):
         super().setUp()
@@ -1189,9 +1102,6 @@ class DesignDashboardTests(StudioTestCase):
 
 
 class DesignerLoginTests(StudioTestCase):
-    """Turning a credited designer into an account, and what that account can
-    then do. This is step 7: everything before it worked with Designer.user
-    staying null forever."""
 
     def _designer(self, name="Priya", **kw):
         return Designer.objects.create(name=name, **kw)
@@ -1213,11 +1123,6 @@ class DesignerLoginTests(StudioTestCase):
             f'/api/design-studio/designers/{priya.id}/create-login/',
             {'email': 'priya@studio.test'}, format='json')
         priya.refresh_from_db()
-        # Was check_password('DesignerSecure2026!') -- a single literal shared
-        # by every designer on the platform, published in this repository and
-        # in the shipped JS bundle. The password is now generated per account
-        # and returned on this one response, so the assertion is that the value
-        # the owner is shown is the value that actually works.
         self.assertTrue(priya.user.check_password(response.data['bootstrap_password']))
 
     def test_each_designer_gets_a_different_password(self):
@@ -1330,8 +1235,6 @@ class DesignerLoginTests(StudioTestCase):
         self.assertTrue(DesignAsset.objects.filter(pk=ravis_design.pk).exists())
 
     def test_a_designer_cannot_grant_their_own_extra_logins(self):
-        # DesignerViewSet write access stays Owner-only; only upload/edit/
-        # delete-own on DesignAssetViewSet are opened to a Designer.
         priya = self._designer("Priya")
         self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
                           {'email': 'priya@studio.test'}, format='json')
@@ -1343,8 +1246,6 @@ class DesignerLoginTests(StudioTestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_a_designer_can_still_read_the_whole_library(self):
-        # Read access is unchanged: SAFE_METHODS stay open to any authenticated
-        # role, same as before a Designer could exist.
         priya = self._designer()
         self.client.post(f'/api/design-studio/designers/{priya.id}/create-login/',
                           {'email': 'priya@studio.test'}, format='json')
@@ -1354,7 +1255,7 @@ class DesignerLoginTests(StudioTestCase):
 
 
 class UploadAttributionTests(StudioTestCase):
-    """What the browser actually posts, and who ends up credited."""
+
 
     def _designer_client(self, name="Priya", email="priya@studio.test"):
         user = User.objects.create_user(username=email, email=email, password="pass12345")
@@ -1365,12 +1266,6 @@ class UploadAttributionTests(StudioTestCase):
         return client
 
     def test_multipart_json_fields_are_decoded_not_stored_as_text(self):
-        """The browser always posts multipart and api.js JSON.stringify()s
-        these fields. create() rebuilds request.data as a plain dict, which
-        defeats DRF's HTML-input detection, so the JSON arrived as a string and
-        was saved verbatim -- every library filter then matched nothing. The
-        existing coverage posts format='json', which no browser does.
-        """
         response = self.client.post(
             '/api/design-studio/assets/',
             {'title': 'Multipart Lehenga', 'garment_type': 'Lehenga',
@@ -1385,11 +1280,6 @@ class UploadAttributionTests(StudioTestCase):
         self.assertEqual(asset.attributes, {"neckline_style": "Sweetheart"})
 
     def test_a_designer_is_credited_on_their_own_upload(self):
-        """The Upload modal leaves designer_ref empty and api.js drops empty
-        values, so a designer's own work was saved Unattributed -- and the
-        permission carve-out that lets them edit their own uploads is keyed on
-        designer_ref, so they were locked out of it immediately.
-        """
         client = self._designer_client()
 
         response = client.post(
@@ -1419,7 +1309,7 @@ class UploadAttributionTests(StudioTestCase):
 
 
 class DesignerBoundaryTests(StudioTestCase):
-    """What a designer may write, and what must stay out of their hands."""
+
 
     def _designer(self, name="Priya", email="priya@studio.test"):
         user = User.objects.create_user(username=email, email=email, password="pass12345")
@@ -1436,10 +1326,6 @@ class DesignerBoundaryTests(StudioTestCase):
         }, format='multipart')
 
     def test_a_designer_cannot_patch_their_upload_into_the_catalogue(self):
-        """`source` decides what the customer-facing gallery contains, and it
-        was writable -- so an unreviewed upload could be PATCHed straight past
-        the approval queue with its status still PENDING.
-        """
         client, _, _ = self._designer()
         asset_id = self._upload(client, 'Sneaky').data['id']
 
@@ -1449,10 +1335,6 @@ class DesignerBoundaryTests(StudioTestCase):
         self.assertEqual(DesignAsset.objects.get(pk=asset_id).source, DesignAsset.SOURCE_UPLOAD)
 
     def test_ownership_follows_the_uploader_not_the_credit(self):
-        """designer_ref is the CREDIT -- migration 0003 mints it from free text
-        on catalogue rows. Keying edit rights on it handed a designer delete
-        rights over owner-curated designs that merely carried their name.
-        """
         client, designer, _ = self._designer()
         curated = DesignAsset.objects.create(
             title="Owner's catalogue piece", garment_type='Lehenga',
@@ -1487,20 +1369,11 @@ class DesignerBoundaryTests(StudioTestCase):
         self.assertIn('email', self.client.get('/api/design-studio/designers/').data[0])
 
     def test_a_designer_can_read_the_garment_templates_their_form_needs(self):
-        """The upload form's Garment dropdown is built from these. The viewset
-        declared no permission policy and inherited the rule written for
-        customers and money, which refuses a designer outright -- so every
-        design they uploaded had no template and no spec tags.
-        """
         client, _, _ = self._designer()
 
         self.assertEqual(client.get('/api/catalog/templates/').status_code, 200)
 
     def test_granting_a_login_on_the_owners_address_is_refused(self):
-        """resolve_user_role answers a Designer profile before it falls through
-        to OWNER, so this made the boutique owner a Designer -- permanently,
-        because every screen that could undo it is then refused to them.
-        """
         designer = Designer.objects.create(name="Trap")
 
         response = self.client.post(
@@ -1512,9 +1385,6 @@ class DesignerBoundaryTests(StudioTestCase):
         self.assertIsNone(designer.user_id)
 
     def test_removing_a_designer_does_not_leave_an_owner_behind(self):
-        """Designer.user is SET_NULL, so the login was detached and left with no
-        profile at all -- which resolve_user_role answers as OWNER.
-        """
         _, designer, user = self._designer(name="Leaving", email="leaving@studio.test")
 
         self.client.delete(f'/api/design-studio/designers/{designer.id}/')

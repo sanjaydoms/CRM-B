@@ -1,14 +1,3 @@
-"""Link designs stranded by a garment that had no template yet.
-
-The seeded catalogue's three gowns sat in the library's Uncategorised section
-because there was no Gown template to link them to. catalog.0004 adds Gown, Suit
-and Sherwani, so the pass can now place them.
-
-Same idempotent backfill as 0005 and 0008: it only touches designs with no
-template and no tags, so anything already linked or corrected by hand is left
-alone. It runs again here rather than being folded into the earlier migration
-because those have already been applied.
-"""
 
 from django.db import migrations
 

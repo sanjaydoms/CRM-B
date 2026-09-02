@@ -43,15 +43,6 @@ from .serializers import (
 
 def _log(request, entity, action_name, title, description, new_value=None,
          entity_type="DesignBoard"):
-    """Write one studio activity row.
-
-    `entity` was named `board` and the type was hardcoded, which was accurate
-    while a board was the only thing in the module worth recording. An
-    assignment is the second, and it is the row an owner scrolls back through to
-    answer "when did this go to her, and when did it come back" -- so it logs
-    through here rather than growing a parallel logger that the activity feed
-    would not know to read.
-    """
     user = request.user if request.user.is_authenticated else None
     UniversalActivity.objects.create(
         user=user,
@@ -67,37 +58,18 @@ def _log(request, entity, action_name, title, description, new_value=None,
 
 
 def _resolve_subject(request, *, customer_id=None, draft_id=None, garment_key=None):
-    """Turn whatever the caller named into (subject, order_input).
-
-    The single place the two personalisation sources meet. A saved customer
-    resolves to their real profile and purchase history; an unconfirmed draft
-    resolves to what has been typed so far and no history. Everything past this
-    point sees one Subject and never asks which it was -- see context.Subject.
-
-    `garment_key` picks WHICH dress on the order is being designed. A
-    two-garment order has one customer and therefore one set of stored
-    preferences, so the garment's own spec is the only thing that tells its
-    context from its neighbour's; without this both would personalise
-    identically off customer.garment_type.
-    """
     from crm_api.models import OrderDraft
 
     order_input = {}
     subject = None
 
     if draft_id:
-        # The caller's own draft only. Drafts are personal until they become
-        # orders -- domains/orders/drafts.py enforces the same rule on every
-        # write -- so this must not become a way to read someone else's.
         draft = OrderDraft.objects.filter(
             pk=draft_id, created_by=request.user).first()
         if draft is None:
             return None, None, 'That draft does not exist, or is not yours.'
         payload = draft.payload or {}
 
-        # A draft for a RETURNING customer still has a saved profile behind it,
-        # and that profile is where the history lives. Preferring it is what
-        # stops a returning customer being personalised as a stranger.
         if draft.customer_id:
             customer = (Customer.objects.select_related('measurements')
                         .filter(pk=draft.customer_id).first())
@@ -114,7 +86,6 @@ def _resolve_subject(request, *, customer_id=None, draft_id=None, garment_key=No
                  if str(g.get('key')) == str(garment_key)
                  or str(g.get('template_key')) == str(garment_key)), None)
         elif len(garments) == 1:
-            # Unambiguous: one dress on the order is the one being designed.
             garment = garments[0]
         if garment is not None:
             order_input = {
@@ -133,9 +104,6 @@ def _resolve_subject(request, *, customer_id=None, draft_id=None, garment_key=No
         Customer.objects.select_related('measurements'), pk=customer_id)
     subject = context_module.subject_from_customer(customer)
 
-    # A confirmed order's garment job is the post-Confirm equivalent of the
-    # draft garment above: after Confirm the persisted job is canonical and the
-    # draft is gone, so the same per-garment context has to come from here.
     if garment_key:
         from apps.catalog.models import GarmentJob
         job = (GarmentJob.objects.select_related('template')
@@ -151,7 +119,7 @@ def _resolve_subject(request, *, customer_id=None, draft_id=None, garment_key=No
 
 
 class DesignContextView(views.APIView):
-    """What the studio knows about a customer before it searches anything."""
+
 
     permission_classes = [OwnerOnly]
 
@@ -163,8 +131,6 @@ class DesignContextView(views.APIView):
             garment_key=request.query_params.get('garment_key'))
         if error:
             return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
-        # Explicit query params still win -- they are what the wizard is
-        # holding right now, ahead of both the draft and the saved profile.
         order_input = dict(order_input or {})
         order_input.update({
             key: request.query_params[key]
@@ -180,7 +146,7 @@ class DesignContextView(views.APIView):
 
 
 class DesignDiscoveryView(views.APIView):
-    """Search every available source and return ranked, explained results."""
+
 
     permission_classes = [OwnerOnly]
 
@@ -224,14 +190,11 @@ class DesignDiscoveryView(views.APIView):
 
 
 class DesignAssetViewSet(viewsets.ModelViewSet):
-    """The boutique's own design library: uploads, favourites, imports."""
+
 
     serializer_class = DesignAssetSerializer
     permission_classes = [DesignLibraryPermission]
 
-    # Columns a caller may filter on directly. Anything else in the query string
-    # is looked up inside spec_tags, so the library filters on the same
-    # vocabulary the order form uses without this list growing per garment.
     DIRECT_FILTERS = {
         'template': 'template__key',
         'designer': 'designer_ref_id',
@@ -239,9 +202,6 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         'status': 'status',
         'source': 'source',
     }
-    # `occasion` is deliberately not above. It exists twice -- as a legacy column
-    # and as a template field key -- so filtering it as a column silently missed
-    # every design tagged the new way. It matches either, until the column goes.
     
     RESERVED = {'search', 'ordering', 'price_min', 'price_max', 'favourite', 'occasion',
                 'page', 'page_size', 'format'}
@@ -276,8 +236,6 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         if price_max := params.get('price_max'):
             queryset = queryset.filter(estimated_price__lte=price_max)
 
-        # Everything left is template vocabulary: ?sleeve_length=elbow becomes a
-        # containment query, which the GIN index on spec_tags serves.
         for key, value in params.items():
             if key in self.DIRECT_FILTERS or key in self.RESERVED:
                 continue
@@ -286,35 +244,8 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         return queryset.order_by(self.ORDERINGS.get(params.get('ordering'), '-created_at'))
 
     def create(self, request, *args, **kwargs):
-        """Upload a design, with its photographs.
-
-        Accepts multipart so the browser can post the files themselves rather
-        than the boutique having to host an image somewhere first and paste a
-        URL, which is what the catalogue form made them do.
-        """
-        # Not request.data.copy(). That deep-copies the QueryDict, and any
-        # photograph over FILE_UPLOAD_MAX_MEMORY_SIZE (2.5MB by default) is not
-        # an in-memory BytesIO but a TemporaryUploadedFile wrapping an open file
-        # handle, which cannot be deep-copied -- it raises
-        # "TypeError: cannot pickle 'BufferedRandom' instances" before any of
-        # this method's own logic runs. A photograph taken on a phone is always
-        # bigger than that, so the copy failed for precisely the uploads this
-        # endpoint exists to accept, while the small test images used on a
-        # desktop stayed under the threshold and passed. The files are read
-        # separately by _store_images(), so the serializer only needs the
-        # non-file fields.
         data = {key: value for key, value in request.data.items() if key != 'images'}
 
-        # Rebuilding the QueryDict above costs the JSON parsing DRF would
-        # normally do for us. rest_framework.fields.JSONField only treats an
-        # incoming value as encoded text when the container looks like an HTML
-        # form -- it tests hasattr(dictionary, 'getlist') -- and a plain dict
-        # fails that test, so a multipart "{\"neckline\":\"V\"}" was saved into
-        # the JSONField verbatim as a string. Every upload from the browser is
-        # multipart and api.js JSON.stringify()s these fields, so this was all
-        # of them; the library's own filters then matched nothing. Decoding by
-        # field type rather than by name keeps any JSONField added later
-        # working, which naming spec_tags alone would not.
         for name, field in self.get_serializer().fields.items():
             if isinstance(field, serializers.JSONField) and isinstance(data.get(name), str):
                 try:
@@ -324,9 +255,6 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
 
         uploaded = self._store_images(request)
         if uploaded:
-            # The first photograph is the one the cards show; the rest are the
-            # gallery. Any image_url that was posted alongside wins, so an
-            # imported reference is not overwritten by an accidental upload.
             data.setdefault('image_url', uploaded[0])
             if not data.get('image_url'):
                 data['image_url'] = uploaded[0]
@@ -334,9 +262,6 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
 
-        # The gate is per-boutique. A caller cannot post their way past it: the
-        # serializer never exposes `status` as writable on create (see below),
-        # so this is the only place a new design's status is decided.
         from crm_api.models import BoutiqueSettings
         config, _ = BoutiqueSettings.objects.get_or_create(id=1)
         role = resolve_user_role(request.user)
@@ -347,12 +272,6 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
 
         asset = serializer.save(
             created_by=request.user if request.user.is_authenticated else None,
-            # A signed-in designer is credited on their own upload by default.
-            # The Upload modal leaves designer_ref as '' ("Unattributed") and
-            # api.js drops empty values, so a designer's own work was saved with
-            # designer_ref None -- and DesignLibraryPermission gates their
-            # edit/delete carve-out on designer_ref_id matching, so they were
-            # then locked out of the design they had just uploaded.
             designer_ref=(serializer.validated_data.get('designer_ref')
                           or getattr(request.user, 'designer_profile', None)),
             gallery=uploaded[1:] if len(uploaded) > 1 else [],
@@ -373,11 +292,6 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
 
     def retrieve(self, request, *args, **kwargs):
-        """Opening a design counts as a view.
-
-        An UPDATE rather than a save() so two people opening the same design at
-        once cannot overwrite each other's increment with a stale value.
-        """
         response = super().retrieve(request, *args, **kwargs)
         DesignAsset.objects.filter(pk=kwargs.get('pk')).update(view_count=F('view_count') + 1)
         return response
@@ -391,12 +305,6 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='review')
     def review(self, request, pk=None):
-        """Approve, request changes on, or reject a pending design.
-
-        Owner-only by construction: DesignStudioPermission denies every non-safe
-        method to anyone but the Owner, and there is deliberately no separate
-        role check here to duplicate or drift from that.
-        """
         asset = self.get_object()
         decision = request.data.get('decision')
         valid = {c[0] for c in DesignApproval.Decision.choices}
@@ -421,9 +329,6 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         elif decision == DesignApproval.Decision.REJECTED:
             asset.status = DesignAsset.Status.ARCHIVED
             asset.save(update_fields=['status', 'updated_at'])
-        # CHANGES_REQUESTED leaves status at PENDING: the designer edits the
-        # existing row and resubmits, rather than the design vanishing from
-        # the queue while still needing work.
 
         return Response(self.get_serializer(asset).data)
 
@@ -435,7 +340,7 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
 
 
 class CollectionViewSet(viewsets.ModelViewSet):
-    """Curated sets, owned by a designer."""
+
 
     serializer_class = CollectionSerializer
     permission_classes = [DesignStudioPermission]
@@ -453,12 +358,6 @@ class CollectionViewSet(viewsets.ModelViewSet):
 
 
 class DesignDashboardView(views.APIView):
-    """Counters and leaderboards for the module's landing page.
-
-    Deliberately one endpoint. The main CRM dashboard already fires eight
-    parallel requests on load; this module should not add nine more just to
-    show a handful of numbers.
-    """
 
     permission_classes = [DesignStudioPermission]
 
@@ -479,11 +378,6 @@ class DesignDashboardView(views.APIView):
                 assets.order_by('-created_at')[:8], many=True).data,
             'most_viewed': top(active, 'view_count'),
             'most_ordered': top(active, 'order_count'),
-            # "Trending" is recency-weighted, not a lifetime total: a design
-            # from a year ago with many views should not permanently outrank
-            # one the boutique is showing customers this week. Scoping the
-            # window to designs updated (viewed) in the last 7 days is a cheap
-            # proxy for that without needing a time-series table.
             'trending': DesignAssetSerializer(
                 active.filter(updated_at__gte=week_ago).order_by('-view_count')[:5],
                 many=True).data,
@@ -491,12 +385,6 @@ class DesignDashboardView(views.APIView):
 
 
 class DesignCategoryView(views.APIView):
-    """Garment types with live design counts, for the library's section list.
-
-    One query, not one per garment. The library opens on these counts, so a
-    COUNT(*) per template would make the landing page cost grow with the
-    catalogue -- the thing this module is supposed to survive.
-    """
 
     permission_classes = [DesignStudioPermission]
 
@@ -513,9 +401,6 @@ class DesignCategoryView(views.APIView):
             {'key': t.key, 'name': t.name, 'count': counts.get(t.id, 0)}
             for t in templates
         ]
-        # Designs that predate the template link, or came from a source that
-        # never named a garment. Hiding them would mean the section counts do
-        # not add up to the library, and nobody would find them again.
         untagged = DesignAsset.objects.filter(
             status=DesignAsset.Status.ACTIVE, template__isnull=True).count()
         if untagged:
@@ -528,26 +413,11 @@ class DesignCategoryView(views.APIView):
 
 
 class DesignerViewSet(viewsets.ModelViewSet):
-    """The people credited on designs.
-
-    Most rows carry no login and never need to -- attribution alone covers
-    steps 1-6. create_login is what turns a credited designer into someone who
-    can sign in and use the module for themselves.
-    """
 
     serializer_class = DesignerSerializer
     permission_classes = [DesignStudioPermission]
 
     def perform_destroy(self, instance):
-        """Removing a designer must not leave a live login behind.
-
-        Designer.user is SET_NULL, so deleting the row detached the account and
-        left it with no profile of any kind -- and resolve_user_role answers
-        OWNER for exactly that, so a removed designer's login, password
-        unchanged and token still valid, was promoted to boutique owner.
-        Deactivating is better than deleting the User: it keeps the audit trail
-        on everything they created, and an inactive account cannot authenticate.
-        """
         user = instance.user
         super().perform_destroy(instance)
         if user is not None and user.is_active:
@@ -555,8 +425,6 @@ class DesignerViewSet(viewsets.ModelViewSet):
             user.save(update_fields=['is_active'])
 
     def get_queryset(self):
-        # design_count is read per row by the serializer; annotate it once here
-        # so a list of designers is one query rather than one per designer.
         queryset = Designer.objects.annotate(design_count=Count('designs'))
 
         params = self.request.query_params
@@ -568,44 +436,20 @@ class DesignerViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='create-login')
     def create_login(self, request, pk=None):
-        """Give a credited designer a login of their own.
-
-        Owner-only by construction: DesignStudioPermission denies every
-        non-safe method to anyone but the Owner, so no separate role check is
-        duplicated here. Idempotent by email in the same way
-        TailorViewSet._ensure_user_account is -- a second call with the same
-        address links the existing account rather than erroring or duplicating
-        it, so retrying a failed request is always safe.
-        """
         designer = self.get_object()
         if designer.user_id:
             return Response(
                 {'detail': f'{designer.name} already has a login.'},
                 status=status.HTTP_400_BAD_REQUEST)
 
-        # Normalised before any lookup, the same way TailorViewSet does it.
-        # This matched a raw address exactly, so granting a login on an
-        # address that already existed in another casing missed it, minted a
-        # SECOND User, and left the designer unable to sign in under any
-        # spelling -- while the roster showed a green "Has a login" and the
-        # owner had been told to hand over the bootstrap password.
         email = (request.data.get('email') or designer.email or '').strip().lower()
         if not email:
             return Response({'email': 'An email address is required.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
         user = User.objects.filter(email__iexact=email).first()
-        # Stays None when this call links an account the designer already had;
-        # only a freshly created account has a password worth returning.
         bootstrap = None
 
-        # Never attach a designer profile to the boutique owner or to floor
-        # staff. resolve_user_role answers a Designer profile before it falls
-        # through to OWNER, so granting a login on the owner's own address made
-        # the owner a Designer -- permanently, because every screen that could
-        # undo it is then refused to them. On a Master's or Tailor's address it
-        # is quieter but still wrong: the roster prints a password that is not
-        # that account's.
         if user is not None:
             from django.db import connection
             tenant_owner = (getattr(connection.tenant, 'owner_email', '') or '').lower()
@@ -626,13 +470,6 @@ class DesignerViewSet(viewsets.ModelViewSet):
             while User.objects.filter(username=username).exists():
                 username = f"{original}{counter}"
                 counter += 1
-            # One password, generated here, for this account only -- the same
-            # change and the same reasoning as staff accounts, see
-            # TailorViewSet._ensure_user_account. The shared literal this
-            # replaces was in the repository and in the shipped JS bundle, and
-            # login resolves an account by scanning every boutique's schema, so
-            # it was a working credential against any boutique that had a
-            # designer with a guessable username.
             bootstrap = secrets.token_urlsafe(9)
             user = User.objects.create_user(
                 username=username, email=email,
@@ -647,31 +484,17 @@ class DesignerViewSet(viewsets.ModelViewSet):
         data = DesignerSerializer(
             Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk)
         ).data
-        # Returned once, on this response only, and never stored -- the owner
-        # has to hand it over now or issue a reset later. `bootstrap` is unset
-        # when this call merely linked an account the designer already had, in
-        # which case their existing password still stands and there is nothing
-        # to show.
         if bootstrap:
             data['bootstrap_password'] = bootstrap
         return Response(data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['GET'])
     def portfolio(self, request, pk=None):
-        """Everything this designer has contributed, newest first, plus how it
-        is doing -- what the designer's own dashboard reads (step 6)."""
         designer = self.get_object()
         designs = designer.designs.all().order_by('-created_at')
         totals = designs.aggregate(
             views=Sum('view_count'), orders=Sum('order_count'))
         return Response({
-            # context is load-bearing, not decoration. DesignerSerializer
-            # pops `email` and `has_login` for non-Owners only when it can find
-            # a request in its context -- so constructing it bare, as this did,
-            # skipped the guard entirely and returned the designer's login
-            # address and whether that account is live. DesignStudioPermission
-            # admits any signed-in role on a safe method, so anyone in the
-            # boutique could read it.
             'designer': DesignerSerializer(
                 Designer.objects.annotate(design_count=Count('designs')).get(pk=designer.pk),
                 context=self.get_serializer_context(),
@@ -704,14 +527,6 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
         if order_id:
             queryset = queryset.filter(order__order_id=order_id)
 
-        # Boards for orders this caller may see. visible_boards narrows by
-        # STATUS -- draft, approved -- and says nothing about WHOSE order it is,
-        # so an approved board for any customer in the boutique reached every
-        # tailor, complete with the customer's name and the order id. Chaining
-        # visible_orders is the same rule OrderViewSet and DashboardView apply,
-        # for the reason core/permissions.py states outright. Boards with no
-        # order yet are still in-flight deliberation and stay on the owner path
-        # that visible_boards already governs.
         from core.permissions import visible_orders
         from crm_api.models import Order
         if resolve_user_role(self.request.user) != OWNER:
@@ -721,11 +536,6 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
         return visible_boards(queryset, self.request.user)
 
     def get_serializer_class(self):
-        # The production brief, not the whole deliberation -- for anyone on the
-        # floor, not just the one role string 'Tailor'. Only TailorBriefSerializer
-        # emits the `design` key the stage modal renders the brief from, so a
-        # Master -- the ONLY non-Owner the API lets write production notes --
-        # never saw the box they alone are permitted to fill in.
         if (getattr(self.request.user, 'tailor_profile', None) is not None
                 and resolve_user_role(self.request.user) != OWNER):
             return TailorBriefSerializer
@@ -736,7 +546,7 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='items')
     def add_item(self, request, pk=None):
-        """Shortlist a gallery result onto this board."""
+
         board = self.get_object()
         position = board.items.count()
         item = services.item_from_candidate(board, request.data, position=position)
@@ -767,7 +577,7 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['PATCH'], url_path=r'items/(?P<item_id>[^/.]+)/customise')
     def customise_item(self, request, pk=None, item_id=None):
-        """Owner edits to the design: attributes, notes, tailor instructions."""
+
         board = self.get_object()
         item = get_object_or_404(board.items, pk=item_id)
 
@@ -784,7 +594,7 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['PATCH'], url_path=r'items/(?P<item_id>[^/.]+)/production-notes')
     def production_notes(self, request, pk=None, item_id=None):
-        """A Master's note on how the approved design should be executed."""
+
         board = self.get_object()
         item = get_object_or_404(board.items, pk=item_id)
         role = resolve_user_role(request.user)
@@ -825,13 +635,6 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
 
 
 class DesignAssignmentViewSet(viewsets.ModelViewSet):
-    """Design work as a job on someone's desk, rather than a credit on a file.
-
-    The module could already say who *drew* a design. It could not say who has
-    been *asked* to draw one, for which garment, or whether it came back -- so a
-    designer signing in saw their own upload folder and no work at all. These
-    four endpoints are that missing loop: assign, queue, submit, review.
-    """
 
     permission_classes = [DesignAssignmentPermission]
 
@@ -842,10 +645,6 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
                                     'garment_job__order__customer'))
         queryset = visible_assignments(queryset, self.request.user)
 
-        # `open` is the work queue: what is still on a designer's desk. Kept as
-        # a filter on the list rather than its own endpoint so the Owner's
-        # "who owes me a design" and the Designer's "what do I owe" are one
-        # query with one permission rule behind it.
         if self.request.query_params.get('open') in ('1', 'true', 'True'):
             queryset = queryset.filter(status__in=DesignAssignment.OPEN_STATUSES)
         status_param = self.request.query_params.get('status')
@@ -865,24 +664,11 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
         return DesignAssignmentSerializer
 
     def create(self, request, *args, **kwargs):
-        """Assign a garment's design work, or move it to a different designer.
-
-        A garment job holds one assignment, so a second POST for the same
-        garment is a reassignment rather than an error -- an owner correcting a
-        mistaken pick should not have to find and delete a row first. What it
-        must not do is quietly discard finished work: reassigning an assignment
-        that has already been approved would strip an approved design off the
-        garment with nothing recording that it was ever there.
-        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         job = serializer.validated_data['garment_job']
         designer = serializer.validated_data['designer']
 
-        # ponytail: read-then-write; two simultaneous first-assigns race to the
-        # OneToOne constraint and the loser 500s. A double-click lands here
-        # sequentially and takes the reassign path, which is the case that
-        # matters; take select_for_update if real concurrent assignment appears.
         existing = DesignAssignment.objects.filter(garment_job=job).first()
         if existing is not None:
             if existing.status == DesignAssignment.Status.APPROVED:
@@ -894,8 +680,6 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
             existing.designer = designer
             existing.brief = serializer.validated_data.get('brief', existing.brief)
             existing.due_date = serializer.validated_data.get('due_date', existing.due_date)
-            # Back to square one for the new designer: the previous designer's
-            # submission is not their work to have submitted.
             existing.status = DesignAssignment.Status.ASSIGNED
             existing.design = None
             existing.submission_note = ''
@@ -921,14 +705,6 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'])
     def submit(self, request, pk=None):
-        """The designer hands the finished design back.
-
-        The design must be one the designer actually owns. Without that check
-        the endpoint would take any design id in the library -- so a designer
-        could satisfy their assignment with the boutique's own catalogue row,
-        or with a colleague's upload, and the garment would carry a design its
-        credited author never agreed to put on it.
-        """
         assignment = self.get_object()
         role = resolve_user_role(request.user)
         if role == DESIGNER:
@@ -960,9 +736,6 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
         assignment.status = DesignAssignment.Status.SUBMITTED
         assignment.submitted_at = timezone.now()
         assignment.save()
-        # Credit the design to the designer who was asked for it, if the upload
-        # never named anyone. This is what makes the portfolio count commissioned
-        # work rather than only self-initiated uploads.
         if design.designer_ref_id is None:
             design.designer_ref_id = assignment.designer_id
             design.save(update_fields=['designer_ref'])
@@ -978,7 +751,7 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'])
     def review(self, request, pk=None):
-        """Owner or Master approves the submitted design, or sends it back."""
+
         assignment = self.get_object()
         if assignment.design_id is None:
             return Response({'detail': 'There is no submitted design to review.'},

@@ -1,18 +1,3 @@
-"""Store every existing customer's mobile number in its canonical form.
-
-CustomerSerializer.validate_mobile_number now returns whatsapp_number(value)
-rather than the raw string, so new and edited customers are stored canonically.
-Without this migration only new rows would be, which is the worse of the two
-states: the same person could exist twice, once under each spelling, and
-searching either one would find only its own row.
-
-Collisions are expected and are NOT merged here. Two customer records that
-normalise to the same number are two records with their own orders,
-measurements and history, and deciding which survives is a business call rather
-than a migration's. Those rows are left exactly as they are and reported in the
-migration output, so an operator can see which clients need merging by hand.
-Everything else is normalised, which is the overwhelming majority.
-"""
 
 import re
 
@@ -24,13 +9,6 @@ COUNTRY_CODE = '91'
 
 
 def _canonical(raw):
-    """A copy of crm_api.models.whatsapp_number, deliberately.
-
-    A migration must keep doing what it did on the day it was written. Calling
-    the live helper would make this migration's result change the next time
-    that function is tuned -- and a data migration that rewrites a unique column
-    differently depending on when it runs is how two databases silently diverge.
-    """
     digits = re.sub(r'\D', '', raw or '')
     if digits.startswith('00'):
         digits = digits[2:]
@@ -52,9 +30,6 @@ def normalise(apps, schema_editor):
     for customer in Customer.objects.all().order_by('pk'):
         canonical = _canonical(customer.mobile_number)
         if not canonical or canonical == customer.mobile_number:
-            # Unparseable numbers are left alone rather than blanked: the digits
-            # someone typed are the only record of how to reach that client, and
-            # a migration must not be the thing that throws them away.
             taken.add(customer.mobile_number)
             continue
         pending.append((customer, canonical))
@@ -76,12 +51,6 @@ def normalise(apps, schema_editor):
 
 
 def noop(apps, schema_editor):
-    """Irreversible by design.
-
-    The original spellings are not recorded anywhere, so there is nothing to
-    restore. Reversing the migration leaves the canonical numbers in place,
-    which is harmless -- they are valid numbers either way.
-    """
 
 
 class Migration(migrations.Migration):

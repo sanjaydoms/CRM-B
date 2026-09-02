@@ -1,10 +1,3 @@
-"""Tests for the production workflow engine.
-
-OrderService.transition_order_stage is the most business-critical code in the
-product -- it enforces who may advance a garment and in what order -- and had no
-test coverage. These cases pin down the role gating, the sequencing guards, the
-status mapping and the side effects on staff availability.
-"""
 
 import datetime
 from decimal import Decimal
@@ -80,23 +73,11 @@ class WorkflowTestBase(TenantTestCase):
         return order.stages.get(stage_key=key)
 
     def step(self, order, key, status="COMPLETED", user=None):
-        """Attempt exactly one transition, and nothing else.
-
-        For tests that assert a transition is refused: they need the order left
-        where it is, not helpfully walked into a state where the thing they
-        expect to be rejected would succeed.
-        """
         return OrderService.transition_order_stage(
             order=order, stage_key=key, new_status=status, user=user or self.owner,
         )
 
     def reach(self, order, key):
-        """Complete everything BEFORE `key`, leaving `key` itself untouched.
-
-        For tests that want to drive the target transition themselves -- to
-        check a role, a timestamp or an error -- but now have to get the order
-        legitimately to its doorstep first.
-        """
         config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
         keys = [s["key"] for s in config]
         if key not in keys:
@@ -113,15 +94,6 @@ class WorkflowTestBase(TenantTestCase):
             )
 
     def complete(self, order, key, user=None):
-        """Get this order to `key`, completed -- walking there properly.
-
-        The backend refuses jumps now, so a test that wants an order at quality
-        check has to take it through stitching the way the boutique does. This
-        used to be a single hop, which was only ever possible because the engine
-        permitted a sequence no real order follows. Stages before `key` are
-        completed as the owner; the stage itself is attempted as `user`, so role
-        gating on the target still bites.
-        """
         config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
         keys = [s["key"] for s in config]
         if key in keys:
@@ -140,7 +112,7 @@ class WorkflowTestBase(TenantTestCase):
 
 
 class RoleGatingTests(WorkflowTestBase):
-    """Who is allowed to advance a stage."""
+
 
     def test_owner_can_advance_an_owner_master_stage(self):
         order = self.make_order()
@@ -185,7 +157,7 @@ class RoleGatingTests(WorkflowTestBase):
 
 
 class SequencingGuardTests(WorkflowTestBase):
-    """A garment cannot skip ahead."""
+
 
     def test_cannot_deliver_before_quality_check(self):
         order = self.make_order()
@@ -212,8 +184,6 @@ class SequencingGuardTests(WorkflowTestBase):
     def test_cannot_assign_tailor_without_measurements(self):
         customer = self.make_customer(mobile="9800000009", with_measurements=False)
         order = self.make_order(customer=customer)
-        # Walk up to it, so the refusal is about the missing measurements
-        # rather than about the stages in between.
         self.reach(order, "assigned_to_tailor")
         with self.assertRaises(ValueError) as ctx:
             self.step(order, "assigned_to_tailor")
@@ -242,7 +212,7 @@ class SequencingGuardTests(WorkflowTestBase):
 
 
 class StageBookkeepingTests(WorkflowTestBase):
-    """Timestamps, durations and derived order state."""
+
 
     def test_starting_a_stage_records_a_start_time(self):
         order = self.make_order()
@@ -280,11 +250,6 @@ class StageBookkeepingTests(WorkflowTestBase):
         order.refresh_from_db()
         self.assertEqual(order.production_status, "IN_PROGRESS")
 
-        # Everything except the stage we are about to transition. Pre-setting
-        # 'delivered' too would mean asking the engine to complete a stage that
-        # is already complete, which it now declines -- re-completing walks an
-        # order backwards, which is how a tailor could drop a Delivered order to
-        # 'Quality Check' and re-message the customer.
         for conf in BoutiqueSettings.objects.get(id=1).workflow_config:
             if conf["key"] == "delivered":
                 continue
@@ -297,14 +262,6 @@ class StageBookkeepingTests(WorkflowTestBase):
         self.assertEqual(order.production_status, "COMPLETED")
 
     def test_production_status_completes_on_an_order_loaded_the_way_the_api_loads_it(self):
-        """The test above passes an order built in memory, whose `stages` was
-        never prefetched. Every real transition arrives through OrderViewSet,
-        which loads orders from OrderRepository.base_queryset() -- and that
-        prefetches 'stages'. Reading order.stages.all() then returned the
-        prefetch cache from before the stage was saved, so the "all done" test
-        was always one transition stale and production_status stayed
-        IN_PROGRESS even on a delivered order.
-        """
         order = self.make_order()
         for conf in BoutiqueSettings.objects.get(id=1).workflow_config:
             stage = self.stage(order, conf["key"])
@@ -312,7 +269,6 @@ class StageBookkeepingTests(WorkflowTestBase):
                 stage.status = "COMPLETED"
                 stage.save()
 
-        # The prefetch is the whole point -- do not swap this for Order.objects.get.
         prefetched = OrderRepository.get_by_id(order.id)
         self.complete(prefetched, "delivered")
 
@@ -320,11 +276,6 @@ class StageBookkeepingTests(WorkflowTestBase):
         self.assertEqual(order.production_status, "COMPLETED")
 
     def test_a_skipped_stage_does_not_strand_production_status(self):
-        """Skip Stage is a real button in the owner's stage modal, and the
-        ladder lets an order deliver over a skipped stage. Treating SKIPPED as
-        outstanding work would leave every such order reading IN_PROGRESS
-        forever.
-        """
         order = self.make_order()
         for conf in BoutiqueSettings.objects.get(id=1).workflow_config:
             key = conf["key"]
@@ -391,10 +342,6 @@ class OrderCreationTests(WorkflowTestBase):
         self.assertEqual(self.stage(order, "measurements_completed").status, "NOT_STARTED")
 
     def test_the_promised_delivery_date_is_the_one_that_is_kept(self):
-        """The date the boutique quoted per garment is what the tracking page
-        and the WhatsApp update show the customer. It used to be discarded in
-        favour of today+15, so a September garment was promised in August.
-        """
         order = self.make_order(estimated_delivery="2026-09-15")
         order.refresh_from_db()
         self.assertEqual(str(order.estimated_delivery), "2026-09-15")
@@ -405,21 +352,11 @@ class OrderCreationTests(WorkflowTestBase):
         self.assertEqual(order.estimated_delivery, expected)
 
     def test_a_malformed_delivery_date_does_not_take_the_order_down(self):
-        """The date arrives as text from the browser. Notifications format it
-        during creation, so an unparseable value must not reach the order --
-        it fails there with AttributeError and the customer gets no order.
-        """
         order = self.make_order(estimated_delivery="not-a-date")
         expected = datetime.date.today() + datetime.timedelta(days=15)
         self.assertEqual(order.estimated_delivery, expected)
 
     def test_the_order_carries_the_identity_its_invoice_has_to_print(self):
-        """The invoice is printed from the Invoices tab, where none of the
-        order wizard's state exists. It used to fall back to that state and
-        bill whichever customer the wizard last held -- the wrong person, and
-        one client's contact details shown on another's invoice. The order
-        payload has to carry its own customer's identity for that to be fixable.
-        """
         from crm_api.serializers import OrderSerializer
 
         customer = self.make_customer(mobile="9800000077")
@@ -431,10 +368,6 @@ class OrderCreationTests(WorkflowTestBase):
         data = OrderSerializer(order).data
 
         self.assertEqual(data["customer_name"], "Meera Nair")
-        # The canonical form. Numbers are stored folded onto one spelling so a
-        # returning client is the same record rather than a second profile (see
-        # Customer.save); the API returns what is stored, and the interface
-        # formats it for reading with formatMobile.
         self.assertEqual(data["customer_mobile"], "919800000077")
         self.assertEqual(data["customer_email"], "meera@example.test")
         self.assertEqual(data["customer_address"], "12 Kamaraj Street, Chennai")
@@ -448,10 +381,8 @@ class OrderCreationTests(WorkflowTestBase):
         self.assertEqual(stitching.assigned_to, self.tailor)
         cutting = tasks.get(stage_key="pattern_cutting")
         self.assertEqual(cutting.assigned_to, self.master)
-        # Finishing and pressing became stages of their own, so each has its own task.
         self.assertTrue(tasks.filter(stage_key="finishing").exists())
         self.assertTrue(tasks.filter(stage_key="pressing").exists())
-        # Every task must point at a stage that actually exists on the order.
         stage_keys = set(order.stages.values_list("stage_key", flat=True))
         orphans = set(tasks.values_list("stage_key", flat=True)) - stage_keys
         self.assertEqual(orphans, set(), f"tasks reference non-existent stages: {orphans}")
@@ -494,7 +425,7 @@ class OrderCreationTests(WorkflowTestBase):
         self.assertEqual(float(order.amount_paid), 4000.0)
 
     def test_failed_order_creation_leaves_nothing_behind(self):
-        """Order creation is atomic -- a failure must not leave partial rows."""
+
         from unittest.mock import patch
         customer = self.make_customer(mobile="9800000034")
         before = Order.objects.count()
@@ -507,7 +438,7 @@ class OrderCreationTests(WorkflowTestBase):
 
 
 class MasterJourneyTests(WorkflowTestBase):
-    """The full path a supervising master walks, as the API sees it."""
+
 
     def setUp(self):
         super().setUp()
@@ -538,22 +469,18 @@ class MasterJourneyTests(WorkflowTestBase):
     def test_master_walks_an_order_from_cutting_to_delivered(self):
         order = self.make_order()
 
-        # Stages the master owns.
         self.assertEqual(self._transition(order, "fabric_confirmed").status_code, 200)
         self.assertEqual(self._transition(order, "pattern_cutting").status_code, 200)
         self.assertEqual(self._transition(order, "assigned_to_tailor").status_code, 200)
 
-        # Stitching belongs to the tailor -- the master is refused, with a reason.
         blocked = self._transition(order, "stitching_in_progress", "IN_PROGRESS")
         self.assertEqual(blocked.status_code, 400)
         self.assertIn("not authorized", blocked.json()["error"].lower())
 
-        # Delivery is refused until the master's own quality check is done.
         early = self._transition(order, "delivered")
         self.assertEqual(early.status_code, 400)
         self.assertIn("quality check", early.json()["error"].lower())
 
-        # The tailor does their part.
         for stage_key in ["stitching_in_progress", "stitching_completed"]:
             OrderService.transition_order_stage(
                 order=order, stage_key=stage_key,
@@ -586,8 +513,6 @@ class MasterJourneyTests(WorkflowTestBase):
         self.assertEqual(self.master.status, "Available")
 
     def test_master_cannot_mark_delivered_through_the_status_shortcut(self):
-        """The assignments screen exposes a status dropdown; it must obey the
-        same guards as the stage tracker."""
         order = self.make_order()
         response = self.client.patch(
             reverse("order-update-status", args=[order.id]),
@@ -599,7 +524,7 @@ class MasterJourneyTests(WorkflowTestBase):
 
 
 class TransitionEndpointTests(WorkflowTestBase):
-    """The HTTP surface around the workflow engine."""
+
 
     def setUp(self):
         super().setUp()
@@ -626,12 +551,6 @@ class TransitionEndpointTests(WorkflowTestBase):
         self.assertIn("quality check", response.json()["error"].lower())
 
     def test_update_status_cannot_skip_the_quality_check(self):
-        """The status dropdown used to bypass every guard.
-
-        A master could mark a garment Delivered while the quality check had
-        never started -- the client was told it shipped, the production record
-        showed nothing done.
-        """
         order = self.make_order()
         response = self.client.patch(
             reverse("order-update-status", args=[order.id]),
@@ -652,12 +571,6 @@ class TransitionEndpointTests(WorkflowTestBase):
         self.assertEqual(self.stage(order, "fabric_confirmed").status, "COMPLETED")
 
     def test_update_status_in_the_right_order_reaches_delivered(self):
-        """The dropdown walks the client-facing statuses in order, and that is
-        now enough on its own -- 'Design & Creation' records that the stitching
-        is finished, so quality check has something to inspect. This case used
-        to open on 'Quality Check' and complete master_quality_check by hand,
-        because no dropdown value touched either stitching stage.
-        """
         order = self.make_order()
         for target in ["Confirmed", "Design & Creation", "Quality Check",
                        "Ready for Dispatch", "Delivered"]:
@@ -670,7 +583,6 @@ class TransitionEndpointTests(WorkflowTestBase):
         order.refresh_from_db()
         self.assertEqual(order.order_status, "Delivered")
         self.assertEqual(self.stage(order, "delivered").status, "COMPLETED")
-        # And the garment is recorded as actually made.
         self.assertEqual(self.stage(order, "stitching_completed").status, "COMPLETED")
 
     def test_tailor_cannot_use_update_status_to_reach_a_master_stage(self):
@@ -709,14 +621,6 @@ class TransitionEndpointTests(WorkflowTestBase):
 
 
 class DashboardAndNotificationScopingTests(WorkflowTestBase):
-    """What a signed-in tailor is allowed to read.
-
-    OrderViewSet already hid other people's orders behind visible_orders, but
-    two endpoints routed around it: the dashboard read Order.objects and
-    Customer.objects directly, and the notification list trusted a
-    client-supplied ?role=. Between them a tailor could read the boutique's
-    turnover and every client's contact details and unpaid balance.
-    """
 
     def _client_for(self, user):
         client = APIClient()
@@ -729,7 +633,6 @@ class DashboardAndNotificationScopingTests(WorkflowTestBase):
 
     def setUp(self):
         super().setUp()
-        # One order the tailor is on, one they are not.
         self.theirs = self.make_order()
         stranger = self.make_customer(mobile="9800000099")
         self.not_theirs = self.make_order(customer=stranger, tailor=False, master=False)
@@ -762,8 +665,6 @@ class DashboardAndNotificationScopingTests(WorkflowTestBase):
             "/api/notifications/", {"role": "Owner"})
 
         self.assertEqual(response.status_code, 200)
-        # The param is ignored now, so the tailor gets their own rows (order
-        # creation already raised one). What must not appear is anyone else's.
         self.assertEqual({n["recipient_role"] for n in response.data} - {"Tailor"}, set())
 
     def test_an_unrecognised_role_returns_nothing_rather_than_everything(self):
@@ -796,11 +697,6 @@ class DashboardAndNotificationScopingTests(WorkflowTestBase):
 
 
 class StatusDropdownTests(WorkflowTestBase):
-    """The Update Status dropdown, which is a second way to drive the ladder.
-
-    It has to mean the same thing as the stage tracker beside it, and it has to
-    be able to express every status it offers.
-    """
 
     def setUp(self):
         super().setUp()
@@ -817,11 +713,6 @@ class StatusDropdownTests(WorkflowTestBase):
             {"status": value}, format="json")
 
     def test_shipped_is_actually_stored(self):
-        """'Shipped' used to alias the ready_for_delivery stage, whose own map
-        turns it back into 'Ready for Dispatch' -- so the endpoint answered 200
-        for a status it never stored, and the only customer message carrying
-        the courier name and tracking number could never fire.
-        """
         order = self.make_order(
             delivery_method="Courier", courier_service="BlueDart",
             tracking_number="BD123456789")
@@ -835,12 +726,7 @@ class StatusDropdownTests(WorkflowTestBase):
         self.assertEqual(order.order_status, "Shipped")
 
     def test_choosing_quality_check_actually_runs_quality_check(self):
-        """It used to complete stitching_completed while delivery is gated on
-        master_quality_check, so the dropdown claimed QC had happened and then
-        refused the final rung naming a step it had never offered.
-        """
         order = self.make_order()
-        # One client-facing status at a time, which is what the control is.
         self._set(order, "Received")
         self._set(order, "Confirmed")
         self._set(order, "Design & Creation")
@@ -851,7 +737,7 @@ class StatusDropdownTests(WorkflowTestBase):
         self.assertEqual(self.stage(order, "master_quality_check").status, "COMPLETED")
 
     def test_the_dropdown_can_walk_an_order_all_the_way_to_delivered(self):
-        """The whole point of the control. Before, the last hop returned 400."""
+
         order = self.make_order()
         for value in ["Confirmed", "Design & Creation", "Quality Check",
                       "Ready for Dispatch", "Delivered"]:
@@ -862,7 +748,7 @@ class StatusDropdownTests(WorkflowTestBase):
         self.assertEqual(order.order_status, "Delivered")
 
     def test_a_refused_transition_explains_itself(self):
-        """The reason has to survive as far as the owner; api.js prints it."""
+
         order = self.make_order()
 
         response = self._set(order, "Delivered")
@@ -872,7 +758,7 @@ class StatusDropdownTests(WorkflowTestBase):
 
 
 class OrderMoneyTests(WorkflowTestBase):
-    """Money at the two points it can be wrong: creation, and afterwards."""
+
 
     def setUp(self):
         super().setUp()
@@ -888,9 +774,6 @@ class OrderMoneyTests(WorkflowTestBase):
             reverse("customer-create-order", args=[customer.id]), data, format="json")
 
     def test_an_advance_larger_than_the_order_is_clamped_not_banked(self):
-        """150000 against a 31500 order used to be stored verbatim and counted
-        as revenue, while the customer's page read 'Balance due Rs0.00'.
-        """
         order = self.make_order(
             base_price=30000, payment_status="Partially Paid", advance_paid=150000)
 
@@ -904,7 +787,7 @@ class OrderMoneyTests(WorkflowTestBase):
         self.assertGreaterEqual(order.advance_paid, 0)
 
     def test_a_negative_price_is_refused_rather_than_banked(self):
-        """A negative base price took the dashboard's revenue below zero."""
+
         customer = self.make_customer(mobile="9800000031")
 
         response = self._create(customer, base_price=-32000)
@@ -913,9 +796,6 @@ class OrderMoneyTests(WorkflowTestBase):
         self.assertIn("negative", str(response.data).lower())
 
     def test_an_impossible_total_is_refused_with_a_readable_reason(self):
-        """total_amount is max_digits=10; 10^8 up died as an unhandled
-        psycopg DataError behind a generic 'Failed to submit order'.
-        """
         customer = self.make_customer(mobile="9800000032")
 
         response = self._create(customer, base_price=99999999)
@@ -924,9 +804,6 @@ class OrderMoneyTests(WorkflowTestBase):
         self.assertIn("maximum", str(response.data).lower())
 
     def test_a_part_payment_can_be_recorded_after_the_order_exists(self):
-        """There was no way to do this at all: the status dropdown was the only
-        control and 'Partially Paid' was a silent no-op.
-        """
         order = self.make_order(base_price=30000, payment_status="Pending")
         url = reverse("order-detail", args=[order.id])
 
@@ -947,9 +824,6 @@ class OrderMoneyTests(WorkflowTestBase):
         self.assertEqual(order.payment_status, "Paid")
 
     def test_marking_pending_does_not_leave_a_stale_advance_behind(self):
-        """The invoice printed 'Advance Paid Rs10,000 / Balance Due Rs0' beside
-        a table saying the full amount was outstanding.
-        """
         order = self.make_order(
             base_price=30000, payment_status="Partially Paid", advance_paid=10000)
         url = reverse("order-detail", args=[order.id])
@@ -962,14 +836,8 @@ class OrderMoneyTests(WorkflowTestBase):
 
 
 class StaffAvailabilityAcrossOrdersTests(WorkflowTestBase):
-    """Availability has to account for every order a person is on, not just
-    the one whose stage was touched."""
 
     def test_finishing_one_garment_does_not_free_a_tailor_who_has_another(self):
-        """Tailor.status is one flag with no reference counting: completing
-        stitching on any ONE order used to write 'Available' outright, so a
-        tailor with three garments open advertised as free after the first.
-        """
         first = self.make_order()
         second = self.make_order(customer=self.make_customer(mobile="9800000041"))
 
@@ -990,13 +858,9 @@ class StaffAvailabilityAcrossOrdersTests(WorkflowTestBase):
 
 
 class BackendCorrectnessTests(WorkflowTestBase):
-    """Defects found by the end-to-end audit, each pinned to its symptom."""
+
 
     def test_a_stage_can_be_paused(self):
-        """The stage modal has a 'Pause Stage' button, the model documents
-        PAUSED and the dashboard has a colour for it -- but the service
-        rejected the value, so all of that was dead code.
-        """
         order = self.make_order()
         OrderService.transition_order_stage(
             order=order, stage_key="fabric_confirmed",
@@ -1005,19 +869,11 @@ class BackendCorrectnessTests(WorkflowTestBase):
         self.assertEqual(self.stage(order, "fabric_confirmed").status, "PAUSED")
 
     def test_special_instructions_survive_order_creation(self):
-        """The last wizard step asks for them and posted them as
-        custom_requirements; nothing read the key and Order had no field, so
-        an instruction the staff were asked for was silently dropped.
-        """
         order = self.make_order(custom_requirements="Extra margin at the waist.")
         order.refresh_from_db()
         self.assertEqual(order.special_instructions, "Extra margin at the waist.")
 
     def test_the_production_task_follows_its_stage(self):
-        """Nine tasks are written per order and nothing ever touched them, so
-        the production endpoints reported every task NOT_STARTED on a
-        delivered order.
-        """
         from apps.production.models import ProductionTask
 
         order = self.make_order()
@@ -1027,10 +883,6 @@ class BackendCorrectnessTests(WorkflowTestBase):
         self.assertEqual(task.status, "COMPLETED")
 
     def test_every_production_task_has_someone_on_it_without_a_master(self):
-        """Three of the nine were assigned to master with no `or tailor`
-        fallback, unlike their six siblings -- and master is optional in the
-        wizard, so those three were created unassigned.
-        """
         from apps.production.models import ProductionTask
 
         order = self.make_order(master=False)
@@ -1039,15 +891,7 @@ class BackendCorrectnessTests(WorkflowTestBase):
         self.assertEqual(list(unassigned), [])
 
     def test_ready_for_dispatch_does_not_claim_a_quality_check_that_never_ran(self):
-        """'Ready for Dispatch' is reached from three stages, none of which
-        require master_quality_check, and the message asserted the garment had
-        passed inspection regardless.
-        """
         order = self.make_order()
-        # The state machine now makes this unreachable rather than merely
-        # unwise: Ready for Dispatch cannot be entered until quality check is
-        # completed, so there is no longer a route to the claim at all. Pinned
-        # both ways -- the route is refused, and no such message exists.
         with self.assertRaises(ValueError) as ctx:
             self.step(order, "ready_for_delivery")
         self.assertIn("master quality check", str(ctx.exception).lower())
@@ -1068,10 +912,6 @@ class CustomerContactValidationTests(WorkflowTestBase):
         )
 
     def test_an_unreachable_mobile_number_is_refused(self):
-        """No validator on the model, none in the serializer, none on the form:
-        a nine-digit slip was stored and every WhatsApp update after it opened a
-        chat with nobody, behind a button the owner could mark as sent.
-        """
         response = self.client.post('/api/customers/', {
             'first_name': 'Meera', 'last_name': 'Iyer',
             'mobile_number': '96001',
@@ -1100,11 +940,6 @@ class FabricSelectionTests(WorkflowTestBase):
         )
 
     def test_changing_the_fabric_replaces_the_pick_instead_of_stacking_rows(self):
-        """'Save as Draft' and 'Next' both post here, and Back/Next through
-        step 4 posts again, so a customer who changed their mind twice ended up
-        with three selections and no route to delete any of them -- while the
-        design studio's context builder reads whatever rows exist.
-        """
         customer = self.make_customer(mobile="9800000051")
         url = f'/api/customers/{customer.id}/fabric-selections/'
 
@@ -1116,16 +951,8 @@ class FabricSelectionTests(WorkflowTestBase):
 
 
 class MasterJourneyTests(WorkflowTestBase):
-    """The supervisor's path. A Master runs the floor but is deliberately barred
-    from the two stitching stages, which are the Tailor's own work."""
 
     def test_quality_check_cannot_pass_a_garment_that_was_never_stitched(self):
-        """The delivery gate depends on master_quality_check, and QC had no
-        guard of its own -- so a Master could pass inspection and mark the order
-        Delivered with both stitching stages still NOT_STARTED. The customer's
-        tracking page then read "Delivered" over a garment the record says
-        nobody made. trial_scheduled already guarded this; QC did not.
-        """
         order = self.make_order()
 
         with self.assertRaises(ValueError) as ctx:
@@ -1142,8 +969,6 @@ class MasterJourneyTests(WorkflowTestBase):
         self.assertEqual(self.stage(order, "master_quality_check").status, "COMPLETED")
 
     def test_a_skipped_stitching_stage_still_allows_quality_check(self):
-        """Skip Stage is a real control. A garment the boutique did not stitch
-        itself must not be trapped short of QC."""
         order = self.make_order()
         stage = self.stage(order, "stitching_completed")
         stage.status = "SKIPPED"
@@ -1154,8 +979,6 @@ class MasterJourneyTests(WorkflowTestBase):
         self.assertEqual(self.stage(order, "master_quality_check").status, "COMPLETED")
 
     def test_a_master_cannot_do_the_tailors_stitching(self):
-        """Not a defect -- the matrix says stitching is ["Owner","Tailor"].
-        Pinned so the refusal stays explicit and legible."""
         order = self.make_order()
 
         with self.assertRaises(ValueError) as ctx:
@@ -1164,7 +987,7 @@ class MasterJourneyTests(WorkflowTestBase):
         self.assertIn("not authorized", str(ctx.exception).lower())
 
     def test_a_master_can_take_a_stitched_garment_all_the_way_to_delivered(self):
-        """With the tailor's part done, the Master owns every remaining rung."""
+
         order = self.make_order()
         self.complete(order, "stitching_completed", user=self.tailor_user)
 
@@ -1178,8 +1001,6 @@ class MasterJourneyTests(WorkflowTestBase):
 
 
 class StaffAccountTests(WorkflowTestBase):
-    """Creating and editing staff logins. Both defects here made a Master's
-    account unusable or, worse, over-privileged."""
 
     def setUp(self):
         super().setUp()
@@ -1191,11 +1012,6 @@ class StaffAccountTests(WorkflowTestBase):
         )
 
     def test_a_capitalised_email_still_produces_a_usable_login(self):
-        """LoginView lowercases the whole input and then matched exactly, while
-        the staff bootstrap stored the address as the owner typed it. A Master
-        entered as Rohit.Mehra@... got an account that looked correct in Manage
-        Tailors and could never be signed in to, with valid credentials.
-        """
         response = self.client.post('/api/tailors/', {
             'name': 'Kavya Rao', 'specialty': 'Bridal', 'role': 'Master',
             'email': 'Kavya.Rao@Studio.Test',
@@ -1206,10 +1022,6 @@ class StaffAccountTests(WorkflowTestBase):
         self.assertEqual(tailor.email, 'kavya.rao@studio.test')
         self.assertEqual(tailor.user.username, tailor.user.username.lower())
 
-        # The password is generated per account and returned once, on the
-        # response that created it -- there is no shared literal to log in with
-        # any more. Reading it from here is the point of returning it: it is
-        # exactly what the owner is shown and hands over.
         login = APIClient().post('/api/auth/login/', {
             'username': 'Kavya.Rao@Studio.Test',
             'password': response.data['bootstrap_password'],
@@ -1218,12 +1030,6 @@ class StaffAccountTests(WorkflowTestBase):
         self.assertEqual(login.data['user']['role'], 'Master')
 
     def test_changing_a_masters_email_keeps_their_own_login(self):
-        """_ensure_user_account looked the account up by email, so changing the
-        address created a SECOND user and left the Master's real login attached
-        to no Tailor profile -- and resolve_user_role treats a profile-less
-        account as the OWNER, so that session silently gained the run of the
-        boutique.
-        """
         created = self.client.post('/api/tailors/', {
             'name': 'Meena', 'specialty': 'Bridal', 'role': 'Master',
             'email': 'meena@studio.test',
@@ -1240,13 +1046,12 @@ class StaffAccountTests(WorkflowTestBase):
         self.assertEqual(User.objects.count(), before, "a duplicate account was created")
         tailor.user.refresh_from_db()
         self.assertEqual(tailor.user.email, 'meena.new@studio.test')
-        # The account still resolves as a Master, not as the boutique owner.
         from core.roles import resolve_user_role
         self.assertEqual(resolve_user_role(tailor.user), 'Master')
 
 
 class MasterVerificationChecklistTests(WorkflowTestBase):
-    """The one feature built exclusively for a Master."""
+
 
     def _client_for(self, user):
         client = APIClient()
@@ -1258,10 +1063,6 @@ class MasterVerificationChecklistTests(WorkflowTestBase):
         return client
 
     def test_a_master_can_save_the_checklist(self):
-        """It was saved with a plain PATCH of the order, which DRF calls
-        partial_update -- an action supervisors are not granted -- so every
-        checkbox 403'd for the only role allowed to see the checklist.
-        """
         order = self.make_order()
         url = reverse("order-master-verification", args=[order.id])
 
@@ -1274,9 +1075,6 @@ class MasterVerificationChecklistTests(WorkflowTestBase):
         self.assertEqual(order.master_verification, {'cutting': True, 'pressing': False})
 
     def test_the_checklist_route_cannot_be_used_to_touch_money(self):
-        """The narrow action exists precisely so partial_update stays shut --
-        that same action carries payment_status and amount_paid.
-        """
         order = self.make_order(payment_status='Pending')
         url = reverse("order-master-verification", args=[order.id])
 
@@ -1300,7 +1098,7 @@ class MasterVerificationChecklistTests(WorkflowTestBase):
 
 
 class AssignStageTests(WorkflowTestBase):
-    """Handing work out -- the supervisor action that is a Master's job."""
+
 
     def _client_for(self, user):
         client = APIClient()
@@ -1312,11 +1110,6 @@ class AssignStageTests(WorkflowTestBase):
         return client
 
     def test_an_assigned_tailor_can_start_stitching_without_order_tailor(self):
-        """The stitching guard read order.tailor, but assign_stage -- the only
-        assignment write a Master is permitted -- sets stage.assigned_to.
-        Setting order.tailor needs a PATCH of the order, which is Owner-only,
-        so a Master's assignment was accepted and then dead-ended.
-        """
         order = self.make_order(tailor=False)
         self.reach(order, "stitching_in_progress")
         self._client_for(self.master_user).post(
@@ -1331,10 +1124,6 @@ class AssignStageTests(WorkflowTestBase):
         self.assertEqual(self.stage(order, 'stitching_in_progress').status, 'IN_PROGRESS')
 
     def test_assigning_tells_the_person_and_leaves_a_record(self):
-        """Every other order event notifies and writes an activity row.
-        OrderActivity's own field comment lists 'ASSIGNMENT' as an expected
-        event_type that nothing ever wrote.
-        """
         order = self.make_order()
         before = Notification.objects.count()
 
@@ -1376,9 +1165,6 @@ class AssignStageTests(WorkflowTestBase):
 
 
 class UpdateStatusAuthorityTests(WorkflowTestBase):
-    """update_status is in STAFF_ORDER_ACTIONS so a tailor can drive their own
-    stages. Statuses that map to a stage are gated by that stage's role list.
-    The ones that map to nothing were gated by nothing at all."""
 
     def _client_for(self, user):
         client = APIClient()
@@ -1395,11 +1181,6 @@ class UpdateStatusAuthorityTests(WorkflowTestBase):
             {"status": value}, format="json")
 
     def test_a_tailor_cannot_tell_the_customer_the_order_shipped(self):
-        """'Shipped' maps to no stage, so it fell into the branch that writes
-        order_status directly and fires create_order_notifications -- the only
-        message carrying the courier name and tracking number. Any tailor could
-        send it.
-        """
         order = self.make_order()
 
         response = self._set(self.tailor_user, order, "Shipped")
@@ -1409,9 +1190,6 @@ class UpdateStatusAuthorityTests(WorkflowTestBase):
         self.assertNotEqual(order.order_status, "Shipped")
 
     def test_an_arbitrary_string_is_not_an_order_status(self):
-        """The endpoint stored whatever it was handed, so an order's status --
-        shown to the customer on the tracking page -- could be any text at all.
-        """
         order = self.make_order()
 
         response = self._set(self.owner, order, "Totally Made Up")
@@ -1430,11 +1208,7 @@ class UpdateStatusAuthorityTests(WorkflowTestBase):
         self.assertEqual(order.order_status, "Stylist Review")
 
     def test_a_tailor_can_still_drive_their_own_stage(self):
-        """The gate must not cost a tailor the thing update_status is in
-        STAFF_ORDER_ACTIONS for."""
         order = self.make_order()
-        # The bands before this one are the owner's and the master's work;
-        # the tailor picks the garment up from there.
         self.reach(order, "stitching_in_progress")
 
         response = self._set(self.tailor_user, order, "Design & Creation")
@@ -1444,7 +1218,7 @@ class UpdateStatusAuthorityTests(WorkflowTestBase):
 
 
 class NotificationBellTests(WorkflowTestBase):
-    """The bell is on every screen, so its permissions are load-bearing."""
+
 
     def _client_for(self, user):
         client = APIClient()
@@ -1456,13 +1230,6 @@ class NotificationBellTests(WorkflowTestBase):
         return client
 
     def test_staff_can_clear_their_own_notifications(self):
-        """mark-all-read is a POST, and NotificationViewSet used the default
-        RolePermission, which grants a non-Owner only the named order actions
-        as writes. Every staff member got a 403 opening the drawer -- and the
-        frontend threw it inside the click handler, dropping the whole
-        application to its runtime-error screen. A tailor lost the app on their
-        first click of a control present on every page.
-        """
         Notification.objects.create(
             recipient_role="Tailor", recipient_email="tailor@workflow.test",
             title="Assigned", message="You have work.", is_read=False)
@@ -1475,8 +1242,6 @@ class NotificationBellTests(WorkflowTestBase):
             Notification.objects.filter(recipient_role="Tailor", is_read=False).exists())
 
     def test_clearing_does_not_touch_anybody_elses_feed(self):
-        """Safe without a role check only because get_queryset scopes to the
-        caller -- so pin that."""
         Notification.objects.create(
             recipient_role="Owner", recipient_email="owner@workflow.test",
             title="Owner only", message="Turnover.", is_read=False)
@@ -1488,10 +1253,6 @@ class NotificationBellTests(WorkflowTestBase):
 
 
 class CrossRouterScopingTests(WorkflowTestBase):
-    """RolePermission grants every non-Owner staff member all SAFE_METHODS.
-    That is only safe because each viewset narrows its own queryset -- a promise
-    the routers outside crm_api never made, so a tailor read the whole boutique
-    through them."""
 
     def _client_for(self, user):
         client = APIClient()
@@ -1513,10 +1274,6 @@ class CrossRouterScopingTests(WorkflowTestBase):
         self.not_mine = self.make_order(customer=stranger, tailor=False, master=False)
 
     def test_appointments_do_not_hand_over_a_strangers_contact_details(self):
-        """AppointmentSerializer nests the full CustomerSerializer, which nests
-        that customer's orders and their money -- and the frontend loads this
-        endpoint for every role on every login, so it arrived unasked.
-        """
         from apps.scheduling.models import Appointment
         from django.utils import timezone
         Appointment.objects.create(
@@ -1552,23 +1309,11 @@ class CrossRouterScopingTests(WorkflowTestBase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('email', response.data[0])
-        # The owner still needs it -- that is the screen which mints logins.
         owner_view = self._client_for(self.owner).get('/api/tailors/')
         self.assertIn('email', owner_view.data[0])
 
 
 class DeliveryGateTests(WorkflowTestBase):
-    """Nothing reaches the customer as Delivered without passing QC.
-
-    The gate existed but was written `stage_key == 'delivered' and new_status
-    == 'COMPLETED'`, while the status map wrote 'Delivered' for EVERY new_status
-    on that stage. The frontend offers "Start In-Progress" on any NOT_STARTED or
-    PAUSED stage and "Skip Stage" on any non-COMPLETED one, both posting through
-    transition_order_stage -- so the two most obvious buttons on the row walked
-    straight past the one hard invariant in the workflow, flipped the public
-    tracking page, and drafted the customer a message asking for the balance on
-    a garment nobody had inspected.
-    """
 
     def _order_at_delivery(self):
         order = self.make_order()
@@ -1601,8 +1346,6 @@ class DeliveryGateTests(WorkflowTestBase):
         self.assertNotEqual(order.order_status, 'Delivered')
 
     def test_starting_delivery_after_qc_does_not_yet_announce_delivery(self):
-        # Picking the parcel up is not the same as the customer having it. The
-        # status must not move until the stage is COMPLETED.
         order = self._order_at_delivery()
         self.reach(order, 'delivered')
         before = Order.objects.get(pk=order.pk).order_status
@@ -1614,7 +1357,6 @@ class DeliveryGateTests(WorkflowTestBase):
         self.assertNotEqual(order.order_status, 'Delivered')
 
     def test_completing_delivery_after_qc_still_works(self):
-        # The gate must not have become a wall.
         order = self._order_at_delivery()
         for key in ('finishing', 'pressing', 'master_quality_check'):
             if order.stages.filter(stage_key=key).exists():
@@ -1625,14 +1367,6 @@ class DeliveryGateTests(WorkflowTestBase):
 
 
 class MasterVerificationMergeTests(WorkflowTestBase):
-    """Ticking a second box must not undo the first.
-
-    Both screens that render the checklist build their payload by spreading the
-    order out of the dashboard's cached list, so the second tick posts a copy
-    taken before the first was saved. The endpoint replaced the stored object
-    wholesale, so the Master watched their own ticks come undone -- and what
-    was recorded afterwards was not what had been verified.
-    """
 
     def setUp(self):
         super().setUp()
@@ -1656,8 +1390,6 @@ class MasterVerificationMergeTests(WorkflowTestBase):
                          {'stitching': True, 'finishing': True})
 
     def test_a_stale_payload_cannot_erase_a_saved_tick(self):
-        # Exactly the frontend's behaviour: post the object as it was before
-        # the earlier tick landed.
         self._patch({'stitching': True})
         self._patch({'finishing': True})
         self._patch({'stitching': True, 'pressing': True})   # stale: no finishing
@@ -1674,15 +1406,6 @@ class MasterVerificationMergeTests(WorkflowTestBase):
 
 
 class SareeMeasurementTests(WorkflowTestBase):
-    """A saree-only order must not stall on measurements it never asked for.
-
-    bust/waist/hips are written only by the wizard's CUSTOMER_KEYS map, and the
-    saree template's measurement section carries petticoat_length and
-    petticoat_waist -- neither of which is in that map. So all three columns
-    stayed NULL and the order stopped at "Cannot assign tailor. Measurements are
-    not completed for this customer", naming a step the wizard never offered for
-    a garment with no bust measurement to take.
-    """
 
     def test_a_garment_snapshot_counts_as_having_been_measured(self):
         from apps.catalog.models import GarmentJob, GarmentTemplate
@@ -1695,12 +1418,10 @@ class SareeMeasurementTests(WorkflowTestBase):
             measurements={'petticoat_length': 40, 'petticoat_waist': 30},
         )
         self.complete(order, 'created')
-        # The stage that used to raise.
         self.complete(order, 'assigned_to_tailor')
         self.assertEqual(self.stage(order, 'assigned_to_tailor').status, 'COMPLETED')
 
     def test_an_order_with_nothing_measured_anywhere_is_still_refused(self):
-        # The guard must not have been removed, only widened.
         customer = self.make_customer(mobile="9800000078", with_measurements=False)
         order = self.make_order(customer=customer)
         self.reach(order, 'assigned_to_tailor')
@@ -1709,13 +1430,6 @@ class SareeMeasurementTests(WorkflowTestBase):
 
 
 class CustomerSpendAggregateTests(WorkflowTestBase):
-    """Lifetime spend must count orders, not distinct prices.
-
-    Sum(DISTINCT total_amount) de-duplicates by VALUE, so two orders at the same
-    price totalled one of them. Repeat orders at a repeated price point are the
-    ordinary pattern in a boutique. The existing coverage used three different
-    amounts, which is why this survived.
-    """
 
     def _summary_for(self, customer, user):
         from domains.customers.repositories import CustomerRepository
@@ -1729,7 +1443,6 @@ class CustomerSpendAggregateTests(WorkflowTestBase):
         self.make_order(customer=customer, base_price=40000)
         row = self._summary_for(customer, self.owner)
         self.assertEqual(row.orders_count, 2)
-        # Two identical orders must total twice one of them, not once.
         one_order_total = Order.objects.filter(customer=customer).first().total_amount
         self.assertEqual(row.orders_total_spend, one_order_total * 2)
 
@@ -1743,7 +1456,6 @@ class CustomerSpendAggregateTests(WorkflowTestBase):
         self.assertEqual(row.orders_total_spend, one * 3)
 
     def test_differing_prices_are_unaffected(self):
-        # The case the old code got right; it must stay right.
         customer = self.make_customer(mobile="9800000103")
         self.make_order(customer=customer, base_price=10000)
         self.make_order(customer=customer, base_price=25000)
@@ -1752,8 +1464,6 @@ class CustomerSpendAggregateTests(WorkflowTestBase):
         self.assertEqual(row.orders_total_spend, expected)
 
     def test_a_tailors_view_is_not_multiplied_by_the_stage_join(self):
-        # The fan-out distinct=True was originally added to counter. Removing
-        # distinct must not bring the fifteen-times-too-large figure back.
         customer = self.make_customer(mobile="9800000104")
         self.make_order(customer=customer, base_price=40000)
         self.make_order(customer=customer, base_price=40000)
@@ -1763,8 +1473,6 @@ class CustomerSpendAggregateTests(WorkflowTestBase):
         self.assertEqual(row.orders_total_spend, expected)
 
     def test_a_tailor_still_sees_only_their_own_clients(self):
-        # The scoping rewrite must not have widened disclosure. A customer whose
-        # orders belong to nobody this tailor works on stays invisible.
         from domains.customers.repositories import CustomerRepository
         from core.permissions import visible_customers
         other_tailor = Tailor.objects.create(
@@ -1783,8 +1491,6 @@ class CustomerSpendAggregateTests(WorkflowTestBase):
         self.assertNotIn(theirs.pk, ids)
 
     def test_the_scoped_list_has_no_duplicate_rows(self):
-        # .distinct() was dropped along with the join; the subquery must be
-        # doing that work now, or every customer appears once per stage.
         from domains.customers.repositories import CustomerRepository
         from core.permissions import visible_customers
         customer = self.make_customer(mobile="9800000107")
@@ -1796,14 +1502,6 @@ class CustomerSpendAggregateTests(WorkflowTestBase):
 
 
 class ReassignmentTests(WorkflowTestBase):
-    """Moving an order to another tailor must move everything with it.
-
-    perform_update did only save(), _reconcile_payment and a status
-    notification -- so the departing tailor still read Busy with nothing on
-    their table, the arriving one still read Available with a dress to sew, the
-    production task still named the old person, and nobody was told. Those two
-    badges are what the owner picks staff by.
-    """
 
     def setUp(self):
         super().setUp()
@@ -1851,12 +1549,9 @@ class ReassignmentTests(WorkflowTestBase):
         note = Notification.objects.filter(
             title__contains=self.order.order_id).order_by('-id').first()
         self.assertIsNotNone(note)
-        # The person's OWN role, so their feed actually matches it.
         self.assertEqual(note.recipient_role, self.other.role)
 
     def test_a_specialist_master_is_notified_under_their_own_role(self):
-        # The four literal "Tailor"/"Master" recipient_roles meant a specialist
-        # never saw work assigned to them: the feed filters on profile.role.
         cutting = Tailor.objects.create(
             name="Ravi Pattern", specialty="Cutting", role="Cutting Master",
             status="Available")
@@ -1867,7 +1562,6 @@ class ReassignmentTests(WorkflowTestBase):
         self.assertEqual(note.recipient_role, 'Cutting Master')
 
     def test_a_plain_edit_does_not_touch_assignment(self):
-        # Only a genuine reassignment should fire any of this.
         from crm_api.models import Notification
         before = Notification.objects.count()
         response = self.client.patch(f'/api/orders/{self.order.id}/',

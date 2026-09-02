@@ -61,13 +61,6 @@ class EmailService:
         send_mode: str = "bcc",
         fail_silently: bool = False,
     ) -> Dict[str, Any]:
-        """Send one email to multiple recipients.
-
-        send_mode:
-        - 'bcc' (default): Sends 1 email with recipients in BCC (hides recipients from each other).
-        - 'individual': Sends separate individual emails using a single SMTP connection.
-        - 'to': Sends 1 email with recipients in TO list.
-        """
         sender = from_email or settings.DEFAULT_FROM_EMAIL
         clean_recipients = list(dict.fromkeys([r.strip() for r in recipients if r and r.strip()]))
 

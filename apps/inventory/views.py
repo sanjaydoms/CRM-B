@@ -29,12 +29,6 @@ from .services import InventoryService
 
 
 def _as_bool(value):
-    """Parse a flag from a request body.
-
-    bool('false') is True, so a plain truth-test on a JSON string turns "false"
-    into yes -- which for include_optional means quietly reserving optional
-    materials the caller asked to leave out.
-    """
     if isinstance(value, bool):
         return value
     if value is None:
@@ -43,37 +37,16 @@ def _as_bool(value):
 
 
 class SupplierViewSet(viewsets.ModelViewSet):
-    # Supplier names, phone numbers, email addresses and GST numbers are the
-    # boutique's trading relationships, and they sat one URL away from an
-    # InventoryReportViewSet that correctly refuses the same commercial data to
-    # anyone but the Owner. RolePermission's blanket SAFE_METHODS grant meant
-    # any signed-in tailor could read the lot.
     permission_classes = [OwnerOnly]
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
 
 
 class InventoryItemViewSet(viewsets.ModelViewSet):
-    # Owner-only, matching all three siblings in this module -- SupplierViewSet,
-    # PurchaseOrderViewSet and InventoryReportViewSet -- whose comments already
-    # say why: stock valuation, purchase price and supplier terms are the
-    # boutique's commercial position, and a tailor needs none of it to sew.
-    #
-    # This one was left on the default RolePermission, which grants any
-    # signed-in non-Owner every safe method. `summary` returns
-    # inventory_value = Sum(current_stock * purchase_price) and the summary
-    # serializer carries purchase_price on every row, so any staff token could
-    # read what the boutique paid for everything it owns.
-    #
-    # Safe to close rather than to trim: /inventory/items/ is called from the
-    # Owner-only Inventory panel, and from TemplateForm/GarmentSummary inside
-    # the order wizard, which is itself Owner-gated.
     permission_classes = [OwnerOnly]
     serializer_class = InventoryItemSerializer
 
     def get_serializer_class(self):
-        # The list is a stock table; the full record with supplier and descriptors
-        # is only needed when one item is opened.
         if self.action == 'list':
             return InventoryItemSummarySerializer
         return InventoryItemSerializer
@@ -98,7 +71,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['GET'], url_path='options')
     def options_metadata(self, request):
-        """Categories, units and each category's default unit, for the item form."""
+
         return Response({
             'categories': [{'value': c.value, 'label': c.label} for c in Category],
             'units': [{'value': u.value, 'label': u.label} for u in Unit],
@@ -107,7 +80,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['GET'], url_path='summary')
     def summary(self, request):
-        """Stock valuation plus what needs attention."""
+
         items = self.get_queryset()
         value = items.aggregate(
             total=Sum(ExpressionWrapper(
@@ -120,7 +93,6 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
         reorder = items.filter(
             current_stock__lte=F('reserved_stock') + F('reorder_level')
         ).exclude(pk__in=out_of_stock.values('pk'))
-        # Nothing bought and nothing moved in 90 days.
         stale_before = timezone.now() - timezone.timedelta(days=90)
         dead = items.filter(current_stock__gt=0).exclude(
             movements__created_at__gte=stale_before
@@ -143,7 +115,6 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
         ledger = item.movements.select_related('order', 'performed_by', 'item')[:100]
         return Response(StockMovementSerializer(ledger, many=True).data)
 
-    # --- stock operations. Each returns the updated item. ---------------
 
     def _apply(self, request, operation, **extra):
         item = self.get_object()
@@ -172,14 +143,6 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
     def release(self, request, pk=None):
         return self._apply(request, InventoryService.release, order=self._order(request))
 
-    # issue/damage/scrap/adjust used to name no location at all, while
-    # consume, waste, goods-receipt, supplier-return, customer-return and
-    # transfer all resolved one through _location. record_movement then
-    # substituted default_location() for any stock-out that named none -- so
-    # once the owner used the Locations tab to move material to the Workshop,
-    # Main Store held zero and every one of these four failed against a
-    # location they had never chosen. Four actions ignoring a helper their six
-    # siblings honour was the whole bug.
     @action(detail=True, methods=['POST'], url_path='issue')
     def issue(self, request, pk=None):
         return self._apply(
@@ -236,7 +199,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='transfer')
     def transfer(self, request, pk=None):
-        """Move stock between two locations."""
+
         item = self.get_object()
         try:
             InventoryService.transfer(
@@ -253,7 +216,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['GET'], url_path='locations')
     def locations(self, request, pk=None):
-        """Where this item's stock actually is."""
+
         item = self.get_object()
         return Response({
             'item': item.name,
@@ -263,19 +226,11 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 
     @staticmethod
     def _location(request, key, required=False):
-        """Resolve a location id from the request body.
-
-        Raises DRF's ValidationError rather than ValueError: these are evaluated
-        while building the arguments to _apply, outside its try block, so a
-        ValueError here would escape as a 500 instead of the 400 it is.
-        """
         value = request.data.get(key)
         if not value:
             if required:
                 raise ValidationError({key: 'This field is required.'})
             return None
-        # A UUID primary key raises at filter() build time for a malformed
-        # value, before the None check below could report it as a 400.
         try:
             location = StockLocation.objects.filter(pk=value).first()
         except (ValueError, TypeError, DjangoValidationError):
@@ -306,7 +261,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 
 
 class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
-    """The ledger is append-only, so it is read-only over HTTP."""
+
 
     serializer_class = StockMovementSerializer
 
@@ -323,8 +278,6 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
-    # What the boutique pays, and to whom. Same commercial position OwnerOnly
-    # already protects on the reports endpoint.
     permission_classes = [OwnerOnly]
     serializer_class = PurchaseOrderSerializer
 
@@ -333,23 +286,6 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='receive')
     def receive(self, request, pk=None):
-        """Book in what actually arrived, line by line.
-
-        Body: {"lines": [{"line_id": "...", "quantity": 5}, ...]}. Each receipt
-        writes a PURCHASE movement, so goods-in is visible in the ledger.
-
-        All lines land, or none do. InventoryService.purchase() is individually
-        @transaction.atomic, so each line used to commit on return with nothing
-        tying them together: a multi-line delivery with one mistyped quantity
-        raised on line three while lines one and two were ALREADY in stock and
-        carrying PURCHASE ledger rows -- and the owner saw only that the receipt
-        had failed. Correcting the typo and resubmitting booked the first two a
-        second time, leaving on-hand quantity and inventory valuation
-        permanently wrong with nothing in the ledger to explain it.
-
-        ReceiveModal pre-fills every line, so multi-line receipts are the normal
-        case rather than the exception.
-        """
         purchase_order = self.get_object()
         received = request.data.get('lines') or []
         if not received:
@@ -358,11 +294,6 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
         lines_by_id = {str(line.id): line for line in purchase_order.lines.all()}
         try:
-            # The whole receipt, including the purchase order's own status: a
-            # status of RECEIVED committed against rolled-back lines would
-            # describe a delivery that did not happen. The except sits outside
-            # the block so the 400 is answered after the rollback has finished
-            # rather than from inside a transaction that is already doomed.
             with transaction.atomic():
                 for entry in received:
                     line = lines_by_id.get(str(entry.get('line_id')))
@@ -372,10 +303,6 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
                     quantity = entry.get('quantity')
                     if quantity in (None, ''):
                         continue
-                    # Decimal('abc') raises InvalidOperation, which is an
-                    # ArithmeticError and would escape the ValueError handler
-                    # below as an unhandled 500. Converted here so a mistyped
-                    # quantity is answered the same way an impossible one is.
                     try:
                         quantity = Decimal(str(quantity))
                     except InvalidOperation:
@@ -412,7 +339,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
 
 class CatalogSectionViewSet(viewsets.ReadOnlyModelViewSet):
-    """The published catalogue's sections, with how many items each holds."""
+
 
     serializer_class = CatalogSectionSerializer
 
@@ -424,12 +351,6 @@ class CatalogSectionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class CatalogItemViewSet(viewsets.ReadOnlyModelViewSet):
-    """Browse the catalogue, and stock a row from it.
-
-    Read-only by design: the catalogue is loaded from the source documents by a
-    migration, so it is not something a boutique edits. What a boutique does is
-    decide which of these it actually holds, which is what `stock` does.
-    """
 
     serializer_class = CatalogItemSerializer
 
@@ -455,19 +376,13 @@ class CatalogItemViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'])
     def sections(self, request):
-        """The whole taxonomy in one call, for the catalogue browser's tree."""
+
         rows = (CatalogSection.objects.annotate(item_count=Count('items'))
                 .order_by('doc', 'sequence', 'subsection'))
         return Response(CatalogSectionSerializer(rows, many=True).data)
 
     @action(detail=True, methods=['post'])
     def stock(self, request, pk=None):
-        """Start stocking this catalogue row: create the InventoryItem for it.
-
-        Idempotent -- a second call returns the existing row rather than making a
-        duplicate, because the obvious way to double-click a button should not
-        leave the boutique with the same material twice.
-        """
         catalog_item = self.get_object()
         if not catalog_item.is_stockable:
             return Response(
@@ -497,7 +412,7 @@ class CatalogItemViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 def _next_item_code(catalog_item):
-    """A readable, unique code: first letters of the section plus a counter."""
+
     import re
 
     initials = ''.join(word[0] for word in re.findall(r'[A-Za-z]+', catalog_item.section.name))[:3].upper()
@@ -511,7 +426,7 @@ def _next_item_code(catalog_item):
 
 
 class StockLocationViewSet(viewsets.ModelViewSet):
-    """The places stock can be. Seeded with the eight the specification names."""
+
 
     serializer_class = StockLocationSerializer
 
@@ -524,11 +439,6 @@ class StockLocationViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_destroy(self, instance):
-        """Refuse to delete a location that still holds something.
-
-        PROTECT on LocationStock would raise a 500 here; this turns the same
-        refusal into an answer that says what is still there.
-        """
         held = instance.stocks.filter(quantity__gt=0).count()
         if held:
             raise ValidationError(
@@ -541,14 +451,14 @@ class StockLocationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['GET'], url_path='stock')
     def stock(self, request, pk=None):
-        """Everything currently held at this location."""
+
         rows = (LocationStock.objects.filter(location=self.get_object(), quantity__gt=0)
                 .select_related('item', 'location').order_by('item__name'))
         return Response(LocationStockSerializer(rows, many=True).data)
 
 
 class LocationStockViewSet(viewsets.ReadOnlyModelViewSet):
-    """The per-location breakdown, filterable by item or location."""
+
 
     serializer_class = LocationStockSerializer
 
@@ -564,7 +474,7 @@ class LocationStockViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class BillOfMaterialsViewSet(viewsets.ModelViewSet):
-    """A garment's recipe, and what it needs for a given set of measurements."""
+
 
     serializer_class = BillOfMaterialsSerializer
 
@@ -586,15 +496,8 @@ class BillOfMaterialsViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='requirements')
     def requirements(self, request, pk=None):
-        """What this BOM needs, given a set of measurements.
-
-        POST rather than GET because the measurements are a body, not a filter,
-        and there can be a dozen of them.
-        """
         from . import bom as bom_service
 
-        # request.data is only dict-like when the body is a JSON object; a bare
-        # list or string has no .get and would be an AttributeError 500.
         if not isinstance(request.data, dict):
             raise ValidationError({'detail': 'Expected a JSON object.'})
 
@@ -614,28 +517,16 @@ class BillOfMaterialsViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='new-version')
     def new_version(self, request, pk=None):
-        """Copy this BOM to the next version, and deactivate the old one.
-
-        A BOM an order was costed against must keep meaning what it meant, so a
-        change raises a version rather than rewriting history.
-        """
         source = self.get_object()
         if not source.is_active:
             raise ValidationError(
                 {'detail': f"Version {source.version} has already been superseded. "
                            f"Version the active BOM instead."})
 
-        # Locked and atomic: two people pressing the button at once would
-        # otherwise both read the same highest version and both write it, and
-        # the unique constraint does not catch it when template or design is
-        # NULL, so the duplicate would simply stand.
         with transaction.atomic():
             siblings = BillOfMaterials.objects.select_for_update().filter(
                 template=source.template, design=source.design)
             if source.template_id is None and source.design_id is None:
-                # A standalone BOM has no template or design to be scoped by, so
-                # its own name is the only identity it has. Without this every
-                # standalone BOM in the tenant shares one version counter.
                 siblings = siblings.filter(name=source.name)
             highest = siblings.order_by('-version').values_list(
                 'version', flat=True).first() or 0
@@ -684,12 +575,6 @@ class UnitConversionViewSet(viewsets.ModelViewSet):
 
 
 class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
-    """An order's materials, through the whole ten-step lifecycle.
-
-    Read-only as a resource: every state change is an explicit action, because
-    "reserve" and "consume" are events with consequences in the stock ledger,
-    not fields to be PATCHed.
-    """
 
     serializer_class = OrderMaterialPlanSerializer
 
@@ -713,7 +598,7 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['POST'], url_path='plan')
     def plan(self, request):
-        """Step 1: generate the plan for an order from a BOM."""
+
         from crm_api.models import Order
         from . import order_materials
 
@@ -734,14 +619,14 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['GET'], url_path='availability')
     def availability(self, request, pk=None):
-        """Step 2: what this plan cannot currently be satisfied from."""
+
         from . import order_materials
         shortfalls = order_materials.check_availability(self.get_object())
         return Response({'is_available': not shortfalls, 'shortfalls': shortfalls})
 
     @action(detail=True, methods=['POST'], url_path='reserve')
     def reserve(self, request, pk=None):
-        """Steps 3 and 4: reserve, once."""
+
         from . import order_materials
         try:
             result = order_materials.reserve(
@@ -753,7 +638,7 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='consume')
     def consume(self, request, pk=None):
-        """Steps 5, 6 and 7: what was actually used, and what was spoiled."""
+
         from . import order_materials
         plan = self.get_object()
         try:
@@ -775,7 +660,7 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='release-unused')
     def release_unused(self, request, pk=None):
-        """Step 8: hand back what was reserved and never used."""
+
         from . import order_materials
         try:
             released = order_materials.release_unused(self.get_object(), user=request.user)
@@ -785,7 +670,7 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='deduct-packaging')
     def deduct_packaging(self, request, pk=None):
-        """Step 9: consume packaging and labels at dispatch."""
+
         from . import order_materials
         try:
             deducted = order_materials.deduct_packaging(
@@ -797,7 +682,7 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['GET'], url_path='reconcile')
     def reconcile(self, request, pk=None):
-        """Step 10: does this order's material account add up?"""
+
         from . import order_materials
         return Response(order_materials.reconcile(self.get_object()))
 
@@ -826,8 +711,6 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
         value = request.data.get(key)
         if not value:
             return None
-        # StockLocation.id is a UUID, so a malformed value raises at filter()
-        # build time -- before the None check below could ever report it.
         try:
             location = StockLocation.objects.filter(pk=value).first()
         except (ValueError, TypeError, DjangoValidationError):
@@ -838,13 +721,6 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class CustomerMaterialViewSet(viewsets.ModelViewSet):
-    """What the customer brought in. Never boutique stock.
-
-    No DELETE: removing a row cascades away its movement ledger, and "where did
-    the other two metres of my sari go" is precisely the question that ledger
-    exists to answer. Material recorded in error is returned or corrected, not
-    erased.
-    """
 
     serializer_class = CustomerMaterialSerializer
     http_method_names = ['get', 'post', 'patch', 'put', 'head', 'options']
@@ -861,14 +737,12 @@ class CustomerMaterialViewSet(viewsets.ModelViewSet):
         return queryset
 
     def create(self, request, *args, **kwargs):
-        """Receiving material goes through the service, so it is logged."""
+
         from crm_api.models import Order
         from . import order_materials
 
         order = _get_or_400(Order, request.data.get('order'), 'order')
 
-        # Validated rather than trusted: this action does not go through the
-        # serializer's create(), so nothing else checks the payload at all.
         name = str(request.data.get('name') or '').strip()
         if not name:
             raise ValidationError({'name': 'This field is required.'})
@@ -896,13 +770,6 @@ class CustomerMaterialViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_201_CREATED)
 
     def perform_update(self, serializer):
-        """Descriptive fields only.
-
-        `order` and `unit` are fixed once the material is in the boutique's
-        hands: re-pointing it at another order hands one customer's silk to
-        another, and changing the unit silently reinterprets every balance and
-        every movement already recorded against it.
-        """
         for locked_field in ('order', 'unit'):
             if locked_field in serializer.validated_data:
                 if getattr(serializer.instance, locked_field) != serializer.validated_data[locked_field]:
@@ -940,12 +807,6 @@ class CustomerMaterialViewSet(viewsets.ModelViewSet):
 
 
 def _get_or_400(model, pk, field):
-    """Resolve a related object, reporting a bad id as a 400.
-
-    The filter itself can raise: Order has an integer primary key, so a UUID
-    string reaches the database layer as ValueError and would escape as a 500
-    rather than as the bad request it plainly is.
-    """
     if not pk:
         raise ValidationError({field: 'This field is required.'})
     try:
@@ -958,25 +819,11 @@ def _get_or_400(model, pk, field):
 
 
 class InventoryReportViewSet(viewsets.ViewSet):
-    """The sixteen figures the specification asks the inventory to state.
-
-    Owner only. Stock valuation, cost per order and supplier performance are
-    the boutique's commercial position, and a tailor needs none of it to sew.
-
-    A ViewSet rather than a ModelViewSet: a report is not a resource with a
-    primary key, it is a question asked of several tables at once.
-    """
 
     permission_classes = [OwnerOnly]
 
     @staticmethod
     def _window(request):
-        """Parse ?since= / ?until=, reporting a bad date rather than ignoring it.
-
-        Silently dropping an unparseable date is the worst option: the caller
-        gets a report over all time and no indication it is not the period they
-        asked for.
-        """
         import datetime
 
         from django.utils import timezone
@@ -987,12 +834,6 @@ class InventoryReportViewSet(viewsets.ViewSet):
             raw = request.query_params.get(key)
             if not raw:
                 continue
-            # The parser is chosen by what the string actually contains, not by
-            # trying one and falling back. parse_datetime() accepts a bare date
-            # and hands back midnight, so `parse_datetime(raw) or parse_date(raw)`
-            # never reaches the date branch at all -- and ?until=<today> silently
-            # meant "up to midnight this morning", excluding everything that
-            # happened today, which is the opposite of what it plainly means.
             raw = raw.strip()
             has_time = 'T' in raw or ':' in raw
             parsed = parse_datetime(raw) if has_time else parse_date(raw)
@@ -1022,7 +863,7 @@ class InventoryReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['GET'], url_path='stock-position')
     def stock_position(self, request):
-        """Current, reserved, available, low stock, reorder and value."""
+
         from . import reports
         return Response(reports.stock_position())
 
@@ -1033,7 +874,7 @@ class InventoryReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['GET'], url_path='consumption')
     def consumption(self, request):
-        """?scope=fabric|embroidery|packaging, or omit for all material."""
+
         from . import reports
         try:
             return Response(reports.consumption(
@@ -1044,7 +885,7 @@ class InventoryReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['GET'], url_path='loss-rates')
     def loss_rates(self, request):
-        """Waste % and damage %, with the figures behind them."""
+
         from . import reports
         return Response(reports.loss_rates(**self._window(request)))
 
@@ -1055,7 +896,7 @@ class InventoryReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['GET'], url_path='order-usage')
     def order_usage(self, request):
-        """?order=<id> -- everything one order used."""
+
         from crm_api.models import Order
         from . import reports
         order = _get_or_400(Order, request.query_params.get('order'), 'order')
@@ -1098,6 +939,6 @@ class InventoryReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['GET'], url_path='dashboard')
     def dashboard(self, request):
-        """Every report at once, for the module's landing screen."""
+
         from . import reports
         return Response(reports.dashboard(**self._window(request)))

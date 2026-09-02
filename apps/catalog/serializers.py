@@ -63,7 +63,7 @@ class JobMaterialSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
-        """A store line must point at stock; a customer line must not."""
+
         source = attrs.get('source', JobMaterial.Source.STORE)
         item = attrs.get('inventory_item')
         if source == JobMaterial.Source.STORE and not item:
@@ -78,10 +78,6 @@ class JobMaterialSerializer(serializers.ModelSerializer):
 
 
 class GarmentJobSerializer(serializers.ModelSerializer):
-    # Writable on create so the wizard sends a dress and its materials in one
-    # request. It used to be read-only, and the only way to add a material was a
-    # per-material POST that nothing called -- so every material selection lived
-    # on as a bare id inside `spec`, invisible to the inventory ledger.
     materials = JobMaterialSerializer(many=True, required=False)
     template_key = serializers.CharField(source='template.key', read_only=True)
     template_name = serializers.CharField(source='template.name', read_only=True)
@@ -98,15 +94,6 @@ class GarmentJobSerializer(serializers.ModelSerializer):
         read_only_fields = ['template_version', 'created_at', 'updated_at']
 
     def validate(self, attrs):
-        """Run the spec through the same engine the browser used.
-
-        A client that skips its own validation must not be able to write a spec
-        the form would have rejected, so this is not a duplicate check -- it is
-        the authoritative one.
-        """
-        # Money first, spec second: a negative component is a typo whatever
-        # the garment is. DecimalField already rejects non-numbers; the sign is
-        # the check it does not make.
         from domains.orders.pricing import JOB_COMPONENTS
         for field in JOB_COMPONENTS:
             value = attrs.get(field)
@@ -121,8 +108,6 @@ class GarmentJobSerializer(serializers.ModelSerializer):
         measurements = attrs.get(
             'measurements', getattr(self.instance, 'measurements', {}) or {}
         )
-        # Measurements are template fields too; they are stored in their own
-        # column but validated against the same definition.
         combined = {**spec, **measurements}
         partial = bool(self.context.get('draft'))
         try:
@@ -142,12 +127,6 @@ class GarmentJobSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        """Create the dress and its material lines together.
-
-        The unit is taken from the inventory item rather than trusted from the
-        request: a line that says three of something the boutique stocks by the
-        metre is not a line anyone can act on, and the item already knows.
-        """
         materials = validated_data.pop('materials', [])
         job = super().create(validated_data)
         for line in materials:

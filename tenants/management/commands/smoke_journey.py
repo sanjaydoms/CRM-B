@@ -1,22 +1,3 @@
-"""End-to-end smoke test: a boutique from signup to delivered.
-
-Written for the question a test suite cannot answer -- does this build work
-against *this* database, configured *this* way. It provisions a throwaway
-boutique through the real signup endpoint, onboards real staff, takes a
-two-garment order through confirm, design, the production floor, quality check
-and delivery, then reads the money and timestamps back off the customer's own
-page. Every step goes over HTTP through the same middleware and permission
-layer a browser does; nothing is seeded and nothing is reached around.
-
-It is meant to be run against a freshly migrated environment before that
-environment is trusted:
-
-    python manage.py smoke_journey --confirm
-
-The tenants it creates are deleted on the way out unless --keep is given. It
-still writes to the database it is pointed at, so it prints that target and
-refuses to move without --confirm. Point it at staging, not at production.
-"""
 
 import os
 import uuid
@@ -31,12 +12,6 @@ from rest_framework.test import APIClient
 
 
 class Journey:
-    """Runs the steps and remembers what passed, so one failure is not fatal.
-
-    A smoke test that stops at the first problem tells you one thing. Carrying
-    on tells you whether the environment is subtly wrong or comprehensively
-    wrong, which is the more useful answer at three in the morning.
-    """
 
     def __init__(self, stdout, style):
         self.stdout, self.style = stdout, style
@@ -103,22 +78,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"{len(j.passed)}/{total} passed against {target}"))
 
     def _environment(self, j, db):
-        """What we are actually connected to, recorded as release evidence.
-
-        Three facts a deployment needs in writing: the server version (so a
-        hosted instance can be compared against the version development ran
-        on), whether this connection is genuinely encrypted, and what timezone
-        the server keeps. Asked of the live connection rather than inferred
-        from settings -- DB_SSLMODE says what was *requested*, pg_stat_ssl says
-        what was negotiated, and only the second one is evidence.
-        """
         j.phase("[0] Environment")
         with connection.cursor() as cursor:
             cursor.execute("SELECT version()")
             version = cursor.fetchone()[0]
-            # reset_val, not SHOW timezone: SHOW reports the SESSION, which
-            # Django has already pinned to UTC, so it can never disagree and
-            # tells you nothing about how the server is configured.
             cursor.execute(
                 "SELECT reset_val FROM pg_settings WHERE name = 'TimeZone'")
             row = cursor.fetchone()
@@ -133,8 +96,6 @@ class Command(BaseCommand):
             cursor.execute("SELECT current_setting('TimeZone')")
             session_tz = cursor.fetchone()[0]
 
-        # The whole banner: version, build and platform, which is what a
-        # hosted-vs-local parity question actually needs answering.
         j.note(version)
         j.note(f"server default timezone {server_tz}; this session {session_tz}")
 
@@ -145,22 +106,16 @@ class Command(BaseCommand):
         if ssl_on:
             j.check(f'connection is encrypted ({ssl_version})', True)
         else:
-            # Not a failure on a loopback connection, where there is no network
-            # to protect and no local Postgres ships with TLS configured. Over a
-            # real host it is: credentials and customer data in clear text.
             j.check('connection is encrypted', local,
                     f'host={host} is remote and TLS was not negotiated -- '
                     f'set DB_SSLMODE=require')
             if local:
                 j.note('TLS not negotiated, and not required over loopback')
 
-        # Django pins its own session to UTC when USE_TZ is on, whatever the
-        # server keeps. Storage semantics must not depend on the server's clock.
         j.check('session runs in UTC regardless of the server clock',
                 session_tz.upper() == 'UTC', session_tz)
 
 
-    # -- the journey ----------------------------------------------------
 
     def _run(self, j):
         from tenants.models import BoutiqueTenant
@@ -425,9 +380,6 @@ class Command(BaseCommand):
             d = login(f'designer-{tag}@smoke.test', designer_pw)
             if d:
                 resp = d.get('/api/orders/')
-                # Either refused outright or scoped to nothing -- a designer has
-                # no order of their own. Read defensively: a permission denial
-                # is a dict with no 'results' in it, not a page of rows.
                 body = resp.data
                 if isinstance(body, dict):
                     body = body.get('results')

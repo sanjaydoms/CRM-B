@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_redis_client() -> Redis:
-    """Returns an instance of Upstash Redis client initialized from Django settings."""
+
     raw_url = str(getattr(settings, 'UPSTASH_REDIS_REST_URL', 'https://charmed-mastiff-150004.upstash.io'))
     raw_token = str(getattr(settings, 'UPSTASH_REDIS_REST_TOKEN', 'gQAAAAAAAkn0AAIgcDFhMjY5MTkxMTQ5YzM0OTU2YTljZDMwNDQwNjNkYzc3Zg'))
     
