@@ -184,7 +184,11 @@ class StaffSelfOrOwner(permissions.BasePermission):
     #: Whose row is affected is not decided here -- the actions resolve the
     #: caller's own staff profile from the token and never read a staff id from
     #: the request body, so there is no id for anyone to substitute.
-    SELF_SERVICE_ACTIONS = frozenset({'check_in', 'check_out'})
+    #: `acknowledge` earns its place the same way: saying "I have seen my
+    #: review" is a write, and without it here the acknowledgement step is
+    #: unreachable by the only people entitled to perform it. The action itself
+    #: still checks the review is theirs and is finalised.
+    SELF_SERVICE_ACTIONS = frozenset({'check_in', 'check_out', 'acknowledge'})
 
     def has_permission(self, request, view):
         role = resolve_user_role(request.user)

@@ -271,3 +271,166 @@ class AttendanceSession(models.Model):
             return None
         seconds = (self.check_out - self.check_in).total_seconds()
         return max(0, int(seconds // 60))
+
+
+class StaffPerformanceReview(models.Model):
+    """One periodic assessment of one staff member, and the numbers behind it.
+
+    WHY A REVIEW IS NOT A REPORT
+    ============================
+    The dashboard's figures are live -- ask it today and it answers about today.
+    A review is the opposite: it is what somebody assessed, for a stated period,
+    on a stated date, and it must still say that in a year. So finalising one
+    FREEZES the metrics into `kpi_snapshot`, and nothing recomputes them
+    afterwards. Change a rate, correct attendance, reassign a stage, promote the
+    person, delete them from the roster -- a finalised January review still
+    reads as it did in January.
+
+    That is also why `role_snapshot` exists. A Tailor promoted to Master must
+    not have last quarter's review silently re-labelled: the review was of their
+    work as a Tailor, and the role it was written against is part of the record.
+
+    RATINGS
+    =======
+    Five components, each 1-5, stored separately. There is no hidden weighted
+    average: `overall_rating` is the plain mean of the components that were
+    actually rated, rounded to one place, and a component left unrated is left
+    out of the mean rather than counted as zero. A score with invented precision
+    is worse than no score.
+
+      1  Needs significant improvement
+      2  Needs improvement
+      3  Meets expectations
+      4  Exceeds expectations
+      5  Outstanding
+
+    LIFECYCLE
+    =========
+    DRAFT -> FINAL -> ACKNOWLEDGED. A draft is editable; FINAL is not, and
+    acknowledgement is an explicit act by the staff member, never inferred from
+    them having opened the page. A finalised review found to be wrong is
+    superseded by a new review for the same period, not edited -- the mistake
+    stays legible, which is the same rule the ledger follows.
+    """
+
+    class ReviewType(models.TextChoices):
+        WEEKLY = 'WEEKLY', 'Weekly'
+        MONTHLY = 'MONTHLY', 'Monthly'
+        QUARTERLY = 'QUARTERLY', 'Quarterly'
+        CUSTOM = 'CUSTOM', 'Custom period'
+
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        FINAL = 'FINAL', 'Finalised'
+        ACKNOWLEDGED = 'ACKNOWLEDGED', 'Acknowledged by staff'
+
+    #: 1-5, and the same scale for every component so they can be averaged.
+    RATING_CHOICES = [
+        (1, 'Needs significant improvement'),
+        (2, 'Needs improvement'),
+        (3, 'Meets expectations'),
+        (4, 'Exceeds expectations'),
+        (5, 'Outstanding'),
+    ]
+    #: The components that make up `overall_rating`. Named once so the mean and
+    #: the serializer cannot disagree about what is being averaged.
+    COMPONENTS = ('productivity_rating', 'quality_rating', 'timeliness_rating',
+                  'attendance_rating', 'reliability_rating')
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    #: SET_NULL with snapshots, matching PayrollRecord and StaffLedgerEntry: a
+    #: person can leave the roster and their assessment history must remain
+    #: readable and attributable.
+    staff = models.ForeignKey(
+        Tailor, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='performance_reviews')
+    staff_name_snapshot = models.CharField(max_length=150)
+    #: The role AS AT the review. Not a copy of today's role.
+    role_snapshot = models.CharField(max_length=50, blank=True, default='')
+
+    review_type = models.CharField(
+        max_length=12, choices=ReviewType.choices,
+        default=ReviewType.MONTHLY, db_index=True)
+    period_start = models.DateField(db_index=True)
+    period_end = models.DateField()
+
+    productivity_rating = models.PositiveSmallIntegerField(
+        null=True, blank=True, choices=RATING_CHOICES)
+    quality_rating = models.PositiveSmallIntegerField(
+        null=True, blank=True, choices=RATING_CHOICES)
+    timeliness_rating = models.PositiveSmallIntegerField(
+        null=True, blank=True, choices=RATING_CHOICES)
+    attendance_rating = models.PositiveSmallIntegerField(
+        null=True, blank=True, choices=RATING_CHOICES)
+    reliability_rating = models.PositiveSmallIntegerField(
+        null=True, blank=True, choices=RATING_CHOICES)
+    #: Derived from the components above, never typed. One decimal place is all
+    #: the precision five whole numbers can honestly carry.
+    overall_rating = models.DecimalField(
+        max_digits=3, decimal_places=1, null=True, blank=True)
+
+    strengths = models.TextField(blank=True, default='')
+    improvement_areas = models.TextField(blank=True, default='')
+    goals = models.TextField(blank=True, default='')
+    manager_notes = models.TextField(blank=True, default='')
+
+    #: The operational metrics as they stood when this was finalised. Empty
+    #: while the review is a draft, because a draft's figures are still live.
+    #: Deliberately holds NO financial value -- see performance.py.
+    kpi_snapshot = models.JSONField(default=dict, blank=True)
+
+    status = models.CharField(
+        max_length=14, choices=Status.choices, default=Status.DRAFT, db_index=True)
+    reviewer = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='performance_reviews_written')
+    reviewer_name_snapshot = models.CharField(max_length=150, blank=True, default='')
+    finalised_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-period_start', 'staff_name_snapshot']
+        indexes = [
+            models.Index(fields=['staff', '-period_start'],
+                         name='review_staff_period'),
+            models.Index(fields=['status', '-period_start'],
+                         name='review_status_period'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(period_end__gte=models.F('period_start')),
+                name='review_period_ends_after_it_starts'),
+            # One review per person per period per type. A second assessment of
+            # the same window is a correction, and a correction supersedes by
+            # replacing the draft -- not by quietly existing twice.
+            models.UniqueConstraint(
+                fields=['staff', 'period_start', 'period_end', 'review_type'],
+                name='review_unique_per_staff_period'),
+        ]
+
+    def __str__(self):
+        return (f"{self.staff_name_snapshot} · {self.get_review_type_display()} "
+                f"{self.period_start} ({self.status})")
+
+    @property
+    def is_final(self):
+        return self.status in (self.Status.FINAL, self.Status.ACKNOWLEDGED)
+
+    def computed_overall(self):
+        """The mean of the components that were actually rated, or None.
+
+        Unrated components are omitted, not treated as zero: a review that
+        assessed only productivity and attendance should not be dragged to 1.4
+        by three blanks.
+        """
+        from decimal import Decimal, ROUND_HALF_UP
+        given = [getattr(self, name) for name in self.COMPONENTS]
+        given = [value for value in given if value is not None]
+        if not given:
+            return None
+        return (Decimal(sum(given)) / Decimal(len(given))).quantize(
+            Decimal('0.1'), rounding=ROUND_HALF_UP)

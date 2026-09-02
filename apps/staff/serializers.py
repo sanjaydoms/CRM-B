@@ -1,8 +1,10 @@
 from rest_framework import serializers
 
+from crm_api.models import Tailor
+
 from core.roles import OWNER, resolve_user_role
 
-from .models import AttendanceSession, StaffProfile
+from .models import AttendanceSession, StaffPerformanceReview, StaffProfile
 
 #: What only the owner may read on somebody ELSE's row.
 #:
@@ -143,3 +145,86 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
     def get_was_corrected(self, instance):
         """Shown in the timesheet so an edited row is never mistaken for a stamped one."""
         return instance.corrected_at is not None
+
+
+class StaffPerformanceReviewSerializer(serializers.ModelSerializer):
+    """A review, with an explicit field list and no financial field anywhere.
+
+    Written out rather than `__all__` for the same reason StaffProfileSerializer
+    is: a field added to the model later must be published by somebody choosing
+    to publish it. This model holds no money today and the audit that keeps it
+    that way is the list below.
+
+    Nearly everything is read-only. A review's staff, period and type are set
+    once at creation; its ratings and notes are editable only while it is a
+    draft; its snapshot, status and timestamps are written by the service.
+    """
+
+    # Required despite the model's null=True. The FK is nullable so a review
+    # SURVIVES the roster row being deleted (the snapshot fields carry the name
+    # and role), not so one can be written about nobody -- and because `staff`
+    # sits in a UniqueConstraint, DRF inferred default=None and happily created
+    # a staff-less review that finalise then froze with an empty snapshot.
+    staff = serializers.PrimaryKeyRelatedField(
+        queryset=Tailor.objects.all(), required=True, allow_null=False)
+    staff_role = serializers.CharField(source='staff.role', read_only=True)
+    is_final = serializers.BooleanField(read_only=True)
+    overall_rating = serializers.DecimalField(
+        max_digits=3, decimal_places=1, read_only=True)
+
+    class Meta:
+        model = StaffPerformanceReview
+        fields = [
+            'id', 'staff', 'staff_name_snapshot', 'staff_role', 'role_snapshot',
+            'review_type', 'period_start', 'period_end',
+            'productivity_rating', 'quality_rating', 'timeliness_rating',
+            'attendance_rating', 'reliability_rating', 'overall_rating',
+            'strengths', 'improvement_areas', 'goals', 'manager_notes',
+            'kpi_snapshot', 'status', 'is_final',
+            'reviewer_name_snapshot', 'finalised_at', 'acknowledged_at',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'staff_name_snapshot', 'staff_role', 'role_snapshot',
+            'overall_rating', 'kpi_snapshot', 'status', 'is_final',
+            'reviewer_name_snapshot', 'finalised_at', 'acknowledged_at',
+            'created_at', 'updated_at',
+        ]
+
+    def validate(self, attrs):
+        """Periods that could not have happened, and edits to frozen history."""
+        instance = self.instance
+        start = attrs.get('period_start',
+                          getattr(instance, 'period_start', None))
+        end = attrs.get('period_end', getattr(instance, 'period_end', None))
+        if start and end and end < start:
+            raise serializers.ValidationError(
+                {'period_end': 'The period cannot end before it starts.'})
+
+        # Belt to the viewset's braces. A finalised review is history; the only
+        # supported correction is a new review for the same period.
+        if instance is not None and instance.is_final:
+            raise serializers.ValidationError(
+                'This review has been finalised and cannot be edited. Write a '
+                'new review for the period instead.')
+        return attrs
+
+    def create(self, validated_data):
+        staff = validated_data.get('staff')
+        validated_data['staff_name_snapshot'] = staff.name if staff else ''
+        # The role AS AT creation, so a later promotion cannot re-label it.
+        validated_data['role_snapshot'] = (staff.role or '') if staff else ''
+        review = super().create(validated_data)
+        review.overall_rating = review.computed_overall()
+        review.save(update_fields=['overall_rating'])
+        return review
+
+    def update(self, instance, validated_data):
+        # `staff` and the period identify the review; changing them would make
+        # it an assessment of a different thing under the same id.
+        for pinned in ('staff', 'period_start', 'period_end', 'review_type'):
+            validated_data.pop(pinned, None)
+        review = super().update(instance, validated_data)
+        review.overall_rating = review.computed_overall()
+        review.save(update_fields=['overall_rating'])
+        return review
