@@ -101,6 +101,49 @@ elif SECRET_KEY == _DEV_SECRET_KEY and not (DEBUG or 'test' in sys.argv):
 ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',') if h]
 
 
+# --- Behind a TLS-terminating proxy --------------------------------------
+# Render (and Vercel, and every other managed host) terminates TLS at the edge
+# and forwards plain HTTP to the process. Django therefore believes every
+# request arrived over http:// unless it is told otherwise, and that belief
+# leaks into every absolute URL it builds:
+#
+#   * `next` and `previous` on a paged list (core/pagination.py) come out as
+#     http://, so a client on an https page is refused them as mixed content and
+#     the second page silently never loads. On Android the refusal is absolute
+#     -- release builds do not permit cleartext at all.
+#   * The uploaded-image URLs built with request.build_absolute_uri() have the
+#     same problem, and have had it all along: every design reference and fabric
+#     photograph uploaded through a deployed instance was handed back with an
+#     http:// address.
+#
+# Trusting this header requires that the proxy in front OVERWRITES it rather
+# than passing a client's copy through. Render, Vercel, Cloudflare and nginx
+# with the usual configuration all do. Set TRUST_PROXY_SSL_HEADER=False for a
+# deployment where that is not true -- and then accept that absolute URLs will
+# be wrong, or put a proxy in front that behaves.
+if os.environ.get('TRUST_PROXY_SSL_HEADER', 'False' if DEBUG else 'True') == 'True':
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Cookies only over TLS, outside development. The API itself is token-based and
+# sets no cookie, so this governs the Django admin's session and CSRF cookies --
+# the two credentials a network eavesdropper could otherwise lift and use to
+# administer the platform. Gated on DEBUG because a secure-only cookie is never
+# sent over the plain-HTTP dev server, which would lock a developer out of
+# /admin/ locally.
+#
+# NOT set here, deliberately, because both belong to whoever operates the
+# deployment rather than to this file:
+#
+#   SECURE_SSL_REDIRECT -- redirecting in Django duplicates what the proxy in
+#     front should already do, and gets it wrong (a redirect loop) whenever the
+#     forwarded-proto header is not what this file assumes.
+#   SECURE_HSTS_SECONDS -- instructs every browser to refuse plain HTTP for this
+#     domain for the duration, and cannot be taken back within it. That is a
+#     decision about a domain, made once, knowingly.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+
 # Application definition
 
 SHARED_APPS = [
@@ -525,14 +568,33 @@ REFRESH_TOKEN_TTL = int(os.environ.get('REFRESH_TOKEN_TTL', str(30 * 24 * 3600))
 
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+#: The publishable key. Safe to expose, and can only read.
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
+#: The service-role key. NEVER expose this -- not in the frontend bundle, not in
+#: a VITE_ variable, not in an API response. It is what lets the server write to
+#: the bucket, which is the one thing the publishable key above cannot do, which
+#: is why uploads used to be written to a disk that is wiped on every deploy.
+SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'boutique-crm')
 
-# Uploads go to the local filesystem; the SupabaseStorage driver in crm_api/storage.py
-# is bypassed because bucket RLS policies reject the publishable key.
+# Object storage when it is configured, the local disk when it is not.
+#
+# The condition is the SERVICE key, not merely SUPABASE_URL: with only the
+# publishable key every upload is refused by bucket RLS, and failing loudly on
+# the first save is worse than not switching at all. So a deployment opts in by
+# providing the credential that actually works, and a developer checkout with no
+# secrets keeps writing to media/ exactly as before -- as does the test suite,
+# which must not make network calls.
+#
+# Files already on disk keep working either way: their URLs are relative and
+# boutique_crm/urls.py still serves /media/. New uploads get absolute Supabase
+# URLs, and the frontend's resolveMediaUrl already passes those through.
+_use_object_storage = bool(SUPABASE_URL and SUPABASE_SERVICE_KEY) and not _running_tests
+
 STORAGES = {
     "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "BACKEND": ("crm_api.storage.SupabaseStorage" if _use_object_storage
+                    else "django.core.files.storage.FileSystemStorage"),
     },
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
@@ -674,6 +736,24 @@ TRACKING_BASE_URL = (
     or os.environ.get('RENDER_EXTERNAL_URL')
     or 'http://localhost:8000'
 )
+
+# A tracking link is sent to a customer over WhatsApp and opened on a phone. An
+# http:// one is a link whose contents -- name, garment, address, balance --
+# cross the network in the clear, and which any intermediary can rewrite. The
+# development default above is http, so the mistake this catches is a real one:
+# copying it into a deployed environment, or setting TRACKING_BASE_URL by hand
+# and forgetting the s.
+#
+# `_running_tests` for the same reason USE_LOCAL_DB uses it: the suite runs with
+# DEBUG off and no deployment variables set, and a test run must never depend on
+# a production credential being present.
+if not DEBUG and not _running_tests and TRACKING_BASE_URL.startswith('http://'):
+    raise ImproperlyConfigured(
+        f"TRACKING_BASE_URL is {TRACKING_BASE_URL!r}. Customer tracking links "
+        f"are sent to people's phones and must be https. Set TRACKING_BASE_URL "
+        f"to the public https origin, or leave it unset on Render, where "
+        f"RENDER_EXTERNAL_URL already is one."
+    )
 
 # How customer messages are delivered. Unset -- the shipped default -- means
 # nothing sends automatically: messages queue, and the boutique owner sends each
