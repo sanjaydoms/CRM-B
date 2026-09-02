@@ -7662,7 +7662,7 @@ function App() {
                                 }}
                               >
                                 <div className="fabric-image-container">
-                                  <img src={resolvedImg} alt={f.name} onError={(e) => {
+                                  <img src={resolvedImg || 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400'} alt={f.name} onError={(e) => {
                                     e.target.src = 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400';
                                   }} />
                                   {selectedFabric?.id === f.id && (
@@ -7747,33 +7747,33 @@ function App() {
                           </button>
                         </div>
                       ) : (
-                        tailors.filter(t => t.role === 'Master').map(t => (
+                        tailors.filter(t => t.role === 'Master').map(tailorItem => (
                           <div 
-                            key={t.id} 
-                            className={`tailor-row ${selectedMaster?.id === t.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedMaster(t)}
+                            key={tailorItem.id} 
+                            className={`tailor-row ${selectedMaster?.id === tailorItem.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedMaster(tailorItem)}
                             style={{
                               display: 'flex',
                               gap: '16px',
                               alignItems: 'center',
                               padding: '12px',
                               borderRadius: '8px',
-                              border: selectedMaster?.id === t.id ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)',
-                              background: selectedMaster?.id === t.id ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
+                              border: selectedMaster?.id === tailorItem.id ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)',
+                              background: selectedMaster?.id === tailorItem.id ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
                               cursor: 'pointer'
                             }}
                           >
                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailorItem.name)}`} alt={tailorItem.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
                             <div className="tailor-info" style={{ flex: 1 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
-                                <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
-                                  {t.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
+                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailorItem.name}</span>
+                                <span className={`order-row-badge ${tailorItem.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                  {tailorItem.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
                                 </span>
                               </div>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailorItem.specialty}</span>
                             </div>
                           </div>
                         ))
@@ -7804,33 +7804,33 @@ function App() {
                           </button>
                         </div>
                       ) : (
-                        stitchingStaff().map(t => (
+                        stitchingStaff().map(tailorItem => (
                           <div 
-                            key={t.id} 
-                            className={`tailor-row ${selectedTailor?.id === t.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedTailor(t)}
+                            key={tailorItem.id} 
+                            className={`tailor-row ${selectedTailor?.id === tailorItem.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedTailor(tailorItem)}
                             style={{
                               display: 'flex',
                               gap: '16px',
                               alignItems: 'center',
                               padding: '12px',
                               borderRadius: '8px',
-                              border: selectedTailor?.id === t.id ? '2px solid var(--border-color)' : '1px solid var(--border-color)',
-                              background: selectedTailor?.id === t.id ? 'rgba(0, 0, 0, 0.03)' : 'transparent',
+                              border: selectedTailor?.id === tailorItem.id ? '2px solid var(--border-color)' : '1px solid var(--border-color)',
+                              background: selectedTailor?.id === tailorItem.id ? 'rgba(0, 0, 0, 0.03)' : 'transparent',
                               cursor: 'pointer'
                             }}
                           >
                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailorItem.name)}`} alt={tailorItem.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
                             <div className="tailor-info" style={{ flex: 1 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
-                                <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
-                                  {t.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
+                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailorItem.name}</span>
+                                <span className={`order-row-badge ${tailorItem.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                  {tailorItem.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
                                 </span>
                               </div>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailorItem.specialty}</span>
                             </div>
                           </div>
                         ))
