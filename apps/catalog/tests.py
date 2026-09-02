@@ -63,13 +63,16 @@ class TemplateSeedTests(CatalogTestCase):
 
     def test_measurement_keys_mean_the_same_thing_across_garments(self):
         # Shared keys are what make measurement history and the cutting sheet
-        # comparable; a blouse and a lehenga blouse must not diverge.
+        # comparable. This compared blouse against lehenga_blouse until the two
+        # were merged; the same rule now binds the garments that measure the
+        # same part of the body -- a waist is a waist on every dress.
         def measurements(key):
             template = GarmentTemplate.resolve(key)
             section = template.sections.get(key='measurements')
             return {f.key for f in section.fields.all()}
 
-        self.assertEqual(measurements('blouse'), measurements('lehenga_blouse'))
+        for key in ('blouse', 'kurti', 'anarkali', 'bottom_wear'):
+            self.assertIn('waist', measurements(key), f'{key} lost the shared waist key')
 
     def test_syncing_twice_does_not_duplicate(self):
         from .definitions import TEMPLATES
@@ -191,10 +194,11 @@ class ValidationTests(CatalogTestCase):
         self.assertIn('waist_size', caught.exception.errors)
 
     def test_measurement_out_of_range(self):
-        churidar = GarmentTemplate.resolve('churidar')
+        bottom = GarmentTemplate.resolve('bottom_wear')
         with self.assertRaises(SpecValidationError) as caught:
-            validate_spec(churidar, {
-                'full_length': '400', 'waist': '30', 'delivery_date': '2026-09-01',
+            validate_spec(bottom, {
+                'bottom_type': 'salwar', 'full_length': '400', 'waist': '30',
+                'delivery_date': '2026-09-01',
             })
         self.assertIn('full_length', caught.exception.errors)
 
@@ -213,16 +217,16 @@ class ValidationTests(CatalogTestCase):
         self.assertIn('trial_date', caught.exception.errors)
 
     def test_style_specific_fields_switch_with_the_style(self):
-        lb = GarmentTemplate.resolve('lehenga_blouse')
-        peplum = validate_spec(lb, {
-            'blouse_style': 'peplum', 'flare_length': '12', 'flare_type': 'pleats',
+        blouse = GarmentTemplate.resolve('blouse')
+        peplum = validate_spec(blouse, {
+            'blouse_type': 'peplum', 'flare_length': '12', 'flare_type': 'pleats',
             'delivery_date': '2026-09-01',
         })
         self.assertIn('flare_length', peplum)
 
         # The same answers under Corset must not carry the peplum flare across.
-        corset = validate_spec(lb, {
-            'blouse_style': 'corset', 'flare_length': '12', 'boning_required': True,
+        corset = validate_spec(blouse, {
+            'blouse_type': 'corset', 'flare_length': '12', 'boning_required': True,
             'delivery_date': '2026-09-01',
         })
         self.assertNotIn('flare_length', corset)
@@ -252,6 +256,6 @@ class GarmentJobTests(CatalogTestCase):
 
     def test_an_order_holds_several_dresses(self):
         order = self._order()
-        for key in ('lehenga', 'lehenga_blouse', 'dupatta'):
+        for key in ('lehenga', 'blouse', 'dupatta'):
             GarmentJob.objects.create(order=order, template=GarmentTemplate.resolve(key))
         self.assertEqual(order.garment_jobs.count(), 3)

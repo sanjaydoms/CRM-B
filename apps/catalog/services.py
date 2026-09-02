@@ -30,17 +30,29 @@ def sync_global_templates(models=None):
     Field = models['TemplateField']
     Option = models['TemplateFieldOption']
 
+    # Migration 0003 and 0004 call this with their own historical models, which
+    # were frozen before design_parts existed (0006). Writing the column
+    # unconditionally makes those two migrations fail on any database built
+    # from scratch -- which is every test run. Ask the model what it has rather
+    # than assuming the current shape; a data migration that calls live code
+    # has to survive being replayed against an older schema.
+    has_parts = any(f.name == 'design_parts' for f in Template._meta.get_fields())
+
     created = updated = 0
     for definition in all_templates():
+        defaults = {'name': definition['name'], 'sequence': definition['sequence']}
+        if has_parts:
+            defaults['design_parts'] = definition['design_parts']
         template, was_created = Template.objects.get_or_create(
-            key=definition['key'], tenant=None,
-            defaults={'name': definition['name'], 'sequence': definition['sequence']},
+            key=definition['key'], tenant=None, defaults=defaults,
         )
         if was_created:
             created += 1
         else:
             template.name = definition['name']
             template.sequence = definition['sequence']
+            if has_parts:
+                template.design_parts = definition['design_parts']
             template.version += 1
             template.is_active = True
             template.save()
@@ -66,4 +78,14 @@ def sync_global_templates(models=None):
                         field=db_field, value=value, label=label, sequence=opt_order,
                     )
 
-    return {'created': created, 'updated': updated}
+    # A garment dropped from definitions.py is retired, not deleted. GarmentJob
+    # points at its template with PROTECT, so a delete would fail the moment any
+    # boutique had taken an order for it -- and the orders that already exist
+    # still have to render. Deactivating hides it from the order form and the
+    # design library while leaving every past job readable.
+    retired = (Template.objects
+               .filter(tenant=None, is_active=True)
+               .exclude(key__in=[d['key'] for d in all_templates()])
+               .update(is_active=False))
+
+    return {'created': created, 'updated': updated, 'retired': retired}

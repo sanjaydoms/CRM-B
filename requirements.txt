@@ -5,6 +5,12 @@ django-tenants==3.10.1
 djangorestframework==3.17.1
 pillow==12.2.0
 psycopg2-binary==2.9.12
+# Image uploads. Every upload path goes through default_storage, and
+# STORAGES['default'] is MediaCloudinaryStorage whenever CLOUDINARY_URL is set
+# -- see the comment in boutique_crm/settings.py for why the local filesystem
+# was never viable on a hosted dyno.
+cloudinary==1.46.2
+django-cloudinary-storage==0.3.0
 sqlparse==0.5.5
 requests
 gunicorn

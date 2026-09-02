@@ -60,6 +60,18 @@ class GarmentTemplate(models.Model):
     # right up until the moment they override one.
     tenant = models.CharField(max_length=100, blank=True, null=True, db_index=True)
 
+    # The parts of this garment a design photograph can be *of* -- a saree has a
+    # pallu, a border, a body; a blouse has a neck, a sleeve, a back. Stored as
+    # [{"key": "pallu", "label": "Pallu Design"}, ...] and read by the design
+    # library so an upload is filed under the right part of the garment.
+    #
+    # A column here rather than a table of its own, and not a TemplateField
+    # either: this is not something the counter staff answer on an order, it is
+    # the vocabulary the design library files photographs under. Living on the
+    # template means it inherits resolve()'s tenant override for free, so a
+    # boutique can name its own parts without a deploy.
+    design_parts = models.JSONField(default=list, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

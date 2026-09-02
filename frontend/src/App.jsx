@@ -21,6 +21,7 @@ import {
 // TemplateForm stays eager: it renders inline in the order wizard, where a
 // loading flicker mid-form would be worse than its few KB.
 const DesignStudio = lazy(() => import('./features/designStudio/DesignStudio'));
+const GarmentPartPicker = lazy(() => import('./features/designStudio/GarmentPartPicker'));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
 const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
@@ -2031,6 +2032,27 @@ function App() {
    *  price already live. After Confirm the board is real and this just tracks
    *  which board the order carries.
    */
+  /** The parts a customer has chosen for one dress: {part_key: image}.
+   *
+   *  Kept on the garment job's own `design`, not in a state of its own. That is
+   *  already what serialiseWizard writes to the draft and what the resume path
+   *  reads back, so the selection persists, survives a refresh and comes back
+   *  on resume without a second copy to keep in step.
+   *
+   *  Per garment, so a saree's Pallu and a blouse's Neck can never share a
+   *  slot -- the parts are the garment's own, and mixing them across dresses is
+   *  exactly the bug this shape prevents.
+   */
+  const partSelection = React.useMemo(
+    () => Object.fromEntries(garmentJobs.map(job => [job.key, job.design?.parts || {}])),
+    [garmentJobs]);
+
+  const handlePartSelection = (garmentKey, next) => {
+    setGarmentJobs(prev => prev.map(job => job.key === garmentKey
+      ? { ...job, design: { ...(job.design || {}), parts: next } }
+      : job));
+  };
+
   const handleGarmentBoardChange = (garmentKey, state) => {
     if (state?.items !== undefined) {
       setGarmentJobs(prev => prev.map(job => job.key === garmentKey
@@ -7387,7 +7409,7 @@ function App() {
                           {t('wizard.dressesInOrder', 'Dresses in this Order')}
                         </label>
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-                          Select garments to see AI design suggestions for each dress.
+                          Pick every garment being stitched. Each one opens its own design parts below.
                         </div>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                           {garmentTemplates.map(template => {
@@ -7410,29 +7432,19 @@ function App() {
 
                       {garmentJobs.length === 0 ? (
                         <p style={{ color: 'var(--text-secondary)', padding: '20px 0' }}>
-                          Select a garment above to see AI designs matched to it.
+                          Select a garment above to browse its designs, part by part.
                         </p>
                       ) : garmentJobs.map(job => (
-                        <div key={job.key} style={{ marginBottom: '28px' }}>
-                          {garmentJobs.length > 1 && (
-                            <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '10px' }}>
-                              {job.template?.name || job.key}
-                            </h3>
-                          )}
-                          <DesignStudio
-                            customerId={customerId}
-                            draftId={customerId ? null : draftId}
-                            garmentKey={job.key}
+                        <div key={job.key} style={{ marginBottom: '20px' }}>
+                          {/* One picker per dress, each reading its own
+                              garment's parts. Selections are kept per garment
+                              so a saree's pallu and a blouse's neck never share
+                              a slot. */}
+                          <GarmentPartPicker
+                            garmentKey={job.template?.key || job.key}
                             garmentName={job.template?.name || job.key}
-                            initialItems={job.design?.items}
-                            orderInput={{
-                              garment_type: job.template?.key || job.key,
-                              occasion: customerForm.occasion,
-                              budget: jobSubtotal(job),
-                            }}
-                            notes={designNotes}
-                            onNotesChange={setDesignNotes}
-                            onBoardChange={(state) => handleGarmentBoardChange(job.key, state)}
+                            selection={partSelection[job.key] || {}}
+                            onChange={(next) => handlePartSelection(job.key, next)}
                           />
                         </div>
                       ))}

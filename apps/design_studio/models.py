@@ -356,6 +356,19 @@ class DesignBoardItem(models.Model):
         'catalog.GarmentJob', on_delete=models.CASCADE, null=True, blank=True,
         related_name='design_items', db_index=True)
 
+    # Which part of the garment this reference is for -- 'pallu_design',
+    # 'border_design', matching a key in GarmentTemplate.design_parts.
+    #
+    # A customer does not choose one saree. They choose THIS pallu and THAT
+    # border, off two different sarees, and the boutique stitches the
+    # combination. So a selection is per part, and the board carries one
+    # selected item for each -- which is what the constraint below enforces.
+    #
+    # 'overall' is the whole-garment reference every board had before parts
+    # existed, so a board written then still reads as one selection of the
+    # whole dress rather than becoming unselected.
+    part = models.CharField(max_length=60, db_index=True, default='overall')
+
     source = models.CharField(max_length=32, db_index=True)
     source_ref = models.CharField(max_length=255, blank=True, default='')
     title = models.CharField(max_length=200, blank=True, default='')
@@ -382,18 +395,20 @@ class DesignBoardItem(models.Model):
     class Meta:
         ordering = ['position', '-match_score', 'created_at']
         constraints = [
-            # One selection per garment, not per board. The old rule was one
-            # per board, which was right while an order meant one dress and
-            # became wrong the moment it meant two: choosing the lehenga's
-            # design would have unselected the blouse's. Items with no garment
-            # keep the original one-per-board rule between them.
+            # One selection per garment PER PART. The rule was one per board,
+            # then one per garment when an order came to mean several dresses;
+            # it is now one per part of each dress, because a customer picks a
+            # pallu off one saree and a border off another and the order has to
+            # carry both. Without `part` in here, choosing a border would
+            # unselect the pallu -- the same failure the per-garment widening
+            # fixed one level up. Items with no garment keep their own rule.
             models.UniqueConstraint(
-                fields=['board', 'garment_job'],
+                fields=['board', 'garment_job', 'part'],
                 condition=models.Q(is_selected=True),
                 name='design_board_single_selection_per_garment',
             ),
             models.UniqueConstraint(
-                fields=['board'],
+                fields=['board', 'part'],
                 condition=models.Q(is_selected=True, garment_job__isnull=True),
                 name='design_board_single_selection',
             ),
@@ -478,3 +493,44 @@ class DesignAssignment(models.Model):
 
     def __str__(self):
         return f"{self.garment_job} -> {self.designer.name} ({self.status})"
+
+
+class DesignImage(models.Model):
+    """One photograph of one part of a design.
+
+    A saree design is not one picture. It is the pallu, the border, the body and
+    the overall drape -- several photographs each showing a different part of the
+    same garment, and a boutique shows a customer the part they asked about.
+
+    A table rather than more entries in `DesignAsset.gallery`, which is a flat
+    list of URL strings: the part has to be queryable ("show me every pallu
+    design"), each image has to be removable on its own, and the order within a
+    part is the boutique's choice. None of those survive a JSON blob without the
+    application doing the database's job by hand.
+
+    `part` is a plain string, not a foreign key: the vocabulary lives in
+    GarmentTemplate.design_parts, which a boutique may override, and a design
+    keeps its filing even if the template it was uploaded against is later
+    edited. The same reasoning DesignAsset.spec_tags already uses.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    design = models.ForeignKey(
+        DesignAsset, on_delete=models.CASCADE, related_name='images')
+    # Matches a key in the garment template's design_parts. 'overall' is the
+    # fallback every garment has, and is what pre-existing gallery images become.
+    part = models.CharField(max_length=60, db_index=True, default='overall')
+    image_url = models.CharField(max_length=500)
+    caption = models.CharField(max_length=200, blank=True, default='')
+    sequence = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['part', 'sequence', 'created_at']
+        indexes = [
+            # The detail view reads every image of one design, grouped by part.
+            models.Index(fields=['design', 'part'], name='design_image_by_part'),
+        ]
+
+    def __str__(self):
+        return f"{self.design_id} · {self.part}"

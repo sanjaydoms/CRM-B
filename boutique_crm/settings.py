@@ -125,6 +125,10 @@ SHARED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
+    # Shared, not tenant: they own no models, so they add no migration to
+    # either schema set, and the storage backend is process-wide anyway.
+    'cloudinary',
+    'cloudinary_storage',
 ]
 
 TENANT_APPS = [
@@ -494,16 +498,50 @@ SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
 SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'boutique-crm')
 
-# Uploads go to the local filesystem; the SupabaseStorage driver in crm_api/storage.py
-# is bypassed because bucket RLS policies reject the publishable key.
+# Where uploaded images go.
+#
+# Every upload in the application -- the design library, customer profile
+# photographs, fabric images, stage and finished-garment shots, and the five
+# ImageFields -- goes through default_storage. So this is the one switch that
+# decides for all of them, and the reason none of those call sites mention
+# Cloudinary: swapping the backend here moves every one of them at once.
+#
+# FileSystemStorage was never viable in production. A hosted dyno has an
+# ephemeral disk, so every deploy deleted every photograph a boutique had
+# uploaded while the database rows went on pointing at URLs that had become
+# 404s. The SupabaseStorage driver in crm_api/storage.py was the intended
+# answer and is bypassed because the bucket's RLS policies reject the
+# publishable key.
+#
+# Cloudinary is used when CLOUDINARY_URL is set, and only then: a checkout with
+# no credentials still has to be able to run, and falling back to the local disk
+# is the honest behaviour for one.
+CLOUDINARY_URL = os.environ.get('CLOUDINARY_URL', '')
+
+# Never during tests, whatever the environment says. The suite uploads real
+# files, and pointing it at the account would spend quota on throwaway images
+# and leave them there -- a test run must not touch a live service.
+_use_cloudinary = bool(CLOUDINARY_URL) and not _running_tests
+
 STORAGES = {
     "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "BACKEND": ("cloudinary_storage.storage.MediaCloudinaryStorage"
+                    if _use_cloudinary
+                    else "django.core.files.storage.FileSystemStorage"),
     },
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
     },
 }
+
+if _use_cloudinary:
+    import cloudinary
+
+    # The SDK reads CLOUDINARY_URL from the environment by itself, but it does
+    # not default to HTTPS. An http:// image URL stored today is mixed content
+    # on any https page for as long as the row lives, and browsers block it --
+    # so it is forced here rather than left to the URL to carry.
+    cloudinary.config(secure=True)
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

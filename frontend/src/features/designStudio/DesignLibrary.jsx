@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Clock, Edit2, Eye, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
 
 import { api } from '../../services/api';
@@ -35,7 +35,7 @@ const EDITABLE_SOURCES = ['catalogue', 'suggestion'];
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 
-function Filters({ value, onChange, designers, collections }) {
+function Filters({ value, onChange, designers, collections, parts = [] }) {
   const set = (key) => (e) => onChange({ ...value, [key]: e.target.value });
 
   const select = (key, label, options) => (
@@ -74,6 +74,7 @@ function Filters({ value, onChange, designers, collections }) {
         ['sleeveless', 'Sleeveless'], ['cap', 'Cap'], ['short', 'Short'],
         ['elbow', 'Elbow'], ['three_quarter', '3/4'], ['full', 'Full'],
       ])}
+      {parts.length > 0 && select('part', 'Part', parts.map(p => [p.key, p.label]))}
       {select('status', 'Status', [
         ['ACTIVE', 'Active'], ['PENDING', 'Pending approval'],
         ['DRAFT', 'Draft'], ['ARCHIVED', 'Archived'],
@@ -96,8 +97,18 @@ function Filters({ value, onChange, designers, collections }) {
   );
 }
 
-function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview }) {
+function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview, partLabels = {} }) {
   const editable = EDITABLE_SOURCES.includes(design.source);
+  // Grouped in the order the server returned them, which is the template's own
+  // part order (DesignImage.Meta.ordering), so the overall shot leads.
+  const byPart = useMemo(() => {
+    const groups = new Map();
+    (design.images || []).forEach((img) => {
+      if (!groups.has(img.part)) groups.set(img.part, []);
+      groups.get(img.part).push(img);
+    });
+    return [...groups.entries()];
+  }, [design.images]);
   const [history, setHistory] = useState([]);
   const [note, setNote] = useState('');
   const [reviewing, setReviewing] = useState(false);
@@ -180,6 +191,32 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '16px' }}>{design.description}</p>
         )}
 
+        {/* A design is several photographs of one garment, each of a different
+            part of it. Grouped under the part so the boutique can show a
+            customer the pallu without hunting through an undifferentiated
+            gallery. Labels come from the garment's own template where the
+            design has one; the raw key is the honest fallback. */}
+        {byPart.length > 0 && (
+          <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+            {byPart.map(([part, shots]) => (
+              <div key={part} style={{ marginBottom: '14px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+                              color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  {partLabels[part] || part.replace(/_/g, ' ')} ({shots.length})
+                </div>
+                <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '4px' }}>
+                  {shots.map((img) => (
+                    <img key={img.id} src={resolveMediaUrl(img.image_url, CARD_IMAGE_FALLBACK)}
+                         alt={img.caption || part}
+                         style={{ width: '120px', height: '150px', objectFit: 'cover', borderRadius: '6px',
+                                  flexShrink: 0, border: '1px solid var(--border-color)' }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {canReview && isPending && (
           <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
             <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -246,6 +283,11 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
+  // Parts per garment key, for the Part filter and the detail modal's headings.
+  // Cached by key rather than reset per category: reopening a category the
+  // owner has already looked at costs nothing, and it keeps the state write
+  // inside the fetch callback rather than in an effect body.
+  const [partsByKey, setPartsByKey] = useState({});
 
   const PENDING_QUEUE = { key: '__pending__', name: 'Pending Approval' };
   const isPendingQueue = openCategory?.key === PENDING_QUEUE.key;
@@ -275,6 +317,23 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
     api.getDesigners({ active: 'true' }).then(setDesigners).catch(() => setDesigners([]));
     api.getCollections({ active: 'true' }).then(setCollections).catch(() => setCollections([]));
   }, [refreshToken]);
+
+  const openKey = openCategory?.key;
+  const needsParts = Boolean(openKey) && openKey !== PENDING_QUEUE.key
+                     && partsByKey[openKey] === undefined;
+
+  useEffect(() => {
+    if (!needsParts) return;
+    let cancelled = false;
+    api.getGarmentTemplate(openKey)
+      .then(t => { if (!cancelled) setPartsByKey(p => ({ ...p, [openKey]: t.design_parts || [] })); })
+      .catch(() => { if (!cancelled) setPartsByKey(p => ({ ...p, [openKey]: [] })); });
+    return () => { cancelled = true; };
+  }, [needsParts, openKey]);
+
+  const parts = partsByKey[openKey] || [];
+  const partLabels = useMemo(
+    () => Object.fromEntries(parts.map(p => [p.key, p.label])), [parts]);
 
   // Only the open category is fetched, so the landing page never pays for the
   // whole library.
@@ -382,7 +441,8 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
         </button>
       </div>
 
-      <Filters value={filters} onChange={setFilters} designers={designers} collections={collections} />
+      <Filters value={filters} onChange={setFilters} designers={designers}
+               collections={collections} parts={parts} />
 
       {!loading && designs.length === 0 && (
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)', padding: '24px 0', textAlign: 'center' }}>
@@ -453,6 +513,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
           onDelete={(design) => { setSelected(null); onDeleteDesign?.(design); }}
           onReviewed={handleReviewed}
           canReview={canReview}
+          partLabels={partLabels}
         />
       )}
     </div>

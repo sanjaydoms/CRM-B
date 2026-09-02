@@ -979,6 +979,18 @@ export const api = {
 
   // --- Design library ---------------------------------------------------
 
+  // The part tabs on the order wizard's first screen. Needs no customer and no
+  // draft: it is the boutique's own library, filed by part of the garment, and
+  // the customer browses it before giving any details.
+  async getGarmentPartImages({ garment_key, part } = {}) {
+    const url = new URL(`${BASE_URL}/design-studio/part-images/`);
+    if (garment_key) url.searchParams.set('garment_key', garment_key);
+    if (part) url.searchParams.set('part', part);
+    const res = await fetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to load designs for this garment');
+    return res.json();
+  },
+
   async getDesignCategories() {
     const res = await fetch(`${BASE_URL}/design-studio/categories/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load design categories');
@@ -1070,13 +1082,18 @@ export const api = {
 
   // Multipart: the browser posts the photographs themselves rather than the
   // boutique having to host an image somewhere and paste a URL.
-  async uploadDesign(fields, imageFiles = []) {
+  // `imageParts` runs parallel to `imageFiles`: one part key per file, in the
+  // same order. Appended one at a time rather than as an array, because the
+  // server reads it with getlist() -- a single JSON-stringified value would
+  // arrive as one opaque string and every photograph would file as 'overall'.
+  async uploadDesign(fields, imageFiles = [], imageParts = []) {
     const form = new FormData();
     Object.entries(fields).forEach(([key, value]) => {
       if (value === '' || value === null || value === undefined) return;
       form.append(key, typeof value === 'object' ? JSON.stringify(value) : value);
     });
     imageFiles.forEach(file => form.append('images', file));
+    imageParts.forEach(part => form.append('image_parts', part));
 
     const res = await fetch(`${BASE_URL}/design-studio/assets/`, {
       method: 'POST',

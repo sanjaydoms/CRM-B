@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Upload, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 
 import { api } from '../../services/api';
 import TemplateForm from '../catalog/TemplateForm';
@@ -21,8 +21,12 @@ export default function DesignUpload({ onClose, onUploaded }) {
   const [collections, setCollections] = useState([]);
   const [template, setTemplate] = useState(null);       // the full definition
   const [specTags, setSpecTags] = useState({});
-  const [files, setFiles] = useState([]);
-  const [previews, setPreviews] = useState([]);
+  // { partKey: File[] } and { partKey: objectURL[] }. A design is not one
+  // photograph: a saree has a pallu, a border and a body, and the boutique
+  // shows a customer the part they asked about. The keys come from the chosen
+  // garment's template, so the vocabulary is the catalogue's, not this form's.
+  const [partFiles, setPartFiles] = useState({});
+  const [partPreviews, setPartPreviews] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [newCollection, setNewCollection] = useState('');
@@ -56,18 +60,63 @@ export default function DesignUpload({ onClose, onUploaded }) {
   }, [form.template_key]);
 
   // Object URLs are revoked on unmount; without that every re-pick leaks one.
-  useEffect(() => () => previews.forEach(URL.revokeObjectURL), [previews]);
+  useEffect(() => () => Object.values(partPreviews).flat().forEach(URL.revokeObjectURL),
+            [partPreviews]);
 
   const styleSection = useMemo(
     () => (template ? getSection(template, 'style') : null), [template]);
 
+  // A design uploaded without a garment still has to go somewhere, so every
+  // garment has an implicit 'overall'. Older templates carry no design_parts
+  // at all and fall back to it alone, which is the behaviour this form had
+  // before parts existed.
+  const designParts = useMemo(() => {
+    const defined = template?.design_parts;
+    return defined?.length ? defined : [{ key: 'overall', label: 'Overall Design' }];
+  }, [template]);
+
+  const totalFiles = useMemo(
+    () => Object.values(partFiles).reduce((n, list) => n + list.length, 0), [partFiles]);
+
+  // Changing garment changes the vocabulary, so photographs filed under the old
+  // garment's parts would keep keys the new one does not have. Everything
+  // already picked collapses into 'overall' -- the one part every garment has
+  // -- rather than being silently dropped. Done in the change handler rather
+  // than an effect: the boutique made the change, so this is a consequence of
+  // an event, not state to be synchronised.
+  const collapseToOverall = (map) => {
+    const all = Object.values(map).flat();
+    return all.length ? { overall: all } : {};
+  };
+
+  const changeGarment = (e) => {
+    setForm({ ...form, template_key: e.target.value });
+    setPartFiles(collapseToOverall);
+    setPartPreviews(collapseToOverall);
+  };
+
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
 
-  const pickFiles = (e) => {
+  const pickFiles = (partKey) => (e) => {
     const chosen = [...e.target.files];
-    previews.forEach(URL.revokeObjectURL);
-    setFiles(chosen);
-    setPreviews(chosen.map(f => URL.createObjectURL(f)));
+    if (!chosen.length) return;
+    setPartFiles(prev => ({ ...prev, [partKey]: [...(prev[partKey] || []), ...chosen] }));
+    setPartPreviews(prev => ({
+      ...prev,
+      [partKey]: [...(prev[partKey] || []), ...chosen.map(f => URL.createObjectURL(f))],
+    }));
+    e.target.value = '';   // so re-picking the same file fires change again
+  };
+
+  const removeFile = (partKey, index) => {
+    setPartPreviews((prev) => {
+      const list = prev[partKey] || [];
+      URL.revokeObjectURL(list[index]);
+      return { ...prev, [partKey]: list.filter((_, i) => i !== index) };
+    });
+    setPartFiles(prev => ({
+      ...prev, [partKey]: (prev[partKey] || []).filter((_, i) => i !== index),
+    }));
   };
 
   const addCollection = async () => {
@@ -87,10 +136,21 @@ export default function DesignUpload({ onClose, onUploaded }) {
   const submit = async () => {
     if (inFlight.current) return;          // one click, one upload
     if (!form.title.trim()) { setError('The design needs a name.'); return; }
-    if (!files.length && !form.source_url) {
+    if (!totalFiles && !form.source_url) {
       setError('Add at least one photograph, or a reference URL.');
       return;
     }
+    // Flattened in the order the parts are displayed, so the cover photograph
+    // is the first one of the first part the boutique filled in -- the overall
+    // shot, for any garment that lists it first. `flatParts` runs alongside as
+    // a parallel list; multipart has no nesting, and the server reads the two
+    // together.
+    const flatFiles = [];
+    const flatParts = [];
+    designParts.forEach(({ key }) => {
+      (partFiles[key] || []).forEach((file) => { flatFiles.push(file); flatParts.push(key); });
+    });
+
     inFlight.current = true;
     setSaving(true);
     setError(null);
@@ -107,9 +167,9 @@ export default function DesignUpload({ onClose, onUploaded }) {
         stitch_hours: form.stitch_hours,
         video_url: form.video_url,
         source_url: form.source_url,
-        image_url: files.length ? '' : form.source_url,
+        image_url: totalFiles ? '' : form.source_url,
         spec_tags: specTags,
-      }, files);
+      }, flatFiles, flatParts);
       onUploaded?.(created);
       onClose?.();
     } catch (err) {
@@ -139,26 +199,60 @@ export default function DesignUpload({ onClose, onUploaded }) {
           <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
         </div>
 
-        <div className="drag-drop-zone" onClick={() => document.getElementById('design-upload-input').click()}
-             style={{ marginBottom: '16px' }}>
-          <div className="drag-drop-icon"><Upload size={22} /></div>
-          <div className="drag-drop-text">
-            {files.length ? `${files.length} photograph${files.length === 1 ? '' : 's'} selected` : 'Upload photographs'}
+        {/* One row per part of the garment. Rows rather than a dropzone each:
+            an Anarkali has eleven parts, and eleven full-size dropzones is a
+            page of scrolling before the boutique reaches the name field. */}
+        <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px',
+                      padding: '12px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                        marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 700 }}>Photographs</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+              {template
+                ? `${totalFiles} across ${designParts.length} part${designParts.length === 1 ? '' : 's'} of the ${template.name.toLowerCase()}`
+                : 'Pick a garment below to file photographs by part'}
+            </span>
           </div>
-          <div className="drag-drop-subtext">The first becomes the cover; the rest form the gallery.</div>
-          <input id="design-upload-input" type="file" accept="image/*" multiple
-                 style={{ display: 'none' }} onChange={pickFiles} />
-        </div>
 
-        {previews.length > 0 && (
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-            {previews.map((src, i) => (
-              <img key={src} src={src} alt={`upload ${i + 1}`}
-                   style={{ width: '72px', height: '72px', objectFit: 'cover', borderRadius: '6px',
-                            border: i === 0 ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)' }} />
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {designParts.map(({ key, label }) => {
+              const shots = partPreviews[key] || [];
+              return (
+                <div key={key} style={{
+                  display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+                  padding: '8px 10px', borderRadius: '6px',
+                  border: '1px solid var(--border-color)',
+                  background: shots.length ? 'rgba(212,175,55,0.06)' : 'transparent',
+                }}>
+                  <span style={{ fontSize: '12.5px', fontWeight: 600, flex: '0 0 190px' }}>{label}</span>
+
+                  {shots.map((src, i) => (
+                    <span key={src} style={{ position: 'relative', lineHeight: 0 }}>
+                      <img src={src} alt={`${label} ${i + 1}`}
+                           style={{ width: '52px', height: '52px', objectFit: 'cover',
+                                    borderRadius: '5px', border: '1px solid var(--border-color)' }} />
+                      <button type="button" onClick={() => removeFile(key, i)}
+                              title="Remove"
+                              style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px',
+                                       height: '18px', borderRadius: '50%', border: 'none', cursor: 'pointer',
+                                       background: '#ff4d4d', color: '#fff', fontSize: '11px', lineHeight: '18px',
+                                       padding: 0 }}>x</button>
+                    </span>
+                  ))}
+
+                  <button type="button" className="btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '11px', marginLeft: 'auto',
+                                   whiteSpace: 'nowrap' }}
+                          onClick={() => document.getElementById(`design-upload-${key}`).click()}>
+                    <Plus size={11} /> Add
+                  </button>
+                  <input id={`design-upload-${key}`} type="file" accept="image/*" multiple
+                         style={{ display: 'none' }} onChange={pickFiles(key)} />
+                </div>
+              );
+            })}
           </div>
-        )}
+        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
           {field('Design name *', (
@@ -167,7 +261,7 @@ export default function DesignUpload({ onClose, onUploaded }) {
           ))}
           {field('Garment', (
             <select className="form-control" style={{ padding: '7px', fontSize: '13px' }}
-                    value={form.template_key} onChange={set('template_key')}>
+                    value={form.template_key} onChange={changeGarment}>
               <option value="">Uncategorised</option>
               {templates.map(t => <option key={t.key} value={t.key}>{t.name}</option>)}
             </select>

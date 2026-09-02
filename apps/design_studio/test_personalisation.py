@@ -257,11 +257,20 @@ class DraftOwnershipTests(PersonalisationTestBase):
         self.assertIn(response.status_code, (400, 403, 404))
         self.assertNotIn('Deepa', str(response.data))
 
-    def test_neither_source_named_is_refused(self):
-        response = self.api.get(reverse('design-context'))
-        self.assertEqual(response.status_code, 400)
+    def test_neither_source_named_browses_anonymously(self):
+        # Naming neither used to be refused. The order wizard now opens on the
+        # design step so a walk-in can pick a design and a fabric before giving
+        # their name, so "no subject yet" is an ordinary request rather than a
+        # malformed one -- it simply searches without personalising.
         response = self.api.post(reverse('design-discover'), {}, format='json')
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+
+        # The point of the old rule was that nobody could probe the endpoint for
+        # someone else's details. That still holds: an anonymous search carries
+        # no customer, so there is no profile in the response to leak. Naming a
+        # draft that is not yours is still refused, above.
+        self.assertNotIn('Deepa', str(response.data))
+        self.assertEqual(response.data['context'].get('customer_id', ''), '')
 
 
 class ReturningCustomerTests(PersonalisationTestBase):

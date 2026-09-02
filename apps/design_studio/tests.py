@@ -809,7 +809,7 @@ class DesignCategoryTests(StudioTestCase):
         # An empty category is information: it tells the owner what to fill.
         response = self.client.get('/api/design-studio/categories/')
         keys = {c['key'] for c in response.data['categories']}
-        self.assertTrue({'saree', 'lehenga', 'churidar'} <= keys)
+        self.assertTrue({'saree', 'lehenga', 'bottom_wear'} <= keys)
 
     def test_untagged_designs_are_still_reachable(self):
         # self.design from the fixture has no template; it must not vanish.

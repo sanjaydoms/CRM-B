@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from .models import (
     Collection, Designer, DesignApproval, DesignAsset, DesignAssignment, DesignBoard,
-    DesignBoardItem,
+    DesignBoardItem, DesignImage,
 )
 
 
@@ -66,8 +66,21 @@ class DesignApprovalSerializer(serializers.ModelSerializer):
         fields = ['id', 'decision', 'note', 'reviewer_name', 'created_at']
 
 
+class DesignImageSerializer(serializers.ModelSerializer):
+    """One photograph of one part of a design."""
+
+    class Meta:
+        model = DesignImage
+        fields = ['id', 'part', 'image_url', 'caption', 'sequence']
+
+
 class DesignAssetSerializer(serializers.ModelSerializer):
     source_display = serializers.CharField(source='get_source_display', read_only=True)
+    # Every photograph of this design, each labelled with the part of the
+    # garment it shows. Read-only here for the same reason `gallery` is: the
+    # rows are written from the files that were actually stored, not from a
+    # claim in the request body.
+    images = DesignImageSerializer(many=True, read_only=True)
     # The credited name, whichever way the design carries it: a linked designer
     # where there is one, the imported free text otherwise.
     designer_name = serializers.SerializerMethodField()
@@ -81,7 +94,7 @@ class DesignAssetSerializer(serializers.ModelSerializer):
         # is filled from the files that were actually stored, not a claim.
         read_only_fields = [
             'created_by', 'created_at', 'updated_at',
-            'status', 'approved_by', 'approved_at', 'gallery',
+            'status', 'approved_by', 'approved_at', 'gallery', 'images',
             # `source` is provenance, and provenance is what defines the
             # catalogue: BoutiqueDesignViewSet selects on source alone. Leaving
             # it writable let a designer PATCH their own unreviewed upload to
@@ -167,10 +180,16 @@ class TailorBriefSerializer(serializers.ModelSerializer):
 
 
 class DiscoverRequestSerializer(serializers.Serializer):
-    # Either source. A saved customer, or the draft an order is still being
-    # written in -- which is the whole of what exists before Confirm, and must
-    # not require minting a Customer row just to personalise. Validated as a
-    # pair below rather than field-by-field, because exactly one is required.
+    # Both optional, and neither required.
+    #
+    # A saved customer personalises off their profile and history; a draft off
+    # what has been typed so far. Neither means an anonymous browse, which is
+    # the first screen of the order wizard: the boutique shows a walk-in
+    # customer the catalogue and lets them pick a design and a fabric BEFORE
+    # anyone asks for their name. There is nothing to personalise from at that
+    # point and nothing that should have to be invented -- no Customer row, and
+    # no empty draft parked in the resume list -- so the search simply runs
+    # unpersonalised and ranks on the garment alone.
     customer_id = serializers.UUIDField(required=False)
     draft_id = serializers.UUIDField(required=False)
     #: Which dress on the order. A draft garment's key, or a confirmed
@@ -183,12 +202,6 @@ class DiscoverRequestSerializer(serializers.Serializer):
     keywords = serializers.ListField(child=serializers.CharField(), required=False)
     sources = serializers.ListField(child=serializers.CharField(), required=False)
     limit = serializers.IntegerField(required=False, min_value=1, max_value=100)
-
-    def validate(self, attrs):
-        if not attrs.get('customer_id') and not attrs.get('draft_id'):
-            raise serializers.ValidationError(
-                'Either customer_id or draft_id is required.')
-        return attrs
 
 
 class _AssignmentDesignMixin:

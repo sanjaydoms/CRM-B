@@ -26,7 +26,7 @@ from apps.catalog.models import GarmentTemplate
 
 from .models import (
     Collection, Designer, DesignApproval, DesignAsset, DesignAssignment, DesignBoard,
-    DesignBoardItem,
+    DesignBoardItem, DesignImage,
 )
 from .permissions import (
     MASTER, DesignAssignmentPermission, DesignLibraryPermission, DesignStudioPermission,
@@ -127,7 +127,22 @@ def _resolve_subject(request, *, customer_id=None, draft_id=None, garment_key=No
         return subject, order_input, None
 
     if not customer_id:
-        return None, None, 'customer_id or draft_id is required'
+        # Neither a customer nor a draft: an anonymous browse. The wizard opens
+        # on the design step so a walk-in can pick a design and a fabric before
+        # giving their details, and at that point there is genuinely no subject
+        # -- so one is built from an empty payload rather than refusing.
+        #
+        # This used to be an error, which is what made the first screen of the
+        # order wizard show an empty gallery: the studio fired its search, the
+        # server rejected it before any provider ran, and nothing was displayed.
+        # Minting an empty draft to satisfy the old rule would have worked and
+        # was the wrong fix -- it litters the resume list with orders nobody
+        # started, the same way creating the Customer at step one used to leave
+        # clients nobody asked for.
+        #
+        # The garment still narrows the search: `garment_type` arrives as its
+        # own parameter and is merged in by the caller.
+        return context_module.subject_from_draft({}), {}, None
 
     customer = get_object_or_404(
         Customer.objects.select_related('measurements'), pk=customer_id)
@@ -259,6 +274,8 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         'collection': 'collection_id',
         'status': 'status',
         'source': 'source',
+        # "show me every pallu design" -- the reason the images are a table.
+        'part': 'images__part',
     }
     # `occasion` is deliberately not above. It exists twice -- as a legacy column
     # and as a template field key -- so filtering it as a column silently missed
@@ -303,6 +320,12 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
             if key in self.DIRECT_FILTERS or key in self.RESERVED:
                 continue
             queryset = queryset.filter(spec_tags__contains={key: value})
+
+        # `part` filters across a reverse join, so a design with three pallu
+        # photographs would otherwise come back three times. Only paid for when
+        # that filter is actually in play.
+        if params.get('part'):
+            queryset = queryset.distinct()
 
         return queryset.order_by(self.ORDERINGS.get(params.get('ordering'), '-created_at'))
 
@@ -366,6 +389,13 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
             else DesignAsset.Status.PENDING
         )
 
+        # One part key per uploaded file, in the same order the files were
+        # appended. A parallel list rather than nested `images[pallu]` field
+        # names: multipart has no nesting, and every parser that fakes it does
+        # so differently. Missing or short, the remainder falls back to
+        # 'overall', which is what an upload with no part chosen honestly is.
+        parts = request.POST.getlist('image_parts')
+
         asset = serializer.save(
             created_by=request.user if request.user.is_authenticated else None,
             # A signed-in designer is credited on their own upload by default.
@@ -379,6 +409,22 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
             gallery=uploaded[1:] if len(uploaded) > 1 else [],
             status=initial_status,
         )
+
+        # Every uploaded file becomes a DesignImage filed under its part, the
+        # cover shot included -- the detail view reads these, and leaving the
+        # first one out would make the cover the only photograph that could not
+        # be found under a part heading.
+        if uploaded:
+            DesignImage.objects.bulk_create([
+                DesignImage(
+                    design=asset,
+                    part=(parts[i] if i < len(parts) and parts[i] else 'overall'),
+                    image_url=url,
+                    sequence=i,
+                )
+                for i, url in enumerate(uploaded)
+            ])
+
         return Response(self.get_serializer(asset).data, status=status.HTTP_201_CREATED)
 
     def _store_images(self, request):
@@ -509,6 +555,83 @@ class DesignDashboardView(views.APIView):
                 active.filter(updated_at__gte=week_ago).order_by('-view_count')[:5],
                 many=True).data,
         })
+
+
+class GarmentPartImageView(views.APIView):
+    """The photographs available for each part of one garment.
+
+    This is what the order wizard's part tabs read. A customer picking a saree
+    does not pick one saree: they pick THIS pallu and THAT border off two
+    different ones, so what they browse is photographs of a part, gathered
+    across every design in the library, rather than a grid of whole designs.
+
+    Counts for every part come back on each call because the tabs show them,
+    and they are one grouped query. The photographs themselves come back for
+    the requested part ONLY -- the same rule the design library follows for
+    categories. A boutique with five hundred sarees has four thousand part
+    photographs, and no screen needs them at once.
+    """
+
+    permission_classes = [DesignStudioPermission]
+
+    def get(self, request):
+        garment_key = request.query_params.get('garment_key') or ''
+        template = GarmentTemplate.resolve(garment_key) if garment_key else None
+
+        # Only designs a customer may actually be shown. ARCHIVED is a design
+        # the owner took off the table and PENDING has not been approved, so
+        # neither belongs in front of a customer -- the same rule the discovery
+        # providers apply, for the same reason.
+        images = DesignImage.objects.filter(
+            design__status=DesignAsset.Status.ACTIVE)
+        if template is not None:
+            images = images.filter(design__template=template)
+        elif garment_key:
+            # A garment with no template row yet: fall back to the free-text
+            # column rather than silently showing another garment's parts.
+            images = images.filter(design__garment_type__iexact=garment_key)
+
+        counts = dict(images.values_list('part').annotate(n=Count('id')))
+
+        # Declared order, with the template's own labels. Parts the template
+        # names but nothing has been uploaded for are still listed, at zero:
+        # an empty Pallu tab tells the boutique what is missing, and hiding it
+        # would make the gap invisible.
+        declared = (template.design_parts if template else []) or []
+        parts = [{'key': p['key'], 'label': p['label'], 'count': counts.get(p['key'], 0)}
+                 for p in declared]
+
+        # Anything filed under a part the template no longer declares -- an
+        # older upload, or a boutique that renamed its parts. Listed after the
+        # declared ones so the photographs stay reachable.
+        for key, count in counts.items():
+            if not any(p['key'] == key for p in parts):
+                parts.append({'key': key, 'label': key.replace('_', ' ').title(),
+                              'count': count})
+
+        def row(image):
+            return {
+                'id': str(image.id),
+                'part': image.part,
+                'image_url': image.image_url,
+                'caption': image.caption,
+                # The design the photograph came off. Selecting a part records
+                # this, so the workroom can still see the garment the customer
+                # was pointing at.
+                'design_id': str(image.design_id),
+                'design_title': image.design.title,
+                'designer': image.design.designer_ref.name if image.design.designer_ref_id
+                            else (image.design.designer or ''),
+                'estimated_price': float(image.design.estimated_price or 0),
+            }
+
+        chosen = request.query_params.get('part') or (parts[0]['key'] if parts else '')
+        rows = []
+        if chosen:
+            rows = [row(i) for i in
+                    images.filter(part=chosen).select_related('design')[:120]]
+
+        return Response({'parts': parts, 'part': chosen, 'images': rows})
 
 
 class DesignCategoryView(views.APIView):

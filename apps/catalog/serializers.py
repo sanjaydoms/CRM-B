@@ -49,7 +49,8 @@ class GarmentTemplateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = GarmentTemplate
-        fields = ['id', 'key', 'name', 'version', 'sequence', 'description', 'sections']
+        fields = ['id', 'key', 'name', 'version', 'sequence', 'description',
+                  'design_parts', 'sections']
 
 
 class JobMaterialSerializer(serializers.ModelSerializer):
