@@ -13,7 +13,7 @@ from django.utils.text import slugify
 from rest_framework import status, views
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.authtoken.models import Token
+from auth_tokens.services import issue_session, revoke_all, rotate
 from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
@@ -285,11 +285,10 @@ class SignupView(views.APIView):
                     last_name=last_name
                 )
             
-                # Create token
-                token, created = Token.objects.get_or_create(user=user)
-            
+                session = issue_session(user)
+
                 return Response({
-                    "token": token.key,
+                    **session,
                     "tenant_id": tenant.schema_name,
                     "user": {
                         "id": user.id,
@@ -403,9 +402,9 @@ class LoginView(views.APIView):
             tailor_id = user.tailor_profile.id if getattr(user, 'tailor_profile', None) else None
             designer_id = user.designer_profile.id if getattr(user, 'designer_profile', None) else None
 
-            token, created = Token.objects.get_or_create(user=user)
+            session = issue_session(user)
             return Response({
-                "token": token.key,
+                **session,
                 "tenant_id": tenant.schema_name,
                 "user": {
                     "id": user.id,
@@ -435,9 +434,12 @@ class LogoutView(views.APIView):
 
     def post(self, request):
         try:
-            # Token will be deleted within the active tenant schema
+            # Within the active tenant schema, and both halves of the session:
+            # deleting only the access token used to leave the refresh token
+            # live, so anything still holding it could mint a new access token
+            # straight after the user signed out.
             try:
-                request.user.auth_token.delete()
+                revoke_all(request.user)
             except Exception:
                 pass
             return Response({"success": "Successfully logged out"}, status=status.HTTP_200_OK)
@@ -656,11 +658,62 @@ class PasswordResetConfirmView(views.APIView):
             # is the thief, in the case this feature exists for. Changing the
             # hash also invalidates the reset token itself, since the generator
             # derives it from the hash, so the link cannot be replayed.
-            Token.objects.filter(user=user).delete()
+            revoke_all(user)
 
         return Response({"detail": "Your password has been changed. "
                                    "Please sign in."},
                         status=status.HTTP_200_OK)
+
+
+class TokenRefreshView(views.APIView):
+    """Trade a refresh token for a new session.
+
+    AllowAny and no authentication class, deliberately: the caller's access
+    token is expired by the time they get here, so requiring one would make
+    this endpoint reachable only by callers who do not need it. The refresh
+    token in the body is the credential.
+
+    The tenant still comes from the X-Tenant-ID header the client already
+    sends, because the refresh row lives in that boutique's schema -- so a
+    refresh token from one boutique cannot be spent against another: the lookup
+    simply finds nothing.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        raw = (request.data.get('refresh') or '').strip()
+        if not raw:
+            return Response({"detail": "No refresh token supplied.",
+                             "code": "refresh_required"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        result = rotate(raw)
+        if result is None:
+            # One answer for expired, revoked, replayed and never-existed. The
+            # client's move is the same in every case -- sign in again -- and
+            # distinguishing them here would tell whoever is holding a stolen
+            # token which kind of stolen it is.
+            return Response({"detail": "Please sign in again.",
+                             "code": "refresh_invalid"},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        user, session = result
+        return Response({
+            **session,
+            "tenant_id": connection.schema_name,
+            "user": {
+                "id": user.id,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "email": user.email,
+                "username": user.username,
+                "role": resolve_user_role(user),
+                "tailor_id": getattr(getattr(user, 'tailor_profile', None), 'id', None),
+                "designer_id": getattr(getattr(user, 'designer_profile', None), 'id', None),
+            },
+        }, status=status.HTTP_200_OK)
 
 
 class SeedDataView(views.APIView):

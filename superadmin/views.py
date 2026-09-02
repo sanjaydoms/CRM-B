@@ -20,7 +20,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from django_tenants.utils import get_public_schema_name, schema_context
 from rest_framework import status, viewsets
-from rest_framework.authtoken.models import Token
+from auth_tokens.services import issue_session, revoke_all, rotate
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -92,7 +92,7 @@ class PlatformLoginView(APIView):
             return Response({'error': 'Invalid administrator credentials.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        token, _ = Token.objects.get_or_create(user=user)
+        session = issue_session(user)
         # The one action every other entry in this trail hangs off. `console.
         # login` and `console.login_failed` were both in AuditLog.ACTIONS from
         # the start and neither was ever written by anything -- so the trail
@@ -107,7 +107,41 @@ class PlatformLoginView(APIView):
         audit.record(request, 'console.login', target=user.username,
                      actor=user.username)
         return Response({
-            'token': token.key,
+            **session,
+            'user': {'username': user.username, 'email': user.email},
+        })
+
+
+class PlatformRefreshView(APIView):
+    """The console's half of the refresh exchange.
+
+    Separate from the boutique's TokenRefreshView only because everything under
+    /api/superadmin/ is pinned to the public schema by the middleware, and that
+    pinning is what keeps a boutique's refresh token from being spendable here
+    (and the reverse): the two tables are in different schemas, so neither
+    lookup can see the other's rows.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        raw = (request.data.get('refresh') or '').strip()
+        result = rotate(raw) if raw else None
+        if result is None:
+            return Response({'error': 'Please sign in again.',
+                             'code': 'refresh_invalid'},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        user, session = result
+        if not (user.is_active and user.is_superuser):
+            # An account demoted or disabled since the refresh token was issued
+            # must not be able to renew its way back into the console.
+            revoke_all(user)
+            return Response({'error': 'Please sign in again.',
+                             'code': 'refresh_invalid'},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        return Response({
+            **session,
             'user': {'username': user.username, 'email': user.email},
         })
 
@@ -131,7 +165,7 @@ class PlatformLogoutView(APIView):
         # actor off request.user, and this is the last moment the session it is
         # describing still exists.
         audit.record(request, 'console.logout', target=request.user.username)
-        Token.objects.filter(user=request.user).delete()
+        revoke_all(request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

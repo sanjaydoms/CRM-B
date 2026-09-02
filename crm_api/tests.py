@@ -115,7 +115,13 @@ class BoutiqueCRMTests(TenantTestCase):
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("token", response.data)
-        self.assertEqual(response.data["token"], self.token.key)
+        # Deliberately NOT the token this user already held. Access tokens
+        # expire on their `created` timestamp now (auth_tokens/), and reusing
+        # the existing row -- which get_or_create did -- would hand a correct
+        # password a token that was already too old to use. Signing in issues a
+        # new one, and the old one stops working.
+        self.assertNotEqual(response.data["token"], self.token.key)
+        self.assertIn("refresh", response.data)
 
     def test_login_invalid(self):
         url = reverse('auth-login')

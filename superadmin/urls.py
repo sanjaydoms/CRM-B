@@ -16,6 +16,7 @@ from .api_views import (AuditView, BoutiqueModulesView, ConfigView, ErrorDetailV
                         SearchView, SupportView, UserActionView, UsersView)
 from .views import (BoutiqueDataView, LeadViewSet, OverviewView,
                     PlatformLoginView, PlatformLogoutView, PlatformMeView,
+                    PlatformRefreshView,
                     TenantViewSet)
 
 # SimpleRouter, not DefaultRouter, and this is a security fix rather than a
@@ -41,6 +42,10 @@ router.register(r'leads', LeadViewSet, basename='superadmin-lead')
 
 urlpatterns = [
     path('auth/login/', PlatformLoginView.as_view(), name='superadmin-login'),
+    # Public for the same reason login is: the caller's access token has
+    # expired by the time they call this, and the refresh token in the body
+    # is the credential being checked.
+    path('auth/refresh/', PlatformRefreshView.as_view(), name='superadmin-refresh'),
     path('auth/logout/', PlatformLogoutView.as_view(), name='superadmin-logout'),
     path('auth/me/', PlatformMeView.as_view(), name='superadmin-me'),
 

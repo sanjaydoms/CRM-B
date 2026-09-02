@@ -29,7 +29,7 @@ from tenants.models import BoutiqueTenant, Domain
 
 #: Endpoints that are reachable without being a platform administrator, and why.
 #: The login endpoint is the only one -- everything else is behind it.
-PUBLIC_ROUTES = {'/api/superadmin/auth/login/'}
+PUBLIC_ROUTES = {'/api/superadmin/auth/login/', '/api/superadmin/auth/refresh/'}
 
 
 @contextmanager

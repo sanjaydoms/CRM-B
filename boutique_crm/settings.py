@@ -124,6 +124,10 @@ SHARED_APPS = [
     'django.contrib.postgres',
     'rest_framework',
     'rest_framework.authtoken',
+    # Registered in BOTH lists for the same reason authtoken is: the platform
+    # console signs in against the public schema and boutique staff against
+    # their own, and one refresh-token table has to serve both.
+    'auth_tokens',
     'corsheaders',
 ]
 
@@ -131,6 +135,7 @@ TENANT_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'rest_framework.authtoken',
+    'auth_tokens',
     'crm_api',
     'apps.production',
     'apps.activities',
@@ -333,6 +338,19 @@ if _local_db:
         'HOST': os.environ.get('LOCAL_DB_HOST', '127.0.0.1'),
         'PORT': os.environ.get('LOCAL_DB_PORT', '5432'),
     })
+
+    # Where the test database lives, for anyone who needs it somewhere else.
+    #
+    # Django derives it as `test_` + NAME, and that name is shared by every
+    # checkout on the machine -- so two suites running at once fight over one
+    # database, and any cleanup that drops `test_%` takes the other run's
+    # database out from under it mid-suite. That is not hypothetical either:
+    # it is how this line was found, with a second checkout's tidy-up dropping
+    # this one's database twice.
+    #
+    # Unset, Django's own derivation applies and nothing changes.
+    if os.environ.get('TEST_DB_NAME'):
+        DATABASES['default']['TEST'] = {'NAME': os.environ['TEST_DB_NAME']}
 # No completeness check on the deployed path: the defaults above answer for
 # whatever the environment leaves unset, which is the contract every existing
 # deployment was built against.
@@ -490,6 +508,22 @@ PASSWORD_RESET_BASE_URL = os.environ.get(
 PASSWORD_RESET_TIMEOUT = int(os.environ.get('PASSWORD_RESET_TIMEOUT', '3600'))
 
 
+# --- Session lifetime ----------------------------------------------------
+# The access token used to live forever: whoever held one held the boutique,
+# and nothing short of a password reset took it back. On a phone -- backed up,
+# synced, sometimes lost -- that is not a defensible default.
+#
+# An hour is short enough that a stolen key is worth little and long enough
+# that the refresh path below runs a handful of times a day rather than on
+# every request. Clients refresh silently; the tailor sees nothing.
+ACCESS_TOKEN_TTL = int(os.environ.get('ACCESS_TOKEN_TTL', '3600'))
+
+# Thirty days: a boutique's staff should not be retyping a password weekly on
+# the shop floor. Every use rotates it (auth_tokens/services.rotate), so a
+# refresh token is only ever valid once, and signing out revokes the family.
+REFRESH_TOKEN_TTL = int(os.environ.get('REFRESH_TOKEN_TTL', str(30 * 24 * 3600)))
+
+
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
 SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'boutique-crm')
@@ -510,7 +544,10 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        # Not rest_framework's own TokenAuthentication: same header, same model,
+        # but the key stops being accepted after ACCESS_TOKEN_TTL. See
+        # auth_tokens/authentication.py.
+        'auth_tokens.authentication.ExpiringTokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     # Business endpoints require a token. Sign-up and login opt out explicitly
@@ -537,6 +574,12 @@ REST_FRAMEWORK = {
     # superadmin.ErrorEvent, and nothing else. See core/exceptions.py for why a
     # 4xx is deliberately not recorded.
     'EXCEPTION_HANDLER': 'core.exceptions.platform_exception_handler',
+
+    # Every list endpoint answers {count, next, previous, results} and returns
+    # at most PAGE_SIZE rows. See core/pagination.py for the shape and for why
+    # an unordered queryset is not merely untidy but incorrect once paged.
+    'DEFAULT_PAGINATION_CLASS': 'core.pagination.StandardPagination',
+    'PAGE_SIZE': int(os.environ.get('API_PAGE_SIZE', '50')),
 }
 
 
