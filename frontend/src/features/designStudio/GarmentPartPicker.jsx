@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Eye, ImageOff, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Eye, ImageOff, X } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
@@ -86,19 +86,32 @@ function PickCard({ src, alt, picked, onClick, onView, children, height = '110px
 }
 
 
-/** One photograph, full size. */
-function Lightbox({ image, label, onClose }) {
-  // Escape closes it. A lightbox opened over a modal is the top layer, so the
-  // key has to be handled here rather than left to the modal underneath.
+/** One photograph, full size: look at it, choose it, walk the set.
+ *
+ *  Takes the whole list and an index rather than a single image, because the
+ *  point of opening one is usually to compare it with the next. Arrow keys and
+ *  the edge buttons move through it; the selection button means a customer who
+ *  has enlarged a photograph to decide can act on the decision without closing
+ *  it first.
+ */
+function Lightbox({ items, index, onIndexChange, onClose, isSelected, onToggle }) {
+  const item = items[index];
+  const many = items.length > 1;
+
+  // Wraps, so the set has no dead end at either edge.
+  const step = (delta) => onIndexChange((index + delta + items.length) % items.length);
+
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      onClose();
+      // Every key handled here is swallowed. The lightbox is the top layer, so
+      // a press that moves it must not also reach whatever is underneath.
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+      else if (e.key === 'ArrowLeft' && many) { e.preventDefault(); e.stopPropagation(); step(-1); }
+      else if (e.key === 'ArrowRight' && many) { e.preventDefault(); e.stopPropagation(); step(1); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  });
 
   // Every click here is stopped before it leaves.
   //
@@ -109,22 +122,66 @@ function Lightbox({ image, label, onClose }) {
   // thrown back out to the design list. Closing the top layer must leave the
   // one beneath it exactly where it was.
   const close = (e) => { e.stopPropagation(); onClose(); };
+  const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
+
+  const arrow = (side) => ({
+    position: 'absolute', [side]: '18px', top: '50%', transform: 'translateY(-50%)',
+    width: '44px', height: '44px', borderRadius: '50%', border: 'none', cursor: 'pointer',
+    background: 'rgba(255,255,255,0.14)', color: '#fff', display: 'flex',
+    alignItems: 'center', justifyContent: 'center',
+  });
 
   return (
     <div onClick={close}
          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 1100,
                   display: 'flex', flexDirection: 'column', alignItems: 'center',
                   justifyContent: 'center', gap: '14px', padding: '28px' }}>
-      <img src={resolveMediaUrl(image.image_url, FALLBACK)} alt={label}
+
+      {many && (
+        <>
+          <button type="button" title="Previous (left arrow)"
+                  onClick={stop(() => step(-1))} style={arrow('left')}>
+            <ChevronLeft size={22} />
+          </button>
+          <button type="button" title="Next (right arrow)"
+                  onClick={stop(() => step(1))} style={arrow('right')}>
+            <ChevronRight size={22} />
+          </button>
+        </>
+      )}
+
+      <img src={resolveMediaUrl(item.image_url, FALLBACK)} alt={item.label}
            onClick={(e) => e.stopPropagation()}
-           style={{ maxWidth: '100%', maxHeight: '82vh', objectFit: 'contain',
+           style={{ maxWidth: '100%', maxHeight: '74vh', objectFit: 'contain',
                     borderRadius: '8px', display: 'block' }} />
-      <div style={{ color: '#fff', fontSize: '13px', fontWeight: 600 }}
-           onClick={(e) => e.stopPropagation()}>{label}</div>
-      <button className="btn-secondary" style={{ padding: '5px 14px', fontSize: '12px' }}
-              onClick={close}>
-        <X size={13} /> Close
-      </button>
+
+      <div style={{ color: '#fff', fontSize: '13px', fontWeight: 600, textAlign: 'center' }}
+           onClick={(e) => e.stopPropagation()}>
+        {item.label}
+        {many && (
+          <span style={{ opacity: 0.6, fontWeight: 400 }}> · {index + 1} of {items.length}</span>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}
+           onClick={(e) => e.stopPropagation()}>
+        {onToggle && (
+          // The same toggle the grid card has: choosing is not a one-way door,
+          // so the button says which way it goes rather than only "Select".
+          <button
+            type="button"
+            className={isSelected ? 'btn-secondary' : 'btn-primary'}
+            style={{ padding: '6px 16px', fontSize: '12px' }}
+            onClick={stop(onToggle)}
+          >
+            {isSelected ? <><X size={13} /> Remove selection</> : <><Check size={13} /> Select this</>}
+          </button>
+        )}
+        <button className="btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }}
+                onClick={close}>
+          <X size={13} /> Close
+        </button>
+      </div>
     </div>
   );
 }
@@ -140,7 +197,9 @@ function Lightbox({ image, label, onClose }) {
  *  above a grid of one.
  */
 function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClose }) {
-  const [viewing, setViewing] = useState(null);
+  // An index into `images`, not a copy of one, so the lightbox can step
+  // through the set and stay in sync with a selection made from inside it.
+  const [viewIndex, setViewIndex] = useState(null);
   // Template order, so the overall shot leads and the rest read the way the
   // boutique declared them. Anything filed under a part the template no longer
   // names still appears, after the declared ones.
@@ -191,7 +250,7 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
           </div>
         ) : (
           <div className="design-part-grid">
-            {images.map((image) => {
+            {images.map((image, i) => {
               const label = partLabels[image.part] || image.part.replace(/_/g, ' ');
               return (
                 <PickCard
@@ -200,8 +259,9 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
                   alt={label}
                   height="110px"
                   picked={selection[image.part]?.id === image.id}
-                  onClick={() => onChoose(image.part, { ...image, design_title: design.title })}
-                  onView={() => setViewing({ image, label })}
+                  onClick={() => onChoose(image.part,
+                    { ...image, design_title: design.title, part_label: label })}
+                  onView={() => setViewIndex(i)}
                 >
                   <div style={{ padding: '6px 8px' }}>
                     <div style={{ fontSize: '11.5px', fontWeight: 600, overflow: 'hidden',
@@ -221,9 +281,23 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
         )}
       </div>
 
-      {viewing && (
-        <Lightbox image={viewing.image} label={viewing.label}
-                  onClose={() => setViewing(null)} />
+      {viewIndex !== null && images[viewIndex] && (
+        <Lightbox
+          items={images.map(img => ({
+            image_url: img.image_url,
+            label: partLabels[img.part] || img.part.replace(/_/g, ' '),
+          }))}
+          index={viewIndex}
+          onIndexChange={setViewIndex}
+          onClose={() => setViewIndex(null)}
+          isSelected={selection[images[viewIndex].part]?.id === images[viewIndex].id}
+          onToggle={() => onChoose(images[viewIndex].part, {
+            ...images[viewIndex],
+            design_title: design.title,
+            part_label: partLabels[images[viewIndex].part]
+                        || images[viewIndex].part.replace(/_/g, ' '),
+          })}
+        />
       )}
     </div>
   );
@@ -235,7 +309,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   const [template, setTemplate] = useState(null);
   const [error, setError] = useState(null);
   const [openDesign, setOpenDesign] = useState(null);
-  const [viewing, setViewing] = useState(null);
+  const [viewIndex, setViewIndex] = useState(null);
   // Bumped by Retry, so the effect below stays the only place the fetch is made.
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -333,7 +407,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
       {!loading && designs.length > 0 && (
         <div style={{ display: 'grid', gap: '14px',
                       gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
-          {designs.map((design) => {
+          {designs.map((design, i) => {
             // How many of this customer's chosen parts came off this design --
             // so a design they have already taken something from is marked.
             const taken = Object.values(selection)
@@ -346,8 +420,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
                 picked={taken > 0}
                 height="150px"
                 onClick={() => setOpenDesign(design)}
-                onView={() => setViewing({
-                  image: { image_url: coverOf(design) }, label: design.title })}
+                onView={() => setViewIndex(i)}
               >
                 <div style={{ padding: '8px 10px' }}>
                   <div style={{ fontSize: '12.5px', fontWeight: 600, overflow: 'hidden',
@@ -368,9 +441,13 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         </div>
       )}
 
-      {viewing && !openDesign && (
-        <Lightbox image={viewing.image} label={viewing.label}
-                  onClose={() => setViewing(null)} />
+      {viewIndex !== null && !openDesign && designs[viewIndex] && (
+        <Lightbox
+          items={designs.map(d => ({ image_url: coverOf(d), label: d.title }))}
+          index={viewIndex}
+          onIndexChange={setViewIndex}
+          onClose={() => setViewIndex(null)}
+        />
       )}
 
       {openDesign && (
@@ -383,6 +460,97 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           onClose={() => setOpenDesign(null)}
         />
       )}
+    </div>
+  );
+}
+
+
+/**
+ * What the customer has chosen so far, across every dress on the order.
+ *
+ * One section per garment, stacked; inside each, the chosen photographs in a
+ * row. The order form is long and a choice made under Saree scrolls out of
+ * sight the moment the customer opens Blouse, so this is where they see the
+ * whole outfit at once before moving on.
+ *
+ * Reads the same `job.design.parts` the pickers write, so there is nothing to
+ * keep in step -- it is a view of the selection, not a copy of it.
+ */
+export function SelectedDesignSummary({ garmentJobs = [], onClear }) {
+  const sections = garmentJobs
+    .map(job => ({
+      key: job.key,
+      name: job.template?.name || job.key,
+      picks: Object.entries(job.design?.parts || {})
+        .filter(([, image]) => image)
+        .map(([part, image]) => ({ part, image })),
+    }))
+    .filter(section => section.picks.length > 0);
+
+  if (sections.length === 0) return null;
+
+  const total = sections.reduce((n, s) => n + s.picks.length, 0);
+
+  return (
+    <div className="content-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
+        <div className="card-title" style={{ margin: 0 }}>Your selected designs</div>
+        <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+          {total} design{total === 1 ? '' : 's'} across {sections.length} garment
+          {sections.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {sections.map((section) => (
+        <div key={section.key} style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px',
+                        borderBottom: '1px solid var(--border-color)', paddingBottom: '5px' }}>
+            <span style={{ fontSize: '13.5px', fontWeight: 700 }}>{section.name}</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+              {section.picks.length} chosen
+            </span>
+          </div>
+
+          {/* A row that scrolls sideways rather than wrapping: an eleven-part
+              anarkali would otherwise push the next garment's section off the
+              bottom of the screen, which is the thing this summary exists to
+              stop. */}
+          <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '4px' }}>
+            {section.picks.map(({ part, image }) => (
+              <div key={part} style={{ width: '112px', flexShrink: 0, position: 'relative' }}>
+                <div style={{ height: '104px', background: '#222', borderRadius: '8px',
+                              overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                  <img src={resolveMediaUrl(image.image_url, FALLBACK)}
+                       alt={image.part_label || part} loading="lazy"
+                       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                </div>
+                {onClear && (
+                  <button
+                    type="button"
+                    title="Remove this choice"
+                    onClick={() => onClear(section.key, part)}
+                    style={{ position: 'absolute', top: '5px', right: '5px', width: '19px',
+                             height: '19px', borderRadius: '50%', border: 'none', cursor: 'pointer',
+                             background: 'rgba(0,0,0,0.62)', color: '#fff', fontSize: '11px',
+                             lineHeight: '19px', padding: 0 }}
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+                <div style={{ fontSize: '11px', fontWeight: 600, marginTop: '5px',
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {image.part_label || part.replace(/_/g, ' ')}
+                </div>
+                <div style={{ fontSize: '10px', color: 'var(--text-secondary)',
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {image.design_title || ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

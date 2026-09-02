@@ -1187,8 +1187,45 @@ def _board_item_from_draft(order, customer, job, item, position, user):
         match_score=item.get('match_score') or 0,
         match_reasons=item.get('match_reasons') or [],
         is_selected=bool(item.get('is_selected')),
+        part=item.get('part') or 'overall',
         position=position,
     )
+
+
+def _part_items_from_draft(design):
+    """The wizard's per-part choices, as board items.
+
+    The order wizard used to shortlist whole designs, and wrote them to the
+    draft as `design.items`. It now chooses one photograph per PART of the
+    garment -- this pallu, that border -- and writes `design.parts` as
+    {part_key: image}. Confirm read only the old key, so every part a customer
+    picked was saved on the draft and then silently dropped at the moment the
+    order was created: the order reached the workroom with no design on it and
+    nothing said so.
+
+    Translated here rather than at the call site so both shapes converge on one
+    board-item writer. A draft written before the change still carries `items`
+    and still confirms exactly as it did.
+    """
+    items = []
+    for part, image in (design.get('parts') or {}).items():
+        if not image:
+            continue
+        items.append({
+            'source': 'library',
+            # The DesignAsset the photograph belongs to, so the workroom can
+            # reach the whole design from the part that was chosen.
+            'source_ref': str(image.get('design_id') or ''),
+            'title': image.get('part_label') or part.replace('_', ' '),
+            'image_url': image.get('image_url') or '',
+            'part': part,
+            # Every part chosen IS the choice for that part -- there is no
+            # shortlist-then-pick step in the part flow, so each one is
+            # selected on arrival. The per-part uniqueness constraint added in
+            # design_studio 0017 is what keeps that to one per part.
+            'is_selected': True,
+        })
+    return items
 
 
 class OrderDraftViewSet(viewsets.ViewSet):
@@ -1399,7 +1436,11 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 # attached to the job it was chosen for -- which is what makes
                 # the personalisation survive Confirm on the correct garment.
                 design = garment.get('design') or {}
-                for position, item in enumerate(design.get('items') or []):
+                # `items` is the old whole-design shortlist; `parts` is what the
+                # part picker writes. Both, so an in-flight draft written under
+                # either shape confirms with its designs intact.
+                draft_items = list(design.get('items') or []) + _part_items_from_draft(design)
+                for position, item in enumerate(draft_items):
                     _board_item_from_draft(order, customer, job, item, position,
                                            request.user)
 

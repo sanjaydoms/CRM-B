@@ -20,8 +20,11 @@ import {
 // never open, so they are fetched when their tab is first shown instead.
 // TemplateForm stays eager: it renders inline in the order wizard, where a
 // loading flicker mid-form would be worse than its few KB.
-const DesignStudio = lazy(() => import('./features/designStudio/DesignStudio'));
 const GarmentPartPicker = lazy(() => import('./features/designStudio/GarmentPartPicker'));
+// Named export off the same module, so it arrives with the chunk the
+// pickers already load rather than costing a second request.
+const SelectedDesignSummary = lazy(() => import('./features/designStudio/GarmentPartPicker')
+  .then(m => ({ default: m.SelectedDesignSummary })));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
 const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
@@ -2051,15 +2054,6 @@ function App() {
     setGarmentJobs(prev => prev.map(job => job.key === garmentKey
       ? { ...job, design: { ...(job.design || {}), parts: next } }
       : job));
-  };
-
-  const handleGarmentBoardChange = (garmentKey, state) => {
-    if (state?.items !== undefined) {
-      setGarmentJobs(prev => prev.map(job => job.key === garmentKey
-        ? { ...job, design: { items: state.items, selected: state.selected || null } }
-        : job));
-    }
-    setDesignBoard(state);
   };
 
   /** The stage this order is actually sitting on: the first one nobody has
@@ -7448,6 +7442,19 @@ function App() {
                           />
                         </div>
                       ))}
+
+                      {/* Everything chosen so far, garment by garment. A choice
+                          made under Saree scrolls out of sight as soon as the
+                          customer opens Blouse, so the whole outfit is
+                          gathered here at the foot of the screen. */}
+                      <SelectedDesignSummary
+                        garmentJobs={garmentJobs}
+                        onClear={(garmentKey, part) => {
+                          const next = { ...(partSelection[garmentKey] || {}) };
+                          delete next[part];
+                          handlePartSelection(garmentKey, next);
+                        }}
+                      />
                     </Suspense>
                   )}
 
