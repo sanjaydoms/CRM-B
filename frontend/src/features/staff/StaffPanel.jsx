@@ -251,12 +251,84 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
   );
 }
 
+function AdvanceForm({ member, onCancel, onSaved }) {
+  const [form, setForm] = useState({
+    amount: '', weekly_recovery: '',
+    issued_on: new Date().toISOString().slice(0, 10), reason: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await api.issueAdvance({ ...cleaned(form), staff: member.id });
+      onSaved();
+    } catch (err) {
+      setError(err.message || 'Could not issue this advance.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = { display: 'flex', flexDirection: 'column', gap: '5px' };
+  const label = { fontSize: '12px', color: 'var(--text-secondary)' };
+  return (
+    <form onSubmit={submit}>
+      {error && (
+        <div style={{
+          background: 'rgba(220,80,60,0.12)', border: '1px solid rgba(220,80,60,0.35)',
+          color: '#c0392b', borderRadius: '8px', padding: '10px 12px',
+          fontSize: '13px', marginBottom: '14px',
+        }}>{error}</div>
+      )}
+      <div className="mobile-stack-grid"
+           style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+        <div style={field}>
+          <label style={label} htmlFor="adv-amount">Amount (₹)</label>
+          <input id="adv-amount" type="number" min="0.01" step="0.01" required
+                 value={form.amount} onChange={set('amount')} placeholder="0.00" />
+        </div>
+        <div style={field}>
+          <label style={label} htmlFor="adv-weekly">Recover per week (₹)</label>
+          <input id="adv-weekly" type="number" min="0" step="0.01"
+                 value={form.weekly_recovery} onChange={set('weekly_recovery')} placeholder="0.00" />
+        </div>
+        <div style={field}>
+          <label style={label} htmlFor="adv-date">Given on</label>
+          <input id="adv-date" type="date" required value={form.issued_on} onChange={set('issued_on')} />
+        </div>
+        <div style={field}>
+          <label style={label} htmlFor="adv-reason">Reason</label>
+          <input id="adv-reason" value={form.reason} onChange={set('reason')}
+                 placeholder="Emergency advance" />
+        </div>
+      </div>
+      <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '14px' }}>
+        Recovery is taken from payroll each week, after the security deposit and
+        never more than the week earned. Oldest advance first.
+      </p>
+      <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '18px' }}>
+        <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="btn-primary" disabled={saving}>
+          {saving ? 'Saving…' : 'Issue advance'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function Roster({ isOwner, canSeeTeam }) {
   const [roster, setRoster] = useState([]);
   const [terms, setTerms] = useState([]);
   // Owner only. The endpoint refuses everyone else, so this stays empty for a
   // Master and the deposit block simply does not render for them.
   const [deposits, setDeposits] = useState([]);
+  const [advances, setAdvances] = useState([]);
+  const [issuingFor, setIssuingFor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [search, setSearch] = useState('');
@@ -268,14 +340,16 @@ function Roster({ isOwner, canSeeTeam }) {
     try {
       // Independent failures: a staff member may read their own terms but not
       // the roster, so one refusal must not blank the whole screen.
-      const [people, profiles, deposited] = await Promise.all([
+      const [people, profiles, deposited, advanced] = await Promise.all([
         canSeeTeam ? api.getTailors().catch(() => []) : Promise.resolve([]),
         api.getStaffProfiles().catch(() => []),
         isOwner ? api.getDeposits().catch(() => []) : Promise.resolve([]),
+        isOwner ? api.getAdvances({ active: 'true' }).catch(() => []) : Promise.resolve([]),
       ]);
       setRoster(Array.isArray(people) ? people : []);
       setTerms(Array.isArray(profiles) ? profiles : []);
       setDeposits(Array.isArray(deposited) ? deposited : []);
+      setAdvances(Array.isArray(advanced) ? advanced : []);
     } catch (err) {
       setLoadError(err.message || 'Could not load the staff list.');
     } finally {
@@ -290,6 +364,15 @@ function Roster({ isOwner, canSeeTeam }) {
     const t = setTimeout(refresh, 0);
     return () => clearTimeout(t);
   }, [refresh]);
+
+  const advancesByStaff = useMemo(() => {
+    const map = new Map();
+    advances.forEach((a) => {
+      const key = String(a.staff);
+      map.set(key, [...(map.get(key) || []), a]);
+    });
+    return map;
+  }, [advances]);
 
   const depositByStaff = useMemo(() => {
     const map = new Map();
@@ -467,6 +550,56 @@ function Roster({ isOwner, canSeeTeam }) {
                 })()
               )}
 
+              {isOwner && t && showsPay(t) && (
+                <div style={{
+                  marginTop: '12px', paddingTop: '12px',
+                  borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between',
+                                alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '11px', letterSpacing: '0.08em',
+                                  textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                      Advances
+                    </div>
+                    <button type="button" className="btn-secondary"
+                            onClick={() => setIssuingFor(member)}
+                            style={{ minHeight: '34px', fontSize: '12px',
+                                     display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Plus size={12} /> Issue advance
+                    </button>
+                  </div>
+                  {(advancesByStaff.get(String(member.id)) || []).length === 0 ? (
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      No outstanding advance.
+                    </div>
+                  ) : (
+                    (advancesByStaff.get(String(member.id)) || []).map((a) => (
+                      <div key={a.id}
+                           className="mobile-stack-grid"
+                           style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+                                    gap: '10px', marginBottom: '6px' }}>
+                        <div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Issued {new Date(a.issued_on).toLocaleDateString([], { day: 'numeric', month: 'short' })}
+                          </div>
+                          <div style={{ fontWeight: 600 }}>{money(a.issued)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Recovered</div>
+                          <div style={{ fontWeight: 600 }}>{money(a.recovered)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Outstanding · {money(a.weekly_recovery)}/wk
+                          </div>
+                          <div style={{ fontWeight: 600 }}>{money(a.outstanding)}</div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
               {t && !showsPay(t) && (
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
                   Employment set up. Pay details are visible to the boutique owner only.
@@ -481,6 +614,16 @@ function Roster({ isOwner, canSeeTeam }) {
             </div>
           ))}
         </div>
+      )}
+
+      {issuingFor && (
+        <Modal title={`Issue advance — ${issuingFor.name}`} onClose={() => setIssuingFor(null)}>
+          <AdvanceForm
+            member={issuingFor}
+            onCancel={() => setIssuingFor(null)}
+            onSaved={() => { setIssuingFor(null); refresh(); }}
+          />
+        </Modal>
       )}
 
       {editing && (

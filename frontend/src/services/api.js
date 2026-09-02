@@ -1453,4 +1453,18 @@ Object.assign(api, {
   approvePayroll: (id) => payrollRequest(`periods/${id}/approve/`, { method: 'POST', body: {} }),
   getDeposits: () => payrollRequest('deposits/'),
   getDeposit: (staffId) => payrollRequest(`deposits/${staffId}/`),
+
+  // Advances. Issue and cancel are owner-only server-side; the amount of a
+  // recovery is never sent from here -- payroll decides it.
+  getAdvances: (params) => payrollRequest('advances/', {}, params),
+  getAdvance: (id) => payrollRequest(`advances/${id}/`),
+  issueAdvance: (payload) => payrollRequest('advances/', { method: 'POST', body: payload }),
+  updateAdvance: (id, payload) =>
+    payrollRequest(`advances/${id}/`, { method: 'PATCH', body: payload }),
+  cancelAdvance: (id, reason) =>
+    payrollRequest(`advances/${id}/cancel/`, { method: 'POST', body: { reason } }),
+
+  // Payout. No amount in the body, ever: the server pays the approved net.
+  recordPayout: (recordId, payload) =>
+    payrollRequest(`records/${recordId}/payout/`, { method: 'POST', body: payload }),
 });
