@@ -2837,19 +2837,36 @@ function App() {
             <nav className="portal-menu">
               {(!currentUser.role || currentUser.role === 'Owner') ? (
                 <>
+                  {/* Grouped by what the owner is DOING, not by the order the
+                      screens were built in. Eleven entries in one flat list meant
+                      fabrics sat apart from inventory, and the roster apart from
+                      the employment screen that extends it, so finding anything
+                      meant reading all eleven. The runs below follow a boutique's
+                      own shape: the daily loop first, then what goes into the
+                      work, then the people who do it, then the books. */}
+                  <div className="portal-menu-group">Daily</div>
                   <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Dashboard</a>
                   <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
                   <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> Invoices</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> Analytics</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> Manage Fabrics</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> Inventory</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> Manage Tailors</a>
-                  {/* Sits next to the roster it extends: Manage Tailors is who
-                      works here, this is their employment, time and pay. */}
-                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> Staff Management</a>
+
+                  <div className="portal-menu-group">Design</div>
                   <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Manage Designs</a>
                   <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
+
+                  <div className="portal-menu-group">Stock</div>
+                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> Manage Fabrics</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> Inventory</a>
+
+                  {/* Manage Tailors is WHO works here; Staff Management is their
+                      employment, time and pay. They were already neighbours and
+                      stay that way -- the pairing is the point of the group. */}
+                  <div className="portal-menu-group">People</div>
+                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> Manage Tailors</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> Staff Management</a>
+
+                  <div className="portal-menu-group">Business</div>
+                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> Invoices</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> Analytics</a>
                 </>
               ) : currentUser.role === 'Master' ? (
                 <>
@@ -2887,6 +2904,11 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Clock size={16} /> My Attendance</a>
                 </>
               )}
+              {/* A rule rather than a heading: these two are the way OUT of the
+                  workspace, not another room in it. Shared by every role, so a
+                  tailor with two menu items gets the same separation as the
+                  owner with eleven. */}
+              <div className="portal-menu-divider" />
               <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> My Account</a>
               <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> Logout</a>
             </nav>
