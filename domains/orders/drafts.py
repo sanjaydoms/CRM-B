@@ -5,6 +5,7 @@ from crm_api.models import Customer, OrderDraft
 
 
 class DraftConflict(ValueError):
+    pass
 
 
 

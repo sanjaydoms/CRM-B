@@ -45,6 +45,7 @@ _CONTROL_COLUMNS = ('is_active', 'enabled_modules')
 
 
 class TenantGone(Exception):
+    pass
 
 
 

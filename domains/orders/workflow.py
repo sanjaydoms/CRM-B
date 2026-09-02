@@ -7,6 +7,7 @@ ENTERING_STATUSES = ('IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'PAUSED')
 
 
 class TransitionError(ValueError):
+    pass
 
 
 def _requires_measurements(order, stage):

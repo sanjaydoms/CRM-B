@@ -27,6 +27,7 @@ def forget(schema_name):
 
 
 class MissingSchema(Exception):
+    pass
 
 
 

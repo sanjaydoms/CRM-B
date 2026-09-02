@@ -212,6 +212,7 @@ class LocationStock(models.Model):
 
 
 class DirectStockWriteError(RuntimeError):
+    pass
 
 
 

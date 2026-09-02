@@ -23,6 +23,7 @@ def clear_vendor_defaults(apps, schema_editor):
 
 
 def noop(apps, schema_editor):
+    pass
 
 
 class Migration(migrations.Migration):
