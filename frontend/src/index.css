@@ -3734,6 +3734,15 @@ table.data-table tbody tr:hover {
     to { transform: translateY(0); }
   }
 
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .spin-icon {
+    animation: spin 0.8s linear infinite;
+  }
+
   .bottom-sheet-handle-bar {
     display: flex;
     justify-content: center;

@@ -6,7 +6,7 @@ import {
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu,
-  PenTool, Settings
+  PenTool, Settings, RotateCw
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
@@ -3222,6 +3222,17 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button 
+                      type="button"
+                      className="btn-secondary" 
+                      disabled={loading}
+                      onClick={() => fetchDashboardAndConfig()}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', fontSize: '13px' }}
+                      title="Refresh Dashboard Data"
+                    >
+                      {!loading && <RotateCw size={15} />}
+                      <span>{loading ? t('common.loading', 'Loading...') : t('common.refresh', 'Refresh')}</span>
+                    </button>
                     <button className="btn-primary" onClick={() => setView('order-selector')}>
                       <Sparkles size={16} />
                       {t('dashboard.newOrder')}
