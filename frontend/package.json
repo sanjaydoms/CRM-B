@@ -9,14 +9,25 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "build:site": "node build-site.mjs",
-    "test": "node --test src/services/*.test.js"
+    "test": "node --test src/services/*.test.js",
+    "build:android": "node build-android.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
+    "capacitor-secure-storage-plugin": "^0.13.0",
     "lucide-react": "^1.21.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

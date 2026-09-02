@@ -1,0 +1,12 @@
+{
+  "appId": "com.scaleezy.boutique",
+  "appName": "Boutique CRM",
+  "webDir": "dist-android",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "loggingBehavior": "debug"
+}

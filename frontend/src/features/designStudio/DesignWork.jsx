@@ -328,7 +328,7 @@ export default function DesignWork({ currentUser }) {
     // made for the role that has no use for it.
     if (!isSupervisor) return;
     api.getDesigners().then(d => setDesigners(d.results || d || [])).catch(() => {});
-    api.getOrders().then(o => setOrders(o.results || o || [])).catch(() => {});
+    api.getOpenOrders().then(o => setOrders(o.results || o || [])).catch(() => {});
   }, [isSupervisor]);
 
   // A designer's own library, to submit from. Their id comes off their own

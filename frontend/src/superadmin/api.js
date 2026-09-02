@@ -15,9 +15,52 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 const CONSOLE_URL = `${BASE_URL}/superadmin`;
 
 export const TOKEN_KEY = 'superadmin_token';
+const REFRESH_KEY = 'superadmin_refresh';
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+export const clearToken = () => {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+};
+
+const storeSession = (data) => {
+  if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
+  if (data.refresh) localStorage.setItem(REFRESH_KEY, data.refresh);
+};
+
+/**
+ * Renew the console's access token, at most once at a time.
+ *
+ * The console's tokens expire now, like every other token in the product. An
+ * administrator reading an audit log for two hours should not be thrown out
+ * mid-page, and every rotation invalidates the token it replaced -- so two
+ * concurrent refreshes would spend the same refresh token twice and the server
+ * would correctly treat the second as a replay. Hence the single flight.
+ */
+let refreshInFlight = null;
+
+const refreshSession = () => {
+  if (refreshInFlight) return refreshInFlight;
+  const refresh = localStorage.getItem(REFRESH_KEY);
+  if (!refresh) return Promise.resolve(false);
+
+  refreshInFlight = fetch(`${CONSOLE_URL}/auth/refresh/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh }),
+  })
+    .then(async (res) => {
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => null);
+      if (!data || !data.token) return false;
+      storeSession(data);
+      return true;
+    })
+    .catch(() => false)
+    .finally(() => { refreshInFlight = null; });
+
+  return refreshInFlight;
+};
 
 /**
  * Filters as a query string, with empty values dropped.
@@ -55,11 +98,20 @@ const describe = (res, data) => {
 };
 
 async function request(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`${CONSOLE_URL}${path}`, {
+  const send = () => fetch(`${CONSOLE_URL}${path}`, {
     method,
+    // Rebuilt per attempt, not captured: after a refresh the headers built for
+    // the first attempt name a token that has been replaced.
     headers: headers(),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+
+  let res = await send();
+  // An expired access token is an ordinary event on a console left open. Try
+  // the refresh token before concluding the session is over.
+  if (res.status === 401 && await refreshSession()) {
+    res = await send();
+  }
 
   if (res.status === 204) return null;
 
@@ -90,7 +142,7 @@ export const consoleApi = {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(describe(res, data));
-    localStorage.setItem(TOKEN_KEY, data.token);
+    storeSession(data);
     return data.user;
   },
 

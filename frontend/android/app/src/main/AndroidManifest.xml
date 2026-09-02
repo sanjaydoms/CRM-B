@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:name=".BoutiqueApplication"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <!--
+            windowSoftInputMode="adjustResize" is what makes the keyboard push
+            the page up instead of covering it. Capacitor's Keyboard plugin has
+            a setResizeMode call for the same purpose and it answers
+            UNIMPLEMENTED on Android in this version, so the manifest is the
+            only place this can be set. Without it, the field being typed into
+            sits underneath the keyboard on every form in the app.
+        -->
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- App Links for the boutique workspace.
+                 android:autoVerify makes Android check
+                 https://boutique.scaleezy.com/.well-known/assetlinks.json and,
+                 when it matches this app's signing certificate, open these
+                 links here with no chooser. Until that file is published the
+                 links still work — they open in the browser, which is the
+                 correct fallback and is why the web app must keep serving
+                 them. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https"
+                      android:host="boutique.scaleezy.com"
+                      android:pathPrefix="/app" />
+            </intent-filter>
+
+            <!-- Deliberately NOT claiming /track/. Those links are for
+                 customers, who do not have this app: claiming them would put a
+                 disambiguation dialog in front of a boutique owner every time
+                 they tapped their own customer's tracking link, and would open
+                 a page inside the staff app that is not part of it. -->
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+
+        <!-- The channel a notification lands in when FCM's payload names one.
+             Must match FCM_CHANNEL_ID in the Django settings, or Android files
+             the notification under a channel the user has never seen and it is
+             silently dropped. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/default_notification_channel_id" />
+    </application>
+
+    <!-- Permissions.
+         Four, and each is here because a workflow needs it:
+
+         INTERNET          — the entire app is an API client.
+         POST_NOTIFICATIONS — Android 13+. Asked for after sign-in, not at
+                              launch (see src/native/push.js for why).
+         CAMERA            — photographing a finished garment and a design
+                              reference, which is how designers and masters use
+                              the product.
+         READ_MEDIA_IMAGES — choosing an existing photograph on Android 13+.
+                              maxSdkVersion 32 on READ_EXTERNAL_STORAGE keeps
+                              the old permission off newer devices, where it
+                              does nothing but appear on the Play listing.
+
+         Nothing else. No location, no contacts, no storage write: the app has
+         no feature that uses them, and every permission on the listing is one
+         more question a boutique has to answer about why it wants that. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!-- Declared so the camera is optional: a tablet with no camera must still
+         be able to install the app and use every other screen. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+</manifest>

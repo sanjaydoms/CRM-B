@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG BUILDS ONLY. This file lives in src/debug, so Gradle merges it into the
+  debug variant and never into a release.
+
+  A local Django dev server speaks plain HTTP, and Android has refused cleartext
+  by default since API 28. Without this, a debug build pointed at a laptop shows
+  every request failing with ERR_CLEARTEXT_NOT_PERMITTED and no other clue.
+
+  Two hosts, and no others: 10.0.2.2 is the emulator's alias for the machine
+  running it, and 192.168.0.0/16 covers a phone on the same wifi as a developer.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

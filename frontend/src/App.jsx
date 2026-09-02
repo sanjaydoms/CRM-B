@@ -9,6 +9,11 @@ import {
   PenTool
 } from 'lucide-react';
 import { api } from './services/api';
+import { clearSession, getTenantId, getToken } from './services/session';
+import { onBack } from './native/back';
+import { onDeepLink } from './native';
+import { onNetworkChange } from './native/network';
+import { disablePush, enablePush, onPushReceived } from './native/push';
 import { resolveMediaUrl } from './services/media';
 import {
   formatMoney, formatDate as fmtDate, formatDateTime as fmtDateTime,
@@ -32,6 +37,7 @@ import { BottomNavigation } from './components/ui/BottomNavigation';
 import { BottomSheet } from './components/ui/BottomSheet';
 import { ResponsiveCard } from './components/ui/ResponsiveCard';
 import { ProgressiveAccordion } from './components/ui/ProgressiveAccordion';
+import { LoadMoreSentinel } from './components/ui/LoadMoreSentinel';
 
 /** Placeholder shown while a lazily loaded screen arrives. */
 const ScreenLoading = () => (
@@ -1048,7 +1054,7 @@ function App() {
   // logs in afterwards. Fetching once on mount meant the request 401'd, the
   // list stayed empty, and the order form offered no garments at all.
   const loadGarmentTemplates = useCallback(async () => {
-    if (!localStorage.getItem('token')) return;
+    if (!getToken()) return;
     setGarmentTemplatesError(null);
     try {
       const data = await api.getGarmentTemplates();
@@ -1386,6 +1392,11 @@ function App() {
   const [allDesigns, setAllDesigns] = useState([]);
   const [customersList, setCustomersList] = useState([]);
   const [ordersList, setOrdersList] = useState([]);
+  // The order figures, computed by the server over the whole book. Every number
+  // in here used to be a reduce() over ordersList -- which was only ever right
+  // while the browser held every order the boutique had taken. See
+  // OrderViewSet.summary.
+  const [ordersSummary, setOrdersSummary] = useState(null);
   // Customer messages still waiting for the owner to send them, for every
   // order at once. Refreshed with the dashboard, so advancing an order's
   // status makes its new message appear without a reload.
@@ -1404,6 +1415,19 @@ function App() {
   const [ordersFilterTab, setOrdersFilterTab] = useState('All');
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState('All');
+
+  // The Orders and Invoices tabs read a PAGE of the order book, not the whole
+  // of it: those two are the screens whose list grows for as long as a boutique
+  // stays in business, and an order row costs ~7KB with its production stages
+  // and garment specs -- so a thousand orders was a seven-megabyte screen on
+  // whatever connection the shop has.
+  //
+  // The filters and the search that narrow them are applied by the SERVER
+  // (status_group, payment, search on OrderViewSet). They have to be: a filter
+  // applied to page one in the browser is not a filter, it is a coincidence.
+  const EMPTY_PAGE = { rows: [], next: null, count: 0, loading: false, error: null };
+  const [orderPage, setOrderPage] = useState(EMPTY_PAGE);
+  const [invoicePage, setInvoicePage] = useState(EMPTY_PAGE);
   const [loading, setLoading] = useState(true);
   const [boutiqueSettings, setBoutiqueSettings] = useState(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -1458,10 +1482,93 @@ function App() {
   const [assigningWorkflowOrderId, setAssigningWorkflowOrderId] = useState(null);
   const [deletingFabricId, setDeletingFabricId] = useState(null);
   const [deletingDraftId, setDeletingDraftId] = useState(null);
+  // Connectivity, read by the banner at the top of the render.
+  const [online, setOnline] = useState(true);
 
   // `user` is passed explicitly by callers that have just signed in: setCurrentUser
   // has not committed yet at that point, so reading it from state would bail out
   // and leave the bell empty until some later refresh.
+  // --- the two paged order lists ----------------------------------------
+
+  /**
+   * Load the first page of a paged order list, replacing whatever is there.
+   *
+   * A request that is overtaken by a newer one is dropped rather than applied:
+   * typing "anj" fires three searches, and without this the slowest of them
+   * decides what is on screen.
+   */
+  const orderPageToken = useRef(0);
+  const invoicePageToken = useRef(0);
+
+  const loadFirstPage = useCallback(async (setPage, token, params) => {
+    const mine = (token.current += 1);
+    setPage((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const data = await api.getOrdersPage(params);
+      if (token.current !== mine) return;
+      setPage({ rows: data.results || [], next: data.next || null,
+                count: data.count ?? (data.results || []).length,
+                loading: false, error: null });
+    } catch (err) {
+      if (token.current !== mine) return;
+      setPage((prev) => ({ ...prev, loading: false, error: err.message }));
+    }
+  }, []);
+
+  /** Append the next page. Called by the sentinel at the bottom of the list. */
+  const loadNextPage = useCallback(async (setPage, page) => {
+    if (!page.next || page.loading) return;
+    setPage((prev) => ({ ...prev, loading: true }));
+    try {
+      const data = await api.getPage(page.next);
+      setPage((prev) => ({
+        rows: [...prev.rows, ...(data.results || [])],
+        next: data.next || null,
+        count: data.count ?? prev.count,
+        loading: false,
+        error: null,
+      }));
+    } catch (err) {
+      setPage((prev) => ({ ...prev, loading: false, error: err.message }));
+    }
+  }, []);
+
+  //: 'All' asks for no group at all, which is the whole book.
+  const ORDER_STATUS_GROUP = { All: '', Active: 'active', Shipped: 'shipped', Delivered: 'delivered' };
+  const INVOICE_PAYMENT = { All: '', Paid: 'paid', Pending: 'pending' };
+
+  /** Reload the invoice page in place -- after a payment is recorded on it. */
+  const refreshInvoicePage = useCallback(() => loadFirstPage(
+    setInvoicePage, invoicePageToken,
+    { search: invoiceSearch.trim(), payment: INVOICE_PAYMENT[invoiceFilter] || '' }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [invoiceSearch, invoiceFilter, loadFirstPage]);
+
+  // Debounced, because these fire on every keystroke in the search box.
+  useEffect(() => {
+    if (!currentUser || dashboardTab !== 'orders') return undefined;
+    const timer = setTimeout(() => {
+      loadFirstPage(setOrderPage, orderPageToken, {
+        search: ordersSearch.trim(),
+        statusGroup: ORDER_STATUS_GROUP[ordersFilterTab] || '',
+      });
+    }, ordersSearch ? 300 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, dashboardTab, ordersSearch, ordersFilterTab]);
+
+  useEffect(() => {
+    if (!currentUser || dashboardTab !== 'invoices') return undefined;
+    const timer = setTimeout(() => {
+      loadFirstPage(setInvoicePage, invoicePageToken, {
+        search: invoiceSearch.trim(),
+        payment: INVOICE_PAYMENT[invoiceFilter] || '',
+      });
+    }, invoiceSearch ? 300 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, dashboardTab, invoiceSearch, invoiceFilter]);
+
   const fetchNotifications = async (user = currentUser) => {
     if (!user) return;
     const data = await api.getNotifications(user.role || 'Owner', user.email);
@@ -1525,9 +1632,10 @@ function App() {
     try {
       await api.confirmPasswordReset(resetToken, resetPassword);
       // The reset signed every device out, this one included, so anything
-      // still in localStorage is a token the server has already deleted.
-      localStorage.removeItem('token');
-      localStorage.removeItem('tenant_id');
+      // still stored here is a token the server has already deleted -- the
+      // refresh token included, which is why this clears the whole session
+      // rather than the two keys it used to name.
+      clearSession();
       setResetDone(true);
       setResetPassword('');
       setResetConfirm('');
@@ -1538,12 +1646,133 @@ function App() {
     }
   };
 
+  // --- Android: back button, deep links, connectivity, foreground push ---
+  //
+  // All four are inert in a browser (the modules check the platform), so this
+  // block is the app's whole native behaviour and the rest of this file does
+  // not have to know it is running on a phone.
+
+  // The back button reads state through a ref rather than closing over it, so
+  // the handler is registered once instead of on every keystroke that changes
+  // one of a dozen dependencies.
+  const backState = useRef({});
+  // Written in an effect, not during render: a ref mutated while rendering is
+  // invisible to React's own scheduling and the linter refuses it. After every
+  // render is soon enough -- the back button and a deep link can only arrive
+  // between renders anyway.
+  useEffect(() => {
+    backState.current = {
+      view, currentStep, mobileNavOpen, showSearchModal, showNotificationsDrawer,
+      showInvoiceModal, showFabricModal, showTailorModal, showDesignModal,
+      showAppointmentModal, showDrapingModal, selectedDashboardOrder,
+      selectedDirectoryCustomer, fetchNotifications,
+    };
+  });
+
+
+  useEffect(() => onBack(() => {
+    const s = backState.current;
+
+    // Order matters: it is the order things sit on top of each other. Back
+    // closes the topmost thing, one press at a time -- which is what the
+    // gesture means on Android, and what Android's default (close the app)
+    // did not do.
+    const overlays = [
+      [s.showDrapingModal, () => setShowDrapingModal(false)],
+      [s.showSearchModal, () => setShowSearchModal(false)],
+      [s.showAppointmentModal, () => setShowAppointmentModal(false)],
+      [s.showDesignModal, () => setShowDesignModal(false)],
+      [s.showTailorModal, () => setShowTailorModal(false)],
+      [s.showFabricModal, () => setShowFabricModal(false)],
+      [s.showInvoiceModal, () => setShowInvoiceModal(false)],
+      [s.showNotificationsDrawer, () => setShowNotificationsDrawer(false)],
+      [s.mobileNavOpen, () => setMobileNavOpen(false)],
+    ];
+    const open = overlays.find(([isOpen]) => isOpen);
+    if (open) { open[1](); return true; }
+
+    // A detail view is a screen, not an overlay: back returns to the list.
+    if (s.selectedDashboardOrder) { setSelectedDashboardOrder(null); return true; }
+    if (s.selectedDirectoryCustomer) { setSelectedDirectoryCustomer(null); return true; }
+
+    if (s.view === 'wizard') {
+      // Never straight out of a part-filled order. Earlier steps are
+      // non-destructive, and the draft is saved server-side (order-drafts), so
+      // stepping back loses nothing; leaving from step one is the only place a
+      // confirmation is warranted.
+      if (s.currentStep > 1) { setCurrentStep(s.currentStep - 1); return true; }
+      if (window.confirm('Leave this order? Your draft is saved and you can come back to it.')) {
+        setView('dashboard');
+      }
+      return true;
+    }
+
+    if (s.view === 'order-selector' || s.view === 'confirmed') {
+      setView('dashboard');
+      return true;
+    }
+
+    // 'dashboard' with nothing open, or the sign-in screens: nothing to close,
+    // and native/index.js takes it from here (leave the app).
+    return false;
+  }), []);
+
+  // A link that names an order opens that order, whether it arrived from a
+  // notification tap, a shared message, or the browser.
+  useEffect(() => onDeepLink(async (url) => {
+    const match = url.pathname.match(/\/orders\/([A-Za-z0-9-]+)/);
+    if (match) {
+      setView('dashboard');
+      setDashboardTab('orders');
+
+      // Put the reference in the Orders tab's own search box and clear the
+      // status filter. The tab then fetches exactly that order and shows it --
+      // which is what a tap on "Order PAGE-006 moved to Delivered" should do.
+      //
+      // Searching rather than scrolling to a row: the list holds one page of
+      // the newest work, and a notification about an order finished last month
+      // would otherwise open the tab and appear to do nothing.
+      setOrdersFilterTab('All');
+      setOrdersSearch(match[1]);
+
+      // The dashboard's own order panel reads this, for the case where the tap
+      // arrives while that panel is what the person is looking at.
+      try {
+        const page = await api.getOrdersPage({ search: match[1], pageSize: 1 });
+        const found = (page.results || []).find((o) => o.order_id === match[1]);
+        if (found) setSelectedDashboardOrder(found);
+      } catch {
+        // Offline, or a link to an order this person may not see. The Orders
+        // tab is open either way, which is the honest place to land.
+      }
+      return;
+    }
+    if (url.pathname.includes('/notifications')) {
+      setView('dashboard');
+      setShowNotificationsDrawer(true);
+    }
+  }), []);
+
+  // A push that lands while the app is open draws no Android notification, so
+  // the bell is the only place it can show. Refetching is what keeps the badge
+  // honest without inventing a second copy of the notification in state.
+  useEffect(() => onPushReceived(() => {
+    backState.current.fetchNotifications().catch(() => {});
+  }), []);
+
+  useEffect(() => onNetworkChange(setOnline), []);
+
+
   const checkAuthSession = async () => {
     try {
       const user = await api.getMe();
       if (user) {
         setCurrentUser(user);
         setView('dashboard');
+        // A restored session re-registers: FCM rotates the token on its own
+        // schedule, and a device whose token has moved on receives nothing
+        // until it says so.
+        enablePush();
         if (user.role === 'Designer') {
           // Deliberately does not call fetchDashboardAndConfig: that pulls
           // customers, orders and financials into the browser session, and a
@@ -1622,7 +1851,8 @@ function App() {
         setCustomersList(data);
         setAllCustomers(data);
       }),
-      load('orders', api.getOrders, setOrdersList),
+      load('order figures', api.getOrdersSummary, setOrdersSummary),
+      load('orders', api.getOpenOrders, setOrdersList),
       load('tailors', api.getTailors, setTailors),
       load('appointments', api.getAppointments, setAppointments),
       load('fabrics', api.getFabrics, setFabrics),
@@ -1834,6 +2064,10 @@ function App() {
       const res = await api.login(loginEmail, loginPassword);
       setCurrentUser(res.user);
       setView('dashboard');
+      // After sign-in, never before: Android 13 gives one chance to ask for
+      // notification permission, and asking someone who has not yet seen what
+      // the app is for gets a refusal that only an OS settings screen undoes.
+      enablePush();
       if (res.user.role === 'Designer') {
         // See the matching branch in checkAuthSession for why this skips
         // fetchDashboardAndConfig entirely rather than fetching and hiding.
@@ -1906,6 +2140,10 @@ function App() {
     if (logoutBusy) return;
     setLogoutBusy(true);
     try {
+      // Before api.logout(), which is what still has a token to authenticate
+      // the request with. A device left registered keeps buzzing with the next
+      // shift's work for someone who has signed out.
+      await disablePush();
       await api.logout();
       setCurrentUser(null);
       setView('login');
@@ -2492,7 +2730,7 @@ function App() {
         <pre style={{ whiteSpace: 'pre-wrap', fontSize: '14px', background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '8px' }}>
           {globalError}
         </pre>
-        <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="btn-secondary" style={{ marginTop: '16px', background: '#fff', color: '#7f1d1d', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}>
+        <button onClick={() => { clearSession(); localStorage.clear(); window.location.reload(); }} className="btn-secondary" style={{ marginTop: '16px', background: '#fff', color: '#7f1d1d', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}>
           Clear Session & Reload
         </button>
       </div>
@@ -2530,6 +2768,21 @@ function App() {
   const showOnboarding = !loading && !onboardingDismissed && onboardingSteps.some(step => !step.done);
   return (
     <div className="app-container">
+
+      {/* Offline. Above everything, on every screen, because the thing it has
+          to prevent is someone filling in a form and pressing Save into a void.
+          It states the fact and nothing else: nothing here queues writes, and
+          saying "we'll send it later" when nothing will is the one behaviour
+          the product must never have. */}
+      {!online && (
+        <div role="status" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+          background: '#7f1d1d', color: '#fff', textAlign: 'center',
+          padding: '8px 16px', fontSize: '13px', fontWeight: 600,
+        }}>
+          No connection. Anything you save now will not reach the boutique.
+        </div>
+      )}
 
       {/* 2. SIGN IN SCREEN (Image 2) */}
       {view === 'login' && (
@@ -3286,7 +3539,7 @@ function App() {
                             {/* Price / Scope */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-color)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                               <div className="assignment-card-sub-info" style={{ borderBottom: (!isProductionStaff(currentUser.role) || order.customer_measurements || (order.garment_jobs || []).length > 0) ? '1px solid var(--border-color)' : 'none', paddingBottom: '10px', fontSize: '13px' }}>
-                                {!isProductionStaff(currentUser.role) && <div>Total Value: <span style={{ fontWeight: 600 }}>₹{parseFloat(order.total_amount).toLocaleString()}</span></div>}
+                                {!isProductionStaff(currentUser.role) && <div>Total Value: <span style={{ fontWeight: 600 }}>{formatMoney(order.total_amount)}</span></div>}
                                 <div>Assigned Supervising Master: <span style={{ fontWeight: 600, color: 'var(--accent-text, #b07c40)' }}>{order.master_name || 'Unassigned'}</span></div>
                                 <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
                               </div>
@@ -4616,26 +4869,39 @@ function App() {
                   {/* Orders List Grid */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {(() => {
-                      const filtered = ordersList.filter(order => {
-                        // Status filter
-                        if (ordersFilterTab === 'Active') {
-                          if (['Shipped', 'Delivered'].includes(order.order_status)) return false;
-                        } else if (ordersFilterTab === 'Shipped') {
-                          if (order.order_status !== 'Shipped') return false;
-                        } else if (ordersFilterTab === 'Delivered') {
-                          if (order.order_status !== 'Delivered') return false;
-                        }
+                      // The status buttons and the search box above are applied
+                      // by the SERVER now (status_group / search on
+                      // OrderViewSet) and this list holds one page of the
+                      // answer. Filtering here would have narrowed page one and
+                      // called it a search.
+                      const filtered = orderPage.rows;
 
-                        // Search text filter
-                        if (ordersSearch.trim()) {
-                          const query = ordersSearch.toLowerCase();
-                          const matchesId = order.order_id.toLowerCase().includes(query);
-                          const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
-                          return matchesId || matchesClient;
-                        }
+                      if (orderPage.loading && filtered.length === 0) {
+                        return (
+                          <div style={{
+                            background: 'var(--surface-color)', border: '1px solid var(--border-color)',
+                            borderRadius: '12px', padding: '40px', textAlign: 'center',
+                            color: 'var(--text-muted)',
+                          }}>Loading orders…</div>
+                        );
+                      }
 
-                        return true;
-                      });
+                      if (orderPage.error) {
+                        return (
+                          <div role="alert" style={{
+                            background: 'var(--surface-color)', border: '1px solid #f5c6c6',
+                            borderRadius: '12px', padding: '24px', textAlign: 'center', color: '#8a2020',
+                          }}>
+                            <div style={{ marginBottom: '12px' }}>{orderPage.error}</div>
+                            <button className="btn-secondary" onClick={() => loadFirstPage(
+                              setOrderPage, orderPageToken,
+                              { search: ordersSearch.trim(),
+                                statusGroup: ORDER_STATUS_GROUP[ordersFilterTab] || '' })}>
+                              Try again
+                            </button>
+                          </div>
+                        );
+                      }
 
                       if (filtered.length === 0) {
                         return (
@@ -4654,7 +4920,7 @@ function App() {
                                 nothing is both wrong and a dead end. The
                                 dashboard's own orders panel already gets this
                                 right. */}
-                            {ordersList.length === 0 ? (
+                            {(orderPage.count === 0 && !ordersSearch.trim() && ordersFilterTab === 'All') ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
                                 <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No orders yet</div>
                                 <div style={{ fontSize: '13px', maxWidth: '44ch', lineHeight: 1.5 }}>
@@ -4777,7 +5043,7 @@ function App() {
                             {!isProductionStaff(currentUser.role) && (
                               <div>
                                 <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Value</span>
-                                <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
+                                <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>{formatMoney(order.total_amount)}</div>
                               </div>
                             )}
                             <div>
@@ -4921,6 +5187,35 @@ function App() {
                         </div>
                       ));
                     })()}
+
+                    {/* Infinite scroll. The count line is not decoration: it is
+                        the only way to tell "these are all of them" from "these
+                        are the first twenty-five". */}
+                    {orderPage.rows.length > 0 && (
+                      <>
+                        <LoadMoreSentinel
+                          onVisible={() => loadNextPage(setOrderPage, orderPage)}
+                          disabled={!orderPage.next || orderPage.loading}
+                        />
+                        <div style={{ textAlign: 'center', padding: '8px 0 16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                          {orderPage.loading ? 'Loading more…' : (
+                            <>
+                              {`Showing ${orderPage.rows.length} of ${orderPage.count}`}
+                              {/* The sentinel above loads the next page on
+                                  scroll. This does the same on a tap, which is
+                                  what a keyboard user reaches for and what
+                                  works where IntersectionObserver does not. */}
+                              {orderPage.next && (
+                                <button className="btn-secondary" style={{ marginLeft: '12px', padding: '4px 12px', fontSize: '12px' }}
+                                        onClick={() => loadNextPage(setOrderPage, orderPage)}>
+                                  Load more
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </>
@@ -5503,7 +5798,7 @@ function App() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                                   <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontWeight: 700, color: 'var(--accent-text, #b07c40)', fontSize: '14px' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
+                                    <div style={{ fontWeight: 700, color: 'var(--accent-text, #b07c40)', fontSize: '14px' }}>{formatMoney(order.total_amount)}</div>
                                     <span style={{
                                       display: 'inline-block',
                                       padding: '2px 8px',
@@ -5816,9 +6111,15 @@ function App() {
                   // counted a part-paid order at zero, outstanding counted it
                   // in full -- so the header disagreed with its own table in
                   // both directions on the same screen.
-                  const paidTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
-                  const pendingTotal = ordersList.reduce((sum, o) => sum + Math.max(0, parseFloat(o.total_amount || 0) - parseFloat(o.amount_paid || 0)), 0);
-                  const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+                  //
+                  // They now come from the server (OrderViewSet.summary), which
+                  // applies those same two definitions across every order --
+                  // including the ones this screen has not paged in. Computing
+                  // them here would have made the header the total of whatever
+                  // happened to be on screen.
+                  const paidTotal = ordersSummary?.collected ?? 0;
+                  const pendingTotal = ordersSummary?.outstanding ?? 0;
+                  const grandTotal = ordersSummary?.billed ?? 0;
                   
                   return (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginTop: '24px' }}>
@@ -5900,24 +6201,35 @@ function App() {
                     </thead>
                     <tbody>
                       {(() => {
-                        const filtered = ordersList.filter(order => {
-                          if (invoiceFilter === 'Paid' && order.payment_status !== 'Paid') return false;
-                          if (invoiceFilter === 'Pending' && order.payment_status === 'Paid') return false;
+                        // Paid/Pending and the search box are applied by the
+                        // server (payment / search on OrderViewSet); this holds
+                        // one page of its answer. 'Pending' there means "not
+                        // fully paid", which is what the Balance Due column
+                        // beside it means too -- a part-paid invoice is exactly
+                        // the one somebody opens this screen to chase.
+                        const filtered = invoicePage.rows;
 
-                          if (invoiceSearch.trim()) {
-                            const query = invoiceSearch.toLowerCase();
-                            const matchesId = order.order_id.toLowerCase().includes(query);
-                            const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
-                            return matchesId || matchesClient;
-                          }
-                          return true;
-                        });
+                        if (invoicePage.loading && filtered.length === 0) {
+                          return (
+                            <tr><td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              Loading invoices…
+                            </td></tr>
+                          );
+                        }
+
+                        if (invoicePage.error) {
+                          return (
+                            <tr><td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: '#8a2020' }}>
+                              {invoicePage.error}
+                            </td></tr>
+                          );
+                        }
 
                         if (filtered.length === 0) {
                           return (
                             <tr>
                               <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                {ordersList.length === 0
+                                {(invoicePage.count === 0 && !invoiceSearch.trim() && invoiceFilter === 'All')
                                   ? 'Invoices appear here once you have created an order.'
                                   : 'No invoices matching the criteria.'}
                               </td>
@@ -5968,7 +6280,7 @@ function App() {
                                   setSavingPaymentId(order.id);
                                   try {
                                     await api.updateOrder(order.id, { amount_paid: next });
-                                    await fetchDashboardAndConfig();
+                                    await Promise.all([fetchDashboardAndConfig(), refreshInvoicePage()]);
                                   } catch (err) {
                                     e.target.value = current;
                                     setPaymentError(`Could not record that payment for ${order.order_id} — ${err.message}`);
@@ -5990,6 +6302,7 @@ function App() {
                                   try {
                                     await api.updateOrder(order.id, { payment_status: e.target.value });
                                     fetchDashboardAndConfig();
+                                    refreshInvoicePage();
                                   } catch (err) {
                                     e.target.value = order.payment_status;
                                     setPaymentError(`Could not update ${order.order_id} — ${err.message}`);
@@ -6029,6 +6342,29 @@ function App() {
                           </tr>
                         ));
                       })()}
+                      {invoicePage.rows.length > 0 && (
+                        <tr>
+                          <td colSpan="11" style={{ padding: 0 }}>
+                            <LoadMoreSentinel
+                              onVisible={() => loadNextPage(setInvoicePage, invoicePage)}
+                              disabled={!invoicePage.next || invoicePage.loading}
+                            />
+                            <div style={{ textAlign: 'center', padding: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                              {invoicePage.loading ? 'Loading more…' : (
+                                <>
+                                  {`Showing ${invoicePage.rows.length} of ${invoicePage.count}`}
+                                  {invoicePage.next && (
+                                    <button className="btn-secondary" style={{ marginLeft: '12px', padding: '4px 12px', fontSize: '12px' }}
+                                            onClick={() => loadNextPage(setInvoicePage, invoicePage)}>
+                                      Load more
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -6042,10 +6378,10 @@ function App() {
               // orders that happen to be labelled Paid. Counting a part-paid
               // order as zero collected and its full value as outstanding was
               // wrong in both directions at once.
-              const paidRevenue = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
-              const totalBilling = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
-              const pendingBill = Math.max(0, totalBilling - paidRevenue);
-              const aov = ordersList.length > 0 ? (totalBilling / ordersList.length) : 0;
+              // From the server, over the whole book -- see OrderViewSet.summary.
+              const paidRevenue = ordersSummary?.collected ?? 0;
+              const pendingBill = ordersSummary?.outstanding ?? 0;
+              const aov = ordersSummary?.average_order_value ?? 0;
 
               // Counted per garment ordered, not per customer.
               //
@@ -6057,25 +6393,17 @@ function App() {
               // and never onto the customer. Read the garment jobs, and take the
               // percentage against the number of garments rather than the number
               // of clients.
-              const garmentDist = {};
-              const necklineDist = {};
-              const sleeveDist = {};
-              let garmentTotal = 0;
-              const tally = (dist, value) => {
-                if (value === undefined || value === null || value === '') return;
-                const label = humaniseSpecKey(value);
-                dist[label] = (dist[label] || 0) + 1;
-              };
-              ordersList.forEach(o => {
-                orderGarmentNames(o).forEach(name => {
-                  garmentDist[name] = (garmentDist[name] || 0) + 1;
-                  garmentTotal += 1;
-                });
-                (o.garment_jobs || []).forEach(job => {
-                  tally(necklineDist, job.spec?.front_neck);
-                  tally(sleeveDist, job.spec?.sleeve_length);
-                });
-              });
+              //
+              // Counted by the server for the same reason the money is: over
+              // every order, not over the ones this browser is holding. It
+              // returns the raw spec values and the labelling stays here, where
+              // the rest of the product's display rules live.
+              const label = (dist) => Object.fromEntries(
+                Object.entries(dist || {}).map(([k, v]) => [humaniseSpecKey(k), v]));
+              const garmentDist = ordersSummary?.garments || {};
+              const necklineDist = label(ordersSummary?.necklines);
+              const sleeveDist = label(ordersSummary?.sleeves);
+              const garmentTotal = ordersSummary?.garment_total || 0;
 
               const topGarmentsList = Object.entries(garmentDist).sort((a, b) => b[1] - a[1]).slice(0, 4);
               const topNecklinesList = Object.entries(necklineDist).sort((a, b) => b[1] - a[1]).slice(0, 4);
@@ -6319,7 +6647,10 @@ function App() {
                         <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Order Status Breakdown</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {Object.entries(dashboardData?.stats?.status_distribution || {}).map(([status, count], idx) => {
-                            const pct = Math.round((count / ordersList.length) * 100) || 0;
+                            // Against every order, not against the ones loaded:
+                            // ordersList holds open work now, so dividing by its
+                            // length made Delivered read as more than 100%.
+                            const pct = Math.round((count / (ordersSummary?.count || 0)) * 100) || 0;
                             return (
                               <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
@@ -6390,7 +6721,7 @@ function App() {
                       <div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Tenant Domain</div>
                         <div style={{ fontWeight: 600, color: 'var(--accent-text, #b07c40)' }}>
-                          {localStorage.getItem('tenant_id') || '--'}
+                          {getTenantId() || '--'}
                         </div>
                       </div>
                       <div>

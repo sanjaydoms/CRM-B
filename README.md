@@ -13,9 +13,12 @@ The project is structured as a monorepo consisting of a **Django Backend** and a
 ├── crm_api/              # Django app containing main business logic & endpoints
 ├── tenants/              # Tenant management (multi-tenancy routing schema)
 ├── superadmin/           # Platform console: cross-boutique monitoring & control
+├── auth_tokens/          # Refresh tokens: the half of a session that renews it
 ├── frontend/             # React + Vite frontend source code
 │   ├── app.html          #   the boutique workspace (one tenant)
-│   └── superadmin.html   #   the platform console (all tenants)
+│   ├── superadmin.html   #   the platform console (all tenants)
+│   ├── src/native/       #   everything the app does because it is on a phone
+│   └── android/          #   the Capacitor Android project (docs/android.md)
 ├── create_superuser.py   # Automatic superuser creator script for Render deploys
 ├── start.sh              # Local startup script for development servers
 └── requirements.txt      # Python dependencies list
@@ -54,9 +57,24 @@ The backend uses **schema-based multi-tenancy**. Each boutique has its own isola
   database.
 
 ### 3. File Storage Integration (Supabase Storage)
-Instead of local media folders, the application uploads files (such as customer profiles, fabric snaps, and design uploads) directly to Supabase Storage:
+Uploads go to Supabase Storage when `SUPABASE_SERVICE_KEY` is set, and to the
+local filesystem when it is not.
+
 * **Custom Storage Driver:** `crm_api/storage.py` implements a custom Django storage wrapper (`SupabaseStorage`) communicating with Supabase API.
-* **Bucket name:** `boutique-crm`.
+* **Bucket name:** `boutique-crm`, public for reads.
+* **Why the service key:** `SUPABASE_KEY` is the *publishable* key and bucket RLS
+  refuses writes made with it — which is why this driver used to be bypassed and
+  every upload went to a disk that the next deploy wiped. The service-role key
+  is what makes writes work, and it must never leave the server.
+* **Verify it:** `python manage.py verify_storage` writes, reads, fetches over
+  the public URL and deletes one object. `--keep` plus `--read <name>` after a
+  later deploy is the persistence test that tells object storage apart from a
+  disk that is about to be thrown away.
+
+### 4. Android
+The Android app is this same React frontend wrapped in Capacitor — same screens,
+same API, no duplicated business logic. See **[docs/android.md](docs/android.md)**
+for setup, builds, signing, push and the Play Store release process.
 
 ---
 
@@ -68,6 +86,34 @@ All backend APIs are prefixed with `/api/` and require token-based authenticatio
 * `POST /api/auth/signup/` — Registers a new boutique, auto-generates their tenant schema, seeds default staff/fabrics, and returns authentication tokens.
 * `POST /api/auth/login/` — Authenticats the user and matches them to their tenant.
 * `GET /api/auth/me/` — Checks active user context.
+* `POST /api/auth/refresh/` — Trades a refresh token for a new session.
+
+**Tokens expire.** The access token is the same `Authorization: Token <key>`
+header it always was, but it stops being accepted after `ACCESS_TOKEN_TTL`
+(default one hour) and the refusal carries `{"code": "token_expired"}` so a
+client can tell "renew and retry" from "sign in again". Every login answers with
+`token`, `refresh` and `expires_in`; the refresh token is single-use and rotates
+on every exchange, and presenting a spent one revokes every session that user
+has. See `auth_tokens/`.
+
+* `GET /api/orders/summary/` — the order figures (collected, outstanding,
+  invoiced, average order value, status and garment breakdowns) computed over the
+  whole book. The Invoices and Analytics screens read this instead of reducing
+  over a list they no longer hold in full.
+* `GET /api/orders/?status_group=` — `active`, `shipped`, `delivered`, or `open`
+  (everything not yet Delivered, which is what the workspace loads at sign-in).
+* `GET /api/orders/?payment=` — `paid` or `pending`, where pending means not
+  fully paid and therefore includes part-paid invoices.
+
+**Lists are paged.** Every list endpoint answers
+`{count, next, previous, results}` and returns at most `API_PAGE_SIZE` rows
+(default 50, `?page_size=` up to 200). Customers, orders, inventory items and
+design assets also accept `?search=`, because a client-side filter over a paged
+list only searches the page you are standing on. See `core/pagination.py`.
+
+### This device
+* `POST /api/devices/` — Registers an installation for push notifications.
+* `DELETE /api/devices/` — Stops delivery to it. Called on sign-out.
 
 ### Business Modules
 * `GET/POST /api/customers/` — Directory CRUD (includes measurements inline).

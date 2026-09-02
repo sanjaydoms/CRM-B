@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Boutique CRM</string>
+    <string name="title_activity_main">Boutique CRM</string>
+    <string name="package_name">com.scaleezy.boutique</string>
+    <string name="custom_url_scheme">com.scaleezy.boutique</string>
+
+    <!-- Must match FCM_CHANNEL_ID in boutique_crm/settings.py. If the two
+         disagree, Android drops every push without showing anything. -->
+    <string name="default_notification_channel_id">boutique_orders</string>
+    <string name="default_notification_channel_name">Orders and assignments</string>
+    <string name="default_notification_channel_description">Order updates, work assigned to you, and payments.</string>
+</resources>

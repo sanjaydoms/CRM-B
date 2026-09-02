@@ -289,6 +289,61 @@ const failWith = async (res, fallback) => {
   throw new Error(describeApiError(res, data) || fallback);
 };
 
+/**
+ * Every list endpoint is paged now (core/pagination.py), and these two helpers
+ * are the only places in the client that have to know it.
+ *
+ * `fetchCollection` follows `next` until the collection is exhausted and
+ * returns a plain array -- which is what every existing screen expects, because
+ * every existing screen filters, sorts and counts the whole set in the browser.
+ * Without this, paging the API would have silently truncated eleven tabs to
+ * their first fifty rows: a customer directory that quietly stops at C, an
+ * order book missing this morning's orders, revenue figures that are simply
+ * wrong. It moves the same bytes as before, in chunks.
+ *
+ * ponytail: whole-collection fetch, kept because the screens it feeds do their
+ * own filtering. The upgrade path is `fetchPage` below, screen by screen,
+ * starting with the four lists that actually grow without limit -- customers,
+ * orders, designs and inventory -- which is where the phone reads from.
+ */
+const PAGE_LIMIT = 200;
+
+const withParam = (url, key, value) => {
+  const next = new URL(url, BASE_URL);
+  next.searchParams.set(key, value);
+  return next.toString();
+};
+
+/** Whether a parsed body is a page envelope rather than the thing itself. */
+const isPage = (data) => (
+  data !== null && typeof data === 'object' && !Array.isArray(data)
+  && Array.isArray(data.results) && 'next' in data
+);
+
+/** The remaining pages after the first, appended to its rows. */
+const drainPages = async (first, whatFailed) => {
+  const rows = [...first.results];
+  let next = first.next;
+  while (next) {
+    const res = await guardedFetch(next, { headers: getHeaders() });
+    if (!res.ok) await failWith(res, whatFailed);
+    const data = await res.json();
+    rows.push(...(data.results || []));
+    next = data.next || null;
+  }
+  return rows;
+};
+
+const fetchCollection = async (url, whatFailed) => {
+  const res = await guardedFetch(withParam(url, 'page_size', PAGE_LIMIT),
+                             { headers: getHeaders() });
+  if (!res.ok) await failWith(res, whatFailed);
+  const data = await res.json();
+  // A bare array means an endpoint that is not paged -- a custom action, or an
+  // older deployment. Both are legitimate answers and neither has a next.
+  return isPage(data) ? drainPages(data, whatFailed) : (data || []);
+};
+
 export const api = {
   // Auth API
   async login(username, password) {
@@ -390,6 +445,29 @@ export const api = {
     return data;
   },
 
+  // --- this device ------------------------------------------------------
+  // Registration is per installation, and the server ties it to whoever is
+  // signed in. See crm_api/device_views.py.
+  async registerDevice(token, platform = 'android') {
+    const res = await guardedFetch(`${BASE_URL}/devices/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ token, platform }),
+    });
+    if (!res.ok) await failWith(res, 'Failed to register this device');
+    return res.json();
+  },
+
+  async unregisterDevice(token) {
+    const res = await guardedFetch(`${BASE_URL}/devices/`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+      body: JSON.stringify({ token }),
+    });
+    // 204 has no body, and a failure here is not worth blocking a sign-out.
+    return res.ok;
+  },
+
   async seedMockData() {
     const res = await guardedFetch(`${BASE_URL}/auth/seed-data/`, {
       method: 'POST',
@@ -413,20 +491,12 @@ export const api = {
 
   // Get all tailors
   async getTailors() {
-    const res = await guardedFetch(`${BASE_URL}/tailors/`, {
-      headers: getHeaders()
-    });
-    if (!res.ok) await failWith(res, 'Failed to fetch tailors');
-    return res.json();
+    return fetchCollection(`${BASE_URL}/tailors/`, 'Failed to fetch tailors');
   },
 
   // Get boutique fabrics
   async getFabrics() {
-    const res = await guardedFetch(`${BASE_URL}/fabrics/`, {
-      headers: getHeaders()
-    });
-    if (!res.ok) await failWith(res, 'Failed to fetch fabrics');
-    return res.json();
+    return fetchCollection(`${BASE_URL}/fabrics/`, 'Failed to fetch fabrics');
   },
 
   // Create customer profile (Step 1)
@@ -491,9 +561,7 @@ export const api = {
   async getAppointments(params = {}) {
     const url = new URL(`${BASE_URL}/scheduling/appointments/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to load appointments');
-    return res.json();
+    return fetchCollection(url.toString(), 'Failed to load appointments');
   },
 
   async createAppointment(payload) {
@@ -880,11 +948,7 @@ export const api = {
 
   // Designs CRUD
   async getAllBoutiqueDesigns() {
-    const res = await guardedFetch(`${BASE_URL}/boutique-designs/`, {
-      headers: getHeaders()
-    });
-    if (!res.ok) await failWith(res, 'Failed to fetch all boutique designs');
-    return res.json();
+    return fetchCollection(`${BASE_URL}/boutique-designs/`, 'Failed to fetch all boutique designs');
   },
 
   async createBoutiqueDesign(designData) {
@@ -918,11 +982,7 @@ export const api = {
 
   // Customers & Orders full directory endpoints
   async getCustomers() {
-    const res = await guardedFetch(`${BASE_URL}/customers/`, {
-      headers: getHeaders()
-    });
-    if (!res.ok) await failWith(res, 'Failed to fetch customers');
-    return res.json();
+    return fetchCollection(`${BASE_URL}/customers/`, 'Failed to fetch customers');
   },
 
   // Full customer record, including nested orders and measurement history.
@@ -943,13 +1003,77 @@ export const api = {
     return res.json();
   },
 
+  /**
+   * The orders the boutique is still working on.
+   *
+   * `status_group=open` rather than everything: the panels this feeds -- a
+   * tailor's assigned work, the production floor table -- are about what is in
+   * the building, and a boutique's finished orders are the part that grows
+   * without limit. The Orders and Invoices tabs page the full book themselves
+   * (getOrdersPage), and the money totals come from getOrdersSummary, so
+   * nothing here needs the completed years.
+   */
+  async getOpenOrders() {
+    return fetchCollection(`${BASE_URL}/orders/?status_group=open`,
+                           'Failed to fetch orders');
+  },
+
+  /** One page of the order book, filtered and searched by the server. */
+  async getOrdersPage({ page = 1, pageSize = 25, search = '', statusGroup = '', payment = '' } = {}) {
+    const url = new URL(`${BASE_URL}/orders/`);
+    url.searchParams.set('page', page);
+    url.searchParams.set('page_size', Math.min(pageSize, PAGE_LIMIT));
+    if (search) url.searchParams.set('search', search);
+    if (statusGroup) url.searchParams.set('status_group', statusGroup);
+    if (payment) url.searchParams.set('payment', payment);
+
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to fetch orders');
+    const data = await res.json();
+    // Tolerates an unpaged answer, which is what an older server would send.
+    return Array.isArray(data)
+      ? { count: data.length, next: null, previous: null, results: data }
+      : data;
+  },
+
+  /**
+   * Follow a `next` (or `previous`) link exactly as the server wrote it.
+   *
+   * The link already carries the page, the size, the search and every filter,
+   * so a caller appending the next page cannot accidentally reconstruct a
+   * different query than the one it is halfway through.
+   */
+  async getPage(url) {
+    const res = await guardedFetch(url, { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to load more');
+    return res.json();
+  },
+
+  /**
+   * The totals, computed over the whole book by the server.
+   *
+   * Every figure here was a reduce() over the downloaded order list. That is
+   * exactly what stops being true the moment the list is paged, so the numbers
+   * moved to where they can stay right. See OrderViewSet.summary.
+   */
+  async getOrdersSummary() {
+    const res = await guardedFetch(`${BASE_URL}/orders/summary/`, { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to load the order figures');
+    return res.json();
+  },
+
+  /** One order in full -- measurements, garment specs, contact details. */
+  async getOrder(id) {
+    const res = await guardedFetch(`${BASE_URL}/orders/${id}/`, { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to fetch that order');
+    return res.json();
+  },
+
   // --- Inventory ---
   async getInventoryItems(params = {}) {
     const url = new URL(`${BASE_URL}/inventory/items/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to fetch inventory');
-    return res.json();
+    return fetchCollection(url.toString(), 'Failed to fetch inventory');
   },
 
   async getInventorySummary() {
@@ -1002,9 +1126,7 @@ export const api = {
   },
 
   async getSuppliers() {
-    const res = await guardedFetch(`${BASE_URL}/inventory/suppliers/`, { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to fetch suppliers');
-    return res.json();
+    return fetchCollection(`${BASE_URL}/inventory/suppliers/`, 'Failed to fetch suppliers');
   },
 
   async createSupplier(data) {
@@ -1016,9 +1138,7 @@ export const api = {
   },
 
   async getPurchaseOrders() {
-    const res = await guardedFetch(`${BASE_URL}/inventory/purchase-orders/`, { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to fetch purchase orders');
-    return res.json();
+    return fetchCollection(`${BASE_URL}/inventory/purchase-orders/`, 'Failed to fetch purchase orders');
   },
 
   async createPurchaseOrder(data) {
@@ -1047,11 +1167,7 @@ export const api = {
     const url = new URL(`${BASE_URL}/notifications/`);
     url.searchParams.append('role', role);
     if (email) url.searchParams.append('email', email);
-    const res = await guardedFetch(url.toString(), {
-      headers: getHeaders()
-    });
-    if (!res.ok) await failWith(res, 'Failed to fetch notifications');
-    return res.json();
+    return fetchCollection(url.toString(), 'Failed to fetch notifications');
   },
 
   async markNotificationsAsRead(role = 'Owner', email = '') {
@@ -1115,9 +1231,7 @@ export const api = {
     Object.entries(params).forEach(([key, value]) => {
       if (value) url.searchParams.append(key, value);
     });
-    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to load design boards');
-    return res.json();
+    return fetchCollection(url.toString(), 'Failed to load design boards');
   },
 
   // The Master's note on how to make the selected design. The endpoint has a
@@ -1198,9 +1312,7 @@ export const api = {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== '' && v !== null && v !== undefined) url.searchParams.append(k, v);
     });
-    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to load the design library');
-    return res.json();
+    return fetchCollection(url.toString(), 'Failed to load the design library');
   },
 
   async reviewDesign(id, decision, note = '') {
@@ -1260,9 +1372,7 @@ export const api = {
   async getCollections(params = {}) {
     const url = new URL(`${BASE_URL}/design-studio/collections/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to load collections');
-    return res.json();
+    return fetchCollection(url.toString(), 'Failed to load collections');
   },
 
   async createCollection(payload) {
@@ -1319,9 +1429,7 @@ export const api = {
   async getDesignAssignments(params = {}) {
     const url = new URL(`${BASE_URL}/design-studio/assignments/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to load design assignments');
-    return res.json();
+    return fetchCollection(url.toString(), 'Failed to load design assignments');
   },
 
   // Posting for a garment that already has an assignment reassigns it, and
@@ -1363,9 +1471,7 @@ export const api = {
   async getDesigners(params = {}) {
     const url = new URL(`${BASE_URL}/design-studio/designers/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to load designers');
-    return res.json();
+    return fetchCollection(url.toString(), 'Failed to load designers');
   },
 
   // Owner-only, enforced server-side by DesignStudioPermission. Creates a
@@ -1387,9 +1493,7 @@ export const api = {
   // list reaches the wizard without a frontend release.
 
   async getGarmentTemplates() {
-    const res = await guardedFetch(`${BASE_URL}/catalog/templates/`, { headers: getHeaders() });
-    if (!res.ok) await failWith(res, 'Failed to load garment templates');
-    return res.json();
+    return fetchCollection(`${BASE_URL}/catalog/templates/`, 'Failed to load garment templates');
   },
 
   async getGarmentTemplate(key) {
@@ -1511,13 +1615,21 @@ const inventoryUrl = (path, params = {}) => {
   return url.toString();
 };
 
+/**
+ * One helper serves this module's list routes AND its detail/action routes, so
+ * the paging is decided by the shape that comes back rather than by a list of
+ * which paths are which -- the list would drift the first time a route was
+ * added. A page envelope is drained to an array (every caller here filters and
+ * totals in the browser); anything else is returned as it arrived.
+ */
 const inventoryGet = async (path, params, what) => {
-  const res = await guardedFetch(inventoryUrl(path, params), { headers: getHeaders() });
+  const res = await guardedFetch(inventoryUrl(path, { page_size: PAGE_LIMIT, ...params }),
+                                 { headers: getHeaders() });
   const raw = await res.text();
   let data = null;
   try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
   if (!res.ok) throw new Error(describeApiError(res, data));
-  return data;
+  return isPage(data) ? drainPages(data, what || 'Failed to load inventory') : data;
 };
 
 const inventoryPost = async (path, body, what) => {

@@ -87,7 +87,7 @@ class ProductionTaskTests(ModuleTestBase):
         for seq, title in [(3, "Third"), (1, "First"), (2, "Second")]:
             ProductionTask.objects.create(
                 order=self.order, title=title, stage_key="x", sequence=seq)
-        titles = [t["title"] for t in self.client.get(reverse("production-task-list")).json()]
+        titles = [t["title"] for t in self.client.get(reverse("production-task-list")).json()["results"]]
         self.assertEqual(titles, ["First", "Second", "Third"])
 
 
@@ -140,7 +140,7 @@ class AppointmentTests(ModuleTestBase):
         for t in ["2026-09-03T10:00:00Z", "2026-09-01T10:00:00Z", "2026-09-02T10:00:00Z"]:
             Appointment.objects.create(
                 customer=self.customer, appointment_type="TRIAL", scheduled_time=t)
-        times = [a["scheduled_time"] for a in self.client.get(reverse("appointment-list")).json()]
+        times = [a["scheduled_time"] for a in self.client.get(reverse("appointment-list")).json()["results"]]
         self.assertEqual(times, sorted(times))
 
 
@@ -151,7 +151,7 @@ class ActivityFeedTests(ModuleTestBase):
                 module="orders", entity_type="Order", entity_id=str(i),
                 action="CREATED", title=f"Entry {i}",
             )
-        titles = [a["title"] for a in self.client.get(reverse("universal-activity-list")).json()]
+        titles = [a["title"] for a in self.client.get(reverse("universal-activity-list")).json()["results"]]
         self.assertEqual(titles, ["Entry 2", "Entry 1", "Entry 0"])
 
     def test_entry_keeps_the_actor_name_even_if_the_user_is_removed(self):

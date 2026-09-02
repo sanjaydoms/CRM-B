@@ -464,7 +464,8 @@ function MovementModal({ item, onClose, onDone }) {
   // Both lists are best-effort: the modal has to keep working for a boutique
   // that tracks neither orders nor multiple locations.
   useEffect(() => {
-    api.getOrders().then((rows) => setOrders(rows || [])).catch(() => setOrders([]));
+    // Open orders only: material planning is about work still to be made.
+    api.getOpenOrders().then((rows) => setOrders(rows || [])).catch(() => setOrders([]));
     api.getItemLocations(item.id)
       .then((data) => setLocations(data?.breakdown || []))
       .catch(() => setLocations([]));

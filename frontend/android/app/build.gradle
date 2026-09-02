@@ -1,0 +1,112 @@
+apply plugin: 'com.android.application'
+
+/**
+ * Release signing, from a file or the environment, and never from this
+ * repository.
+ *
+ * Google Play identifies an app by the key it was signed with FOREVER. Lose the
+ * keystore and there is no way to publish an update to com.scaleezy.boutique
+ * again -- not with a new key, not with support's help. Commit it and anyone
+ * who can read the repository can publish an update as this boutique's app.
+ *
+ * So: keystore.properties (gitignored, for a person building locally) or four
+ * environment variables (for CI). If neither is present the release build still
+ * runs and produces an UNSIGNED bundle, which is useful for checking that the
+ * build works and useless for uploading -- which is the right way round.
+ */
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+def signingValue = { String key, String envName ->
+    keystoreProperties.getProperty(key) ?: System.getenv(envName)
+}
+
+def storeFilePath = signingValue('storeFile', 'ANDROID_KEYSTORE_FILE')
+def canSign = storeFilePath != null && file(storeFilePath).exists()
+
+android {
+    namespace = "com.scaleezy.boutique"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.scaleezy.boutique"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // Play rejects an upload whose versionCode it has already seen, so this
+        // is the one number that must go up on every release. Overridable from
+        // the environment for CI; the literals are the current release.
+        // Integer.parseInt rather than `(... ?: '1').toInteger()`: Groovy parses
+        // the latter as versionCode(...).toInteger(), which calls the setter
+        // with a String and then dereferences its null return.
+        versionCode Integer.parseInt(System.getenv('ANDROID_VERSION_CODE') ?: '1')
+        versionName System.getenv('ANDROID_VERSION_NAME') ?: "1.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (canSign) {
+            release {
+                storeFile file(storeFilePath)
+                storePassword signingValue('storePassword', 'ANDROID_KEYSTORE_PASSWORD')
+                keyAlias signingValue('keyAlias', 'ANDROID_KEY_ALIAS')
+                keyPassword signingValue('keyPassword', 'ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // R8 on: it shrinks and obfuscates. The rules file carries the
+            // keep-rules for the WebView bridge, which reflection reaches and
+            // which R8 would otherwise strip -- producing an app that builds,
+            // installs, and shows a blank screen.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (canSign) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            // A debug build must never be mistaken for the real thing on a
+            // tester's phone, and must be installable alongside it.
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
