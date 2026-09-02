@@ -764,7 +764,7 @@ class DashboardAndNotificationScopingTests(WorkflowTestBase):
         self.assertEqual(response.status_code, 200)
         # The param is ignored now, so the tailor gets their own rows (order
         # creation already raised one). What must not appear is anyone else's.
-        self.assertEqual({n["recipient_role"] for n in response.data} - {"Tailor"}, set())
+        self.assertEqual({n["recipient_role"] for n in response.data['results']} - {"Tailor"}, set())
 
     def test_an_unrecognised_role_returns_nothing_rather_than_everything(self):
         Notification.objects.create(
@@ -776,9 +776,9 @@ class DashboardAndNotificationScopingTests(WorkflowTestBase):
             "/api/notifications/", {"role": "Customer"})
 
         self.assertEqual(response.status_code, 200)
-        roles = {n["recipient_role"] for n in response.data}
+        roles = {n["recipient_role"] for n in response.data['results']}
         self.assertNotIn("Customer", roles)
-        messages = " ".join(n["message"] for n in response.data)
+        messages = " ".join(n["message"] for n in response.data['results'])
         self.assertNotIn("remaining balance", messages)
 
     def test_a_tailor_still_receives_their_own_notifications(self):
@@ -790,9 +790,9 @@ class DashboardAndNotificationScopingTests(WorkflowTestBase):
         response = self._client_for(self.tailor_user).get("/api/notifications/")
 
         self.assertEqual(response.status_code, 200)
-        titles = [n["title"] for n in response.data]
+        titles = [n["title"] for n in response.data['results']]
         self.assertIn("Assigned", titles)
-        self.assertEqual({n["recipient_role"] for n in response.data}, {"Tailor"})
+        self.assertEqual({n["recipient_role"] for n in response.data['results']}, {"Tailor"})
 
 
 class StatusDropdownTests(WorkflowTestBase):
@@ -1533,14 +1533,14 @@ class CrossRouterScopingTests(WorkflowTestBase):
         response = self._client_for(self.tailor_user).get('/api/production/tasks/')
 
         self.assertEqual(response.status_code, 200)
-        order_ids = {t['order'] for t in response.data}
+        order_ids = {t['order'] for t in response.data['results']}
         self.assertNotIn(self.not_mine.id, order_ids)
 
     def test_the_activity_log_is_not_open_to_the_whole_floor(self):
         response = self._client_for(self.tailor_user).get('/api/activities/activities/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 0)
+        self.assertEqual(response.data['count'], 0)
 
     def test_supplier_trading_terms_are_owner_only(self):
         response = self._client_for(self.tailor_user).get('/api/inventory/suppliers/')
@@ -1551,10 +1551,10 @@ class CrossRouterScopingTests(WorkflowTestBase):
         response = self._client_for(self.tailor_user).get('/api/tailors/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn('email', response.data[0])
+        self.assertNotIn('email', response.data['results'][0])
         # The owner still needs it -- that is the screen which mints logins.
         owner_view = self._client_for(self.owner).get('/api/tailors/')
-        self.assertIn('email', owner_view.data[0])
+        self.assertIn('email', owner_view.data['results'][0])
 
 
 class DeliveryGateTests(WorkflowTestBase):

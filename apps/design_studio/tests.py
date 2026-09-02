@@ -463,7 +463,7 @@ class PermissionTests(StudioTestCase):
         response = tailor.get(reverse('design-board-list'))
 
         self.assertEqual(response.status_code, 200)
-        returned = {row['id'] for row in response.data}
+        returned = {row['id'] for row in response.data['results']}
         self.assertIn(str(approved.id), returned)
         self.assertNotIn(str(draft.id), returned)
 
@@ -571,9 +571,9 @@ class DesignerAttributionTests(StudioTestCase):
 
         response = self.client.get('/api/design-studio/designers/')
         self.assertEqual(response.status_code, 200)
-        counts = {d['name']: d['design_count'] for d in response.data}
+        counts = {d['name']: d['design_count'] for d in response.data['results']}
         self.assertEqual(counts, {"Priya": 2, "Ravi": 0})
-        self.assertFalse(response.data[0]['has_login'])
+        self.assertFalse(response.data['results'][0]['has_login'])
 
     def test_portfolio_returns_only_that_designers_work(self):
         priya = Designer.objects.create(name="Priya")
@@ -678,20 +678,20 @@ class DesignLibraryTests(StudioTestCase):
         self._asset("skirt", template=self.lehenga)
         self._asset("top", template=self.blouse)
         response = self.client.get('/api/design-studio/assets/?template=lehenga')
-        self.assertEqual([d['title'] for d in response.data], ["skirt"])
+        self.assertEqual([d['title'] for d in response.data['results']], ["skirt"])
 
     def test_tag_filters_use_the_order_forms_vocabulary(self):
         self._asset("elbow one", spec_tags={'sleeve_length': 'elbow'})
         self._asset("full one", spec_tags={'sleeve_length': 'full'})
         response = self.client.get('/api/design-studio/assets/?sleeve_length=elbow')
-        self.assertEqual([d['title'] for d in response.data], ["elbow one"])
+        self.assertEqual([d['title'] for d in response.data['results']], ["elbow one"])
 
     def test_tag_filters_combine(self):
         self._asset("match", spec_tags={'sleeve_length': 'elbow', 'occasion': 'wedding'})
         self._asset("half match", spec_tags={'sleeve_length': 'elbow', 'occasion': 'party'})
         response = self.client.get(
             '/api/design-studio/assets/?sleeve_length=elbow&occasion=wedding')
-        self.assertEqual([d['title'] for d in response.data], ["match"])
+        self.assertEqual([d['title'] for d in response.data['results']], ["match"])
 
     def test_price_range_and_search(self):
         self._asset("cheap", estimated_price=Decimal('2000'))
@@ -699,11 +699,11 @@ class DesignLibraryTests(StudioTestCase):
         # The fixture's catalogue design is also in the library, so assert on
         # membership rather than on the library being otherwise empty.
         response = self.client.get('/api/design-studio/assets/?price_min=5000')
-        titles = [d['title'] for d in response.data]
+        titles = [d['title'] for d in response.data['results']]
         self.assertIn("dear", titles)
         self.assertNotIn("cheap", titles)
         response = self.client.get('/api/design-studio/assets/?search=chea')
-        self.assertEqual([d['title'] for d in response.data], ["cheap"])
+        self.assertEqual([d['title'] for d in response.data['results']], ["cheap"])
 
     def test_opening_a_design_counts_a_view(self):
         asset = self._asset("watched")
@@ -724,7 +724,7 @@ class DesignLibraryTests(StudioTestCase):
         self._asset("quiet", view_count=1)
         self._asset("loud", view_count=99)
         response = self.client.get('/api/design-studio/assets/?ordering=most_viewed')
-        self.assertEqual([d['title'] for d in response.data][0], "loud")
+        self.assertEqual([d['title'] for d in response.data['results']][0], "loud")
 
     def test_new_designs_are_active_and_boutique_visible(self):
         asset = self._asset("fresh")
@@ -877,7 +877,7 @@ class CollectionTests(StudioTestCase):
                 title=f"d{i}", image_url="https://example.test/d.jpg", collection=collection)
         response = self.client.get('/api/design-studio/collections/')
         self.assertEqual(response.status_code, 200)
-        row = next(c for c in response.data if c['name'] == "Bridal 2026")
+        row = next(c for c in response.data['results'] if c['name'] == "Bridal 2026")
         self.assertEqual(row['design_count'], 2)
         self.assertEqual(row['designer_name'], "Priya")
 
@@ -887,7 +887,7 @@ class CollectionTests(StudioTestCase):
             title="in", image_url="https://example.test/i.jpg", collection=collection)
         DesignAsset.objects.create(title="out", image_url="https://example.test/o.jpg")
         response = self.client.get(f'/api/design-studio/assets/?collection={collection.id}')
-        self.assertEqual([d['title'] for d in response.data], ["in"])
+        self.assertEqual([d['title'] for d in response.data['results']], ["in"])
 
 
 class DesignUploadTests(StudioTestCase):
@@ -989,7 +989,7 @@ class DesignUploadTests(StudioTestCase):
         }, format='json')
         self.assertEqual(response.status_code, 201, response.data)
         found = self.client.get('/api/design-studio/assets/?occasion=wedding')
-        self.assertIn('Tagged on the way in', [d['title'] for d in found.data])
+        self.assertIn('Tagged on the way in', [d['title'] for d in found.data['results']])
 
     def test_a_posted_url_is_not_overwritten_by_an_upload(self):
         response = self.client.post('/api/design-studio/assets/', {
@@ -1113,7 +1113,7 @@ class ApprovalQueueTests(StudioTestCase):
         DesignAsset.objects.create(title="p2", image_url="https://example.test/2.jpg",
                                     status=DesignAsset.Status.PENDING)
         response = self.client.get('/api/design-studio/assets/?status=PENDING')
-        self.assertEqual({d['title'] for d in response.data}, {"p1", "p2"})
+        self.assertEqual({d['title'] for d in response.data['results']}, {"p1", "p2"})
 
 
 class DesignDashboardTests(StudioTestCase):
@@ -1479,12 +1479,12 @@ class DesignerBoundaryTests(StudioTestCase):
         client, _, _ = self._designer()
         Designer.objects.create(name="Ravi", email="ravi@studio.test")
 
-        rows = client.get('/api/design-studio/designers/').data
+        rows = client.get('/api/design-studio/designers/').data['results']
 
         self.assertTrue(rows)
         self.assertNotIn('email', rows[0])
         self.assertNotIn('has_login', rows[0])
-        self.assertIn('email', self.client.get('/api/design-studio/designers/').data[0])
+        self.assertIn('email', self.client.get('/api/design-studio/designers/').data['results'][0])
 
     def test_a_designer_can_read_the_garment_templates_their_form_needs(self):
         """The upload form's Garment dropdown is built from these. The viewset

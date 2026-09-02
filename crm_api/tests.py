@@ -283,7 +283,7 @@ class BoutiqueCRMTests(TenantTestCase):
         response = self.client.get(reverse('customer-list'))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        row = response.json()[0]
+        row = response.json()['results'][0]
         for heavy in ('orders', 'measurement_history', 'design_preferences', 'fabric_selections'):
             self.assertNotIn(heavy, row, f"{heavy} must not be nested in the list payload")
 
@@ -291,7 +291,7 @@ class BoutiqueCRMTests(TenantTestCase):
         self.authenticate_client()
         self._customer_with_order(amount=30000.00)
 
-        row = self.client.get(reverse('customer-list')).json()[0]
+        row = self.client.get(reverse('customer-list')).json()['results'][0]
 
         self.assertEqual(row['order_count'], 1)
         self.assertEqual(row['total_spend'], 30000.00)

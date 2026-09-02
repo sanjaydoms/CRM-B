@@ -438,9 +438,50 @@ class Notification(models.Model):
     recipient_email = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
+    # What the notification is ABOUT, when it is about an order -- which is all
+    # but a handful of them. Nullable because inventory raises stock warnings
+    # through this same model, and because every row written before this field
+    # existed has no answer.
+    #
+    # It exists for the phone: a push notification the staff member taps has to
+    # open something, and "Order T2B-260101-0007 moved to Cutting" carried no
+    # machine-readable reference to that order at all -- the order id was in the
+    # title, as prose. See crm_api/push.py.
+    order = models.ForeignKey('Order', on_delete=models.CASCADE, null=True,
+                              blank=True, related_name='notifications')
 
     def __str__(self):
         return f"{self.recipient_role} - {self.title}"
+
+
+class DeviceToken(models.Model):
+    """One installation of the Android app, and where to reach it.
+
+    Per user AND per device: a boutique owner with a phone and a shop tablet is
+    two rows, and a notification goes to both. The token is what Firebase gives
+    the app on that device; it is rotated by Firebase itself, which is why
+    registration is an upsert rather than a create -- the same device coming
+    back with a new token must not accumulate rows that FCM will later reject.
+    """
+
+    PLATFORM_CHOICES = [('android', 'Android'), ('ios', 'iOS'), ('web', 'Web')]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_tokens')
+    token = models.CharField(max_length=255, unique=True, db_index=True)
+    platform = models.CharField(max_length=16, choices=PLATFORM_CHOICES, default='android')
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+    # Deactivated rather than deleted when the holder signs out or FCM reports
+    # the token dead, so a device that comes back is one row that flips true
+    # again instead of a second row.
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['-last_seen']
+        indexes = [models.Index(fields=['user', 'is_active'])]
+
+    def __str__(self):
+        return f"{self.platform} device for {self.user_id}"
 
 class GarmentImage(models.Model):
     """A photograph of the finished garment, taken by the boutique.

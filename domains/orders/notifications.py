@@ -40,6 +40,7 @@ def create_order_notifications(order, created=False, status_changed=True):
     
     if created:
         Notification.objects.create(
+            order=order,
             title=f"New Order Received: {order.order_id}",
             message=f"A new custom order has been received for client {client_name}.",
             recipient_role="Owner"
@@ -49,6 +50,7 @@ def create_order_notifications(order, created=False, status_changed=True):
             f"We will update you as it progresses."
         )
         Notification.objects.create(
+            order=order,
             title=f"Order Confirmed: {order.order_id}",
             message=confirmation,
             recipient_role="Customer",
@@ -68,6 +70,7 @@ def create_order_notifications(order, created=False, status_changed=True):
         )
         if order.master:
             Notification.objects.create(
+                order=order,
                 title=f"New Assignment: {order.order_id}",
                 message=f"Order {order.order_id} for client {client_name} has been assigned to you as Supervising Master.",
                 recipient_role=order.master.role,
@@ -75,6 +78,7 @@ def create_order_notifications(order, created=False, status_changed=True):
             )
         if order.tailor:
             Notification.objects.create(
+                order=order,
                 title=f"New Stitching Task: {order.order_id}",
                 message=f"Order {order.order_id} has been assigned to you for stitching.",
                 recipient_role=order.tailor.role,
@@ -83,6 +87,7 @@ def create_order_notifications(order, created=False, status_changed=True):
     else:
         status = order.order_status
         Notification.objects.create(
+            order=order,
             title=f"Order {order.order_id} Update: {status}",
             message=f"Order {order.order_id} status updated to {status}.",
             recipient_role="Owner"
@@ -121,6 +126,7 @@ def create_order_notifications(order, created=False, status_changed=True):
                 cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered. We hope you love your bespoke garment!"
 
         Notification.objects.create(
+            order=order,
             title=f"Order Update: {status}",
             message=cust_msg,
             recipient_role="Customer",
@@ -135,6 +141,7 @@ def create_order_notifications(order, created=False, status_changed=True):
 
         if status == 'Design & Creation' and order.tailor:
             Notification.objects.create(
+                order=order,
                 title=f"Stitching Ready: {order.order_id}",
                 message=f"Order {order.order_id} is now in Design & Creation phase and ready for stitching.",
                 recipient_role=order.tailor.role,
@@ -144,6 +151,7 @@ def create_order_notifications(order, created=False, status_changed=True):
         if status == 'Quality Check':
             # Notify Owner
             Notification.objects.create(
+                order=order,
                 title=f"Garment Stitching Completed: {order.order_id}",
                 message=f"Order {order.order_id} stitching has been completed by {order.tailor.name if order.tailor else 'the tailor'} and is now pending Quality Check.",
                 recipient_role="Owner"
@@ -151,6 +159,7 @@ def create_order_notifications(order, created=False, status_changed=True):
             # Notify Master
             if order.master:
                 Notification.objects.create(
+                    order=order,
                     title=f"Quality Check Required: {order.order_id}",
                     message=f"Order {order.order_id} stitching has been completed by {order.tailor.name if order.tailor else 'the tailor'} and is ready for your Quality Check.",
                     recipient_role=order.master.role,
@@ -204,6 +213,7 @@ def notify_next_stage_owners(order):
             # about every transition through the path above.
             continue
         Notification.objects.create(
+            order=order,
             title=f"Ready for {live.get('name', live['key'])}: {order.order_id}",
             message=(f"Order {order.order_id} has reached "
                      f"{live.get('name', live['key'])} and is waiting in your queue."),

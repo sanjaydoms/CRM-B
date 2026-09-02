@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Count, F, Sum, DecimalField, ExpressionWrapper
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import filters, status, viewsets
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
@@ -50,6 +50,12 @@ class SupplierViewSet(viewsets.ModelViewSet):
     # anyone but the Owner. RolePermission's blanket SAFE_METHODS grant meant
     # any signed-in tailor could read the lot.
     permission_classes = [OwnerOnly]
+
+    # Paged lists need the search on the server -- see CustomerViewSet. Stock is
+    # looked up by what is written on the shelf label: the code, the name, or
+    # the colour someone remembers.
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['item_code', 'name', 'brand', 'color', 'material_type']
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
 

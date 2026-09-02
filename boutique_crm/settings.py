@@ -567,6 +567,18 @@ ACCESS_TOKEN_TTL = int(os.environ.get('ACCESS_TOKEN_TTL', '3600'))
 REFRESH_TOKEN_TTL = int(os.environ.get('REFRESH_TOKEN_TTL', str(30 * 24 * 3600)))
 
 
+# --- Push notifications --------------------------------------------------
+# Unset means every Notification the product writes is logged rather than
+# delivered -- the same convention CUSTOMER_MESSAGE_BACKEND follows, and for the
+# same reason: registration, targeting and deep links are all testable before a
+# Firebase project exists. Set to 'crm_api.push_fcm.send' to deliver.
+PUSH_BACKEND = os.environ.get('PUSH_BACKEND', '')
+FCM_PROJECT_ID = os.environ.get('FCM_PROJECT_ID', '')
+#: The Android notification channel the app creates. Both sides must agree or
+#: Android drops the notification without showing it.
+FCM_CHANNEL_ID = os.environ.get('FCM_CHANNEL_ID', 'boutique_orders')
+
+
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 #: The publishable key. Safe to expose, and can only read.
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')

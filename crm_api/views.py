@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 from django.contrib.auth.models import User
-from rest_framework import viewsets, status, views
+from rest_framework import filters, viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -35,6 +35,7 @@ from .serializers import (
 from apps.design_studio.models import DesignAsset
 from domains.customers.repositories import CustomerRepository
 from domains.orders import drafts
+from domains.orders.garments import garment_names
 from domains.orders.messaging import send_customer_message
 from domains.orders.notifications import create_order_notifications
 from domains.orders.tracking import tracking_url
@@ -45,6 +46,15 @@ from domains.orders.services import (
 
 class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
+
+    # Searching used to happen entirely in the browser, over the whole
+    # directory it had already downloaded. Once the list is paged that is no
+    # longer a search: it looks at whichever fifty rows happen to be loaded and
+    # reports "no customers" for someone sitting on page three. The server has
+    # to do it, and DRF's own SearchFilter is exactly this query.
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['first_name', 'last_name', 'mobile_number',
+                     'email_address', 'city_region']
 
     def get_serializer_class(self):
         # The directory list gets flat rows; nesting every client's full order
@@ -332,8 +342,135 @@ class BoutiqueDesignViewSet(viewsets.ModelViewSet):
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
 
+    # The order book is searched by reference or by who it is for -- both of
+    # which a tailor reads off a docket, so partial matches matter.
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['order_id', 'customer__first_name', 'customer__last_name',
+                     'customer__mobile_number']
+
+    #: What the Orders tab's filter buttons mean, expressed once here rather
+    #: than as a client-side `.filter()` over every order the browser happens to
+    #: hold. Paging a list makes that distinction load-bearing: a filter applied
+    #: to page one is not a filter, it is a coincidence.
+    STATUS_GROUPS = {
+        'active': dict(exclude=True, statuses=['Shipped', 'Delivered']),
+        'shipped': dict(exclude=False, statuses=['Shipped']),
+        'delivered': dict(exclude=False, statuses=['Delivered']),
+        # Everything still in the building. Wider than 'active' by one status on
+        # purpose: a dispatched order is finished on the floor but not finished
+        # for the boutique, and the panels that list "active work" disagree
+        # about which of the two they mean. This is the superset both filter
+        # down from, and it is what the workspace loads at sign-in instead of
+        # every order ever taken.
+        'open': dict(exclude=True, statuses=['Delivered']),
+    }
+
     def get_queryset(self):
-        return visible_orders(OrderRepository.get_all(), self.request.user)
+        queryset = visible_orders(OrderRepository.get_all(), self.request.user)
+        return self._apply_payment_filter(self._apply_status_group(queryset))
+
+    def _apply_status_group(self, queryset):
+        """Narrow to one of the Orders tab's filter buttons, if asked.
+
+        An unknown value narrows nothing rather than matching nothing: a client
+        sending a group this server has not heard of should see the whole book,
+        not an empty screen that looks like a boutique with no orders.
+        """
+        group = self.STATUS_GROUPS.get(
+            (self.request.query_params.get('status_group') or '').lower())
+        if not group:
+            return queryset
+        if group['exclude']:
+            return queryset.exclude(order_status__in=group['statuses'])
+        return queryset.filter(order_status__in=group['statuses'])
+
+    def _apply_payment_filter(self, queryset):
+        """The Invoices tab's Paid / Pending buttons.
+
+        'pending' is everything NOT fully paid, which includes part-paid orders
+        -- the same reading the Balance Due column uses. Filtering on
+        payment_status == 'Pending' would drop exactly the invoices somebody
+        opening this screen is chasing.
+        """
+        payment = (self.request.query_params.get('payment') or '').lower()
+        if payment == 'paid':
+            return queryset.filter(payment_status='Paid')
+        if payment == 'pending':
+            return queryset.exclude(payment_status='Paid')
+        return queryset
+
+    @action(detail=False, methods=['GET'], url_path='summary')
+    def summary(self, request):
+        """Every figure the money and analytics screens used to compute in the
+        browser by reducing over every order it had downloaded.
+
+        That reduction is what made paging the order list impossible without
+        breaking the numbers: page the list and the totals quietly become the
+        totals of one page. So the totals move here, where they are computed
+        over the whole book in one query -- and stay correct however few rows
+        the client is holding.
+
+        Scoped through visible_orders like every other read on this viewset, so
+        a tailor's totals cover their own work and nobody else's.
+
+        The distributions come back as raw spec values, not prettified labels:
+        turning `front_neck: 'sweetheart'` into 'Sweetheart' is a display
+        decision and the client already owns it.
+        """
+        orders = visible_orders(OrderRepository.get_all(), request.user)
+
+        # One pass for the money. These definitions are the ones the Invoices
+        # header and the Analytics panel already used, kept exactly: collected
+        # is money actually received (amount_paid), not the face value of
+        # orders labelled Paid.
+        totals = orders.aggregate(
+            count=Count('id', distinct=True),
+            billed=Sum('total_amount'),
+            collected=Sum('amount_paid'),
+        )
+        count = totals['count'] or 0
+        billed = float(totals['billed'] or 0)
+        collected = float(totals['collected'] or 0)
+
+        status_counts = {
+            row['order_status']: row['count']
+            for row in orders.values('order_status').annotate(
+                count=Count('id', distinct=True))
+        }
+
+        # The garment breakdowns are counted per GARMENT, not per order or per
+        # customer -- an order for a blouse and a lehenga is two garments -- and
+        # the neckline and sleeve figures come off the garment job's own spec,
+        # which is where the wizard writes them. Reading Customer.garment_type
+        # here would repeat the bug domains/orders/garments.py exists to end.
+        garments, necklines, sleeves = {}, {}, {}
+        garment_total = 0
+        for order in orders.prefetch_related('garment_jobs__template',
+                                             'customer').distinct():
+            for name in garment_names(order):
+                garments[name] = garments.get(name, 0) + 1
+                garment_total += 1
+            for job in order.garment_jobs.all():
+                spec = job.spec or {}
+                for key, bucket in (('front_neck', necklines),
+                                    ('sleeve_length', sleeves)):
+                    value = spec.get(key)
+                    if value in (None, ''):
+                        continue
+                    bucket[value] = bucket.get(value, 0) + 1
+
+        return Response({
+            'count': count,
+            'billed': billed,
+            'collected': collected,
+            'outstanding': max(0.0, billed - collected),
+            'average_order_value': (billed / count) if count else 0.0,
+            'status_counts': status_counts,
+            'garments': garments,
+            'garment_total': garment_total,
+            'necklines': necklines,
+            'sleeves': sleeves,
+        })
 
     def perform_update(self, serializer):
         old_status = serializer.instance.order_status
@@ -379,6 +516,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
                 if order.tailor:
                     Notification.objects.create(
+                        order=order,
                         title=f"New Stitching Task: {order.order_id}",
                         message=(f"Order {order.order_id} has been reassigned to "
                                  f"you for stitching."),
@@ -391,6 +529,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
             if old_master_id != order.master_id and order.master:
                 Notification.objects.create(
+                    order=order,
                     title=f"New Assignment: {order.order_id}",
                     message=(f"Order {order.order_id} has been reassigned to you "
                              f"as Supervising Master."),
@@ -956,6 +1095,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         # 'ASSIGNMENT' as an expected event_type that nothing ever wrote. Being
         # handed work is exactly the event a staff member needs to hear about.
         Notification.objects.create(
+            order=order,
             recipient_role=tailor.role,
             recipient_email=tailor.email or (tailor.user.email if tailor.user_id else ''),
             title=f"New assignment on {order.order_id}",

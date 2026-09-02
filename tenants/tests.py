@@ -69,7 +69,8 @@ class TenantIsolationTests(TransactionTestCase):
     def _names(self, schema):
         response = self._get_customers(schema, schema)
         self.assertEqual(response.status_code, 200)
-        return sorted(c['first_name'] for c in response.json())
+        # Lists are paged (core/pagination.py): the rows are under 'results'.
+        return sorted(c['first_name'] for c in response.json()['results'])
 
     def test_interleaved_requests_do_not_leak_customers(self):
         with temporary_tenant('iso_test_a', 'a@isolation.test', 'Atelier A'), \

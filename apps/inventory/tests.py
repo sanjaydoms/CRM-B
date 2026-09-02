@@ -239,7 +239,7 @@ class InventoryApiTests(InventoryTestBase):
         response = self.client.get(reverse('inventory-item-list'))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        row = response.json()[0]
+        row = response.json()['results'][0]
         self.assertEqual(Decimal(row['available_stock']), Decimal('34.000'))
         self.assertNotIn('supplier_name', row)
 
@@ -525,13 +525,13 @@ class CatalogApiTests(InventoryTestBase):
         response = self.client.get(
             '/api/inventory/catalog/items/?section_name=Traditional Zardosi Materials')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        names = {row['name'] for row in response.data}
+        names = {row['name'] for row in response.data['results']}
         for expected in ('Dabka', 'Nakshi', 'Kasab', 'Salma', 'Sitara'):
             self.assertIn(expected, names)
 
     def test_stockable_filter_excludes_systems_and_garment_categories(self):
         response = self.client.get('/api/inventory/catalog/items/?stockable=true&search=Payment')
-        self.assertEqual(list(response.data), [])
+        self.assertEqual(response.data['results'], [])
 
     def test_stocking_a_catalog_row_creates_an_inventory_item(self):
         from .models import CatalogItem
@@ -790,7 +790,7 @@ class LocationApiTests(InventoryTestBase):
     def test_locations_are_listed(self):
         response = self.client.get('/api/inventory/locations/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 8)
+        self.assertEqual(response.data['count'], 8)
 
     def test_transfer_endpoint_moves_stock(self):
         item = self.make_item()

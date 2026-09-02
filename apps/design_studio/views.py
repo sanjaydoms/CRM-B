@@ -10,7 +10,7 @@ from django.core.files.storage import default_storage
 from django.db.models import Count, F, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import serializers, status, viewsets, views
+from rest_framework import filters, serializers, status, viewsets, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -228,6 +228,14 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
 
     serializer_class = DesignAssetSerializer
     permission_classes = [DesignLibraryPermission]
+
+    # `?search=` over the free text, alongside the structured filters below.
+    # The two compose: the filters narrow by vocabulary, this narrows by what
+    # someone typed. Title, designer and garment type are the three free-text
+    # columns on this model; tags and spec_tags are JSON and are already
+    # reachable through the structured filters.
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['title', 'designer', 'garment_type']
 
     # Columns a caller may filter on directly. Anything else in the query string
     # is looked up inside spec_tags, so the library filters on the same

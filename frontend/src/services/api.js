@@ -1,4 +1,11 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+import {
+  accessExpiringWithin, clearSession, getRefreshToken, getTenantId, getToken, saveSession,
+} from './session.js';
+
+// `?.` so this module can also be imported by plain node -- which is what
+// api.test.js runs the renewal logic under, with no bundler and no browser.
+// Vite still substitutes the whole `import.meta.env` object at build time.
+const BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:8000/api';
 
 /**
  * Collapse identical concurrent mutations into one network request.
@@ -37,21 +44,134 @@ const trackRequest = (promise) => {
 };
 
 const inFlightMutations = new Map();
-const guardedFetch = (url, options = {}) => {
+const sendOnce = (url, options = {}) => {
   const method = (options.method || 'GET').toUpperCase();
   if (method === 'GET' || (options.body && typeof options.body !== 'string')) {
-    return trackRequest(fetch(url, options));
+    return trackRequest(send(url, options));
   }
   const key = `${method} ${url} ${options.body || ''}`;
   const pending = inFlightMutations.get(key);
   // clone() because a Response body can only be read once, and every caller
   // that shared this request will want to read it.
   if (pending) return pending.then((res) => res.clone());
-  const request = trackRequest(fetch(url, options));
+  const request = trackRequest(send(url, options));
   inFlightMutations.set(key, request);
   request.then(() => inFlightMutations.delete(key),
                () => inFlightMutations.delete(key));
   return request.then((res) => res.clone());
+};
+
+/**
+ * One request, with a network failure turned into a sentence.
+ *
+ * `fetch` rejects with `TypeError: Failed to fetch` when the request never
+ * reached a server -- no wifi, aeroplane mode, a dead tunnel. That string was
+ * being shown to boutique owners verbatim, on a phone, where "no connection" is
+ * the single most likely thing to have gone wrong and the one they can do
+ * something about. Every other failure in this file is already translated
+ * (describeApiError); this is the one that never had a response to translate.
+ */
+async function send(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    throw new Error(
+      'No connection to the boutique. Check your network and try again.',
+      { cause: error });
+  }
+}
+
+/**
+ * Renew the access token, at most once at a time.
+ *
+ * Single-flight because the dashboard opens by firing eight requests at once:
+ * eight parallel refreshes would each rotate the refresh token, and seven of
+ * them would then be presenting one the server had already spent -- which the
+ * server correctly reads as a replay and answers by ending every session the
+ * user has. So the second caller waits on the first caller's promise.
+ *
+ * Returns true when there is a usable token afterwards.
+ */
+let refreshInFlight = null;
+
+const refreshSession = () => {
+  if (refreshInFlight) return refreshInFlight;
+  const refresh = getRefreshToken();
+  if (!refresh) return Promise.resolve(false);
+
+  const tenantId = getTenantId();
+  refreshInFlight = send(`${BASE_URL}/auth/refresh/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
+    },
+    body: JSON.stringify({ refresh }),
+  })
+    .then(async (res) => {
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => ({}));
+      if (!data.token) return false;
+      saveSession(data);
+      return true;
+    })
+    // A refresh that fails on the NETWORK is not a refusal: the phone is in a
+    // lift. Returning false lets the caller's own request fail with the network
+    // error it deserves rather than signing anyone out.
+    .catch(() => false)
+    .finally(() => { refreshInFlight = null; });
+
+  return refreshInFlight;
+};
+
+/**
+ * Stamp the CURRENT credentials onto a request that already carries some.
+ *
+ * Only replaces an Authorization header the caller already set -- it never adds
+ * one. Login, sign-up and the refresh call deliberately send none, and adding a
+ * stale token to them would be worse than useless: authentication runs before
+ * permissions, so an expired token on an AllowAny view is a 401 before the view
+ * is ever reached.
+ *
+ * Re-stamping at all is what makes the retry below correct: every call site
+ * built its headers with getHeaders() BEFORE awaiting, so after a refresh those
+ * headers name a token that is one generation old.
+ */
+const withCurrentAuth = (options = {}) => {
+  const headers = options.headers || {};
+  if (!headers.Authorization) return options;
+  const token = getToken();
+  const tenantId = getTenantId();
+  return {
+    ...options,
+    headers: {
+      ...headers,
+      ...(token ? { Authorization: `Token ${token}` } : {}),
+      ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
+    },
+  };
+};
+
+/**
+ * Every request in this file, with the session kept alive underneath it.
+ *
+ * Two chances to get it right: renew proactively when the token is nearly out
+ * of time, and renew reactively on a 401 the server sends anyway (a token
+ * revoked elsewhere, a clock that disagrees, a worker restarted mid-request).
+ * Only when the refresh itself is refused does handleSessionEnded run -- and
+ * that still asks the server directly before ending anything.
+ */
+const guardedFetch = async (url, options = {}) => {
+  const authed = Boolean(options.headers && options.headers.Authorization);
+  if (!authed) return sendOnce(url, options);
+
+  if (accessExpiringWithin(60)) await refreshSession();
+
+  let res = await sendOnce(url, withCurrentAuth(options));
+  if (res.status === 401 && await refreshSession()) {
+    res = await sendOnce(url, withCurrentAuth(options));
+  }
+  return res;
 };
 
 /**
@@ -75,11 +195,15 @@ const handleSessionEnded = async () => {
   // the server directly whether this token still stands, and end the session
   // only on its confirmed no. A network failure keeps the session: offline is
   // not signed out.
-  const token = localStorage.getItem('token');
+  const token = getToken();
   if (token) {
     try {
-      const tenantId = localStorage.getItem('tenant_id');
-      const res = await guardedFetch(`${BASE_URL}/auth/me/`, {
+      const tenantId = getTenantId();
+      // sendOnce, not guardedFetch: this request IS the question "is this
+      // token still good?", so renewing before asking would answer a different
+      // question -- and renewing again after the refresh already failed is how
+      // one dead session became two refresh attempts.
+      const res = await sendOnce(`${BASE_URL}/auth/me/`, {
         headers: {
           'Authorization': `Token ${token}`,
           ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
@@ -97,8 +221,7 @@ const handleSessionEnded = async () => {
   // Confirmed dead (or never had a token). Reloading rather than routing: the
   // token is gone, so every screen behind it is invalid, and a reload is the
   // one operation that cannot leave a fragment of the previous session behind.
-  localStorage.removeItem('token');
-  localStorage.removeItem('tenant_id');
+  clearSession();
   window.location.reload();
 };
 
@@ -107,11 +230,11 @@ const getHeaders = (isMultipart = false) => {
   if (!isMultipart) {
     headers['Content-Type'] = 'application/json';
   }
-  const token = localStorage.getItem('token');
+  const token = getToken();
   if (token) {
     headers['Authorization'] = `Token ${token}`;
   }
-  const tenantId = localStorage.getItem('tenant_id');
+  const tenantId = getTenantId();
   if (tenantId) {
     headers['X-Tenant-ID'] = tenantId;
   }
@@ -182,13 +305,9 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || describeApiError(res, data));
     
-    // Store token and tenant_id
-    if (data.token) {
-      localStorage.setItem('token', data.token);
-    }
-    if (data.tenant_id) {
-      localStorage.setItem('tenant_id', data.tenant_id);
-    }
+    // The refresh token and the expiry come from the same payload -- storing
+    // only the access token is what would leave a client unable to renew.
+    saveSession(data);
     return data;
   },
 
@@ -206,12 +325,7 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || describeApiError(res, data));
     
-    if (data.token) {
-      localStorage.setItem('token', data.token);
-    }
-    if (data.tenant_id) {
-      localStorage.setItem('tenant_id', data.tenant_id);
-    }
+    saveSession(data);
     return data;
   },
 
@@ -250,12 +364,11 @@ export const api = {
     } catch (e) {
       console.error("Logout error on server", e);
     }
-    localStorage.removeItem('token');
-    localStorage.removeItem('tenant_id');
+    clearSession();
   },
 
   async getMe() {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (!token) return null;
     
     const res = await guardedFetch(`${BASE_URL}/auth/me/`, {
@@ -268,15 +381,12 @@ export const api = {
       // perfectly valid -- and because this runs on every page load, a bad
       // thirty seconds on the server logged the whole shop out.
       if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('tenant_id');
+        clearSession();
       }
       return null;
     }
     const data = await res.json();
-    if (data.tenant_id) {
-      localStorage.setItem('tenant_id', data.tenant_id);
-    }
+    saveSession(data);
     return data;
   },
 

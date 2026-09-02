@@ -127,19 +127,19 @@ class ApiRoleBoundaryTests(TenantTestCase):
     # --- reads are scoped -------------------------------------------------
 
     def test_a_tailor_sees_only_their_own_orders(self):
-        rows = self.tailor.get('/api/orders/').data
+        rows = self.tailor.get('/api/orders/').data['results']
         self.assertEqual([r['order_id'] for r in rows], ['PERM-1'])
 
     def test_a_tailor_sees_only_the_customers_behind_their_orders(self):
-        rows = self.tailor.get('/api/customers/').data
+        rows = self.tailor.get('/api/customers/').data['results']
         self.assertEqual([r['first_name'] for r in rows], ['Mine'])
 
     def test_an_owner_sees_everything(self):
-        self.assertEqual(len(self.owner.get('/api/orders/').data), 2)
-        self.assertEqual(len(self.owner.get('/api/customers/').data), 2)
+        self.assertEqual(self.owner.get('/api/orders/').data['count'], 2)
+        self.assertEqual(self.owner.get('/api/customers/').data['count'], 2)
 
     def test_a_master_supervises_the_floor(self):
-        self.assertEqual(len(self.master.get('/api/orders/').data), 2)
+        self.assertEqual(self.master.get('/api/orders/').data['count'], 2)
 
     # --- writes are refused ----------------------------------------------
 
