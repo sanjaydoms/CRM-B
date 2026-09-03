@@ -1,6 +1,7 @@
 import datetime
 import secrets
 from django.db import models, transaction
+from core.permissions import SUPERVISOR_ROLES
 from core.roles import OWNER, resolve_user_role
 from crm_api.models import Order, OrderStage, OrderActivity, Tailor, BoutiqueSettings
 from core.formatting import format_money
@@ -321,10 +322,22 @@ class OrderService:
         if comments:
             order_stage.comments = comments
 
-        if performer_id:
+        # Naming SOMEBODY ELSE as the performer is a supervisor's call.
+        #
+        # The dropdown that sets this is Owner/Master only in the interface, and
+        # the API took the field from anyone: a tailor who could see the order
+        # could post performed_by_id and sign a colleague's name to the work
+        # they had just done, or to work they had not. Ignored rather than
+        # refused, so the ordinary staff path -- which falls through to the
+        # branch below and records the caller -- is unaffected.
+        #
+        # int() first: only DoesNotExist was caught, so a non-numeric id raised
+        # out of IntegerField and surfaced as a 500 carrying the raw exception
+        # text back to the caller.
+        if performer_id and (user_role == OWNER or user_role in SUPERVISOR_ROLES):
             try:
-                order_stage.performed_by = Tailor.objects.get(id=performer_id)
-            except Tailor.DoesNotExist:
+                order_stage.performed_by = Tailor.objects.get(id=int(performer_id))
+            except (Tailor.DoesNotExist, TypeError, ValueError):
                 pass
         elif user and user.is_authenticated and getattr(user, 'tailor_profile', None):
             order_stage.performed_by = user.tailor_profile

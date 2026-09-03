@@ -27,8 +27,15 @@ class InventoryTestBase(TenantTestCase):
         from django.db import connection
         connection.set_tenant(self.tenant)
 
+        # The address MUST match the tenant's owner_email above. core.roles
+        # identifies the boutique owner positively, by comparing the two, and a
+        # fixture whose "owner" is some other address is not an owner at all --
+        # it only passed before Phase 8 because a profile-less account used to
+        # fall through to OWNER, which is exactly the escalation that phase
+        # closed. Written as one constant so the two cannot drift again.
         self.owner = User.objects.create_user(
-            username="owner@inv.test", email="owner@inv.test", password="pw12345678"
+            username="inventory@test.com", email="inventory@test.com",
+            password="pw12345678"
         )
         self.token = Token.objects.create(user=self.owner)
         self.client = APIClient()

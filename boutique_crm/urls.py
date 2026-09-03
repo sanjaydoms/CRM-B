@@ -18,6 +18,8 @@ urlpatterns = [
     path('api/design-studio/', include('apps.design_studio.urls')),
     path('api/inventory/', include('apps.inventory.urls')),
     path('api/catalog/', include('apps.catalog.urls')),
+    path('api/staff/', include('apps.staff.urls')),
+    path('api/payroll/', include('apps.payroll.urls')),
     path('api/email/', include('apps.email_service.urls')),
 ]
 

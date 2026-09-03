@@ -1,0 +1,732 @@
+from datetime import timedelta
+
+from django.db import transaction
+from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
+from rest_framework import status, views, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.response import Response
+
+from apps.activities.models import UniversalActivity
+from core import formatting as core_formatting
+from core.permissions import SUPERVISOR_ROLES, StaffSelfOrOwner
+from core.roles import OWNER, resolve_user_role
+from crm_api.models import Tailor
+
+from . import attendance, performance
+from .models import AttendanceSession, StaffPerformanceReview, StaffProfile
+from .serializers import (
+    AttendanceSessionSerializer, StaffPerformanceReviewSerializer,
+    StaffProfileSerializer,
+)
+
+
+def _aware(moment):
+    """Attach the boutique's timezone to a naive timestamp the owner typed.
+
+    The owner's form sends a local wall-clock time with no offset ("09:10 on
+    Sep 1"), and USE_TZ is on, so storing it unchanged would have Django read it
+    as UTC -- filing an Indian boutique's 09:10 start as 14:40 local and putting
+    an early shift on the wrong day of the timesheet. An offset that IS supplied
+    is respected; only a naive value is interpreted, and it is interpreted the
+    way the person typing it meant.
+    """
+    if moment is None or timezone.is_aware(moment):
+        return moment
+    return moment.replace(tzinfo=core_formatting.tenant_timezone())
+
+
+class StaffProfileViewSet(viewsets.ModelViewSet):
+    """Employment terms for the boutique's roster.
+
+    Three layers guard this, and the pairing is the point:
+
+      StaffSelfOrOwner   what a caller may DO -- only the owner writes.
+      get_queryset       which rows EXIST for them.
+      the serializer     which FIELDS of a visible row they may read.
+
+    The third layer is what lets a Master supervise without being paid to
+    supervise: they can see who is on the team and when they joined, and the
+    money on someone else's row is removed on the way out. Scoping alone could
+    not express that -- a row is either in the queryset or it is not.
+
+    A tailor asking for a colleague's profile by id gets a 404 rather than a
+    403, because DRF resolves the object through this queryset. The row is not
+    hidden behind a refusal; it is simply not in their world, which is also the
+    convention `visible_orders` already sets for the order book.
+    """
+
+    serializer_class = StaffProfileSerializer
+    permission_classes = [StaffSelfOrOwner]
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        profile = serializer.save()
+        self._record_deposit_agreement(profile, None)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        was = serializer.instance.deposit_total
+        profile = serializer.save()
+        self._record_deposit_agreement(profile, was)
+
+    def _record_deposit_agreement(self, profile, previous):
+        """Give a changed deposit figure a line in the staff ledger.
+
+        The agreement lives on this model because that is where the owner sets
+        it, but a number in a column cannot answer "why does this person owe
+        5,000, and since when". Writing a ledger row on the way past means the
+        history exists without the owner having to do anything extra, and
+        without a second screen for entering the same fact twice.
+
+        Only on an actual CHANGE: re-saving a profile to correct a phone number
+        must not append an identical agreement row, and a boutique that takes no
+        deposits should have no deposit history at all.
+
+        A change TO zero is a change, and writing it is the whole point. Setting
+        the agreed deposit to nothing is how an owner cancels one, and treating
+        that as "no deposit, nothing to record" would leave the ledger holding
+        the old agreement -- so payroll would go on recovering money against a
+        deposit the owner had just cancelled, with no way to stop it.
+
+        Atomic with the profile save (see the decorators above): a ledger write
+        that failed on its own would leave the terms changed with no history of
+        it, and the equality guard means no later save would ever repair that.
+
+        Writes are already Owner-only (StaffSelfOrOwner), so reaching this means
+        the owner did it.
+        """
+        from apps.payroll import deposits
+        current = profile.deposit_total or 0
+        if previous is None:
+            # Creation: only worth a row if there is actually a deposit.
+            if current <= 0:
+                return
+        elif previous == current:
+            return
+
+        deposits.record_agreement(
+            profile.staff, current, user=self.request.user,
+            note=('Security deposit agreed' if previous in (None, 0)
+                  else 'Security deposit cancelled' if current <= 0
+                  else 'Security deposit terms changed'))
+
+    def get_queryset(self):
+        """Owner and supervisors see the roster; everyone else sees their own row.
+
+        `SUPERVISOR_ROLES` is imported rather than restated. It is the same
+        frozenset that decides who sees the whole order book in
+        `visible_orders`, and a boutique that promotes a role to supervisor
+        should not have to remember that Staff Management keeps its own list.
+
+        `select_related('staff')` because the serializer reads `staff.name` and
+        `staff.role` on every row -- without it a roster of twenty staff is
+        twenty-one queries.
+        """
+        queryset = StaffProfile.objects.select_related('staff')
+        role = resolve_user_role(self.request.user)
+        if role == OWNER or role in SUPERVISOR_ROLES:
+            return queryset
+
+        # Everyone else: their own profile, reached through the Tailor row their
+        # login is attached to. An account with no roster profile -- a
+        # design-only designer, an orphaned login -- matches nothing, which is
+        # the right answer rather than an error.
+        profile = getattr(self.request.user, 'tailor_profile', None)
+        if profile is None:
+            return queryset.none()
+        return queryset.filter(staff=profile)
+
+
+def _staff_for(user):
+    """The roster row this login belongs to, or None."""
+    return getattr(user, 'tailor_profile', None)
+
+
+def _is_owner(user):
+    return resolve_user_role(user) == OWNER
+
+
+def _can_see_team(user):
+    role = resolve_user_role(user)
+    return role == OWNER or role in SUPERVISOR_ROLES
+
+
+def _log(request, action, session, title, before=None, after=None):
+    """Record a staff event on the existing cross-module activity feed.
+
+    UniversalActivity rather than a table of our own: it already carries an
+    actor, a name snapshot that outlives the account, old_value/new_value, and a
+    read-only viewset the owner can already reach. A second audit log would be a
+    second place to look.
+    """
+    user = request.user if request.user.is_authenticated else None
+    UniversalActivity.objects.create(
+        user=user,
+        user_name_snapshot=(
+            (user.get_full_name() or user.username) if user else 'System'),
+        module='staff',
+        entity_type='AttendanceSession',
+        entity_id=str(session.id),
+        action=action,
+        title=title,
+        description=f"{session.staff_label} on {session.date}",
+        old_value=before or {},
+        new_value=after or {},
+    )
+
+
+class AttendanceSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Attended time: who was at work, when, and for how long.
+
+    ReadOnly at the router level on purpose. Every write is a named action with
+    its own rules, because the writes are not interchangeable: a staff member
+    stamping themselves in, an owner entering a day somebody missed, and an
+    owner correcting a mistake are three different events with three different
+    audit consequences. A generic create/update would collapse them into one and
+    lose exactly the distinction a timesheet has to preserve.
+    """
+
+    serializer_class = AttendanceSessionSerializer
+    permission_classes = [StaffSelfOrOwner]
+
+    def get_queryset(self):
+        """Owner and supervisors see the floor; everyone else sees their own days.
+
+        The same scoping StaffProfileViewSet uses, and for the same reason:
+        supervising a floor means knowing who is on it. Attendance carries no
+        money, so unlike employment terms there is nothing here to strip.
+        """
+        queryset = AttendanceSession.objects.select_related('staff')
+        if _can_see_team(self.request.user):
+            # Both filters go through the database as-is, so both used to turn a
+            # malformed query string into a 500: `?staff=abc` raises ValueError
+            # out of IntegerField.get_prep_value and `?date=abc` raises Django's
+            # own ValidationError, and DRF converts neither. A security probe
+            # should meet a controlled answer, not a traceback. A filter that
+            # cannot be understood narrows to nothing, which is the same
+            # convention StaffPerformanceReviewViewSet uses and cannot leak.
+            staff_id = self.request.query_params.get('staff')
+            if staff_id:
+                try:
+                    queryset = queryset.filter(staff_id=int(staff_id))
+                except (TypeError, ValueError):
+                    return queryset.none()
+            day = self.request.query_params.get('date')
+            if day:
+                parsed = None
+                try:
+                    parsed = parse_date(day)
+                except ValueError:
+                    parsed = None
+                if parsed is None:
+                    return queryset.none()
+                queryset = queryset.filter(date=parsed)
+            return queryset
+
+        profile = _staff_for(self.request.user)
+        if profile is None:
+            return queryset.none()
+        # NOTE the `staff` parameter is not honoured on this branch. Reading it
+        # here would let a tailor ask for a colleague by id; their own profile
+        # is the only staff row this branch can ever name.
+        return queryset.filter(staff=profile)
+
+    @action(detail=False, methods=['GET'])
+    def current(self, request):
+        """What the caller's day looks like right now.
+
+        Answers for the signed-in staff member only -- an owner watching the
+        floor uses the list endpoint, which is scoped and filterable. Keeping
+        this one personal is what lets the phone screen call it with no
+        parameters and trust the answer.
+        """
+        profile = _staff_for(request.user)
+        if profile is None:
+            return Response(
+                {'staff': None, 'state': 'NOT_STAFF', 'session': None},
+                status=status.HTTP_200_OK)
+
+        session = attendance.open_session(profile)
+        if session is not None:
+            return Response({
+                'staff': profile.id, 'state': 'WORKING',
+                'session': AttendanceSessionSerializer(session).data,
+            })
+
+        today = attendance.business_date(timezone.now())
+        finished = AttendanceSession.objects.filter(
+            staff=profile, date=today, check_out__isnull=False
+        ).order_by('-check_out').first()
+        return Response({
+            'staff': profile.id,
+            'state': 'CHECKED_OUT' if finished else 'NOT_CHECKED_IN',
+            'session': (AttendanceSessionSerializer(finished).data
+                        if finished else None),
+            'today_minutes': sum(
+                s.minutes or 0 for s in AttendanceSession.objects.filter(
+                    staff=profile, date=today)),
+        })
+
+    @action(detail=False, methods=['POST'], url_path='check-in')
+    def check_in(self, request):
+        """Start the caller's own session. No timestamp is read from the body."""
+        profile = _staff_for(request.user)
+        if profile is None:
+            return Response(
+                {'error': 'Your account is not on the staff roster, so it '
+                          'cannot record attendance.'},
+                status=status.HTTP_403_FORBIDDEN)
+        try:
+            session = attendance.check_in(
+                profile, user=request.user, note=request.data.get('note', ''))
+        except attendance.AttendanceError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        _log(request, 'CHECKED_IN', session, f'{profile.name} checked in',
+             after={'check_in': str(session.check_in), 'source': session.source})
+        return Response(AttendanceSessionSerializer(session).data,
+                        status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['POST'], url_path='check-out')
+    def check_out(self, request):
+        """Close the caller's own session and store its duration."""
+        profile = _staff_for(request.user)
+        if profile is None:
+            return Response(
+                {'error': 'Your account is not on the staff roster, so it '
+                          'cannot record attendance.'},
+                status=status.HTTP_403_FORBIDDEN)
+        try:
+            session = attendance.check_out(profile, user=request.user)
+        except attendance.AttendanceError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        _log(request, 'CHECKED_OUT', session, f'{profile.name} checked out',
+             after={'check_out': str(session.check_out), 'minutes': session.minutes})
+        return Response(AttendanceSessionSerializer(session).data)
+
+    @action(detail=False, methods=['POST'], url_path='record')
+    def record(self, request):
+        """Owner enters a shift somebody missed. Marked OWNER, never SELF."""
+        if not _is_owner(request.user):
+            return Response(
+                {'error': 'Only the boutique owner can record attendance for '
+                          'someone else.'},
+                status=status.HTTP_403_FORBIDDEN)
+
+        # A BODY id, parsed like the query-string ones: IntegerField raises on
+        # 'abc' and TypeError on {}, and neither is a DRF exception, so a
+        # malformed body was a 500 rather than the 404 below.
+        try:
+            staff_id = int(request.data.get('staff'))
+        except (TypeError, ValueError):
+            staff_id = None
+        staff = (Tailor.objects.filter(id=staff_id).first()
+                 if staff_id is not None else None)
+        if staff is None:
+            return Response({'error': 'Staff member not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        # parse_datetime raises on an impossible-but-well-formed timestamp
+        # ('2026-02-30T09:00:00'), the same trap parse_date sets.
+        try:
+            check_in_at = parse_datetime(request.data.get('check_in') or '')
+            check_out_at = parse_datetime(request.data.get('check_out') or '')
+        except ValueError:
+            check_in_at = check_out_at = None
+        if check_in_at is None:
+            return Response({'error': 'A valid check-in time is required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            session = attendance.record_for_staff(
+                staff, user=request.user,
+                check_in_at=_aware(check_in_at),
+                check_out_at=_aware(check_out_at),
+                note=request.data.get('note', ''))
+        except attendance.AttendanceError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        _log(request, 'ATTENDANCE_RECORDED', session,
+             f'Attendance recorded for {staff.name}',
+             after={'check_in': str(session.check_in),
+                    'check_out': str(session.check_out),
+                    'minutes': session.minutes, 'source': session.source})
+        return Response(AttendanceSessionSerializer(session).data,
+                        status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['POST'], url_path='correct')
+    def correct(self, request, pk=None):
+        """Owner changes the stamps on a session, with a reason, keeping the original.
+
+        Owner-only, deliberately. A supervisor can see the floor's hours but not
+        edit them: these minutes become wages in the next phase, and a manager
+        who can quietly add an hour to a timesheet is the conflict the financial
+        boundary exists to prevent.
+        """
+        if not _is_owner(request.user):
+            return Response(
+                {'error': 'Only the boutique owner can correct attendance.'},
+                status=status.HTTP_403_FORBIDDEN)
+
+        session = self.get_object()
+        before = {'check_in': str(session.check_in),
+                  'check_out': str(session.check_out),
+                  'minutes': session.minutes}
+        # Same trap as `record` above: parse_datetime raises rather than
+        # returning None on an impossible-but-well-formed timestamp, and the
+        # except clause below catches AttendanceError only.
+        try:
+            corrected_in = parse_datetime(request.data.get('check_in') or '')
+            corrected_out = parse_datetime(request.data.get('check_out') or '')
+        except ValueError:
+            return Response({'error': 'That is not a real time.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            session = attendance.correct(
+                session, user=request.user,
+                reason=request.data.get('reason', ''),
+                check_in_at=_aware(corrected_in),
+                check_out_at=_aware(corrected_out))
+        except attendance.AttendanceError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        _log(request, 'ATTENDANCE_CORRECTED', session,
+             f'Attendance corrected for {session.staff_label}',
+             before=before,
+             after={'check_in': str(session.check_in),
+                    'check_out': str(session.check_out),
+                    'minutes': session.minutes,
+                    'reason': session.correction_reason})
+        return Response(AttendanceSessionSerializer(session).data)
+
+
+class TimesheetView(views.APIView):
+    """One person's week of attended time, with the totals already added up.
+
+    A plain APIView at its own path, following DashboardView: this is a computed
+    report over sessions rather than a view of a resource, and mounting it on the
+    attendance router would make it look like one.
+    """
+
+    permission_classes = [StaffSelfOrOwner]
+
+    def get(self, request):
+        requested = request.query_params.get('staff')
+
+        if _can_see_team(request.user):
+            # int() first: a non-numeric id reached IntegerField.get_prep_value
+            # and raised ValueError, which DRF does not convert, so `?staff=abc`
+            # was a 500 rather than the 400 below.
+            staff = None
+            if requested:
+                try:
+                    staff = Tailor.objects.filter(id=int(requested)).first()
+                except (TypeError, ValueError):
+                    staff = None
+            else:
+                staff = _staff_for(request.user)
+            if staff is None:
+                return Response(
+                    {'error': 'Name a staff member to see their timesheet.'},
+                    status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # The `staff` parameter is IGNORED rather than validated for
+            # everyone else. Comparing it against the caller's own id would work
+            # and would also mean a mismatch leaks whether that id exists; there
+            # is nothing to leak if the parameter is never read.
+            staff = _staff_for(request.user)
+            if staff is None:
+                return Response({'error': 'Your account is not on the staff roster.'},
+                                status=status.HTTP_403_FORBIDDEN)
+
+        # parse_date RAISES on a well-formed but impossible date ('2026-02-30');
+        # it returns None only on a malformed one. Both mean "no week given".
+        try:
+            day = parse_date(request.query_params.get('week') or '')
+        except ValueError:
+            day = None
+        if day is None:
+            day = attendance.business_date(timezone.now())
+
+        sheet = attendance.timesheet(staff, day)
+        return Response({
+            'staff': staff.id,
+            'staff_name': staff.name,
+            'staff_role': staff.role,
+            'week_start': sheet['week_start'],
+            'week_end': sheet['week_end'],
+            'total_minutes': sheet['total_minutes'],
+            'open_sessions': sheet['open_sessions'],
+            'sessions': AttendanceSessionSerializer(sheet['sessions'], many=True).data,
+        })
+
+
+class StaffPerformanceReviewViewSet(viewsets.ModelViewSet):
+    """Periodic reviews. The owner writes them; everyone else reads their own.
+
+    `StaffSelfOrOwner` gives the coarse rule -- owner writes, others read -- and
+    `get_queryset` narrows a non-owner to their own rows. A Master is a
+    non-owner here DELIBERATELY: supervising the floor does not include reading
+    the assessments written about it, and this is the one place in Staff
+    Management where a Master is treated exactly like a tailor.
+
+    No destroy. A review is a record of an assessment; the way to undo a wrong
+    one is to supersede it, not to remove the evidence that it was made.
+    """
+
+    serializer_class = StaffPerformanceReviewSerializer
+    permission_classes = [StaffSelfOrOwner]
+    http_method_names = ['get', 'post', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        queryset = StaffPerformanceReview.objects.select_related('staff')
+        if not _is_owner(self.request.user):
+            mine = _staff_for(self.request.user)
+            if mine is None:
+                return queryset.none()
+            # Own reviews, and only the FINALISED ones: a draft is the owner's
+            # working document and showing it would leak an assessment nobody
+            # has committed to yet.
+            return queryset.filter(
+                staff=mine,
+                status__in=[StaffPerformanceReview.Status.FINAL,
+                            StaffPerformanceReview.Status.ACKNOWLEDGED])
+
+        # The `staff` filter is honoured for the owner only. On the branch
+        # above there is no id to substitute -- the queryset names the caller's
+        # own profile and nothing else.
+        staff = self.request.query_params.get('staff')
+        if staff:
+            try:
+                queryset = queryset.filter(staff_id=int(staff))
+            except (TypeError, ValueError):
+                queryset = queryset.none()
+        role = self.request.query_params.get('role')
+        if role:
+            queryset = queryset.filter(staff__role=role)
+        status_filter = self.request.query_params.get('status')
+        if status_filter in StaffPerformanceReview.Status.values:
+            queryset = queryset.filter(status=status_filter)
+        # parse_date raises on an impossible-but-well-formed date; a bad
+        # filter must narrow to nothing, not 500.
+        try:
+            since = parse_date(self.request.query_params.get('since') or '')
+            until = parse_date(self.request.query_params.get('until') or '')
+        except ValueError:
+            return queryset.none()
+        if since:
+            queryset = queryset.filter(period_start__gte=since)
+        if until:
+            queryset = queryset.filter(period_end__lte=until)
+        return queryset
+
+    def perform_update(self, serializer):
+        """Re-check under a lock, because the object was read before it.
+
+        DRF loads the review in get_object(), THEN validates, THEN saves. The
+        serializer's is_final guard therefore judges a copy fetched before the
+        write -- so a PATCH overlapping a finalise passed the guard against a
+        stale DRAFT and then wrote its whole in-memory row back, silently
+        restoring status=DRAFT, finalised_at=None and an EMPTY kpi_snapshot over
+        the one that had just been frozen. The freeze has to be re-read inside
+        the same lock finalise uses.
+        """
+        with transaction.atomic():
+            current = StaffPerformanceReview.objects.select_for_update(
+                of=('self',)).get(pk=serializer.instance.pk)
+            if current.is_final:
+                raise DRFValidationError(
+                    'This review has been finalised and cannot be edited. '
+                    'Write a new review for the period instead.')
+            serializer.instance = current
+            serializer.save()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        review = serializer.save(
+            reviewer=user,
+            reviewer_name_snapshot=(user.get_full_name() or user.username))
+        _log_review(self.request, 'REVIEW_CREATED', review, 'Performance review started')
+
+    @action(detail=True, methods=['POST'])
+    def finalise(self, request, pk=None):
+        """Freeze the review, and freeze the numbers it was written against.
+
+        The snapshot is taken HERE rather than at creation, because a draft is
+        meant to move with the data while the owner is still writing it. Once
+        finalised the figures stop being a query and become part of the record:
+        later attendance, reassigned work, a changed role or a deleted roster
+        row cannot alter what this review says.
+        """
+        if not _is_owner(request.user):
+            return Response({'error': 'Only the boutique owner can finalise a review.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        with transaction.atomic():
+            # Locked, then re-read: two tabs pressing Finalise must not both
+            # write a snapshot, and the second must lose rather than overwrite.
+            review = StaffPerformanceReview.objects.select_for_update(
+                of=('self',)).get(pk=self.get_object().pk)
+            if review.is_final:
+                return Response(
+                    {'error': 'This review has already been finalised.'},
+                    status=status.HTTP_409_CONFLICT)
+
+            snapshot = {}
+            if review.staff is not None:
+                metrics = performance.staff_metrics(
+                    review.staff, review.period_start, review.period_end)
+                # Dates are not JSON; the rest of the structure is already
+                # plain numbers, booleans and strings.
+                metrics['period_start'] = str(metrics['period_start'])
+                metrics['period_end'] = str(metrics['period_end'])
+                snapshot = metrics
+                # NOT re-stamped from the live role. The serializer records the
+                # role at CREATION precisely so a later promotion cannot
+                # re-label the review, and overwriting it here undid that: a
+                # Tailor promoted between draft and finalise had her September
+                # review filed as a Master's. Only filled if it was never set.
+                if not review.role_snapshot and review.staff.role:
+                    review.role_snapshot = review.staff.role
+
+            review.kpi_snapshot = snapshot
+            review.overall_rating = review.computed_overall()
+            review.status = StaffPerformanceReview.Status.FINAL
+            review.finalised_at = timezone.now()
+            # updated_at is auto_now, and auto_now is only applied to fields
+            # named in update_fields -- omitted, the row's own modified time
+            # stays at creation for the rest of its life.
+            review.save(update_fields=['kpi_snapshot', 'overall_rating', 'status',
+                                       'finalised_at', 'role_snapshot',
+                                       'updated_at'])
+
+        _log_review(request, 'REVIEW_FINALISED', review, 'Performance review finalised')
+        return Response(StaffPerformanceReviewSerializer(review).data)
+
+    @action(detail=True, methods=['POST'])
+    def acknowledge(self, request, pk=None):
+        """The staff member says they have seen it. An explicit act, never inferred.
+
+        Reading the page is not acknowledgement, so this is a button and a
+        timestamp rather than a side effect of a GET.
+        """
+        review = self.get_object()
+        mine = _staff_for(request.user)
+        if mine is None or review.staff_id != mine.id:
+            return Response(
+                {'error': 'You can only acknowledge your own review.'},
+                status=status.HTTP_403_FORBIDDEN)
+        if review.status != StaffPerformanceReview.Status.FINAL:
+            return Response(
+                {'error': 'This review is not ready to be acknowledged.'},
+                status=status.HTTP_409_CONFLICT)
+        review.status = StaffPerformanceReview.Status.ACKNOWLEDGED
+        review.acknowledged_at = timezone.now()
+        review.save(update_fields=['status', 'acknowledged_at', 'updated_at'])
+        _log_review(request, 'REVIEW_ACKNOWLEDGED', review,
+                    'Performance review acknowledged')
+        return Response(StaffPerformanceReviewSerializer(review).data)
+
+
+def _log_review(request, action_name, review, title):
+    """Lifecycle only. No rating, no metric, no name.
+
+    UniversalActivity is readable by Owner AND Master, and an assessment is
+    private between the owner and the person assessed. The entity id lets the
+    owner open it; the feed says only that something happened.
+    """
+    user = request.user if request.user.is_authenticated else None
+    # The ACTOR is named only when the actor is the owner. On acknowledge the
+    # actor IS the person the review is about, so writing their name here put
+    # "Anita -- Performance review acknowledged" into a feed Masters can read,
+    # which is the one thing this function's docstring promises not to do.
+    names_the_reviewee = action_name == 'REVIEW_ACKNOWLEDGED'
+    UniversalActivity.objects.create(
+        user=None if names_the_reviewee else user,
+        user_name_snapshot=(
+            'A staff member' if names_the_reviewee
+            else ((user.get_full_name() or user.username) if user else 'System')),
+        module='staff',
+        entity_type='StaffPerformanceReview',
+        entity_id=str(review.id),
+        action=action_name,
+        title=title,
+        description='',
+        new_value={'status': review.status},
+    )
+
+
+class PerformanceView(views.APIView):
+    """Operational performance for the team, or for one person.
+
+    Owner and Master both reach this; a staff member reaches only themselves.
+    There is nothing to strip for a Master because there is nothing financial
+    in it -- `apps.staff.performance` reads attendance and the workflow and has
+    no access to a rate, a payslip or a ledger. That is the confidentiality
+    guarantee: not a filter that could be forgotten, but a module that cannot
+    see the numbers.
+    """
+
+    permission_classes = [StaffSelfOrOwner]
+
+    def get(self, request):
+        # parse_date RAISES on a well-formed but impossible date ('2026-02-30',
+        # '2026-13-01'); it only returns None on a malformed one. Unguarded that
+        # was a 500 from a query string.
+        try:
+            start = parse_date(request.query_params.get('start') or '')
+            end = parse_date(request.query_params.get('end') or '')
+        except ValueError:
+            return Response({'error': 'That is not a real date.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if start is None or end is None:
+            end = attendance.business_date(timezone.now())
+            start = end - timedelta(days=29)
+        if end < start:
+            return Response({'error': 'The period cannot end before it starts.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        profiles = StaffProfile.objects.select_related('staff')
+        if _can_see_team(request.user):
+            requested = request.query_params.get('staff')
+            if requested:
+                try:
+                    profiles = profiles.filter(staff_id=int(requested))
+                except (TypeError, ValueError):
+                    profiles = profiles.none()
+            role = request.query_params.get('role')
+            if role:
+                profiles = profiles.filter(staff__role=role)
+        else:
+            # `staff` is not read on this branch: a tailor's own profile is the
+            # only row it can ever name.
+            mine = _staff_for(request.user)
+            profiles = profiles.filter(staff=mine) if mine else profiles.none()
+
+        rows = []
+        for profile in profiles:
+            if profile.staff is None:
+                continue
+            metrics = performance.staff_metrics(
+                profile.staff, start, end, profile=profile)
+            metrics['headline'] = performance.headline_kpis(metrics)
+            metrics['period_start'] = str(metrics['period_start'])
+            metrics['period_end'] = str(metrics['period_end'])
+            rows.append(metrics)
+
+        return Response({
+            'start': start, 'end': end,
+            'staff_count': len(rows),
+            # Read from the rows actually returned rather than asserted. This
+            # was hardcoded False alongside a note claiming nothing in the
+            # application creates a QCRecord -- /api/production/qc/ does.
+            'quality_available': any(
+                r['quality']['pass_rate']['available'] for r in rows),
+            'quality_note': ('No QC records exist for this period, so quality '
+                             'is not reported. Nothing in the product creates '
+                             'them today.'),
+            'results': rows,
+        })
