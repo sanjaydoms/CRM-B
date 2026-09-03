@@ -13,10 +13,9 @@ cloudinary==1.46.2
 django-cloudinary-storage==0.3.0
 sqlparse==0.5.5
 requests
+# The email service's job queue talks to Upstash over REST. Installed in
+# the working venv but missing here, so a fresh deploy imported
+# apps.email_service and died on the import.
+upstash-redis==1.8.0
 gunicorn
-# Test-only. Django's parallel runner pickles tracebacks across worker
-# processes and cannot do it without tblib -- a failure under `--parallel`
-# then reports "cannot pickle 'traceback' object" instead of the actual
-# assertion, which sends you looking for a bug in the runner rather than in
-# the test. Nothing in the application imports it.
 tblib==3.2.2

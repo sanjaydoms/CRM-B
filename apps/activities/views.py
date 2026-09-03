@@ -10,12 +10,6 @@ class UniversalActivityViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = UniversalActivitySerializer
 
     def get_queryset(self):
-        # The boutique-wide activity log, in prose, including order values in
-        # the description and in new_value.total_amount. It had no scoping and
-        # RolePermission grants every non-Owner staff member all SAFE_METHODS,
-        # so any tailor could read the running commentary on every order in the
-        # building. Whoever runs the floor needs this; whoever sews one garment
-        # does not.
         role = resolve_user_role(self.request.user)
         if role != OWNER and role not in SUPERVISOR_ROLES:
             return UniversalActivity.objects.none()

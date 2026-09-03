@@ -11,22 +11,6 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     serializer_class = AppointmentSerializer
 
     def get_queryset(self):
-        """Only appointments for clients this caller may see.
-
-        This had no scoping at all, and RolePermission grants every non-Owner
-        staff member all SAFE_METHODS -- a blanket grant that only works because
-        crm_api's viewsets narrow their own querysets. This router never did, and
-        AppointmentSerializer nests the FULL CustomerSerializer, which in turn
-        nests that customer's orders and their money. So a tailor who is
-        correctly 404'd from a stranger's customer record read the same person's
-        name, mobile number, email and home address here instead -- and the
-        frontend loads this endpoint for every role on every login, so it
-        arrived in their browser unasked.
-
-        core/permissions.py's own docstring names this exact outcome as the thing
-        it exists to prevent: a tailor reading the whole order book is how a
-        customer list walks out of the building.
-        """
         customers = visible_customers(Customer.objects.all(), self.request.user)
         return super().get_queryset().filter(customer__in=customers)
 

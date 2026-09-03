@@ -1,8 +1,5 @@
 from django.db import migrations
 
-# Roles added per stage by the specialist-roles change. Existing boutiques already
-# have workflow_config materialised in their own schema, so changing the model
-# default reaches new tenants only -- this backfills the rest.
 NEW_ROLES_BY_STAGE = {
     'measurements_completed': ['Measurement Master'],
     'pattern_cutting': ['Pattern Master', 'Cutting Master'],
@@ -12,11 +9,6 @@ NEW_ROLES_BY_STAGE = {
 
 
 def merge_specialist_roles(apps, schema_editor):
-    """Union the specialist roles into each stage, keeping any customisation.
-
-    A boutique may have renamed stages, changed SLAs or restricted roles; this
-    only ever adds, so none of that is overwritten.
-    """
     BoutiqueSettings = apps.get_model('crm_api', 'BoutiqueSettings')
     for config in BoutiqueSettings.objects.all():
         workflow = config.workflow_config or []
@@ -26,7 +18,6 @@ def merge_specialist_roles(apps, schema_editor):
             if not additions:
                 continue
             roles = stage.get('roles')
-            # A stage with no role list is unrestricted -- leave it that way.
             if not roles:
                 continue
             for role in additions:

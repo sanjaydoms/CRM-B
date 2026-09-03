@@ -1,9 +1,3 @@
-"""Tests for the template engine.
-
-The rules here are the ones a wrong answer costs fabric over: a hidden field that
-is still demanded, an option that no longer exists, a measurement typed with an
-extra zero.
-"""
 
 from django_tenants.test.cases import TenantTestCase
 
@@ -14,7 +8,7 @@ from .services import sync_global_templates
 
 
 class CatalogTestCase(TenantTestCase):
-    """Templates live in the tenant schema, so every test needs one."""
+
 
     @classmethod
     def setup_tenant(cls, tenant):
@@ -35,9 +29,6 @@ class TemplateSeedTests(CatalogTestCase):
         self.assertEqual(seeded, {d['key'] for d in TEMPLATES})
 
     def test_the_garments_the_boutique_actually_sells_are_present(self):
-        # Gown, Suit and Sherwani were in the wizard's old hardcoded list and
-        # the seeded catalogue still has gowns; leaving them out stranded those
-        # designs and made the orders untakeable.
         seeded = set(GarmentTemplate.objects.values_list('key', flat=True))
         self.assertTrue({'gown', 'suit', 'sherwani'} <= seeded)
 
@@ -108,8 +99,6 @@ class VisibilityTests(CatalogTestCase):
         self.assertFalse(is_visible(colour, {}))
 
     def test_neq_rule_defaults_to_visible_when_unanswered(self):
-        # Hand rounding applies to every sleeve except sleeveless, including
-        # before a sleeve has been chosen.
         rounding = self._field('blouse', 'hand_rounding')
         self.assertTrue(is_visible(rounding, {}))
         self.assertFalse(is_visible(rounding, {'sleeve_length': 'sleeveless'}))
@@ -132,8 +121,6 @@ class ValidationTests(CatalogTestCase):
     def test_required_fields_are_reported_together(self):
         with self.assertRaises(SpecValidationError) as caught:
             validate_spec(self.saree, {})
-        # Delivery date is deliberately not here: an order is often taken before
-        # a date is agreed, and requiring it only produced placeholder dates.
         self.assertEqual(set(caught.exception.errors), {'saree_type', 'services'})
 
     def test_delivery_date_is_optional_on_every_garment(self):
@@ -150,9 +137,7 @@ class ValidationTests(CatalogTestCase):
             f.key for f in style.fields.all() if is_visible(f, {'services': services})
         }
 
-        # Fall and pico work asks nothing about borders, tassels or petticoats.
         self.assertEqual(visible(['fall_pico']), {'services', 'fall_type', 'pico_type'})
-        # Stitching does not ask how the fall should be cut.
         self.assertEqual(
             visible(['stitching']), {'services', 'border', 'backing', 'petticoat_required'}
         )
@@ -160,8 +145,6 @@ class ValidationTests(CatalogTestCase):
         self.assertNotIn('tassels', visible(['stitching']))
 
     def test_tassel_material_needs_the_service_not_just_an_unset_field(self):
-        # `neq` is true for an unanswered field, so without the service gate the
-        # tassel material appeared on orders with no tassel work at all.
         materials = self.saree.sections.get(key='materials')
         tassels = next(f for f in materials.fields.all() if f.key == 'tassels_material')
         self.assertFalse(is_visible(tassels, {'services': ['stitching']}))

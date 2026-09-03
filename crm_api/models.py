@@ -6,44 +6,28 @@ from django.conf import settings
 from django.contrib.auth.models import User
 
 
-#: India. The one number this module needs to know to tell a national number
-#: from an international one.
 NATIONAL_NUMBER_LENGTH = 10
 
 
+# 500, not the ImageField default of 100.
+#
+# What is stored is the name the STORAGE BACKEND returns, not the path
+# upload_to proposed. `completed_garments/<32-hex>/<original filename>` is
+# already 96 characters for an ordinary phone filename, and Cloudinary returns
+# its public id -- the same path under a `media/` prefix with a random suffix
+# appended -- which puts it past 100 and made Postgres reject the row with
+# "value too long for type character varying(100)". A tailor submitting a
+# completed garment photograph got a 500 and the order kept its old status.
+#
+# Wide enough for a 255-character filename, which is what a filesystem allows,
+# so the limit stops depending on how the customer named the picture.
+IMAGE_PATH_MAX_LENGTH = 500
+
+
 def _unguessable_path(directory, filename):
-    """`directory/<random>/filename` -- the filename kept, the path not guessable.
-
-    Media is served by a plain route over one MEDIA_ROOT with no permission
-    check (see boutique_crm/urls.py), and Django's default naming keeps the
-    caller's own filename -- so a customer's photograph landed at
-    /media/customer_profiles/IMG_1234.jpg and a boutique logo at
-    /media/fabrics/logo.png, both of which anyone can guess. Finished-garment
-    photographs are the sharpest case: the tracking page will not show them
-    until the owner publishes, and a guessed URL walked straight past that gate.
-
-    Django's storage only appends a suffix on COLLISION, so an unused name is
-    stored exactly as uploaded and nothing was ever randomised. A uuid4
-    directory means there is nothing left to guess, at the cost of one path
-    segment.
-
-    This is hardening, not authentication -- a leaked URL still works. Real
-    per-boutique isolation means TenantFileSystemStorage plus physically moving
-    every existing file into media/<schema>/, which breaks every stored path if
-    done without that move. That belongs with the persistent-disk work
-    (uploads do not survive a redeploy at all today), not ahead of it.
-
-    Existing rows are untouched and keep serving from their current paths.
-    """
     return f"{directory}/{uuid.uuid4().hex}/{filename}"
 
 
-# One module-level function per directory, rather than a factory returning a
-# closure. The migration autodetector serialises an upload_to callable by its
-# import path, so a closure -- however its __name__ is set -- is written into
-# the migration as a module attribute that does not exist, and every later
-# `manage.py migrate` dies importing it. These five are the whole cost of
-# getting that right.
 def upload_to_customer_profiles(instance, filename):
     return _unguessable_path('customer_profiles', filename)
 
@@ -65,37 +49,12 @@ def upload_to_fabrics(instance, filename):
 
 
 def whatsapp_number(raw):
-    """Return ``raw`` as the digits wa.me needs, or '' if it cannot be one.
-
-    wa.me only accepts a full international number with no trunk prefix, and
-    mobile_number is free text -- no validator on the field, none in the
-    serializer, none in the form. So whatever the boutique typed arrives here,
-    and a link built from it verbatim opens a chat with nobody. Worse, it does
-    so silently: a wrong number still renders as a working "Open WhatsApp"
-    button, and the owner can mark it sent beside a link that never opened.
-
-    Handled: a bare national number, a leading '+', the 00 international access
-    code, and a national trunk zero wherever it sits -- '098765 43211',
-    '0091 9876543211' and '+91 (0) 98765 43211' all reach the same person.
-
-    Anything that cannot be made into a number of this country falls through:
-    kept if it could still be a valid international number, and otherwise
-    refused, so the interface says "no mobile number" rather than offering a
-    link that cannot work.
-
-    # ponytail: one national length and one default country code, which is
-    # right while every customer is Indian -- a UK number typed in national
-    # form would get +91 in front of it. A boutique serving more than one
-    # country needs the country stored on the customer, not guessed here.
-    """
     digits = re.sub(r'\D', '', raw or '')
     country_code = getattr(settings, 'WHATSAPP_COUNTRY_CODE', '91')
 
     if digits.startswith('00'):
         digits = digits[2:]
 
-    # Only strip a leading country code from something too long to *be* a
-    # national number: Indian mobiles legitimately start 91.
     if len(digits) > NATIONAL_NUMBER_LENGTH and digits.startswith(country_code):
         national = digits[len(country_code):]
     else:
@@ -104,8 +63,6 @@ def whatsapp_number(raw):
 
     if len(national) == NATIONAL_NUMBER_LENGTH:
         return country_code + national
-    # E.164 allows at most 15 digits, and nothing shorter than 11 can carry a
-    # country code plus a subscriber number.
     return digits if 11 <= len(digits) <= 15 else ''
 
 class Customer(models.Model):
@@ -129,14 +86,13 @@ class Customer(models.Model):
     occasion = models.CharField(max_length=100, blank=True, null=True)
     custom_requirements = models.TextField(blank=True, null=True)
     
-    # Additional Info
     date_of_birth = models.DateField(blank=True, null=True)
     occupation = models.CharField(max_length=100, blank=True, null=True)
     preferred_communication = models.CharField(max_length=50, default="WhatsApp") # WhatsApp, Call, Email
     notes = models.TextField(blank=True, null=True)
     
-    # Files
-    profile_photo = models.ImageField(upload_to=upload_to_customer_profiles, blank=True, null=True)
+    profile_photo = models.ImageField(upload_to=upload_to_customer_profiles, blank=True, null=True,
+                                      max_length=IMAGE_PATH_MAX_LENGTH)
     
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -145,31 +101,6 @@ class Customer(models.Model):
         return f"{self.first_name} {self.last_name} ({self.mobile_number})"
 
     def save(self, *args, **kwargs):
-        """Store the number in one canonical form, whatever wrote it.
-
-        This started life in CustomerSerializer, which fixed the API path and
-        left every other one alone -- and the test suite found the hole
-        immediately: a Customer created straight through the ORM kept the raw
-        string, so it no longer collided with the same person added through the
-        interface, and the duplicate the whole change exists to prevent came
-        back through a different door.
-
-        The invariant belongs here because `mobile_number` is unique=True and
-        both customer searches are literal substring matches. Anything that
-        writes an un-normalised number -- a seed script, a bulk import, Django
-        admin, code written next year -- creates a row that cannot be found by
-        the number as anyone would type it, and that can be duplicated.
-
-        The serializer keeps its own normalisation: it has to run BEFORE DRF's
-        UniqueValidator so a duplicate comes back as a clean 400 naming the
-        field, rather than as an IntegrityError from Postgres. This is the
-        backstop for everything that is not the serializer.
-
-        An unparseable number is stored as typed. Those digits are the only
-        record of how to reach that client, and a model save is the wrong place
-        to throw them away -- the serializer already refuses them at the edge,
-        where the person typing can be told why.
-        """
         if self.mobile_number:
             self.mobile_number = whatsapp_number(self.mobile_number) or self.mobile_number
         super().save(*args, **kwargs)
@@ -189,7 +120,6 @@ class Measurement(models.Model):
         return f"Measurements for {self.customer.first_name} {self.customer.last_name}"
 
     def save(self, *args, **kwargs):
-        # Determine if values changed relative to the latest history entry
         last_history = MeasurementHistory.objects.filter(customer=self.customer).order_by('-changed_at').first()
         changed = False
         if not last_history:
@@ -247,12 +177,9 @@ class DesignPreference(models.Model):
 
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='design_preferences')
     notes = models.TextField(blank=True, null=True)
-    # JSON list of image paths/URLs
     reference_images = models.JSONField(default=list, blank=True)
-    # Where the design came from, and any external inspiration links (Pinterest etc.)
     source = models.CharField(max_length=50, choices=SOURCE_CHOICES, default='BOUTIQUE_CATALOG', db_index=True)
     reference_links = models.JSONField(default=list, blank=True)
-    # The single design signed off for production, chosen from the references above.
     approved_image = models.CharField(max_length=500, blank=True, null=True)
     is_approved = models.BooleanField(default=False, db_index=True)
     approved_at = models.DateTimeField(blank=True, null=True)
@@ -265,7 +192,6 @@ class FabricSelection(models.Model):
     is_boutique_fabric = models.BooleanField(default=True)
     fabric_name = models.CharField(max_length=150)
     fabric_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    # JSON list of image paths/URLs
     uploaded_fabric_images = models.JSONField(default=list, blank=True)
 
     def __str__(self):
@@ -283,13 +209,6 @@ class BoutiqueFabric(models.Model):
         return f"{self.name} ({self.material}) - ₹{self.price_per_meter}/mtr"
 
 class BoutiqueDesign(models.Model):
-    """Deprecated. The catalogue lives in design_studio.DesignAsset.
-
-    Migration design_studio.0007 moved every row into the library and the
-    endpoints switched over with it, so nothing writes here any more. The table
-    is kept for one release as a fallback if that move needs inspecting, and is
-    then dropped.
-    """
 
     name = models.CharField(max_length=150)
     garment_type = models.CharField(max_length=100) # e.g. Lehenga, Gown, Saree, Kurti, Sherwani
@@ -304,8 +223,6 @@ class BoutiqueDesign(models.Model):
         return f"{self.name} ({self.garment_type}) - {'Boutique' if self.is_boutique else 'AI suggestion'}"
 
 class Tailor(models.Model):
-    # A boutique with one generalist keeps using Master; larger studios split the
-    # work across specialists. Both are valid, and a stage accepts either.
     ROLE_CHOICES = [
         ('Master', 'Master (generalist)'),
         ('Tailor', 'Tailor'),
@@ -341,16 +258,12 @@ class Order(models.Model):
     tracking_number = models.CharField(max_length=100, blank=True, null=True)
     delivery_address = models.TextField(blank=True, null=True)
     
-    # Financial breakdown
     base_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     fabric_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     embroidery_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     customization_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     tailoring_charges = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     packaging_handling = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    # Order-level: one discount against the whole bill, applied after the
-    # garment subtotals and packaging, before tax. Per-garment haggling is not
-    # a thing the counter does; the bill gets one concession.
     discount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     taxes = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
@@ -360,22 +273,12 @@ class Order(models.Model):
     order_date = models.DateTimeField(auto_now_add=True, db_index=True)
     estimated_delivery = models.DateField(blank=True, null=True)
     tailor_comments = models.TextField(blank=True, null=True)
-    completed_garment_image = models.ImageField(upload_to=upload_to_completed_garments, blank=True, null=True)
+    completed_garment_image = models.ImageField(upload_to=upload_to_completed_garments, blank=True, null=True,
+                                                max_length=IMAGE_PATH_MAX_LENGTH)
     master_verification = models.JSONField(default=dict, blank=True)
     
-    # Whether the customer may see the finished-garment photographs on their
-    # tracking page. A deliberate publish rather than "images exist, show them":
-    # the angles go up one at a time over several minutes, and a half-uploaded
-    # gallery is not what anyone wants the customer looking at.
     garment_images_published = models.BooleanField(default=False)
 
-    # Workflow integration
-    # What the owner typed on the last step of the wizard. It was posted as
-    # custom_requirements and read by nothing -- Order had no field for it and
-    # the Customer row was not touched either -- so an instruction the staff
-    # were asked for was accepted and dropped. Distinct from
-    # Customer.custom_requirements, which is a standing preference rather than
-    # a note about this one garment.
     special_instructions = models.TextField(blank=True, default='')
     current_stage_key = models.CharField(max_length=100, default="created", db_index=True)
     production_status = models.CharField(max_length=50, default="NOT_STARTED", db_index=True) # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
@@ -391,7 +294,6 @@ class OrderStage(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     duration_seconds = models.IntegerField(default=0) # Total tracking duration in seconds
-    # assigned_to is who *should* do this stage; performed_by is who actually did.
     assigned_to = models.ForeignKey(
         Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_stages'
     )
@@ -424,7 +326,8 @@ class OrderStageHistory(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='stage_histories')
     stage = models.CharField(max_length=100)
     comments = models.TextField(blank=True, null=True)
-    image = models.ImageField(upload_to=upload_to_stage_images, blank=True, null=True)
+    image = models.ImageField(upload_to=upload_to_stage_images, blank=True, null=True,
+                              max_length=IMAGE_PATH_MAX_LENGTH)
     completed_by_name = models.CharField(max_length=255, blank=True, null=True)
     completed_at = models.DateTimeField(auto_now_add=True)
 
@@ -443,17 +346,7 @@ class Notification(models.Model):
         return f"{self.recipient_role} - {self.title}"
 
 class GarmentImage(models.Model):
-    """A photograph of the finished garment, taken by the boutique.
 
-    Order.completed_garment_image already holds one image, but it is the
-    tailor's evidence at the stitching_completed stage -- it is written by
-    submit_completion, it is internal, and there is exactly one of it. These are
-    a different thing with a different audience: several angles, chosen and
-    published deliberately, for the customer to look at before they collect.
-    """
-
-    # Front and back are what the specification requires; the rest are the
-    # optional angles it lists, and cover the garments this CRM actually sells.
     VIEW_CHOICES = [
         ('FRONT', 'Front view'),
         ('BACK', 'Back view'),
@@ -468,7 +361,8 @@ class GarmentImage(models.Model):
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='garment_images')
     view = models.CharField(max_length=20, choices=VIEW_CHOICES, default='FRONT')
-    image = models.ImageField(upload_to=upload_to_finished_garments)
+    image = models.ImageField(upload_to=upload_to_finished_garments,
+                              max_length=IMAGE_PATH_MAX_LENGTH)
     uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
@@ -480,18 +374,6 @@ class GarmentImage(models.Model):
 
 
 class CustomerMessage(models.Model):
-    """One outbound message to a customer, and what became of it.
-
-    Notification is the CRM's own inbox -- staff read it inside the app.
-    This is the record of what was sent *out* to the customer, which is a
-    different thing with a different lifecycle: it has a destination, a
-    delivery state that a provider updates after the fact, and it has to stay
-    readable as history even after the transport is swapped.
-
-    A row is written for every automated notification regardless of whether a
-    transport is configured, so an order's communication history is complete
-    from the first order rather than from whenever WhatsApp is connected.
-    """
 
     STATUS_CHOICES = [
         ('QUEUED', 'Queued'),
@@ -503,18 +385,12 @@ class CustomerMessage(models.Model):
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='customer_messages')
     channel = models.CharField(max_length=30, default='whatsapp')
-    # Which notification this is (order_confirmation, stage_update, ...). Named
-    # rather than free text so the boutique can switch individual ones off and
-    # so an approved provider template can be mapped to it later.
     template_key = models.CharField(max_length=100, db_index=True)
-    # Snapshot: the number as it was when we sent, not as it is now. A customer
-    # who changes their number must not rewrite where past messages went.
     to_number = models.CharField(max_length=20)
     body = models.TextField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='QUEUED', db_index=True)
     provider_message_id = models.CharField(max_length=255, blank=True, null=True)
     error = models.TextField(blank=True, null=True)
-    # Null for automated messages; set for ones staff send by hand.
     sent_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
@@ -523,13 +399,6 @@ class CustomerMessage(models.Model):
 
     @property
     def whatsapp_url(self):
-        """Click-to-chat link that opens WhatsApp with this message ready to send.
-
-        There is no Business API here on purpose: the owner sends from their own
-        phone, so the product's job is to remove the retyping, not to automate
-        the send. Following this link opens the chat with the customer and the
-        body already in the box; the owner presses send.
-        """
         number = whatsapp_number(self.to_number)
         if not number:
             return ''
@@ -538,17 +407,12 @@ class CustomerMessage(models.Model):
     def __str__(self):
         return f"{self.order.order_id} - {self.template_key} ({self.status})"
 
-# Every stage keeps "Master" alongside its specialist so a boutique staffed by one
-# generalist is unaffected, while a studio that has split the roles can restrict
-# work to the right person. Owner is always permitted, in code, regardless.
 def get_default_workflow():
     return [
         {"key": "created", "name": "Created", "sla_hours": 12, "roles": ["Owner", "Master"]},
         {"key": "measurements_completed", "name": "Measurements Completed", "sla_hours": 24, "roles": ["Owner", "Master", "Measurement Master"]},
         {"key": "fabric_confirmed", "name": "Fabric Confirmed", "sla_hours": 24, "roles": ["Owner", "Master"]},
         {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master", "Pattern Master", "Cutting Master"]},
-        # Embroidery happens on cut fabric, before stitching. Not every garment needs
-        # it -- mark the stage SKIPPED on those orders.
         {"key": "maggam_work", "name": "Maggam Work", "sla_hours": 96, "roles": ["Owner", "Master", "Maggam Master"], "optional": True},
         {"key": "assigned_to_tailor", "name": "Assigned to Tailor", "sla_hours": 12, "roles": ["Owner", "Master"]},
         {"key": "stitching_in_progress", "name": "Stitching In Progress", "sla_hours": 72, "roles": ["Owner", "Tailor"]},
@@ -563,34 +427,14 @@ def get_default_workflow():
     ]
 
 class BoutiqueSettings(models.Model):
-    # Blank defaults, not vendor demo strings.
-    #
-    # These four used to default to "Scaleezy Atelier", "123 Atelier Way,
-    # Fashion District", "+91 9999999999" and "contact@scaleezy.com" -- and this
-    # row is conjured by get_or_create(id=1) wherever it is first needed, so a
-    # boutique that had never opened its profile screen printed OUR contact
-    # details on ITS invoices and showed them to its customers on the public
-    # tracking page. The customer was told to collect a garment from an address
-    # that does not exist, over a phone number nobody answers.
-    #
-    # Blank is the honest default: the interface can then tell the owner what is
-    # missing, and shows the customer nothing false in the meantime. SignupView
-    # fills name, email and phone from what the owner typed, so a boutique
-    # created through the product is never wholly empty.
     name = models.CharField(max_length=255, blank=True, default="")
     address = models.TextField(blank=True, default="")
     phone = models.CharField(max_length=50, blank=True, default="")
     email = models.EmailField(blank=True, default="")
-    logo = models.ImageField(upload_to=upload_to_fabrics, blank=True, null=True)
+    logo = models.ImageField(upload_to=upload_to_fabrics, blank=True, null=True,
+                             max_length=IMAGE_PATH_MAX_LENGTH)
     workflow_config = models.JSONField(default=get_default_workflow, blank=True)
-    # Off by default: a small team is usually the owner and one or two
-    # designers, and forcing every upload through a queue just to reach the
-    # library they already trust is friction with no one on the other end of
-    # it. A team that wants a review step turns this on per boutique.
     design_approval_required = models.BooleanField(default=False)
-    # The master switch for everything sent to customers. On by default because
-    # the shipped transport only logs; a boutique that connects a real one and
-    # wants to go quiet flips this rather than editing code.
     customer_messaging_enabled = models.BooleanField(default=True)
 
     def __str__(self):
@@ -598,47 +442,15 @@ class BoutiqueSettings(models.Model):
 
 
 class OrderDraft(models.Model):
-    """An order being written, kept apart from the orders that exist.
-
-    The wizard used to hold six steps of work in browser memory and nowhere
-    else. Refreshing lost it. Browser back lost it. So did the empty-state
-    "Add fabrics" button on step four, which is the product's own advice to a
-    boutique with no fabric library yet -- a fully filled two-garment order,
-    destroyed by following the instruction on the screen. And because the
-    customer was POSTed at step one, what survived was an orphan customer with
-    no order and no way back to the work.
-
-    Deliberately its own model rather than a flag on Order. There are
-    thirty-odd order querysets across crm_api, domains, superadmin, inventory,
-    production, design studio and catalog; a draft flag would need excluding
-    from every one of them, and the cost of missing a single filter is a draft
-    appearing on a tailor's dashboard, in the revenue figures, on the
-    customer's tracking page, or -- now that materials follow production --
-    reserving real cloth off a real shelf. Nothing downstream knows this model
-    exists, so none of that can happen. The price is one conversion at confirm,
-    in one place, which is a thing a test can hold.
-    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    #: Who is writing it. A draft is personal until it becomes an order.
     created_by = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='order_drafts')
-    #: Set when the wizard was started from an existing client. Null while the
-    #: customer is still being typed -- that data lives in `payload` until
-    #: confirmation, so an abandoned draft leaves no half-made customer behind.
     customer = models.ForeignKey(
         Customer, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='order_drafts')
-    #: Everything the wizard holds: customer fields, garments, per-garment
-    #: quantities, design notes, fabric choice, staff and prices. Opaque here on
-    #: purpose -- the wizard owns its own shape, and pinning it into columns
-    #: would mean a migration every time a step gains a field.
     payload = models.JSONField(default=dict, blank=True)
-    #: Where to reopen it.
     current_step = models.PositiveSmallIntegerField(default=1)
-    #: Bumped on every save. A second tab holding an older copy sends the
-    #: version it last read; a mismatch is refused rather than allowed to
-    #: overwrite work the newer tab did.
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)

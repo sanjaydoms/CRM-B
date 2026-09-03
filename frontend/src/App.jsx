@@ -7373,7 +7373,7 @@ function App() {
             {currentStep === 1 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">AI Design Studio</h1>
+                  <h1 className="page-title">Design Studio</h1>
                   <p className="page-subtitle">Designs matched to this client's measurements, occasion, budget and order history — searched across your catalogue, past orders and saved library, and ranked with the reason for every suggestion.</p>
                 </div>
 
@@ -8904,10 +8904,8 @@ function App() {
                   body * {
                     visibility: hidden;
                   }
-                  #invoice-printable, #invoice-printable * {
                     visibility: visible;
                   }
-                  #invoice-printable {
                     position: absolute;
                     left: 0;
                     top: 0;

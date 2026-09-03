@@ -10,13 +10,6 @@ from apps.activities.models import UniversalActivity
 
 
 def _visible_order_ids(user):
-    """Orders this caller may see, as a queryset of ids.
-
-    RolePermission grants every non-Owner staff member all SAFE_METHODS, which
-    is only safe because each viewset narrows its own queryset. These two never
-    did, so /api/production/tasks/ handed any signed-in tailor every order id
-    and customer name in the boutique.
-    """
     return visible_orders(Order.objects.all(), user).values('id')
 
 
@@ -48,7 +41,6 @@ class ProductionTaskViewSet(viewsets.ModelViewSet):
         
         task = serializer.save()
         
-        # Check if completed
         if old_status != 'COMPLETED' and task.status == 'COMPLETED':
             task.completed_at = timezone.now()
             task.save(update_fields=['completed_at'])

@@ -26,8 +26,6 @@ class InventoryItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventoryItem
         fields = '__all__'
-        # Stock moves only through InventoryService; letting the API PATCH these
-        # would put the ledger and the balance out of step.
         read_only_fields = ['current_stock', 'reserved_stock', 'created_at', 'updated_at']
 
     def validate(self, attrs):
@@ -38,7 +36,7 @@ class InventoryItemSerializer(serializers.ModelSerializer):
 
 
 class InventoryItemSummarySerializer(serializers.ModelSerializer):
-    """Flat row for list views -- no supplier join, no descriptors."""
+
 
     available_stock = serializers.DecimalField(max_digits=12, decimal_places=3, read_only=True)
     needs_reorder = serializers.BooleanField(read_only=True)
@@ -63,7 +61,6 @@ class StockMovementSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockMovement
         fields = '__all__'
-        # The ledger is append-only: it is written by InventoryService alone.
         read_only_fields = [f.name for f in StockMovement._meta.fields]
 
 
@@ -103,7 +100,6 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         return purchase_order
 
     def update(self, instance, validated_data):
-        # Lines are managed through the receive action, not by wholesale replacement.
         validated_data.pop('lines', None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -112,7 +108,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
 
 
 class CatalogItemSerializer(serializers.ModelSerializer):
-    """A row of the published catalogue, with enough context to stock it."""
+
 
     section_name = serializers.CharField(source='section.name', read_only=True)
     section_full_name = serializers.CharField(source='section.full_name', read_only=True)
@@ -120,8 +116,6 @@ class CatalogItemSerializer(serializers.ModelSerializer):
     doc = serializers.CharField(source='section.doc', read_only=True)
     item_type_display = serializers.CharField(source='get_item_type_display', read_only=True)
     is_stockable = serializers.BooleanField(read_only=True)
-    #: Whether this boutique already stocks it, so the UI can offer "Add to
-    #: inventory" once rather than creating a second row for the same material.
     stocked_item_id = serializers.SerializerMethodField()
 
     class Meta:
@@ -195,12 +189,6 @@ class BomLineSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
-        """A line must name a material, and its formula must be a valid one.
-
-        Checked here as well as by the database constraint so the operator gets
-        a readable message instead of an integrity error, and so a broken formula
-        is caught when it is written rather than when an order tries to use it.
-        """
         from .formula import FormulaError, validate_syntax
 
         merged = {**({} if self.instance is None else {
@@ -215,8 +203,6 @@ class BomLineSerializer(serializers.ModelSerializer):
                 'A line must name an inventory item, a catalogue item, or be '
                 'marked as customer-supplied.')
 
-        # A garment category or a payment gateway is catalogued but cannot be
-        # consumed by a garment, so it has no business on a recipe.
         catalog_item = merged.get('catalog_item')
         if catalog_item is not None and not catalog_item.is_stockable:
             raise serializers.ValidationError({'catalog_item': (
@@ -227,11 +213,6 @@ class BomLineSerializer(serializers.ModelSerializer):
         formula = attrs.get('quantity_formula')
         if formula:
             try:
-                # Structural check, not an evaluation. The measurements a
-                # formula reads do not exist until an order does, so it cannot
-                # be run here; validate_syntax walks every node instead, which
-                # means an unbound name is fine and a forbidden construct is
-                # caught wherever it sits in the expression.
                 validate_syntax(formula)
             except FormulaError as exc:
                 raise serializers.ValidationError({'quantity_formula': str(exc)})
@@ -250,14 +231,6 @@ class BillOfMaterialsSerializer(serializers.ModelSerializer):
         read_only_fields = ['version']
 
     def validate(self, attrs):
-        """Refuse a duplicate version before the database has to.
-
-        DRF's UniqueTogetherValidator short-circuits as soon as any component of
-        the key is None (rest_framework/validators.py), and template or design
-        being null is the ordinary case here -- so without this the partial
-        constraints in Meta would surface as an IntegrityError 500 rather than a
-        400 naming the clash.
-        """
         merged = {**({} if self.instance is None else {
             'name': self.instance.name,
             'template': self.instance.template,
@@ -339,8 +312,5 @@ class CustomerMaterialSerializer(serializers.ModelSerializer):
                   'description', 'unit', 'unit_display', 'received_quantity',
                   'used_quantity', 'returned_quantity', 'damaged_quantity',
                   'remaining_quantity', 'received_at', 'notes']
-        # Balances move only through recorded movements, exactly as boutique
-        # stock does. Editing them directly would leave the ledger disagreeing
-        # with the figure it is supposed to explain.
         read_only_fields = ['received_quantity', 'used_quantity', 'returned_quantity',
                             'damaged_quantity', 'remaining_quantity', 'received_at']

@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-"""Drive the running Boutique CRM in a real browser and save the User Guide screenshots.
-
-Run against the local dev servers (./start.sh, or the boutique-django +
-boutique-vite launch configs):
-
-    /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
-        docs/user-guide/capture.py <step>
-
-Every screenshot in docs/user-guide/screenshots/ comes from this script, so the
-guide can be re-verified against a later build by running it again rather than
-by trusting a stale PNG.
-"""
 import sys
 import pathlib
 from playwright.sync_api import sync_playwright
@@ -69,7 +56,7 @@ def signup(page):
 
 
 def login(page, email=None, password=None):
-    """Sign in and land on the role's dashboard."""
+
     page.goto(APP)
     page.wait_for_timeout(800)
     page.fill("input[placeholder='Enter your email']", email or DEMO["email"])
@@ -113,7 +100,7 @@ def owner_tour(page):
 
 
 def owner_forms(page):
-    """Open each create form and record its fields."""
+
     login(page)
     for label, cta, name in [
         ("Manage Tailors", "Add New Tailor", "17b-owner-add-tailor"),
@@ -146,7 +133,7 @@ def close_modal(page):
 
 
 def owner_ctas(page):
-    """List every button on each owner tab, so flows can be scripted from real labels."""
+
     login(page)
     for label, _ in OWNER_TABS:
         page.click(f".portal-menu-item:has-text('{label}')")
@@ -165,7 +152,7 @@ STAFF = [
 
 
 def seed_staff(page):
-    """Add the demo boutique's tailoring staff, recording each generated login."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Manage Tailors')")
     page.wait_for_timeout(1200)
@@ -190,7 +177,7 @@ def seed_staff(page):
     shot(page, "owner", "17-owner-tailors.png")
 
 def seed_designer(page):
-    """Add a designer and grant them a login."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Manage Designs')")
     page.wait_for_timeout(1500)
@@ -206,7 +193,7 @@ def seed_designer(page):
     shot(page, "owner", "18d-owner-designer-login.png")
 
 def field(page, label):
-    """The input that a form label sits directly above (the app labels without `for`)."""
+
     return page.locator(
         f"xpath=//label[starts-with(normalize-space(.), {label!r})]"
         "/following-sibling::input[1] | "
@@ -305,7 +292,7 @@ def seed_inventory(page):
     dump(page, "inventory after seeding")
 
 def seed_stock(page):
-    """Receive opening stock, so the ledger and the deduction story have numbers."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Inventory')")
     page.wait_for_timeout(1800)
@@ -369,7 +356,7 @@ CUSTOMER = {
 
 
 def create_order(page):
-    """The end-to-end demo order: new customer, two garments, through the wizard."""
+
     login(page)
     page.click("button:has-text('New Custom Order')")
     page.wait_for_timeout(1500)
@@ -395,8 +382,6 @@ def create_order(page):
     page.wait_for_timeout(2500)
     shot(page, "owner", "32-order-step2-garment-details.png")
 
-    # Each garment renders its own .content-card. The fields inside repeat the
-    # same ids across cards, so every control is located within its own card.
     def garment(i):
         return page.locator(".content-card").nth(i)
 
@@ -406,7 +391,6 @@ def create_order(page):
     def gput(i, label, value):
         garment(i).locator(f".form-group:has(label:has-text('{label}')) input").first.fill(value)
 
-    # --- Blouse ---
     gsel(0, "Blouse Type", "Princess")
     gsel(0, "Occasion", "Wedding")
     gsel(0, "Material Source", "Store Inventory Fabric")
@@ -425,7 +409,6 @@ def create_order(page):
     garment(0).locator("input[aria-label^='Quantity']").first.fill("1.2")
     shot(page, "owner", "33-order-blouse-details.png")
 
-    # --- Lehenga ---
     gsel(1, "Lehenga Type", "A-Line")
     gsel(1, "Occasion", "Wedding")
     gsel(1, "Material Source", "Store Inventory Fabric")
@@ -448,7 +431,6 @@ def create_order(page):
     pathlib.Path("/tmp/step3.txt").write_text(body)
     shot(page, "owner", "35-order-step3-design-studio.png")
 
-    # Approve one recommended design per garment, then move on.
     boards = page.locator(".content-card:has(button:has-text('Add to board'))")
     for i in range(boards.count()):
         boards.nth(i).locator("button:has-text('Add to board')").first.click()
@@ -498,7 +480,7 @@ def create_order(page):
 
 
 def owner_data_tour(page):
-    """Every owner screen, now that the boutique has a customer, an order and stock."""
+
     login(page)
     for label, name in OWNER_TABS:
         page.click(f".portal-menu-item:has-text('{label}')")
@@ -509,7 +491,7 @@ def owner_data_tour(page):
 
 
 def customer_tracking(page):
-    """The page a customer opens from the WhatsApp link."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Manage Orders')")
     page.wait_for_timeout(2500)
@@ -551,7 +533,7 @@ def role_tour(page, which=None):
 
 
 def assign_design_work(page):
-    """Owner sends a garment to the designer, which fills the designer's queue."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Design Work')")
     page.wait_for_timeout(2000)
@@ -570,7 +552,7 @@ def assign_design_work(page):
 
 
 def designer_upload(page):
-    """Designer uploads a design, then submits it against the assigned work."""
+
     email, password, folder, base, _ = ROLES["designer"]
     login(page, email, password)
     page.click(".portal-menu-item:has-text('Design Studio')")
@@ -661,13 +643,12 @@ def probe_stage2(page):
 
 
 def run_production(page):
-    """Walk the order through every production stage as the Master."""
+
     email, password, *_ = ROLES["master"]
     login(page, email, password)
     page.wait_for_timeout(1500)
     for stage in STAGE_FLOW:
         for action in ("Start In-Progress", "Complete Stage"):
-            # Any modal left open swallows the click on the timeline behind it.
             if page.locator("button:has-text('Close')").count():
                 try:
                     page.click("button:has-text('Close')", timeout=2000)
@@ -740,7 +721,7 @@ def probe_invoice(page):
 
 
 def settle_payment(page):
-    """Owner records the balance and marks the invoice paid."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Invoices')")
     page.wait_for_timeout(2500)
@@ -756,12 +737,11 @@ def settle_payment(page):
 
 
 def owner_order_wrapup(page):
-    """Finished photos, the customer message queue, and the final status change."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Manage Orders')")
     page.wait_for_timeout(2500)
     shot(page, "owner", "11-owner-orders.png")
-    # Finished-garment photos: the customer only sees them once shared.
     photo = str(pathlib.Path.cwd() / "media" / "completed_garments" / "g.png")
     for view in ("Front view", "Back view"):
         page.locator("select").last.select_option(label=view)
@@ -774,7 +754,6 @@ def owner_order_wrapup(page):
     page.wait_for_timeout(2500)
     shot(page, "owner", "11c-owner-photos-shared.png")
 
-    # The queued WhatsApp updates are opened by hand, then marked sent.
     for _ in range(page.locator("button:has-text('Mark sent')").count()):
         page.locator("button:has-text('Mark sent')").first.click()
         page.wait_for_timeout(1500)
@@ -783,7 +762,7 @@ def owner_order_wrapup(page):
 
 
 def deliver_order(page):
-    """Owner closes the order out: final stage, then Delivered."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Manage Orders')")
     page.wait_for_timeout(2500)
@@ -832,7 +811,7 @@ def superadmin_login(page):
 
 
 def login_errors(page):
-    """The rejected-credentials message and the recovery screen."""
+
     page.goto(APP)
     page.wait_for_timeout(1000)
     page.fill("input[placeholder='Enter your email']", DEMO["email"])
@@ -850,13 +829,11 @@ def login_errors(page):
 
 
 def tryon_visualizer(page):
-    """The 'Try On / Drape Fabric' visualizer on the fabric step of the wizard."""
+
     login(page)
     page.click("button:has-text('New Custom Order')")
     page.wait_for_timeout(1500)
     shot(page, "owner", "46-order-drafts.png")
-    # An unfinished order is kept as a draft; resuming one lands back on the step
-    # it was abandoned at, which is the quickest way to the fabric screen.
     page.locator("button:has-text('Resume')").first.click()
     page.wait_for_timeout(3000)
     for _ in range(5):
@@ -883,7 +860,7 @@ def tryon_visualizer(page):
 
 
 def discard_drafts(page):
-    """Clear the half-finished order drafts this script left behind."""
+
     login(page)
     page.click("button:has-text('New Custom Order')")
     page.wait_for_timeout(2000)
@@ -896,7 +873,7 @@ def discard_drafts(page):
 
 
 def inventory_tabs(page):
-    """The inventory module's seven panels."""
+
     login(page)
     page.click(".portal-menu-item:has-text('Inventory')")
     page.wait_for_timeout(2000)
@@ -929,7 +906,7 @@ def owner_appointments(page):
 
 
 def delete_duplicate_design(page):
-    """Remove the duplicate library tile left by re-running designer_upload."""
+
     login(page)
     page.on("dialog", lambda d: d.accept())
     page.click(".portal-menu-item:has-text('Manage Designs')")
@@ -949,7 +926,7 @@ def delete_duplicate_design(page):
 
 
 def verify_gaps(page):
-    """Re-check the findings recorded in the guide's Known Gaps section."""
+
     login(page)
 
     page.click(".portal-menu-item:has-text('Manage Tailors')")
@@ -982,13 +959,7 @@ def verify_gaps(page):
     page.fill("input[placeholder='Street name, Apartment, City, State, PIN code']", "Chennai")
     page.click("button:text-is('Next')")
     page.wait_for_timeout(2500)
-    dupes = page.evaluate("""() => {
-        const seen = {}, dup = [];
-        document.querySelectorAll('[id]').forEach(el => {
-            if (seen[el.id]) dup.push(el.id); else seen[el.id] = 1;
-        });
-        return [...new Set(dup)];
-    }""")
+    dupes = page.evaluate()
     print("duplicate element ids on the garment step:", dupes[:12], "total", len(dupes))
 
 
@@ -1006,7 +977,7 @@ SITE_PAGES = [
 
 
 def landing_site(page):
-    """The public marketing site (built by `npm run build`, served from dist/)."""
+
     for path, name in SITE_PAGES:
         page.goto(SITE + path)
         page.wait_for_timeout(1500)
@@ -1018,18 +989,16 @@ MOBILE = {"width": 390, "height": 844}
 
 
 def mobile_tour(page):
-    """The same product on a phone-sized viewport."""
+
     page.goto(APP)
     page.wait_for_timeout(1200)
     shot(page, "mobile", "m01-login.png")
 
     login(page)
     shot(page, "mobile", "m02-owner-dashboard.png")
-    # On a phone the sidebar collapses into a bottom bar plus a Menu sheet.
     page.click("button:has-text('Menu')")
     page.wait_for_timeout(1200)
     shot(page, "mobile", "m03-owner-menu.png")
-    # Each screen is reached through the Menu sheet, which closes on selection.
     for label, name in [("Manage Orders", "m04-owner-orders"),
                         ("Customers", "m05-owner-customers"),
                         ("Inventory", "m06-owner-inventory"),

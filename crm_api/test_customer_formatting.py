@@ -1,14 +1,3 @@
-"""One order, the same numbers wherever the customer reads them.
-
-The defect this closes was not that any single figure was wrong -- it was that
-the tracking page and the invoice described the same order differently, and the
-tracking page's timestamps were 5:30 out because Django renders template
-datetimes in settings.TIME_ZONE and that was UTC.
-
-So these tests deliberately cross-check surfaces against each other rather than
-against a hard-coded string: a test that pins one screen's output cannot notice
-two screens disagreeing.
-"""
 
 from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
@@ -40,9 +29,6 @@ class CustomerFacingFormatTestBase(TenantTestCase):
             username="owner@fmt.test", email="owner@fmt.test", password="ownerpass123")
         self.customer = Customer.objects.create(
             first_name="Nithya", last_name="Raman", mobile_number="919611044455")
-        # cls.tenant is a CLASS attribute shared by every test in the class, and
-        # the other-zone test below reassigns it. The database row rolls back;
-        # the in-memory object does not, so it is reset explicitly here.
         self.tenant.timezone = 'Asia/Kolkata'
 
     def an_order(self, total, paid, order_id="T2B-FMT-0001"):
@@ -66,8 +52,6 @@ class MoneyOnCustomerSurfacesTests(CustomerFacingFormatTestBase):
         self.assertIn('₹10,000', page)
         self.assertIn('₹1,39,875', page, 'balance agrees with total minus paid')
         self.assertNotIn('149875.00', page)
-        # Scoped to the payment block: '.00' elsewhere on the page (in the
-        # stylesheet, say) is not a money-formatting problem.
         payment_block = page.split('<h2>Payment</h2>')[-1].split('</section>')[0]
         self.assertNotIn('.00', payment_block)
 
@@ -77,8 +61,6 @@ class MoneyOnCustomerSurfacesTests(CustomerFacingFormatTestBase):
         self.assertIn('₹49,875.50', page)
 
     def test_the_page_agrees_with_the_shared_formatter(self):
-        # The cross-check that matters: the page is compared against the same
-        # function the invoice and WhatsApp call, not against a literal.
         order = self.an_order('1234567.00', '234567.00')
         page = self.tracking_page(order).content.decode()
         for value in (order.total_amount, order.amount_paid,
@@ -107,7 +89,6 @@ class MoneyOnCustomerSurfacesTests(CustomerFacingFormatTestBase):
 class TimeOnCustomerSurfacesTests(CustomerFacingFormatTestBase):
     def test_a_utc_instant_is_shown_in_the_boutiques_local_time(self):
         order = self.an_order('1000', '0')
-        # 09:30 UTC is 3:00 PM in Kolkata -- the customer's actual afternoon.
         OrderStage.objects.create(
             order=order, stage_key='pressing', stage_name='Pressing',
             status='COMPLETED', sequence=1,
@@ -131,7 +112,6 @@ class TimeOnCustomerSurfacesTests(CustomerFacingFormatTestBase):
                          'presentation must not write a converted time back')
 
     def test_a_boutique_in_another_zone_reads_its_own_clock(self):
-        # The point of storing the zone per tenant rather than in settings.
         self.tenant.timezone = 'Asia/Dubai'
         self.tenant.save()
         self.addCleanup(setattr, self.tenant, 'timezone', 'Asia/Kolkata')
@@ -169,6 +149,4 @@ class ApiExposesTheZoneTests(CustomerFacingFormatTestBase):
         data = response.data
         if isinstance(data, list):
             data = data[0]
-        # Without this the browser formats in the viewer's zone and a staff
-        # screen disagrees with the customer's page about the same stage.
         self.assertEqual(data['timezone'], 'Asia/Kolkata')

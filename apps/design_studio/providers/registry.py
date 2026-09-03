@@ -1,4 +1,4 @@
-"""Which sources the studio searches, and in what order."""
+
 
 from .external import GoogleImagesProvider, PinterestProvider
 from .internal import CatalogueProvider, LibraryProvider, PastOrderProvider
@@ -17,7 +17,7 @@ def all_providers():
 
 
 def active_providers(keys=None):
-    """Providers that can actually be searched, optionally filtered by key."""
+
     providers = [p for p in _PROVIDERS if p.available()]
     if keys:
         wanted = {str(k) for k in keys}
@@ -26,7 +26,7 @@ def active_providers(keys=None):
 
 
 def source_status():
-    """Per-source availability, so the gallery can label what it searched."""
+
     return [
         {
             'key': provider.key,

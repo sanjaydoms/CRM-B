@@ -1,9 +1,3 @@
-"""What the platform console must and must not let through.
-
-The boundary these guard is the one that matters in a multi-tenant product: this
-console is the single place in the system that is *meant* to read across every
-boutique, so anything that reaches it wrongly reads the whole customer base.
-"""
 
 from contextlib import contextmanager
 
@@ -20,12 +14,6 @@ from tenants.models import BoutiqueTenant, DemoRequest, Domain
 
 @contextmanager
 def temporary_tenant(schema_name, owner_email, name):
-    """A real tenant schema for the duration of a test, then dropped.
-
-    Same helper as tenants/tests.py: schema creation is DDL, so these are
-    TransactionTestCase and the tenants are built in the test body rather than
-    in setUpClass, which would be rolled back before the test ran.
-    """
     connection.set_schema_to_public()
     tenant = BoutiqueTenant(schema_name=schema_name, owner_email=owner_email, name=name)
     tenant.save()
@@ -38,9 +26,6 @@ def temporary_tenant(schema_name, owner_email, name):
 
 
 def admin_client(username='platform@admin.test', password='platform-admin-pass'):
-    """A client signed in to the console, via the console's own login endpoint
-    rather than by minting a token directly -- so the login path is exercised by
-    every test that needs an administrator."""
     connection.set_schema_to_public()
     User.objects.filter(username=username).delete()
     User.objects.create_superuser(username=username, email=username, password=password)
@@ -53,7 +38,7 @@ def admin_client(username='platform@admin.test', password='platform-admin-pass')
 
 
 class ConsoleAccessTests(TransactionTestCase):
-    """Who gets in."""
+
 
     URL = '/api/superadmin/overview/'
 
@@ -78,18 +63,10 @@ class ConsoleAccessTests(TransactionTestCase):
             '/api/superadmin/auth/login/',
             {'username': 'plain2@user.test', 'password': 'correct-pw'}, format='json')
         self.assertEqual(response.status_code, 400)
-        # The password was right. Saying so would tell an attacker which half of
-        # the pair to keep working on, so the message is the same either way.
         self.assertEqual(response.json()['error'], 'Invalid administrator credentials.')
         self.assertNotIn('token', response.json())
 
     def test_a_boutiques_own_superuser_cannot_reach_the_console(self):
-        """The one that would hand a single boutique every other boutique.
-
-        `django.contrib.auth` is in SHARED_APPS *and* TENANT_APPS, so is_superuser
-        is a column inside each boutique's schema too. seed_data.py creates one.
-        A permission class checking only that flag would let it in.
-        """
         with temporary_tenant('sa_rogue', 'owner@rogue.test', 'Rogue Atelier'):
             with schema_context('sa_rogue'):
                 rogue = User.objects.create_superuser(
@@ -100,14 +77,9 @@ class ConsoleAccessTests(TransactionTestCase):
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION='Token ' + key,
                                HTTP_X_TENANT_ID='sa_rogue')
-            # The console pins the public schema, where this token does not
-            # exist, so it never authenticates in the first place.
             self.assertIn(client.get(self.URL).status_code, (401, 403))
 
     def test_console_ignores_a_tenant_header(self):
-        """A stale X-Tenant-ID in the browser must not move the console off
-        public -- if it did, the administrator's own token would stop being
-        found and the whole console would 401."""
         with temporary_tenant('sa_header', 'owner@header.test', 'Header Atelier'):
             client = admin_client()
             client.credentials(
@@ -117,7 +89,7 @@ class ConsoleAccessTests(TransactionTestCase):
 
 
 class OverviewTests(TransactionTestCase):
-    """The numbers on the landing screen."""
+
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -149,7 +121,6 @@ class OverviewTests(TransactionTestCase):
             self.assertEqual(rows['sa_ov_b']['customers'], 1)
             self.assertEqual(rows['sa_ov_b']['orders'], 0)
 
-            # The totals are summed from the rows, so they cannot disagree.
             self.assertEqual(body['totals']['customers'], 2)
             self.assertEqual(body['totals']['orders'], 2)
             self.assertEqual(body['totals']['revenue'], 1500)
@@ -164,7 +135,7 @@ class OverviewTests(TransactionTestCase):
 
 
 class SuspensionActionTests(TransactionTestCase):
-    """Suspend and reactivate, end to end through the console."""
+
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -204,12 +175,6 @@ class SuspensionActionTests(TransactionTestCase):
 
 
 class DataBrowserTests(TransactionTestCase):
-    """Reading a boutique's own tables through the console.
-
-    The redaction tests here are the important ones. Everything else in this
-    class is "does the generic browser work"; those two are "does read access to
-    this console hand out the ability to act as anyone in any boutique".
-    """
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -225,10 +190,8 @@ class DataBrowserTests(TransactionTestCase):
             self.assertIn('design_studio.designasset', keys)
             self.assertIn('auth.user', keys)
 
-            # A live token is a credential, not data. The whole model is out.
             self.assertNotIn('authtoken.token', keys)
             self.assertNotIn('authtoken.tokenproxy', keys)
-            # Django plumbing is noise in a console about a boutique.
             self.assertNotIn('contenttypes.contenttype', keys)
             self.assertNotIn('auth.permission', keys)
 
@@ -260,17 +223,10 @@ class DataBrowserTests(TransactionTestCase):
             row = next(r for r in body['rows'] if r['username'] == 'staff@pw.test')
 
             self.assertEqual(row['password'], '•' * 8)
-            # Not just "not the plaintext" -- no part of the hash, which is what
-            # would be there if only the plaintext had been considered.
             self.assertNotIn('pbkdf2', str(row['password']))
             self.assertNotIn('pbkdf2', str(body))
 
     def test_an_excluded_model_cannot_be_fetched_by_naming_it(self):
-        """The list endpoint hiding a model is not the control -- this is.
-
-        Filtering only the sidebar would leave every token in the boutique one
-        hand-typed URL away.
-        """
         with temporary_tenant('sa_data_tok', 'owner@tok.test', 'Token Atelier'):
             with schema_context('sa_data_tok'):
                 user = User.objects.create_user(username='tok@tok.test')
@@ -304,7 +260,6 @@ class DataBrowserTests(TransactionTestCase):
                 '/api/superadmin/boutiques/sa_data_pg/data/crm_api.customer/'
                 '?page=3&page_size=3').json()
             self.assertEqual(len(page3['rows']), 2)
-            # Stable ordering: no row appears on two pages.
             self.assertFalse({r['id'] for r in page1['rows']} & {r['id'] for r in page3['rows']})
 
             found = console.get(
@@ -338,7 +293,7 @@ class DataBrowserTests(TransactionTestCase):
 
 
 class LeadTests(TransactionTestCase):
-    """Leads are worked here, never authored or destroyed here."""
+
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -357,7 +312,6 @@ class LeadTests(TransactionTestCase):
         lead.refresh_from_db()
         self.assertEqual(lead.status, 'CONTACTED')
         self.assertEqual(lead.notes, 'Called Tuesday.')
-        # What the prospect actually typed is evidence, and survives the PATCH.
         self.assertEqual(lead.email, 'ira@lead.test')
 
     def test_leads_cannot_be_created_or_deleted_through_the_console(self):
@@ -369,8 +323,6 @@ class LeadTests(TransactionTestCase):
         self.assertTrue(DemoRequest.objects.filter(pk=lead.pk).exists())
 
 
-# Imported here rather than in the block at the top of the file: this class was
-# appended and the imports above belong to the tests that were already here.
 import datetime
 
 from superadmin.metrics import (
@@ -379,13 +331,6 @@ from superadmin.metrics import (
 
 
 class ConsoleOrderMetricsTests(TransactionTestCase):
-    """What the console counts, and what it means by the words it uses.
-
-    These are about vocabulary as much as arithmetic. Every bug they pin came
-    from the console and the product using the same English word for two
-    different sets of rows -- "closed", "revenue" -- and neither side being
-    obviously wrong when read on its own.
-    """
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -396,14 +341,6 @@ class ConsoleOrderMetricsTests(TransactionTestCase):
                                        mobile_number='9000000041')
 
     def test_settled_means_what_the_boutique_means_by_settled(self):
-        """The console's definition is the product's definition, not a copy.
-
-        This tuple used to read ('Delivered', 'Cancelled'). 'Cancelled' is not a
-        value Order.order_status can hold -- it is an Appointment and inventory
-        status -- so it matched nothing, and 'Shipped' was absent, so the
-        console called every shipped garment open work while the boutique's own
-        staff-availability code had already released the tailor.
-        """
         from crm_api.views import OrderViewSet
         from domains.orders.services import _SETTLED_ORDER_STATUSES
 
@@ -425,16 +362,9 @@ class ConsoleOrderMetricsTests(TransactionTestCase):
 
             metrics = tenant_metrics(tenant)
             self.assertEqual(metrics['orders'], 3)
-            # Received only. Shipped is off the floor.
             self.assertEqual(metrics['open_orders'], 1)
 
     def test_booked_and_collected_are_different_numbers(self):
-        """Money invoiced is not money banked, and the console says which.
-
-        `revenue` is Sum(total_amount); `collected` is Sum(amount_paid), the
-        figure _reconcile_payment keeps clamped to [0, total_amount]. A console
-        that reported only the first ranked a boutique on what it had billed.
-        """
         with temporary_tenant('sa_met_cash', 'cash@met.test', 'Cashflow Atelier') as tenant:
             with schema_context('sa_met_cash'):
                 customer = self._customer()
@@ -455,8 +385,6 @@ class ConsoleOrderMetricsTests(TransactionTestCase):
             self.assertEqual(float(totals['collected']), 750.0)
 
     def test_overdue_excludes_orders_that_are_already_gone(self):
-        """Late means late *and* still here. A garment delivered last week is
-        not overdue however old the promised date is."""
         past = datetime.date.today() - datetime.timedelta(days=3)
         future = datetime.date.today() + datetime.timedelta(days=3)
 
@@ -471,24 +399,15 @@ class ConsoleOrderMetricsTests(TransactionTestCase):
                                      order_status='Shipped', estimated_delivery=past)
                 Order.objects.create(order_id='ML-4', customer=customer,
                                      order_status='Received', estimated_delivery=future)
-                # No promised date at all: cannot be late against one.
                 Order.objects.create(order_id='ML-5', customer=customer,
                                      order_status='Received', estimated_delivery=None)
 
             ops = operational_metrics(tenant)
             self.assertTrue(ops['healthy'])
             self.assertEqual(ops['overdue']['count'], 1)
-            # The number ships with the reason it cannot be read at face value.
             self.assertIn('order_date + 15 days', ops['overdue']['caveat'])
 
     def test_status_buckets_account_for_every_order(self):
-        """Buckets are a partition, not a filter.
-
-        order_status was writable to any string before OrderViewSet grew its
-        allowlist, so rows outside the eight-value vocabulary exist. Seeding the
-        vocabulary must not turn into dropping everything else, or the console's
-        own columns would stop adding up to its own order count.
-        """
         from crm_api.views import OrderViewSet
 
         with temporary_tenant('sa_met_bkt', 'bkt@met.test', 'Bucket Atelier') as tenant:
@@ -510,8 +429,6 @@ class ConsoleOrderMetricsTests(TransactionTestCase):
             self.assertEqual(buckets['Received'], 2)
             self.assertEqual(buckets['Shipped'], 0)
             self.assertEqual(buckets['Totally Made Up'], 1)
-            # Every real status is a key even at zero, so a panel's columns do
-            # not appear and disappear as a boutique's orders move.
             for value in OrderViewSet.CLIENT_STATUSES:
                 self.assertIn(value, buckets)
 
@@ -535,13 +452,10 @@ class ConsoleOrderMetricsTests(TransactionTestCase):
                                                status='SENT')
 
             ops = operational_metrics(tenant)
-            # order_date is auto_now_add, so a row created here is in all three.
             self.assertEqual(ops['created'], {'today': 1, 'week': 1, 'month': 1})
             self.assertEqual(ops['queued_messages'], 1)
 
     def test_an_unreadable_boutique_reports_itself_rather_than_raising(self):
-        """The public schema has no orders table to read. One boutique the
-        console cannot enter must not take the monitor down with it."""
         tenant, _ = BoutiqueTenant.objects.get_or_create(
             schema_name='public',
             defaults={'owner_email': 'registry@platform.test', 'name': 'Public'})

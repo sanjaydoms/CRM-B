@@ -1,7 +1,6 @@
 import os
 import django
 
-# Set up Django environment
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'boutique_crm.settings')
 django.setup()
 
@@ -15,22 +14,18 @@ import datetime
 def seed_tenant_orders(schema_name):
     print(f"Seeding mock customers, team users, and orders for schema: {schema_name}")
     with schema_context(schema_name):
-        # 1. Clear existing orders/customers/tailors to start clean
         OrderStageHistory.objects.all().delete()
         Order.objects.all().delete()
         Customer.objects.all().delete()
         Notification.objects.all().delete()
         
-        # Deleting tailors first
         Tailor.objects.all().delete()
         
-        # Clean up existing users in this schema except owners (owner@tryon2buy.com, sanjay.garlapenta@domsglobal.co)
         for u in list(User.objects.all()):
             if "owner" not in u.email and "sanjay" not in u.email and u.username != "admin":
                 print(f"Deleting user: {u.username}")
                 u.delete()
 
-        # 2. Seed Mock Tailors & Masters with Django User Login Accounts
         tailors_config = [
             {"name": "Rohit Mehra", "specialty": "Ethnic & Bridal Cutting", "rating": 4.90, "status": "Available", "role": "Master", "email": "rohit.master@tryon2buy.com"},
             {"name": "Anya Sharma", "specialty": "Blouse & Lehenga Specialist", "rating": 4.80, "status": "Available", "role": "Tailor", "email": "anya.tailor@tryon2buy.com"},
@@ -41,7 +36,6 @@ def seed_tenant_orders(schema_name):
         seeded_tailors = []
         for t in tailors_config:
             username = t["email"].split('@')[0]
-            # Ensure unique username
             orig_username = username
             c = 1
             while User.objects.filter(username=username).exists():
@@ -56,7 +50,6 @@ def seed_tenant_orders(schema_name):
                 last_name=t["name"].split(' ')[1] if len(t["name"].split(' ')) > 1 else ''
             )
             
-            # Re-fetch from DB to guarantee it exists and sequences are stable
             user = User.objects.get(id=user.id)
             
             tailor_obj = Tailor.objects.create(
@@ -73,7 +66,6 @@ def seed_tenant_orders(schema_name):
         master = next(t for t in seeded_tailors if t.role == 'Master')
         tailor = next(t for t in seeded_tailors if t.role == 'Tailor')
 
-        # 3. Create mock customers
         customers = [
             {
                 "first_name": "Priya", "last_name": "Sharma", "email_address": "priya.sharma@gmail.com", "mobile_number": "9876543210",
@@ -104,7 +96,6 @@ def seed_tenant_orders(schema_name):
                 garment_type=c["garment_type"],
                 occasion=c["occasion"]
             )
-            # Create measurements
             Measurement.objects.create(
                 customer=cust,
                 bust=36.5, waist=30.0, hips=39.0, shoulder=15.0,
@@ -112,8 +103,6 @@ def seed_tenant_orders(schema_name):
             )
             created_customers.append(cust)
 
-        # 4. Create mock orders with different stages
-        # Order 1: Received (Partial Payment)
         o1 = Order.objects.create(
             order_id="ORD-2026-0001",
             customer=created_customers[0],
@@ -137,7 +126,6 @@ def seed_tenant_orders(schema_name):
             order=o1, stage="Received", comments="Bridal Lehenga order logged with raw silk choices and custom zardozi specifications.", completed_by_name=master.name if master else "System"
         )
 
-        # Order 2: Design & Creation (Partial Payment)
         o2 = Order.objects.create(
             order_id="ORD-2026-0002",
             customer=created_customers[1],
@@ -164,7 +152,6 @@ def seed_tenant_orders(schema_name):
             order=o2, stage="Stylist Review", comments="Lining verified, ready for tailors.", completed_by_name="Stylist"
         )
 
-        # Order 3: Ready for Dispatch (Fully Paid)
         o3 = Order.objects.create(
             order_id="ORD-2026-0003",
             customer=created_customers[2],
@@ -195,7 +182,6 @@ def seed_tenant_orders(schema_name):
             order=o3, stage="Quality Check", comments="Passed visual seam inspections. Perfect fit.", completed_by_name="Quality Team"
         )
 
-        # Order 4: Delivered (Fully Paid)
         o4 = Order.objects.create(
             order_id="ORD-2026-0004",
             customer=created_customers[3],
@@ -234,7 +220,6 @@ def seed_tenant_orders(schema_name):
             order=o4, stage="Delivered", comments="Garment delivered directly to client and signed for.", completed_by_name="DHL Courier Delivery agent"
         )
 
-        # 5. Create some notifications
         Notification.objects.create(
             title="New Order Logged: ORD-2026-0001",
             message="Priya Sharma has placed an order for a custom Lehenga. Amount: ₹34,650.",
@@ -249,11 +234,6 @@ def seed_tenant_orders(schema_name):
         print("Mocks and login credentials seeded successfully!")
 
 def seed_all():
-    # This function's first act, per tenant, is to delete every order, customer
-    # and tailor in that schema -- looped over every boutique on the platform.
-    # Nothing in the build or start path calls it, so the only way it ever runs
-    # is by hand, which is also the only way it ever runs against the wrong
-    # database. See core.utils.
     refuse_unless_local_database()
     for tenant in BoutiqueTenant.objects.exclude(schema_name='public'):
         try:

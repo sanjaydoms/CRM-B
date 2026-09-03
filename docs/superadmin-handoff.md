@@ -1,4 +1,3 @@
-# Super Admin Control Center — build report for external critique
 
 **Purpose of this document.** It describes a platform-administration console built
 into an existing multi-tenant Django + React SaaS, so that a reviewer who has never
@@ -12,7 +11,6 @@ are actually unacceptable. Do not simply agree.
 
 ---
 
-## 1. The product this was added to
 
 A CRM for boutique fashion studios ("Scaleezy" / TryOn2Buy). Django 6 + Django REST
 Framework + `django-tenants` + React 19/Vite. Postgres on Supabase, deployed on
@@ -36,9 +34,7 @@ throughout: honest at tens, documented ceilings past hundreds.
 
 ---
 
-## 2. What was built
 
-### 2.1 Backend — new Django app `superadmin/` (SHARED_APPS only, ~5,700 lines incl. tests)
 
 | File | Lines | Responsibility |
 |---|---|---|
@@ -65,7 +61,6 @@ Supporting files outside the app:
 - 2 `superadmin` migrations, 2 `tenants` migrations. **All public-schema; zero
   tenant migrations.**
 
-### 2.2 Frontend — `frontend/src/superadmin/` (~6,000 lines)
 
 Separate Vite entry (`superadmin.html`), served at `/superadmin`, own bundle
 (~120 kB / 31 kB gzipped). 18 screens + shell + a 64-line hash router + a 388-line
@@ -79,7 +74,6 @@ make a boutique-role bug into a cross-tenant one.
 No component library, no router library, no chart library. Project dependencies
 are exactly `react`, `react-dom`, `lucide-react`.
 
-### 2.3 API surface (30 routes, all under `/api/superadmin/`)
 
 ```
 POST   /auth/login/                         POST   /auth/logout/       GET /auth/me/
@@ -104,7 +98,6 @@ GET/PATCH /leads/    GET/PATCH /leads/<id>/
 
 ---
 
-## 3. Data model added (all in `public`)
 
 **`AuditLog`** — append-only record of console actions. 15 action types. Fields:
 `actor`, `action`, `target`, `boutique`, `before` (JSON), `after` (JSON), `reason`,
@@ -130,9 +123,7 @@ Plus two fields on the existing `BoutiqueTenant`: `is_active` (suspension) and
 
 ---
 
-## 4. The four decisions most worth attacking
 
-### 4.1 Safe tenant-schema entry (`superadmin/schemas.py`)
 
 `django-tenants` selects a tenant with `SET search_path = '<schema>', public` and
 **does not check the schema exists**. Postgres accepts a search_path naming a
@@ -159,7 +150,6 @@ unreadable boutique into a wholly failed request.
 *Reviewer: is the positive-only presence cache safe? A schema dropped mid-process
 stays cached as present until restart.*
 
-### 4.2 Module enforcement in middleware, not in a permission class
 
 `core/modules.py` maps 11 module keys to the URL prefixes that constitute them.
 `TenantHeaderMiddleware.process_request` denies a request whose module is disabled
@@ -197,7 +187,6 @@ switch it off for every existing boutique at deploy time.
 *Reviewer: is a URL-prefix registry the right abstraction, or should modules be
 declared on the viewsets themselves and collected at startup?*
 
-### 4.3 `IsPlatformAdmin` = superuser **AND** public schema
 
 Checking `is_superuser` alone is insufficient — see §1, point 2. A boutique's own
 superuser (and `seed_data.py` creates one) would otherwise read every other
@@ -211,7 +200,6 @@ On its first run it found a real hole: `DefaultRouter`'s auto-generated
 so the console's own root was readable by any signed-in user. Fixed by switching to
 `SimpleRouter`, which removes the view rather than guarding it.
 
-### 4.4 Honest absence instead of empty dashboards
 
 The specification asked for monitoring of systems this product does not have. The
 same specification forbade mock data. Where they collide, the screen states what is
@@ -230,7 +218,6 @@ verification; no 2FA; no `CACHES`.
 
 ---
 
-## 5. Defects found and fixed during the build
 
 Found by an adversarial review pass over each component, then confirmed against a
 live database.
@@ -264,7 +251,6 @@ live database.
 
 ---
 
-## 6. Accepted limitations (each has a `ponytail:` comment in code)
 
 1. **O(tenants) schema switches** on the overview, users list, onboarding list,
    health, orders monitor and search. One round trip per boutique per page. Fine at
@@ -292,7 +278,6 @@ live database.
 
 ---
 
-## 7. Not built — where I most want the reviewer's attention
 
 **Genuinely absent data sources** (building the screen requires building the system
 first): background jobs / queues; API request rate, latency, uptime; Try-On;
@@ -337,7 +322,6 @@ date, so it needs field-level gating inside `_reconcile_payment`, not a URL rule
 
 ---
 
-## 8. Test coverage
 
 **725 tests pass** across the whole project (was 625 before this work; 100 added).
 
@@ -371,7 +355,6 @@ No load testing at any scale. No accessibility audit.
 
 ---
 
-## 9. Questions I would like answered
 
 1. Is middleware the right enforcement point for modules, or is a URL-prefix
    registry too brittle as the API grows?

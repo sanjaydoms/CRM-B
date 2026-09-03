@@ -1,8 +1,5 @@
 from django.db import migrations
 
-# Stages added so Maggam Master, Finishing Master and Pressing Staff have work they
-# can actually be assigned to. Each is inserted immediately after an anchor stage,
-# so a boutique that has re-sequenced its workflow still gets them in the right place.
 NEW_STAGES = [
     ('pattern_cutting', {
         'key': 'maggam_work', 'name': 'Maggam Work', 'sla_hours': 96,
@@ -18,18 +15,10 @@ NEW_STAGES = [
     }),
 ]
 
-# ready_for_delivery carried Finishing Master and Pressing Staff only because they
-# had nowhere else to act. Now that they have their own stages, take them back off.
 ROLES_TO_DROP = {'ready_for_delivery': ['Finishing Master', 'Pressing Staff']}
 
 
 def add_stages(apps, schema_editor):
-    """Insert the new stages into each boutique's workflow.
-
-    Existing orders are deliberately left alone: their stage rows were created from
-    the workflow as it stood, and retroactively adding work would make a finished
-    order look incomplete. New orders pick the stages up automatically.
-    """
     BoutiqueSettings = apps.get_model('crm_api', 'BoutiqueSettings')
     for config in BoutiqueSettings.objects.all():
         workflow = list(config.workflow_config or [])

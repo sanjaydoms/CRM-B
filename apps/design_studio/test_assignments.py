@@ -1,11 +1,3 @@
-"""Designer assignment and the production loop around it.
-
-The module could already say who *drew* a design. What it could not say was who
-had been *asked* to draw one, for which garment, or whether it ever came back.
-These tests pin the loop that closes that, and one invariant above all the rest:
-a design belongs to a garment, not to an order. A two-garment order is two jobs
-with two designers, and the lehenga's design must never surface on the blouse.
-"""
 
 from datetime import date, timedelta
 
@@ -24,7 +16,7 @@ from .models import Designer, DesignAsset, DesignAssignment
 
 
 class AssignmentTestCase(TenantTestCase):
-    """A two-garment order, two designers, and one of every role that matters."""
+
 
     @classmethod
     def setup_tenant(cls, tenant):
@@ -45,7 +37,6 @@ class AssignmentTestCase(TenantTestCase):
             customer_type="Women", garment_type="Lehenga", occasion="Bridal")
         self.order = Order.objects.create(order_id="T2B-ASN-0001", customer=self.customer)
 
-        # The whole point of the exercise: one order, two garments.
         self.lehenga_template = GarmentTemplate.objects.filter(key='lehenga').first()
         self.blouse_template = GarmentTemplate.objects.filter(key='blouse').first()
         self.assertIsNotNone(self.lehenga_template, "lehenga template must be seeded")
@@ -63,7 +54,6 @@ class AssignmentTestCase(TenantTestCase):
 
         self.client = self._client_for(self.owner)
 
-    # -- helpers ---------------------------------------------------------
 
     def _client_for(self, user):
         client = APIClient()
@@ -116,8 +106,6 @@ class AssignmentTests(AssignmentTestCase):
         self.assertEqual(assignment.assigned_by_id, self.owner.id)
 
     def test_master_may_also_assign(self):
-        # A Master runs the floor; handing out the design work on it is the same
-        # supervisory act as moving a stage.
         master = self._staff_client("Master", "master@assign.test")
         response = self._assign(self.lehenga_job, self.meera, client=master)
         self.assertEqual(response.status_code, 201, response.data)
@@ -131,7 +119,7 @@ class AssignmentTests(AssignmentTestCase):
 
 
 class GarmentAttributionTests(AssignmentTestCase):
-    """The invariant the whole model exists for."""
+
 
     def test_two_garments_carry_two_designers_independently(self):
         self.assertEqual(self._assign(self.lehenga_job, self.meera).status_code, 201)
@@ -161,8 +149,6 @@ class GarmentAttributionTests(AssignmentTestCase):
         blouse_assignment.refresh_from_db()
         self.assertEqual(lehenga_assignment.design_id, lehenga_design.id)
         self.assertEqual(blouse_assignment.design_id, blouse_design.id)
-        # The blouse's design is not reachable from the lehenga's job, and the
-        # reverse accessor proves it structurally rather than by comparing ids.
         self.assertEqual(self.lehenga_job.design_assignment.design_id, lehenga_design.id)
         self.assertEqual(self.blouse_job.design_assignment.design_id, blouse_design.id)
 
@@ -183,8 +169,6 @@ class GarmentAttributionTests(AssignmentTestCase):
 
         self._assign(self.lehenga_job, self.kavya)
         assignment.refresh_from_db()
-        # Kavya has not drawn anything yet, and must not inherit a submission
-        # that would read as hers.
         self.assertIsNone(assignment.design_id)
         self.assertEqual(assignment.status, DesignAssignment.Status.ASSIGNED)
 
@@ -221,9 +205,6 @@ class DesignerWorkQueueTests(AssignmentTestCase):
         self.assertEqual(row['order_ref'], "T2B-ASN-0001")
 
     def test_a_designers_queue_does_not_carry_the_customer(self):
-        # §4.2 of docs/design-management lists customer information as
-        # Owner-only. Until this endpoint existed a designer had no order-shaped
-        # payload at all, so the line was only ever drawn in the frontend.
         self._assign(self.lehenga_job, self.meera)
         response = self.meera_client.get(reverse('design-assignment-list'))
         row = (response.data['results'] if isinstance(response.data, dict) else response.data)[0]
@@ -248,9 +229,6 @@ class DesignerWorkQueueTests(AssignmentTestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_the_open_filter_is_everything_short_of_approved(self):
-        # Approved work leaves the queue; submitted work stays -- it is open on
-        # the REVIEWER'S desk, and hiding it there is how a design goes
-        # unreviewed with both sides sure it is with the other.
         self._assign(self.lehenga_job, self.meera)
         self._assign(self.blouse_job, self.meera)
         finished = DesignAssignment.objects.get(garment_job=self.blouse_job)
@@ -267,7 +245,6 @@ class DesignerWorkQueueTests(AssignmentTestCase):
         self.assertEqual(rows[0]['status'], DesignAssignment.Status.SUBMITTED)
 
     def test_changes_requested_returns_to_the_open_queue(self):
-        # The whole point of asking for changes is that the work comes back.
         self._assign(self.lehenga_job, self.meera)
         assignment = DesignAssignment.objects.get(garment_job=self.lehenga_job)
         design = self._design_by(self.meera, "First pass")
@@ -322,7 +299,6 @@ class SubmissionTests(AssignmentTestCase):
         assignment = DesignAssignment.objects.get(garment_job=self.lehenga_job)
         design = self._design_by(self.kavya, "Kavya's")
         response = self._submit(assignment.id, design, self.kavya_client)
-        # Not hers to see, so it is not found rather than forbidden.
         self.assertEqual(response.status_code, 404)
 
     def test_submitting_credits_an_uncredited_upload_to_the_commissioned_designer(self):
@@ -422,18 +398,10 @@ class AssignmentRoleBoundaryTests(AssignmentTestCase):
         self.assertEqual(self._assign(self.lehenga_job, self.meera, client=tailor).status_code, 403)
 
     def test_a_qc_master_is_not_a_design_supervisor(self):
-        # A split floor has seven specialist roles. None of them is the Master,
-        # and none should inherit the design queue by being staff.
         qc = self._staff_client("QC Master", "qc@assign.test")
         self.assertEqual(qc.get(reverse('design-assignment-list')).status_code, 403)
 
     def test_a_supervisor_submitting_on_behalf_is_recorded_as_themselves(self):
-        # A credit-only designer (user=None) has no login, so the owner
-        # recording their handed-over sketch is the only way that assignment
-        # can ever complete -- the capability is deliberate. What must never
-        # happen is the log attributing the ACTION to the designer: the
-        # activity row's user is the account that clicked, so an on-behalf
-        # submission is distinguishable from the designer's own.
         credit_only = Designer.objects.create(name="Nadia (credit only)")
         self._assign(self.lehenga_job, credit_only)
         assignment = DesignAssignment.objects.get(garment_job=self.lehenga_job)
@@ -455,7 +423,7 @@ class AssignmentRoleBoundaryTests(AssignmentTestCase):
 
 
 class AssignmentVisibilityTests(AssignmentTestCase):
-    """Work visibility: the assignment shows up where somebody is looking."""
+
 
     def test_assigning_writes_an_activity_the_owner_can_read_back(self):
         self._assign(self.lehenga_job, self.meera)
@@ -494,9 +462,6 @@ class AssignmentVisibilityTests(AssignmentTestCase):
         self.assertEqual(len(rows), 1)
 
     def test_state_survives_a_fresh_client_the_way_a_refresh_would(self):
-        # A designer closing the tab mid-job and signing back in must find the
-        # same work in the same state -- the assignment is persisted, not held
-        # in a session.
         self._assign(self.lehenga_job, self.meera, brief="Heavy zari.")
         assignment = DesignAssignment.objects.get(garment_job=self.lehenga_job)
         design = self._design_by(self.meera, "Zari Lehenga")

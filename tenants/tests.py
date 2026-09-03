@@ -19,12 +19,6 @@ from tenants.views import HONEYPOT_FIELD
 
 @contextmanager
 def temporary_tenant(schema_name, owner_email, name):
-    """Create a real tenant schema for the duration of a test, then drop it.
-
-    Schema creation is DDL, so these tests use TransactionTestCase and build the
-    tenants inside the test body rather than in setUpClass (which would be rolled
-    back or flushed away).
-    """
     connection.set_schema_to_public()
     tenant = BoutiqueTenant(schema_name=schema_name, owner_email=owner_email, name=name)
     tenant.save()
@@ -37,13 +31,6 @@ def temporary_tenant(schema_name, owner_email, name):
 
 
 def get_customers(token_schema, tenant_header):
-    """Call the directory as a user signed in to `token_schema`, addressing
-    `tenant_header`.
-
-    The token and the header are separate arguments because they are separate
-    concerns -- and because APIClient.credentials() overrides per-request
-    headers, so the tenant header has to travel with the credentials.
-    """
     from django.contrib.auth.models import User
     from rest_framework.authtoken.models import Token
     with schema_context(token_schema):
@@ -57,11 +44,6 @@ def get_customers(token_schema, tenant_header):
 
 
 class TenantIsolationTests(TransactionTestCase):
-    """Guards the schema boundary now that connections are reused between requests.
-
-    With CONN_MAX_AGE > 0 the same DB connection serves consecutive requests, so a
-    stale search_path would silently serve one boutique's clients to another.
-    """
 
     def _get_customers(self, token_schema, tenant_header):
         return get_customers(token_schema, tenant_header)
@@ -80,7 +62,6 @@ class TenantIsolationTests(TransactionTestCase):
             with schema_context('iso_test_b'):
                 Customer.objects.create(first_name='Cal', last_name='B', mobile_number='9000000003')
 
-            # Alternate tenants so a leaked search_path shows up as a wrong result.
             for _ in range(3):
                 self.assertEqual(self._names('iso_test_a'), ['Ada', 'Bea'])
                 self.assertEqual(self._names('iso_test_b'), ['Cal'])
@@ -90,26 +71,15 @@ class TenantIsolationTests(TransactionTestCase):
             with schema_context('iso_test_c'):
                 Customer.objects.create(first_name='Dee', last_name='C', mobile_number='9000000004')
 
-            # Warm the connection on a real tenant, then ask for one that does not exist.
             self.assertEqual(self._names('iso_test_c'), ['Dee'])
             response = self._get_customers('iso_test_c', 'does_not_exist')
-            # A clean rejection, not a 500 and certainly not tenant C's clients.
             self.assertEqual(response.status_code, 400)
             self.assertIn('Unknown tenant', response.json()['error'])
 
-            # The bad request must not poison the connection for the next caller.
             self.assertEqual(self._names('iso_test_c'), ['Dee'])
 
 
 class SuspensionTests(TransactionTestCase):
-    """A boutique the platform administrator has switched off must be shut out
-    of BOTH doors -- the API (TenantHeaderMiddleware) and login (LoginView),
-    which resolve their tenant by different routes.
-
-    Login is the one that is easy to leave open: it sends no X-Tenant-ID, so
-    the middleware check never fires for it, and without its own guard a
-    suspended owner would still be issued a working token.
-    """
 
     def test_api_is_refused_while_suspended_and_restored_after(self):
         with temporary_tenant('susp_test_a', 'a@susp.test', 'Atelier A') as tenant:
@@ -150,20 +120,12 @@ class SuspensionTests(TransactionTestCase):
             clear_tenant_cache()
 
             refused = APIClient().post('/api/auth/login/', credentials, format='json')
-            # 403 with the real reason, not a 400 "invalid credentials" that
-            # would send the owner to the password-reset form.
             self.assertEqual(refused.status_code, 403)
             self.assertIn('suspended', refused.json()['error'])
             self.assertNotIn('token', refused.json())
 
 
 class DemoRequestIntakeTests(TransactionTestCase):
-    """The public demo form posts here with no token, no session and no tenant.
-
-    The branch worth guarding is the schema one: the marketing site is on a
-    different origin to the API, so nothing guarantees which tenant the
-    middleware resolves, and the lead must land in public either way.
-    """
 
     URL = '/demo-request/'
 
@@ -190,15 +152,12 @@ class DemoRequestIntakeTests(TransactionTestCase):
             self.assertEqual(response.status_code, 201)
             self.assertIs(response.json()['ok'], True)
 
-            # The row is in public, not in the tenant the header named.
             with schema_context('public'):
                 lead = DemoRequest.objects.get(email=self.VALID['email'])
                 self.assertEqual(lead.boutique, 'Rao Couture')
                 self.assertEqual(lead.status, 'NEW')
 
     def test_unknown_tenant_header_is_rejected_before_the_view(self):
-        # The middleware answers this one, which is why the form must never
-        # send an X-Tenant-ID header.
         response = Client().post(self.URL, self.VALID, HTTP_X_TENANT_ID='no_such_tenant')
         self.assertEqual(response.status_code, 400)
         self.assertEqual(DemoRequest.objects.count(), 0)
@@ -207,36 +166,21 @@ class DemoRequestIntakeTests(TransactionTestCase):
         payload = dict(self.VALID, note_ref='http://spam.example')
         with self.assertLogs('tenants.views', level='WARNING') as logged:
             response = Client().post(self.URL, payload)
-        # Indistinguishable from success on the wire, and nothing stored -- but
-        # it leaves a trace, because a false positive here throws away a real
-        # lead behind a "thank you".
         self.assertEqual(response.status_code, 201)
         self.assertEqual(DemoRequest.objects.count(), 0)
         self.assertIn('honeypot', logged.output[0])
         self.assertIn(self.VALID['email'], logged.output[0])
 
     def test_form_page_uses_the_same_honeypot_field_name(self):
-        """The page and the view have to agree, and nothing else would notice.
-
-        If the two names drift apart the honeypot does not error -- it just
-        stops catching anything, quietly, forever. Cheap to assert, and the
-        failure it guards has no other symptom.
-        """
         page = (Path(__file__).resolve().parent.parent
                 / 'frontend' / 'site' / 'pages' / 'demo.html')
         self.assertIn(f'name="{HONEYPOT_FIELD}"', page.read_text())
 
     def test_honeypot_field_name_avoids_browser_autofill_tokens(self):
-        # `company_url` matched Chrome's COMPANY autofill heuristic, which
-        # ignores autocomplete="off". A browser filling it would have silently
-        # binned a genuine submission.
         for token in ('company', 'organization', 'url', 'email', 'name', 'phone'):
             self.assertNotIn(token, HONEYPOT_FIELD)
 
     def test_malformed_forwarded_header_does_not_500(self):
-        # The column is a Postgres inet and Django passes unparseable values
-        # straight through, so an unvalidated header crashed the rate-limit
-        # query -- a 500 on a public endpoint from one header.
         for bad in ('notanip', '203.0.113.9:54321', 'a:b:c', '<script>', ''):
             with self.subTest(forwarded=bad):
                 response = Client().post(
@@ -246,8 +190,6 @@ class DemoRequestIntakeTests(TransactionTestCase):
                 self.assertEqual(response.status_code, 201)
 
     def test_junk_forwarded_header_is_not_a_way_around_the_rate_limit(self):
-        # Falling back to REMOTE_ADDR matters: if a junk header meant "no
-        # address", junk would be the bypass.
         client = Client()
         for i in range(6):
             response = client.post(
@@ -257,9 +199,6 @@ class DemoRequestIntakeTests(TransactionTestCase):
         self.assertEqual(response.status_code, 429)
 
     def test_textarea_newlines_do_not_eat_the_length_budget(self):
-        # A browser counts a line break as one character; form encoding sends
-        # two. Without normalisation someone typing 2000 characters is told
-        # their text is too long by a number they cannot see.
         text = ('x' * 99 + '\r\n') * 20  # 2020 on the wire, 2000 once normalised
         response = Client().post(self.URL, dict(self.VALID, problem=text))
         self.assertEqual(response.status_code, 201)
@@ -286,7 +225,6 @@ class DemoRequestIntakeTests(TransactionTestCase):
         self.assertEqual(blocked.status_code, 429)
         self.assertEqual(DemoRequest.objects.count(), 5)
 
-        # A different address is unaffected -- the limit is per client, not global.
         other = client.post(
             self.URL, dict(self.VALID, email='other@demo.test'),
             HTTP_X_FORWARDED_FOR='198.51.100.4',
@@ -294,8 +232,6 @@ class DemoRequestIntakeTests(TransactionTestCase):
         self.assertEqual(other.status_code, 201)
 
     def test_spoofed_forwarded_chain_does_not_grant_a_fresh_quota(self):
-        # Render appends the real peer, so the last entry is the honest one.
-        # Prepending fake hops must not look like a new client.
         client = Client()
         for i in range(5):
             client.post(self.URL, dict(self.VALID, email=f'chain{i}@demo.test'),
@@ -328,8 +264,6 @@ class DemoRequestIntakeTests(TransactionTestCase):
 
 
 class SignupIdentityTests(TransactionTestCase):
-    """Signup is where a boutique's identity is established, and it had no
-    coverage at all. Schema creation is DDL, hence TransactionTestCase."""
 
     def _signup(self, email, **extra):
         payload = {
@@ -346,10 +280,6 @@ class SignupIdentityTests(TransactionTestCase):
             tenant.delete(force_drop=True)
 
     def test_signup_reports_the_owner_role(self):
-        """App.jsx sets currentUser straight from this payload and never
-        re-fetches, so an omitted role left a brand-new owner unable to assign
-        any production stage for their whole first session.
-        """
         try:
             response = self._signup('role.probe@ownerflow.test')
             self.assertEqual(response.status_code, 201, response.data)
@@ -358,11 +288,6 @@ class SignupIdentityTests(TransactionTestCase):
             self._drop('role.probe@ownerflow.test')
 
     def test_the_email_is_stored_lowercase_so_case_cannot_fork_a_boutique(self):
-        """The duplicate check on owner_email is case-sensitive while
-        django_tenants compares schema names case-insensitively, so a second
-        signup differing only in case created an orphan tenant row whose
-        CREATE SCHEMA had silently returned instead of raising.
-        """
         try:
             first = self._signup('Case.Probe@Ownerflow.test')
             self.assertEqual(first.status_code, 201, first.data)
@@ -378,9 +303,6 @@ class SignupIdentityTests(TransactionTestCase):
             self._drop('case.probe@ownerflow.test')
 
     def test_punctuation_in_an_address_cannot_collide_two_boutiques(self):
-        """schema_name was the email with '@', '.' and '-' all flattened onto
-        '_', so a.b@x.com and a-b@x.com landed on one schema.
-        """
         try:
             first = self._signup('a.b@collide.test')
             second = self._signup('a-b@collide.test')
@@ -393,7 +315,7 @@ class SignupIdentityTests(TransactionTestCase):
             self._drop('a-b@collide.test')
 
     def test_a_long_address_still_fits_a_postgres_identifier(self):
-        """schema_name is varchar(63) and was exactly as long as the email."""
+
         long_email = ('x' * 60) + '@averylongdomainname.example.test'
         try:
             response = self._signup(long_email)
@@ -404,8 +326,6 @@ class SignupIdentityTests(TransactionTestCase):
 
 
 class SignupBoutiqueIdentityTests(TransactionTestCase):
-    """What the owner types about their boutique has to reach the documents
-    their customers actually see."""
 
     def _drop(self, email):
         connection.set_schema_to_public()
@@ -413,12 +333,6 @@ class SignupBoutiqueIdentityTests(TransactionTestCase):
             tenant.delete(force_drop=True)
 
     def test_the_boutiques_own_details_land_on_its_settings(self):
-        """Signup collected a mobile number and discarded it, and created no
-        BoutiqueSettings row at all -- so the row was conjured later by
-        get_or_create(id=1) with its defaults, and every boutique's printed
-        invoice claimed to be at "123 Atelier Way, Fashion District" on
-        +91 9999999999.
-        """
         email = 'identity.probe@ownerflow.test'
         try:
             response = APIClient().post('/api/auth/signup/', {
@@ -457,13 +371,6 @@ class SignupBoutiqueIdentityTests(TransactionTestCase):
 
 
 def tenant_client(schema_name):
-    """get_customers()'s client, without its path.
-
-    Same token/header pairing and the same reason for it -- credentials()
-    overrides per-request headers, so the tenant header has to be set alongside
-    the token -- but handed back so a test can call any URL. The module gate is
-    a per-prefix rule, so its tests need more than one prefix.
-    """
     from django.contrib.auth.models import User
     from rest_framework.authtoken.models import Token
     with schema_context(schema_name):
@@ -476,27 +383,12 @@ def tenant_client(schema_name):
 
 
 def set_modules(tenant, enabled_modules):
-    """Write a boutique's module switches the way the console will.
-
-    .update() rather than .save() so nothing else on the row is touched, then
-    clear_tenant_cache() because the middleware reads its cached copy of the
-    tenant and would otherwise serve the old switches for _TENANT_CACHE_TTL.
-    """
     connection.set_schema_to_public()
     BoutiqueTenant.objects.filter(pk=tenant.pk).update(enabled_modules=enabled_modules)
     clear_tenant_cache()
 
 
 class ModuleGateTests(TransactionTestCase):
-    """Modules are withheld from a boutique in the middleware, so these tests go
-    through a real request rather than calling is_enabled() directly.
-
-    That is the whole point of the gate: 21 views declare their own
-    permission_classes and never reach RolePermission, so a check anywhere in
-    the DRF layer would hold on some endpoints and not on others. What is worth
-    asserting is that an HTTP request to a switched-off prefix is refused, and
-    that nothing else is.
-    """
 
     def test_a_disabled_module_is_refused_and_the_message_names_it(self):
         with temporary_tenant('mod_test_a', 'a@mod.test', 'Atelier A') as tenant:
@@ -508,20 +400,11 @@ class ModuleGateTests(TransactionTestCase):
             response = client.get('/api/fabrics/')
             self.assertEqual(response.status_code, 403)
             body = response.json()
-            # Names the module, so the person reading the console log is not
-            # left guessing which of three different 403s this is.
             self.assertIn('Fabrics', body['error'])
             self.assertEqual(body['module'], 'fabrics')
             self.assertNotIn('suspended', body['error'])
 
     def test_everything_disabled_still_leaves_the_boutique_a_way_in(self):
-        """The lockout test, and the reason ALWAYS_ON exists.
-
-        crm_api is mounted at /api/ alongside login, so a gate keyed a shade too
-        broadly takes the boutique's own account with it and there is no way
-        back in through the product. Switching off every module there is must
-        still leave sign-in, the dashboard and the ungoverned prefixes standing.
-        """
         from core.modules import MODULES
 
         with temporary_tenant('mod_test_b', 'owner@mod.test', 'Atelier B') as tenant:
@@ -533,8 +416,6 @@ class ModuleGateTests(TransactionTestCase):
 
             set_modules(tenant, {key: False for key in MODULES})
 
-            # Login sends no X-Tenant-ID at all, which is exactly why /api/auth/
-            # cannot be gateable: it shares its mount with the business routers.
             login = APIClient().post('/api/auth/login/',
                                      {'username': 'owner@mod.test',
                                       'password': 'correct-horse-battery'},
@@ -544,18 +425,9 @@ class ModuleGateTests(TransactionTestCase):
             client = tenant_client('mod_test_b')
             self.assertEqual(client.get('/api/dashboard/').status_code, 200)
             self.assertEqual(client.get('/api/boutique-settings/').status_code, 200)
-            # Ungoverned rather than always-on: no module claims /api/customers/
-            # (it is STRUCTURAL), and module_for_path() answers None for it. None
-            # must read as "nobody switched this off", never as a denial.
             self.assertEqual(client.get('/api/customers/').status_code, 200)
 
     def test_disabling_a_parent_prefix_does_not_take_its_child_with_it(self):
-        """/api/inventory/catalog/ sits underneath /api/inventory/.
-
-        Matched shortest-first, switching off purchasing would silently switch
-        off the fabric catalogue too -- and switching off the catalogue would
-        appear to do nothing, because the parent rule would answer first.
-        """
         with temporary_tenant('mod_test_c', 'c@mod.test', 'Atelier C') as tenant:
             client = tenant_client('mod_test_c')
 
@@ -570,42 +442,25 @@ class ModuleGateTests(TransactionTestCase):
             self.assertEqual(catalog.json()['module'], 'inventory_catalog')
 
     def test_a_module_nobody_has_an_opinion_about_is_on(self):
-        """Absent means enabled, and this is the assertion that keeps it so.
-
-        A tenant row written before a module existed says nothing about it. If
-        silence read as "off", adding an entry to core/modules.py would switch
-        the new feature off for every existing boutique the moment it deployed.
-        """
         with temporary_tenant('mod_test_d', 'd@mod.test', 'Atelier D') as tenant:
             client = tenant_client('mod_test_d')
 
-            # The default from the migration: no opinion about anything.
             connection.set_schema_to_public()
             self.assertEqual(
                 BoutiqueTenant.objects.get(pk=tenant.pk).enabled_modules, {})
             self.assertEqual(client.get('/api/fabrics/').status_code, 200)
 
-            # An opinion about one module is not an opinion about the rest.
             set_modules(tenant, {'inventory': False})
             self.assertEqual(client.get('/api/fabrics/').status_code, 200)
 
 
 class MaintenanceModeTests(TransactionTestCase):
-    """The platform-wide stop switch, and the one thing it must never stop.
-
-    A maintenance mode that also blocks /api/superadmin/ can only be turned off
-    with a database client, which is the wrong tool to be reaching for during
-    the outage it was flipped for.
-    """
 
     def _set_maintenance(self, **value):
         from superadmin.models import PlatformSetting
         connection.set_schema_to_public()
         PlatformSetting.objects.update_or_create(
             key='maintenance_mode', defaults={'value': value})
-        # The middleware caches this for _TENANT_CACHE_TTL, so without this the
-        # switch would not be seen for five minutes -- and, more dangerously for
-        # the suite, would still be seen five minutes after the test ended.
         clear_platform_cache()
         self.addCleanup(clear_platform_cache)
 
@@ -620,16 +475,11 @@ class MaintenanceModeTests(TransactionTestCase):
             self.assertEqual(response.status_code, 503)
             self.assertEqual(response.json()['error'], 'Back at 03:00 UTC.')
 
-            # The console stays up. Anything but 503 proves the exemption; the
-            # credentials are wrong on purpose, because the point is that the
-            # request reached the view to have its credentials judged at all.
             console = APIClient().post('/api/superadmin/auth/login/',
                                        {'username': 'nobody', 'password': 'nobody'},
                                        format='json')
             self.assertNotEqual(console.status_code, 503)
 
-            # Signing in is exempt too (ALWAYS_ON), so an administrator is not
-            # locked out of the product by the switch meant to pause it.
             login = APIClient().post('/api/auth/login/',
                                      {'username': 'nobody', 'password': 'nobody'},
                                      format='json')
@@ -640,17 +490,6 @@ class MaintenanceModeTests(TransactionTestCase):
 
 
 class SignupSeedsNothingInventedTests(TransactionTestCase):
-    """A brand-new boutique starts empty, not furnished with someone else's shop.
-
-    seed_tenant_defaults was called unconditionally from SignupView, so every
-    real boutique was born with four employees who do not exist, five fabrics at
-    another business's prices and eleven priced catalogue designs.
-
-    The fabric prices are why this is not cosmetic: the order wizard computes
-    fabric_price = price_per_meter * 3, and that prints on the invoice. A
-    day-one order could be assigned to a person who does not work there, priced
-    at a rate the owner never set, and handed to a customer.
-    """
 
     def _signup(self, email):
         return APIClient().post('/api/auth/signup/', {
@@ -678,8 +517,6 @@ class SignupSeedsNothingInventedTests(TransactionTestCase):
                 'the demo catalogue was seeded into a real boutique')
 
     def test_the_seed_helper_still_populates_when_asked(self):
-        # seed_data.py and SeedDataView both exist to make a playground; the
-        # flag must not have turned them into no-ops.
         from crm_api.models import BoutiqueFabric, Tailor
         from crm_api.utils import seed_tenant_defaults
 
@@ -692,13 +529,6 @@ class SignupSeedsNothingInventedTests(TransactionTestCase):
 
 
 class MultiBoutiqueLoginTests(TransactionTestCase):
-    """A freelance tailor works at two boutiques and must reach both.
-
-    find_tenant_for_account returned the FIRST schema containing a matching
-    email and stopped, so the second account was unreachable with entirely
-    correct credentials -- and which one was reachable depended on row order in
-    the tenant table, so it was not even consistent.
-    """
 
     def _signup(self, email, name):
         return APIClient().post('/api/auth/signup/', {
@@ -715,7 +545,6 @@ class MultiBoutiqueLoginTests(TransactionTestCase):
         self.schema_a = self._signup('a.owner@twoshops.test', 'Asha').data['tenant_id']
         self.schema_b = self._signup('b.owner@twoshops.test', 'Bina').data['tenant_id']
 
-        # The same person, with a different password at each shop.
         self.shared_email = 'freelance.tailor@twoshops.test'
         for schema, password in ((self.schema_a, 'password-at-asha-1'),
                                  (self.schema_b, 'password-at-bina-2')):
@@ -753,11 +582,9 @@ class MultiBoutiqueLoginTests(TransactionTestCase):
             tenant_a.save(update_fields=['is_active'])
         clear_tenant_cache()
         try:
-            # Asha's shop is suspended; Bina's is not, and that login must work.
             response = self._login('password-at-bina-2')
             self.assertEqual(response.status_code, 200, response.data)
             self.assertEqual(response.data['tenant_id'], self.schema_b)
-            # The suspended one is reported as suspended, not as bad credentials.
             refused = self._login('password-at-asha-1')
             self.assertEqual(refused.status_code, 403, refused.data)
         finally:
@@ -768,26 +595,9 @@ class MultiBoutiqueLoginTests(TransactionTestCase):
 
 
 class DesignAssignmentIsolationTests(TransactionTestCase):
-    """One boutique's design workload must not be reachable from another's.
-
-    Schema separation is what django-tenants gives for free, but "for free"
-    is exactly the kind of claim that stops being true the first time a
-    queryset is built outside the tenant connection. The assignment queue is
-    worth pinning specifically: it is the one designer-facing endpoint that
-    reaches through a garment job into an order and a customer, so a leak here
-    is a leak of another boutique's client list, not just its workload.
-
-    Lives here rather than beside the rest of the assignment tests in
-    apps/design_studio/. TransactionTestCase flushes the database between tests,
-    and a flush inside a module whose other classes are TenantTestCase leaves a
-    sibling class reading a tenant that is no longer the one it set up -- under
-    --parallel that surfaced as design_studio's own owner-address guard passing
-    an address it should have refused. This module has no TenantTestCase in it,
-    which is the same reason every other cross-tenant test here does.
-    """
 
     def _seed(self, schema, designer_email, order_id, designer_name):
-        """Give a tenant one order, one garment and one assigned designer."""
+
         with schema_context(schema):
             sync_global_templates()
             customer = Customer.objects.create(
@@ -806,8 +616,6 @@ class DesignAssignmentIsolationTests(TransactionTestCase):
 
     def _list_assignments(self, token_key, tenant_header):
         client = APIClient()
-        # The token and the header travel together: APIClient.credentials()
-        # replaces per-request headers, so a header set on the call is lost.
         client.credentials(HTTP_AUTHORIZATION='Token ' + token_key,
                            HTTP_X_TENANT_ID=tenant_header)
         return client.get('/api/design-studio/assignments/')
@@ -818,13 +626,9 @@ class DesignAssignmentIsolationTests(TransactionTestCase):
             key_a = self._seed('asn_test_a', 'meera@asn-a.test', 'T2B-A-0001', 'Meera')
             self._seed('asn_test_b', 'kavya@asn-b.test', 'T2B-B-0001', 'Kavya')
 
-            # Tenant A's designer, holding a live token, addressing tenant B.
             response = self._list_assignments(key_a, 'asn_test_b')
             rows = response.data if response.status_code == 200 else []
             rows = rows['results'] if isinstance(rows, dict) else rows
-            # Either the credential is refused outright or it resolves to no
-            # designer profile in B's schema. What must never happen is B's
-            # assignment coming back.
             self.assertNotIn('T2B-B-0001', str(rows))
             self.assertNotIn('Kavya', str(rows))
 
@@ -834,8 +638,6 @@ class DesignAssignmentIsolationTests(TransactionTestCase):
             key_c = self._seed('asn_test_c', 'meera@asn-c.test', 'T2B-C-0001', 'Meera')
             key_d = self._seed('asn_test_d', 'kavya@asn-d.test', 'T2B-D-0001', 'Kavya')
 
-            # Alternate, so a stale search_path shows up as a wrong result
-            # rather than as a consistently-right one.
             for _ in range(2):
                 rows_c = self._list_assignments(key_c, 'asn_test_c').data
                 rows_c = rows_c['results'] if isinstance(rows_c, dict) else rows_c
@@ -847,16 +649,6 @@ class DesignAssignmentIsolationTests(TransactionTestCase):
 
 
 class TenantCacheInvalidationTests(TransactionTestCase):
-    """The middleware's per-process tenant cache clears when a tenant is written.
-
-    This is the infrastructure behind a test-suite failure that only parallel
-    execution exposed: every TenantTestCase shares the schema name 'test', and
-    with nothing invalidating the cache, class B's requests were served class
-    A's tenant row -- owner_email included -- for up to the TTL. In production
-    the same staleness window applied to sign-up and rename. tenants/apps.py
-    now clears on BoutiqueTenant post_save/post_delete; these pin that signal
-    directly, so the fix cannot be quietly dropped without a named failure.
-    """
 
     def test_saving_a_tenant_clears_the_cache(self):
         from tenants.middleware import _get_tenant_by_schema, _tenant_cache
@@ -877,20 +669,11 @@ class TenantCacheInvalidationTests(TransactionTestCase):
         with temporary_tenant('cache_test_b', 'gone@cache.test', 'Atelier B'):
             _get_tenant_by_schema(BoutiqueTenant, 'cache_test_b')
             self.assertIn('cache_test_b', _tenant_cache)
-        # temporary_tenant's exit deletes the row; the signal must have fired.
         self.assertNotIn('cache_test_b', _tenant_cache)
-        # And a fresh lookup answers None rather than the deleted tenant.
         self.assertIsNone(_get_tenant_by_schema(BoutiqueTenant, 'cache_test_b'))
 
 
 class PricingIsolationTests(TransactionTestCase):
-    """One boutique's money must not appear in another's books.
-
-    Order totals are now the rollup of garment-job pricing, and the dashboard
-    sums them into revenue. Schema isolation should make cross-tenant leakage
-    impossible; this pins it AT the money surface, because revenue is the number
-    a leak would be noticed in last and matter in most.
-    """
 
     def _priced_order(self, schema, order_id, base):
         from decimal import Decimal
@@ -923,16 +706,9 @@ class PricingIsolationTests(TransactionTestCase):
 
 
 class QCQueueIsolationTests(TransactionTestCase):
-    """A specialist's queue stops at the boutique boundary.
-
-    The queue is derived rather than stored -- it is a query over stages and the
-    workflow config, run per request -- so it is worth pinning at the schema
-    line specifically. A stored assignment would be obviously tenant-local; a
-    computed one is only as isolated as the queryset it starts from.
-    """
 
     def _boutique_at_qc(self, schema, order_id, qc_email):
-        """One boutique with an order sitting at quality check, and an inspector."""
+
         from crm_api.models import BoutiqueSettings, Measurement, Tailor
         from domains.orders.services import OrderService
         with schema_context(schema):
@@ -979,8 +755,6 @@ class QCQueueIsolationTests(TransactionTestCase):
             key_a = self._boutique_at_qc('qc_test_a', 'T2B-QA-1', 'qc@qc-a.test')
             key_b = self._boutique_at_qc('qc_test_b', 'T2B-QB-1', 'qc@qc-b.test')
 
-            # Alternated, so a stale search_path shows up as a wrong answer
-            # rather than a consistently right one.
             for _ in range(2):
                 rows_a = self._queue(key_a, 'qc_test_a').data
                 rows_a = rows_a['results'] if isinstance(rows_a, dict) else rows_a

@@ -1,11 +1,3 @@
-"""Tests for the public tracking page and the customer message log.
-
-The tracking page is the only route in the project a stranger reaches with no
-token and no X-Tenant-ID header, and it reads across schemas to do it -- so what
-is pinned here is that a genuine link resolves to exactly one boutique's order,
-and that anything else (edited token, dead schema, unknown order) is a 404 and
-not a 500 or, worse, another boutique's data.
-"""
 
 import importlib
 import io
@@ -70,25 +62,17 @@ class TrackingTestBase(TenantTestCase):
             email_address="anita@example.com",
             garment_type="Lehenga",
         )
-        # Delivery is deferred to on_commit, and a TestCase never commits, so
-        # the callbacks are run explicitly wherever a test asserts on what was
-        # actually delivered.
         with self.captureOnCommitCallbacks(execute=True):
             self.order = OrderService.create_order_for_customer(self.customer, {})
 
     def _owner(self):
-        """A user with no staff profile, which core.roles resolves to Owner."""
+
         user, _ = User.objects.get_or_create(
             username='owner@tracking.test', defaults={'email': 'owner@tracking.test'}
         )
         return user
 
     def tenant_client_get(self, url):
-        """GET as a customer would: no auth, no tenant header, unknown host.
-
-        The request resets the connection's schema on its way through the
-        middleware, so the tenant is restored afterwards for the assertions.
-        """
         response = Client().get(url)
         connection.set_tenant(self.tenant)
         return response
@@ -128,11 +112,7 @@ class TrackingPageTests(TrackingTestBase):
         self.assertIn(self.order.order_id, body)
         self.assertIn("Meera Couture", body)
         self.assertIn("Anita", body)
-        # The workflow's first stage is completed at creation, so the timeline
-        # has something real in it rather than an empty list.
         self.assertIn("Created", body)
-        # Django's {# #} is single-line only, so a multi-line one renders as
-        # visible text on the page. Caught once already; cheaper to pin.
         self.assertNotIn("{#", body)
         self.assertNotIn("{%", body)
 
@@ -147,11 +127,6 @@ class TrackingPageTests(TrackingTestBase):
         self.assertEqual(self.tenant_client_get(f"/track/{tampered}/").status_code, 404)
 
     def test_token_for_unknown_schema_404s(self):
-        """A correctly signed token naming a schema that no longer exists.
-
-        Without the tenant-table check this would put a dead schema on
-        search_path and surface as a 500.
-        """
         forged = signing.dumps({'s': 'gone_boutique', 'o': self.order.order_id}, salt=SALT)
         self.assertEqual(self.tenant_client_get(f"/track/{forged}/").status_code, 404)
 
@@ -164,7 +139,7 @@ class TrackingPageTests(TrackingTestBase):
         self.assertEqual(self.tenant_client_get(f"/track/{forged}/").status_code, 404)
 
     def test_internal_stage_notes_are_not_published(self):
-        """Staff type rework and blame into stage comments. It is not for the customer."""
+
         stage = self.order.stages.get(stage_key='created')
         stage.comments = "Ravi cut the sleeve wrong, re-cut from spare, don't tell the client"
         stage.save()
@@ -174,7 +149,7 @@ class TrackingPageTests(TrackingTestBase):
         self.assertNotIn("re-cut from spare", response.content.decode())
 
     def test_missing_boutique_settings_is_not_invented_on_a_public_get(self):
-        """An unauthenticated GET must not write, nor show the factory identity."""
+
         BoutiqueSettings.objects.all().delete()
 
         response = self.tenant_client_get(f"/track/{build_token(self.order)}/")
@@ -189,9 +164,6 @@ class TrackingPageTests(TrackingTestBase):
         response = self.tenant_client_get(f"/track/{build_token(self.order)}/")
 
         body = response.content.decode()
-        # Compared against the shared formatter rather than a literal: the page
-        # prints Rs6,000 now, and pinning the string here would just re-record
-        # whichever convention this screen happened to use.
         from core.formatting import format_money
         self.assertIn(format_money(6000), body)
         self.assertIn("Partially Paid", body)
@@ -202,13 +174,10 @@ class CustomerMessageTests(TrackingTestBase):
         message = CustomerMessage.objects.get(
             order=self.order, template_key='order_confirmation'
         )
-        # No transport is configured by default: the owner sends it themselves,
-        # so it waits for them rather than claiming to have gone out.
         self.assertEqual(message.status, 'QUEUED')
         self.assertEqual(message.to_number, self.customer.mobile_number)
         self.assertIn('/track/', message.body)
 
-        # The link in the message is the one that actually works.
         path = '/track/' + message.body.split('/track/')[1].strip().rstrip('/') + '/'
         self.assertEqual(self.tenant_client_get(path).status_code, 200)
 
@@ -238,14 +207,6 @@ class CustomerMessageTests(TrackingTestBase):
 
     @override_settings(CUSTOMER_MESSAGE_BACKEND='crm_api.test_tracking.recording_backend')
     def test_transport_runs_only_after_the_order_transaction_commits(self):
-        """The transport must not be called inside the caller's transaction.
-
-        Both callers are @transaction.atomic. A transport that touches the
-        database -- any real one does -- aborts that transaction when it fails,
-        and the follow-up save() recording the failure then raises inside the
-        caller and rolls back the order. Deferring delivery past the commit is
-        what makes 'the message failed' cost a message instead of an order.
-        """
         DELIVERED.clear()
         customer = Customer.objects.create(
             first_name="Devi", last_name="Nair", mobile_number="+919000000003",
@@ -258,15 +219,6 @@ class CustomerMessageTests(TrackingTestBase):
         self.assertEqual(message.status, 'QUEUED')
 
     def test_repeated_stages_with_one_customer_status_send_one_message(self):
-        """Several workflow stages map to one customer-facing status.
-
-        measurements_completed and fabric_confirmed both mean 'Confirmed';
-        pattern_cutting and maggam_work both mean 'Design & Creation'. Firing on
-        every stage means the customer is told the same sentence twice in a row.
-        views.py already gates its own path on the status having actually
-        changed; the workflow engine has to do the same, or the boutique's
-        WhatsApp account is the one that looks broken.
-        """
         owner = self._owner()
         for stage in ['measurements_completed', 'fabric_confirmed', 'pattern_cutting', 'maggam_work']:
             OrderService.transition_order_stage(self.order, stage, 'COMPLETED', user=owner)
@@ -279,12 +231,6 @@ class CustomerMessageTests(TrackingTestBase):
         self.assertEqual(len(bodies), len(set(bodies)), f"duplicate messages sent: {bodies}")
 
 class WhatsAppNumberTests(TenantTestCase):
-    """wa.me only accepts a full international number.
-
-    Every customer number in the database is a bare ten-digit Indian one, so
-    getting this wrong opens a chat with nobody -- silently, since the link
-    still looks like a link.
-    """
 
     def test_bare_national_number_gains_the_country_code(self):
         self.assertEqual(whatsapp_number('6303301002'), '916303301002')
@@ -300,11 +246,6 @@ class WhatsAppNumberTests(TenantTestCase):
         self.assertEqual(whatsapp_number('916303301002'), '916303301002')
 
     def test_national_trunk_zero_is_dropped(self):
-        """'098765 43211' is how the number is written for domestic dialling.
-
-        Kept, it produces wa.me/09876543211, which WhatsApp rejects -- while
-        still rendering as a perfectly ordinary "Open WhatsApp" button.
-        """
         self.assertEqual(whatsapp_number('098765 43211'), '919876543211')
 
     def test_international_access_code_is_dropped(self):
@@ -314,14 +255,14 @@ class WhatsAppNumberTests(TenantTestCase):
         self.assertEqual(whatsapp_number('+91 (0) 98765 43211'), '919876543211')
 
     def test_a_ten_digit_number_starting_91_still_gets_the_country_code(self):
-        """Indian mobiles legitimately start 91, so length has to decide."""
+
         self.assertEqual(whatsapp_number('9198765432'), '919198765432')
 
     def test_a_foreign_international_number_passes_through(self):
         self.assertEqual(whatsapp_number('+44 20 7123 4567'), '442071234567')
 
     def test_something_that_cannot_be_a_number_yields_no_link(self):
-        """Better no button than a button that opens a chat with a stranger."""
+
         self.assertEqual(whatsapp_number('12345'), '')
         self.assertEqual(whatsapp_number('9876543211 9876543211'), '')
         self.assertEqual(whatsapp_number('call the shop'), '')
@@ -336,7 +277,7 @@ class WhatsAppNumberTests(TenantTestCase):
 
 
 class ManualSendTests(TrackingTestBase):
-    """The owner sends from their own WhatsApp; the CRM only removes the typing."""
+
 
     def setUp(self):
         super().setUp()
@@ -363,7 +304,6 @@ class ManualSendTests(TrackingTestBase):
         url = message.whatsapp_url
 
         self.assertTrue(url.startswith('https://wa.me/919000000002?text='))
-        # The body is urlencoded, so the tracking link survives intact.
         self.assertIn(quote('/track/'), url)
         self.assertIn(quote(self.order.order_id), url)
 
@@ -394,12 +334,6 @@ class ManualSendTests(TrackingTestBase):
         self.assertEqual(response.data, [])
 
     def test_a_tailor_cannot_read_the_queue(self):
-        """Each body carries the tracking link, which reaches the order's money.
-
-        A tailor can see their own orders, but the role matrix keeps the
-        financials from them -- and the tracking page shows the total, the
-        amount paid and the balance to anyone holding the link.
-        """
         response = self.tailor_client().get(reverse('order-customer-messages'))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -423,7 +357,7 @@ class ManualSendTests(TrackingTestBase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_a_message_id_that_is_not_a_number_is_a_400_not_a_500(self):
-        """id is a BigAutoField; an unparsable value is a bad request, not a crash."""
+
         for bad in ['abc', '', None, {'nope': 1}]:
             with self.subTest(message_id=bad):
                 response = self.client.post(
@@ -458,7 +392,7 @@ class ManualSendTests(TrackingTestBase):
         return client
 
     def test_a_tailor_cannot_mark_messages_sent(self):
-        """It goes out from the owner's phone, so it is the owner's to confirm."""
+
         message = self.queued()
 
         response = self.tailor_client().post(
@@ -472,7 +406,7 @@ class ManualSendTests(TrackingTestBase):
 
 
 def a_photograph(name='front.png', size=(400, 600)):
-    """A real PNG, so the serializer's Pillow check has something to accept."""
+
     from PIL import Image
     buffer = io.BytesIO()
     Image.new('RGB', size, (180, 60, 90)).save(buffer, format='PNG')
@@ -480,19 +414,6 @@ def a_photograph(name='front.png', size=(400, 600)):
 
 
 class GarmentGalleryTests(TrackingTestBase):
-    """Photographs of the finished garment, and when the customer may see them.
-
-    MEDIA_ROOT is redirected per test, and the override is enabled by hand
-    rather than with a class decorator. django_tenants' TenantTestCase.setUpClass
-    does not call super(), so SimpleTestCase.setUpClass -- the code that enables
-    a class-level override_settings -- never runs, and @override_settings on the
-    class is a silent no-op. These tests write files; without this they write
-    into the repository's own media/ directory.
-
-    The cleanup deletes the directory it created, never settings.MEDIA_ROOT.
-    Deleting whatever that setting happens to point at is how the real media
-    directory got removed once already.
-    """
 
     def setUp(self):
         super().setUp()
@@ -534,7 +455,7 @@ class GarmentGalleryTests(TrackingTestBase):
         )
 
     def test_uploads_land_in_the_test_media_root_not_the_repository(self):
-        """Pins the override actually taking effect, which it silently did not."""
+
         from django.conf import settings
 
         self.assertEqual(settings.MEDIA_ROOT, self.media_root)
@@ -566,7 +487,7 @@ class GarmentGalleryTests(TrackingTestBase):
         self.assertFalse(GarmentImage.objects.exists())
 
     def test_a_file_that_is_not_an_image_is_rejected(self):
-        """A renamed file must fail here, not become a broken img on the page."""
+
         response = self.upload(
             'FRONT',
             image=SimpleUploadedFile('front.png', b'MZ\x90\x00 not a png',
@@ -615,7 +536,6 @@ class GarmentGalleryTests(TrackingTestBase):
         self.assertEqual(messages.count(), 1)
         self.assertIn('/track/', messages.first().body)
 
-        # Swapping a photograph and publishing again must not tell them twice.
         self.upload('FRONT', image=a_photograph('front-v2.png'))
         self.publish()
         self.assertEqual(
@@ -647,7 +567,7 @@ class GarmentGalleryTests(TrackingTestBase):
         self.assertIn('Back view', body)
 
     def test_a_master_may_photograph_and_publish(self):
-        """The specification has the owner or the master doing this."""
+
         master = self.api_client(self.master_user)
         self.assertEqual(self.upload('FRONT', client=master).status_code,
                          status.HTTP_201_CREATED)
@@ -661,12 +581,6 @@ class GarmentGalleryTests(TrackingTestBase):
 
 
 class TrackingBaseUrlTests(SimpleTestCase):
-    """Where a customer's link points, and which source wins.
-
-    The failure this guards is silent and total: get the environment variable
-    name wrong and every link a customer is sent points at localhost, which
-    nothing in the application would notice.
-    """
 
     def resolve(self, **env):
         import boutique_crm.settings as settings_module
@@ -679,7 +593,6 @@ class TrackingBaseUrlTests(SimpleTestCase):
         with mock.patch.dict(os.environ, patched, clear=True):
             importlib.reload(settings_module)
             resolved = settings_module.TRACKING_BASE_URL
-        # Leave the module as the rest of the run found it.
         importlib.reload(settings_module)
         return resolved
 
@@ -690,7 +603,7 @@ class TrackingBaseUrlTests(SimpleTestCase):
         )
 
     def test_an_explicit_setting_beats_render(self):
-        """A custom domain: RENDER_EXTERNAL_URL stays the onrender address."""
+
         self.assertEqual(
             self.resolve(
                 TRACKING_BASE_URL='https://track.meeracouture.in',

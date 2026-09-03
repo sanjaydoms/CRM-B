@@ -1,4 +1,3 @@
-# Product Coverage Matrix
 
 What was actually exercised in the running build while writing the
 [User Guide](README.md), and what was not.
@@ -12,7 +11,6 @@ Legend — ✅ done · ⚠️ partial · ❌ not done · **n/a** not applicable
 
 ---
 
-## 1. By role and module
 
 | Role | Module | Flow | Tested | Screenshot | Documented |
 |---|---|---|---|---|---|
@@ -105,7 +103,6 @@ Legend — ✅ done · ⚠️ partial · ❌ not done · **n/a** not applicable
 
 ---
 
-## 2. Workflow coverage
 
 | Workflow | Status |
 |---|---|
@@ -135,7 +132,6 @@ Legend — ✅ done · ⚠️ partial · ❌ not done · **n/a** not applicable
 
 ---
 
-## 3. Screenshot library
 
 ```text
 docs/user-guide/screenshots/
@@ -155,7 +151,6 @@ All captured at 1440×900 (mobile at 390×844), full page, by `capture.py`.
 
 ---
 
-## 4. What is not covered, and why
 
 | Not covered | Why |
 |---|---|
@@ -171,13 +166,10 @@ All captured at 1440×900 (mobile at 390×844), full page, by `capture.py`.
 
 ---
 
-## 5. Re-verifying this guide against a later build
 
 ```bash
-# 1. servers
 ./start.sh
 
-# 2. a fresh boutique and its data (edit DEMO in capture.py first)
 python3 docs/user-guide/capture.py signup
 python3 docs/user-guide/capture.py seed_staff
 python3 docs/user-guide/capture.py seed_designer
@@ -186,7 +178,6 @@ python3 docs/user-guide/capture.py seed_designs
 python3 docs/user-guide/capture.py seed_inventory
 python3 docs/user-guide/capture.py seed_stock
 
-# 3. the order, and the whole production ladder
 python3 docs/user-guide/capture.py create_order
 python3 docs/user-guide/capture.py assign_design_work
 python3 docs/user-guide/capture.py designer_upload
@@ -198,7 +189,6 @@ python3 docs/user-guide/capture.py settle_payment
 python3 docs/user-guide/capture.py owner_order_wrapup
 python3 docs/user-guide/capture.py deliver_order
 
-# 4. the rest of the library
 python3 docs/user-guide/capture.py owner_data_tour
 python3 docs/user-guide/capture.py owner_customer_detail
 python3 docs/user-guide/capture.py inventory_tabs
@@ -214,7 +204,6 @@ python3 docs/user-guide/capture.py login_errors
 python3 docs/user-guide/capture.py superadmin_login
 python3 docs/user-guide/capture.py landing_site      # needs `npm run build` + preview on 4173
 
-# 5. re-check the Known Gaps section
 python3 docs/user-guide/capture.py verify_gaps
 ```
 

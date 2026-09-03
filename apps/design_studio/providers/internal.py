@@ -1,4 +1,4 @@
-"""Sources the boutique already owns: catalogue, past orders, saved library."""
+
 
 from decimal import Decimal
 
@@ -11,7 +11,7 @@ from .base import DesignCandidate, DesignSourceProvider
 
 
 def _tokens(queries):
-    """Distinct lowercase words across all search queries."""
+
     seen = []
     for query in queries:
         for token in str(query).replace(',', ' ').split():
@@ -26,18 +26,11 @@ class CatalogueProvider(DesignSourceProvider):
     label = 'Boutique Catalogue'
 
     def search(self, queries, context, limit=20):
-        # The catalogue moved into the library; these are the same rows.
         from ..models import DesignAsset
-        # Same rule as LibraryProvider below -- an archived catalogue design is
-        # a design the owner took off the table, and discovery must not put it
-        # back on.
         designs = DesignAsset.objects.filter(
             source__in=[DesignAsset.SOURCE_CATALOGUE, DesignAsset.SOURCE_SUGGESTION],
             status=DesignAsset.Status.ACTIVE)
         if context.garment_type:
-            # Narrow to the garment being ordered, but fall back to the full
-            # catalogue rather than showing an empty gallery when nothing in
-            # the catalogue is tagged with that garment yet.
             narrowed = designs.filter(garment_type__iexact=context.garment_type)
             designs = narrowed if narrowed.exists() else designs
 
@@ -111,19 +104,12 @@ class PastOrderProvider(DesignSourceProvider):
 
 
 class LibraryProvider(DesignSourceProvider):
-    """Team uploads, saved favourites and anything imported from a platform."""
+
 
     key = 'library'
     label = 'Saved & Uploaded Designs'
 
     def search(self, queries, context, limit=20):
-        # ACTIVE only. This used to be .all(), so a design the owner had
-        # reviewed and ARCHIVED -- rejected -- kept coming back through
-        # discovery, could be shortlisted onto a board, approved, and handed to
-        # the tailor as the garment to stitch. DesignCategoryView already
-        # filters on ACTIVE, so the two read paths disagreed about what a
-        # rejection meant. Drafts and pending-approval uploads are excluded for
-        # the same reason: neither has been approved for production.
         assets = DesignAsset.objects.filter(status=DesignAsset.Status.ACTIVE)
         if context.garment_type:
             narrowed = assets.filter(garment_type__iexact=context.garment_type)
@@ -137,12 +123,6 @@ class LibraryProvider(DesignSourceProvider):
                 title=asset.title,
                 image_url=asset.image_url,
                 source_url=asset.source_url,
-                # The linked credit wins over the legacy free-text column.
-                # Every design uploaded through the product sets designer_ref
-                # and leaves `designer` empty -- the upload form has a picker,
-                # not a text box -- so reading only the old column showed the
-                # designer's own work uncredited in the gallery the owner picks
-                # from, which is precisely where attribution matters.
                 designer=(asset.designer_ref.name if asset.designer_ref_id else asset.designer),
                 garment_type=asset.garment_type,
                 occasion=asset.occasion,

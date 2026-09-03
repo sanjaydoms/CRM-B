@@ -477,6 +477,10 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
  * keep in step -- it is a view of the selection, not a copy of it.
  */
 export function SelectedDesignSummary({ garmentJobs = [], onClear }) {
+  // Which picture the full-size view is showing, as an index into the flat
+  // list below. Null when it is closed.
+  const [viewIndex, setViewIndex] = useState(null);
+
   const sections = garmentJobs
     .map(job => ({
       key: job.key,
@@ -490,6 +494,23 @@ export function SelectedDesignSummary({ garmentJobs = [], onClear }) {
   if (sections.length === 0) return null;
 
   const total = sections.reduce((n, s) => n + s.picks.length, 0);
+
+  // Every chosen photograph, in the order the sections read, so the arrows walk
+  // the whole outfit rather than stopping at the end of a garment. The label
+  // carries the garment too -- 'Border Design' alone is ambiguous once a saree
+  // and a dupatta both have one.
+  // Each entry keeps the section and part it came from, so finding the one a
+  // View button belongs to is a lookup rather than a re-walk of the sections.
+  const viewItems = sections.flatMap(section =>
+    section.picks.map(({ part, image }) => ({
+      sectionKey: section.key,
+      part,
+      image_url: image.image_url,
+      label: `${image.part_label || part.replace(/_/g, ' ')} · ${section.name}`,
+    })));
+
+  const flatIndexOf = (sectionKey, part) =>
+    viewItems.findIndex(i => i.sectionKey === sectionKey && i.part === part);
 
   return (
     <div className="content-card">
@@ -525,6 +546,17 @@ export function SelectedDesignSummary({ garmentJobs = [], onClear }) {
                        alt={image.part_label || part} loading="lazy"
                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                 </div>
+                <button
+                  type="button"
+                  title="View full size"
+                  onClick={() => setViewIndex(flatIndexOf(section.key, part))}
+                  style={{ position: 'absolute', top: '5px', left: '5px', display: 'flex',
+                           alignItems: 'center', gap: '3px', padding: '3px 7px', cursor: 'pointer',
+                           borderRadius: '5px', border: 'none', fontSize: '10px', fontWeight: 600,
+                           background: 'rgba(0,0,0,0.62)', color: '#fff' }}
+                >
+                  <Eye size={10} /> View
+                </button>
                 {onClear && (
                   <button
                     type="button"
@@ -551,6 +583,15 @@ export function SelectedDesignSummary({ garmentJobs = [], onClear }) {
           </div>
         </div>
       ))}
+
+      {viewIndex !== null && viewItems[viewIndex] && (
+        <Lightbox
+          items={viewItems}
+          index={viewIndex}
+          onIndexChange={setViewIndex}
+          onClose={() => setViewIndex(null)}
+        />
+      )}
     </div>
   );
 }
