@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { isNative, restoreSession, start } from './native'
+import { hideSplash, isNative, restoreSession, start } from './native'
 import { watchNetwork } from './native/network'
 
 // The session is restored BEFORE the first render, not after it. App decides on
@@ -26,6 +26,9 @@ const boot = async () => {
   // After the render, because none of it affects what is drawn first and the
   // back-button listener has nothing to act on until there is a screen.
   start()
+
+  // And only now does the splash come down, onto a screen that has painted.
+  hideSplash()
 }
 
 boot()

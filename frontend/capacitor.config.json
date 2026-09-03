@@ -8,5 +8,17 @@
   "server": {
     "androidScheme": "https"
   },
-  "loggingBehavior": "debug"
+  "loggingBehavior": "debug",
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "launchFadeOutDuration": 350,
+      "backgroundColor": "#0f291eff",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": false
+    }
+  }
 }

@@ -11,7 +11,8 @@ import {
 import { api } from './services/api';
 import { clearSession, getTenantId, getToken } from './services/session';
 import { onBack } from './native/back';
-import { onDeepLink } from './native';
+import { isNative, onDeepLink } from './native';
+import { WelcomeScreen } from './components/ui/WelcomeScreen';
 import { onNetworkChange } from './native/network';
 import { disablePush, enablePush, onPushReceived } from './native/push';
 import { resolveMediaUrl } from './services/media';
@@ -852,8 +853,21 @@ function App() {
   // signed in here -- the ordinary case when an owner has merely forgotten a
   // password rather than lost it -- and sending them to the dashboard would
   // swallow the link without ever showing the form.
-  const [view, setView] = useState(
-    () => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login');
+  // Where the app opens.
+  //
+  // On the web the product's front door is the marketing site at `/`, and this
+  // bundle is the workspace behind it -- so it opens on the sign-in form, as it
+  // always has. The Android build has no marketing site in it: opening on a
+  // login form meant the app's first screen was a password box with a "Back to
+  // Home" button pointing at a page that is not in the bundle. So on a device
+  // the front door is the welcome screen, and sign-in is one tap from it.
+  //
+  // A password-reset link still wins over both: it arrives with the token in
+  // the address and has to be honoured wherever it is opened.
+  const [view, setView] = useState(() => {
+    if (new URLSearchParams(window.location.search).get('reset')) return 'reset';
+    return isNative() ? 'welcome' : 'login';
+  });
   const [dashboardTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs'
   const [currentUser, setCurrentUser] = useState(null);
   
@@ -1712,8 +1726,16 @@ function App() {
       return true;
     }
 
-    // 'dashboard' with nothing open, or the sign-in screens: nothing to close,
-    // and native/index.js takes it from here (leave the app).
+    // The sign-in screens go back to the app's front door rather than out of
+    // the app -- which is what a back press means when you have opened a form
+    // from a welcome screen and changed your mind.
+    if (['login', 'signup', 'forgot'].includes(s.view)) {
+      setView('welcome');
+      return true;
+    }
+
+    // 'dashboard' with nothing open, or the welcome screen itself: nothing to
+    // close, and native/index.js takes it from here (leave the app).
     return false;
   }), []);
 
@@ -2784,13 +2806,25 @@ function App() {
         </div>
       )}
 
+      {view === 'welcome' && (
+        <WelcomeScreen
+          onSignIn={() => setView('login')}
+          onCreateAccount={() => setView('signup')}
+        />
+      )}
+
       {/* 2. SIGN IN SCREEN (Image 2) */}
       {view === 'login' && (
         <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '88px 16px 40px' }}>
           
           {/* Back to Home Button */}
           <button 
-            onClick={() => { window.location.href = '/'; }}
+            onClick={() => {
+              // `/` is the marketing site, which the Android bundle does not
+              // contain -- there it goes back to the app's own front door.
+              if (isNative()) setView('welcome');
+              else window.location.href = '/';
+            }}
             style={{
               position: 'absolute',
               top: '30px',

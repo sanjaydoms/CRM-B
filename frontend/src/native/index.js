@@ -52,6 +52,35 @@ export const restoreSession = async () => {
 };
 
 /** Wire the native behaviours. Safe to call on the web, where it does nothing. */
+/**
+ * Take the splash down, now that something real is on screen.
+ *
+ * The splash is configured with launchAutoHide: false, so it stays until this
+ * is called. That is the point: on a default install it disappears on a timer,
+ * and a timer cannot know when the bundle has finished booting -- so a slow
+ * cold start shows the splash, then a white WebView, then the app. Hiding it
+ * from here means the fade always lands on a painted screen.
+ *
+ * Two frames of grace first, because "React has rendered" and "the pixels are
+ * up" are not the same moment.
+ */
+export const hideSplash = async () => {
+  if (!isNative()) return;
+  try {
+    const { SplashScreen } = await import('@capacitor/splash-screen');
+    await new Promise((resolve) => requestAnimationFrame(
+      () => requestAnimationFrame(resolve)));
+    // No fadeOutDuration here: Capacitor ignores it for the LAUNCH splash and
+    // says so in the log. The fade is launchFadeOutDuration in
+    // capacitor.config.json, which is the one that applies.
+    await SplashScreen.hide();
+  } catch (error) {
+    // A splash that will not hide would be a permanent screen with no way past
+    // it, so this failure is worth a line in the log and nothing more.
+    console.error('splash screen would not hide', error);
+  }
+};
+
 export const start = async () => {
   if (!isNative()) return;
 

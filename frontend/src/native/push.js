@@ -12,6 +12,22 @@
  * is for, it is refused -- and a refusal is close to permanent, because the
  * only way back is the OS settings screen. Asked after they have signed in to
  * their own boutique, the request has a reason behind it.
+ *
+ * NOTHING here runs unless the build was made with a Firebase configuration.
+ * That is not caution, it is the difference between an app that works and one
+ * that dies: PushNotifications.register() calls FirebaseMessaging.getInstance(),
+ * which throws IllegalStateException when no google-services.json was present at
+ * build time -- and Capacitor's bridge rethrows a plugin exception as a
+ * RuntimeException on its own thread (Bridge.java:856), where nothing can catch
+ * it. The process is killed. A try/catch in JavaScript cannot save this, because
+ * the throw never reaches JavaScript.
+ *
+ * Observed exactly that way: sign in, the app closes; sign in again, it closes
+ * faster, because a restored session calls this immediately.
+ *
+ * So the gate is a build-time fact rather than a runtime hope. build-android.mjs
+ * sets VITE_PUSH_ENABLED only when android/app/google-services.json exists, and
+ * the day that file is added the next build turns push on with no code change.
  */
 
 import { api } from '../services/api';
@@ -23,9 +39,27 @@ let registeredToken = null;
  * Start push for the signed-in user. Called after login and on app start when
  * a session is restored.
  */
+export const pushIsConfigured = () => import.meta.env?.VITE_PUSH_ENABLED === 'true';
+
 export const enablePush = async () => {
   if (!isNative()) return { enabled: false, reason: 'not a device' };
+  if (!pushIsConfigured()) {
+    // See the note above: calling register() here would kill the process.
+    console.info('push: no Firebase configuration in this build; skipping');
+    return { enabled: false, reason: 'firebase not configured' };
+  }
 
+  try {
+    return await start();
+  } catch (error) {
+    // Anything the bridge DOES hand back as a rejection -- a plugin missing, a
+    // permission call refused by the OS -- must not take the sign-in with it.
+    console.error('push could not be enabled', error);
+    return { enabled: false, reason: 'push failed to start' };
+  }
+};
+
+const start = async () => {
   const { PushNotifications } = await import('@capacitor/push-notifications');
 
   let status = await PushNotifications.checkPermissions();
