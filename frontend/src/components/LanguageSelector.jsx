@@ -36,17 +36,17 @@ export const LanguageSelector = () => {
           paddingRight: '4px',
         }}
       >
-        <option value="en">English (EN)</option>
-        <option value="hi">हिंदी (HI)</option>
-        <option value="te">తెలుగు (TE)</option>
-        <option value="mr">मराठी (MR)</option>
-        <option value="ar">العربية (AR)</option>
-        <option value="gu">ગુજરાતી (GU)</option>
-        <option value="ml">മലയാളം (ML)</option>
-        <option value="ta">தமிழ் (TA)</option>
-        <option value="kn">ಕನ್ನಡ (KN)</option>
-        <option value="es">Español (ES)</option>
-        <option value="de">German / Deutsch (DE)</option>
+        <option value="en">English (ENGLISH)</option>
+        <option value="hi">हिंदी (HINDI)</option>
+        <option value="te">తెలుగు (TELUGU)</option>
+        <option value="mr">मराठी (MARATHI)</option>
+        <option value="ar">العربية (ARABIC)</option>
+        <option value="gu">ગુજરાતી (GUJARATI)</option>
+        <option value="ml">മലയാളം (MALAYALAM)</option>
+        <option value="ta">தமிழ் (TAMIL)</option>
+        <option value="kn">ಕನ್ನಡ (KANNADA)</option>
+        <option value="es">Español (SPANISH)</option>
+        <option value="de">German / Deutsch (GERMAN)</option>
       </select>
     </div>
   );
