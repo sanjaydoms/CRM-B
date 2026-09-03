@@ -2022,6 +2022,76 @@ table.data-table tbody tr:hover {
   gap: 4px;
   padding: 0 16px;
   flex: 1;
+
+  /* The nav SCROLLS; the sidebar around it does not.
+     .portal-sidebar is height: 100vh, so anything taller than the viewport had
+     nowhere to go: the last items simply fell off the bottom of the screen with
+     no way to reach them. Adding the section headings made it visible on short
+     screens, but the list was one entry away from the same fate without them.
+
+     min-height: 0 is the half that actually does the work. A flex item defaults
+     to min-height: auto, which refuses to shrink below its content -- so
+     overflow-y alone changes nothing, the item just grows and pushes past the
+     container. Zeroing the floor is what lets it shrink and therefore scroll.
+
+     overscroll-behavior stops a flick at the end of the nav from scrolling the
+     page behind it, which on a phone reads as the drawer jumping. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* A scrollbar that admits it is there without shouting. The default on Windows
+   and Linux is a wide grey trough that makes a quiet sidebar look unfinished;
+   macOS overlays hide it entirely. This is the same thumb in both. */
+.portal-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.portal-menu::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.14);
+  border-radius: 3px;
+}
+
+.portal-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.portal-menu {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+}
+
+/* A quiet label over each run of related items. The sidebar had grown to
+   eleven entries in one flat list, with fabrics sitting apart from inventory
+   and the roster apart from the employment screen that extends it -- so
+   finding anything meant reading all eleven. Grouping is what makes the list
+   scannable; the label is deliberately faint because it is a signpost, not a
+   destination, and must never compete with the item under it. */
+.portal-menu-group {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  opacity: 0.55;
+  padding: 14px 16px 4px;
+  user-select: none;
+}
+
+/* The first group needs no gap above it -- the sidebar header already
+   provides one, and a second would read as a missing item. */
+.portal-menu-group:first-child {
+  padding-top: 2px;
+}
+
+/* Account and Logout are not part of any group, so they get a hairline
+   instead of a heading: they are the way OUT of the workspace, not another
+   room in it. */
+.portal-menu-divider {
+  height: 1px;
+  background: var(--border-color, #ece8e1);
+  margin: 12px 16px 4px;
 }
 
 .portal-menu-item {

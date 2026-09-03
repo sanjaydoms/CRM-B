@@ -41,9 +41,24 @@ class ResolveUserRoleTests(TenantTestCase):
         Designer.objects.create(name="Priya", user=user)
         self.assertEqual(resolve_user_role(user), DESIGNER)
 
-    def test_no_profile_at_all_falls_back_to_owner(self):
-        user = User.objects.create_user(username="plain@roles.test", password="x")
+    def test_the_owner_is_recognised_by_the_tenants_own_owner_email(self):
+        """The genuine case: the account signup created, with no staff row.
+
+        Signup writes one address onto both the tenant and the owner's User, so
+        matching them is a positive test for ownership rather than a guess.
+        """
+        user = User.objects.create_user(
+            username="owner@roles.test", email="owner@roles.test", password="x")
         self.assertEqual(resolve_user_role(user), OWNER)
+
+    def test_an_account_nothing_claims_is_not_the_owner(self):
+        """Phase 8. A missing profile is not proof of ownership.
+
+        This used to answer OWNER, and the state was reachable: deleting a
+        roster row detached its User, so dismissing somebody promoted them.
+        """
+        user = User.objects.create_user(username="plain@roles.test", password="x")
+        self.assertIsNone(resolve_user_role(user))
 
     def test_a_tailor_profile_wins_over_a_designer_profile(self):
         user = User.objects.create_user(username="both@roles.test", password="x")
@@ -77,7 +92,14 @@ class ApiRoleBoundaryTests(TenantTestCase):
         connection.set_tenant(self.tenant)
 
         def account(username, tailor=None):
-            user = User.objects.create_user(username=username, password='pw12345678')
+            # `email` as well as `username`: core.roles identifies the boutique
+            # owner by comparing User.email to the tenant's owner_email, and
+            # before Phase 8 an account with neither a profile nor a matching
+            # address was handed OWNER anyway. `owner@perm.test` below IS this
+            # tenant's owner_email, so setting the field is what makes the
+            # fixture describe the person it claims to.
+            user = User.objects.create_user(
+                username=username, email=username, password='pw12345678')
             if tailor is not None:
                 tailor.user = user
                 tailor.save()

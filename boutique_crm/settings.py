@@ -87,6 +87,8 @@ TENANT_APPS = [
     'apps.design_studio',
     'apps.inventory',
     'apps.catalog',
+    'apps.staff',
+    'apps.payroll',
 ]
 
 INSTALLED_APPS = list(set(SHARED_APPS + TENANT_APPS))

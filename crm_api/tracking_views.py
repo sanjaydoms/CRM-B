@@ -7,6 +7,7 @@ from django.shortcuts import render
 from django.views.decorators.http import require_GET
 from django_tenants.utils import get_public_schema_name, get_tenant_model, schema_context
 
+from core.modules import is_enabled
 from crm_api.models import BoutiqueSettings, Order
 from domains.orders.garments import garment_names
 from domains.orders.tracking import read_token
@@ -28,6 +29,24 @@ def order_tracking(request, token):
 
     tenant = get_tenant_model().objects.filter(schema_name=schema_name).first()
     if tenant is None:
+        raise Http404
+
+    # The two gates TenantHeaderMiddleware applies to every other request.
+    #
+    # This view resolves its own tenant from the signed token and enters the
+    # schema itself, so the middleware's control check never ran for it: a
+    # boutique suspended by the platform console, or one whose order_tracking
+    # module had been switched off, went on serving customer-facing order pages
+    # -- name, garments, stage history and payment status -- to anyone holding
+    # a previously issued link. Opting out of the authenticated stack was
+    # deliberate; opting out of the boutique's own on/off switches was not.
+    #
+    # Read from the registry row fetched above rather than re-implemented:
+    # is_enabled is the same helper the middleware calls, so the two cannot
+    # drift about what "absent means enabled" means.
+    if not tenant.is_active:
+        raise Http404
+    if not is_enabled(getattr(tenant, 'enabled_modules', None), 'order_tracking'):
         raise Http404
 
     with schema_context(schema_name):
