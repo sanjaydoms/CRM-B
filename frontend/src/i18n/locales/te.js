@@ -19,6 +19,11 @@ const te = {
     inboxAlerts: "ఇన్‌బాక్స్ అలర్ట్‌లు",
     retry: "మళ్ళీ ప్రయత్నించండి",
     subtitle: "ఉపశీర్షిక",
+    refresh: "రిఫ్రెష్",
+    takePhoto: "ఫోటో తీయండి",
+    chooseFromGallery: "గ్యాలరీ నుండి ఎంచుకోండి",
+    remove: "తొలగించు",
+    uploading: "అప్‌లోడ్ అవుతోంది…",
   },
   nav: {
     dashboard: "డాష్‌బోర్డ్",
@@ -37,6 +42,17 @@ const te = {
     account: "నా ఖాతా",
     settings: "సెట్టింగ్‌లు",
     logout: "లాగౌట్",
+    staffManagement: "సిబ్బంది నిర్వహణ",
+    myAttendance: "నా హాజరు",
+    groups: {
+      daily: "రోజువారీ",
+      design: "డిజైన్",
+      stock: "స్టాక్",
+      people: "వ్యక్తులు",
+      business: "వ్యాపారం",
+    },
+    orders: "ఆర్డర్లు",
+    menu: "మెనూ",
   },
   settingsPage: {
     title: "సెట్టింగ్‌లు & ప్రాధాన్యతలు",
@@ -261,6 +277,10 @@ const te = {
     imageUrlOptional: "ఇమేజ్ URL (ఐచ్ఛికం)",
     availableInInventory: "ఇన్వెంటరీలో అందుబాటులో ఉంది",
     saveFabric: "ఫ్యాబ్రిక్ సేవ్ చేయండి",
+    colorCode: "రంగు కోడ్",
+    colorWheel: "రంగు చక్రం",
+    colorCodeHint: "చక్రం నుండి ఎంచుకోండి లేదా కోడ్ టైప్ చేయండి",
+    fabricPhotos: "ఫ్యాబ్రిక్ ఫోటోలు",
   },
   tailorsPage: {
     title: "టైలరింగ్ సిబ్బంది నిర్వహణ",
@@ -635,7 +655,11 @@ const te = {
     selectExistingCustomerModalTitle: "పాత కస్టమర్‌ను ఎంచుకోండి",
     searchCustomerPlaceholder: "కస్టమర్ పేరు లేదా మొబైల్ సంఖ్య ద్వారా వెతకండి...",
     noCustomersFoundMatching: "సరిపోలే కస్టమర్లు ఏవీ కనుగొనబడలేదు",
-  }
+  },
+  confirmed: {
+    title: "{name} కోసం ఆర్డర్ సృష్టించబడింది 🎉",
+    subtitle: "ఇది ఇప్పుడు వర్క్‌రూమ్‌లో ఉంది, {name} ప్రొఫైల్‌లో నమోదైంది.",
+  },
 };
 
 export default te;

@@ -1,3 +1,4 @@
+import re
 import hashlib
 
 from rest_framework import serializers
@@ -48,6 +49,21 @@ class BoutiqueFabricSerializer(serializers.ModelSerializer):
     class Meta:
         model = BoutiqueFabric
         fields = '__all__'
+
+    def validate_color_hex(self, value):
+        if value and not re.fullmatch(r'#[0-9a-fA-F]{6}', value):
+            raise serializers.ValidationError(
+                "Colour code must look like #1a2b3c.")
+        return value.lower()
+
+    def validate(self, data):
+        # The grid and every fabric card read image_url; the gallery is the
+        # rest of the shoot. Keeping the first in both means neither view has
+        # to know the other exists.
+        urls = data.get('image_urls')
+        if urls and not data.get('image_url'):
+            data['image_url'] = urls[0]
+        return data
 
 class BoutiqueDesignSerializer(serializers.ModelSerializer):
 

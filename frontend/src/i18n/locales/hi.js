@@ -17,6 +17,11 @@ const hi = {
     date: "दिनांक",
     inboxAlerts: "इनबॉक्स अलर्ट",
     retry: "पुनः प्रयास करें",
+    refresh: "रीफ़्रेश",
+    takePhoto: "फ़ोटो लें",
+    chooseFromGallery: "गैलरी से चुनें",
+    remove: "हटाएं",
+    uploading: "अपलोड हो रहा है…",
   },
   nav: {
     dashboard: "डैशबोर्ड",
@@ -35,6 +40,17 @@ const hi = {
     account: "मेरा खाता",
     settings: "सेटिंग्स",
     logout: "लॉगआउट",
+    staffManagement: "स्टाफ प्रबंधन",
+    myAttendance: "मेरी उपस्थिति",
+    groups: {
+      daily: "दैनिक",
+      design: "डिज़ाइन",
+      stock: "स्टॉक",
+      people: "लोग",
+      business: "व्यवसाय",
+    },
+    orders: "ऑर्डर",
+    menu: "मेन्यू",
   },
   settingsPage: {
     title: "सेटिंग्स और प्राथमिकताएं",
@@ -259,6 +275,10 @@ const hi = {
     imageUrlOptional: "इमेज URL (वैकल्पिक)",
     availableInInventory: "इन्वेंटरी में उपलब्ध",
     saveFabric: "फैब्रिक सहेजें",
+    colorCode: "रंग कोड",
+    colorWheel: "रंग चक्र",
+    colorCodeHint: "चक्र से चुनें या कोड लिखें",
+    fabricPhotos: "फैब्रिक फ़ोटो",
   },
   tailorsPage: {
     title: "दर्जी कर्मचारियों को प्रबंधित करें",
@@ -634,7 +654,11 @@ const hi = {
     selectExistingCustomerModalTitle: "मौजूदा ग्राहक चुनें",
     searchCustomerPlaceholder: "ग्राहक का नाम या मोबाइल नंबर खोजें...",
     noCustomersFoundMatching: "इसके मिलान का कोई ग्राहक नहीं मिला",
-  }
+  },
+  confirmed: {
+    title: "{name} के लिए ऑर्डर बनाया गया 🎉",
+    subtitle: "यह अब वर्करूम के पास है और {name} की प्रोफ़ाइल पर दर्ज है।",
+  },
  };
 
 export default hi;

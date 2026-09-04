@@ -22,6 +22,11 @@ const gu = {
     inboxAlerts: "ઇનબોક્સ ચેતવણીઓ",
     retry: "ફરી પ્રયાસ કરો",
     subtitle: "ઉપશીર્ષક",
+    refresh: "રિફ્રેશ",
+    takePhoto: "ફોટો લો",
+    chooseFromGallery: "ગેલેરીમાંથી પસંદ કરો",
+    remove: "દૂર કરો",
+    uploading: "અપલોડ થઈ રહ્યું છે…",
   },
   nav: {
     dashboard: "ડેશબોર્ડ",
@@ -40,6 +45,17 @@ const gu = {
     account: "મારું ખાતું",
     settings: "સેટિંગ્સ",
     logout: "લૉગ આઉટ",
+    staffManagement: "સ્ટાફ સંચાલન",
+    myAttendance: "મારી હાજરી",
+    groups: {
+      daily: "દૈનિક",
+      design: "ડિઝાઇન",
+      stock: "સ્ટોક",
+      people: "લોકો",
+      business: "વ્યવસાય",
+    },
+    orders: "ઓર્ડર",
+    menu: "મેનુ",
   },
   settingsPage: {
     title: "સેટિંગ્સ અને પસંદગીઓ",
@@ -264,6 +280,10 @@ const gu = {
     imageUrlOptional: "ઇમેજ URL (વૈકલ્પિક)",
     availableInInventory: "ઇન્વેન્ટરીમાં ઉપલબ્ધ",
     saveFabric: "કાપડ સાચવો",
+    colorCode: "રંગ કોડ",
+    colorWheel: "રંગ ચક્ર",
+    colorCodeHint: "ચક્રમાંથી પસંદ કરો અથવા કોડ ટાઇપ કરો",
+    fabricPhotos: "ફેબ્રિક ફોટા",
   },
   tailorsPage: {
     title: "દરજી સ્ટાફ સંચાલન",
@@ -638,7 +658,11 @@ const gu = {
     selectExistingCustomerModalTitle: "હાલના ગ્રાહક પસંદ કરો",
     searchCustomerPlaceholder: "નામ અથવા મોબાઇલ નંબરથી શોધો...",
     noCustomersFoundMatching: "મેળ ખાતા ગ્રાહકો મળ્યા નથી",
-  }
+  },
+  confirmed: {
+    title: "{name} માટે ઓર્ડર બનાવાયો 🎉",
+    subtitle: "તે હવે વર્કરૂમ પાસે છે અને {name} ની પ્રોફાઇલ પર નોંધાયેલ છે.",
+  },
 };
 
 export default gu;

@@ -26,6 +26,11 @@ const es = {
     inboxAlerts: "Alertas de entrada",
     retry: "Reintentar",
     subtitle: "Subtítulo",
+    refresh: "Actualizar",
+    takePhoto: "Tomar foto",
+    chooseFromGallery: "Elegir de la galería",
+    remove: "Quitar",
+    uploading: "Subiendo…",
   },
   nav: {
     dashboard: "Panel de control",
@@ -44,6 +49,17 @@ const es = {
     account: "Mi cuenta",
     settings: "Configuración",
     logout: "Cerrar sesión",
+    staffManagement: "Gestión de personal",
+    myAttendance: "Mi asistencia",
+    groups: {
+      daily: "Diario",
+      design: "Diseño",
+      stock: "Inventario",
+      people: "Personas",
+      business: "Negocio",
+    },
+    orders: "Pedidos",
+    menu: "Menú",
   },
   settingsPage: {
     title: "Configuración y preferencias",
@@ -268,6 +284,10 @@ const es = {
     imageUrlOptional: "URL de la imagen (opcional)",
     availableInInventory: "Disponible en inventario",
     saveFabric: "Guardar tela",
+    colorCode: "Código de color",
+    colorWheel: "Rueda de color",
+    colorCodeHint: "Elige en la rueda o escribe el código",
+    fabricPhotos: "Fotos de la tela",
   },
   tailorsPage: {
     title: "Gestión del personal de sastrería",
@@ -642,7 +662,11 @@ const es = {
     selectExistingCustomerModalTitle: "Seleccionar cliente existente",
     searchCustomerPlaceholder: "Buscar por nombre o número de móvil...",
     noCustomersFoundMatching: "No se encontraron clientes coincidentes",
-  }
+  },
+  confirmed: {
+    title: "Pedido creado para {name} 🎉",
+    subtitle: "Ya está en el taller y queda registrado en el perfil de {name}.",
+  },
 };
 
 export default es;

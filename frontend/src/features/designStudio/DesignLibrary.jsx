@@ -343,7 +343,10 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
     setLoading(true);
     const query = isPendingQueue
       ? { ...filters, status: 'PENDING', template: undefined }
-      : { ...filters, template: openCategory.key || undefined };
+      // The Uncategorised bucket carries an empty key. Sending no filter
+      // at all listed the entire library under it; 'none' lists what it
+      // says on the tile.
+      : { ...filters, template: openCategory.key || 'none' };
     api.getDesignLibrary(query)
       .then((rows) => { if (!cancelled) { setDesigns(rows); setError(null); } })
       .catch((err) => { if (!cancelled) setError(err.message); })

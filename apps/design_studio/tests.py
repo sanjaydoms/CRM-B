@@ -626,6 +626,20 @@ class DesignLibraryTests(StudioTestCase):
         response = self.client.get('/api/design-studio/assets/?template=lehenga')
         self.assertEqual([d['title'] for d in response.data], ["skirt"])
 
+    def test_designs_with_no_garment_are_reachable(self):
+        """The order flow's design step has to be able to ask for them."""
+        self._asset("skirt", template=self.lehenga)
+        self._asset("loose sketch")          # uploaded with the garment unset
+
+        untagged = [d['title'] for d in
+                    self.client.get('/api/design-studio/assets/?template=none').data]
+        self.assertIn("loose sketch", untagged)
+        self.assertNotIn("skirt", untagged)
+
+        # And asking for a garment still means that garment alone.
+        tagged = self.client.get('/api/design-studio/assets/?template=lehenga')
+        self.assertEqual([d['title'] for d in tagged.data], ["skirt"])
+
     def test_tag_filters_use_the_order_forms_vocabulary(self):
         self._asset("elbow one", spec_tags={'sleeve_length': 'elbow'})
         self._asset("full one", spec_tags={'sleeve_length': 'full'})

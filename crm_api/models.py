@@ -201,8 +201,15 @@ class BoutiqueFabric(models.Model):
     name = models.CharField(max_length=100)
     material = models.CharField(max_length=100)
     color = models.CharField(max_length=50)
+    # The name a boutique gives a colour ("Aqua Blue") is not the colour. Two
+    # rolls called that are rarely the same blue, and a tailor matching thread
+    # months later has only the word. The swatch carries the exact shade.
+    color_hex = models.CharField(max_length=7, blank=True, default='')
     price_per_meter = models.DecimalField(max_digits=10, decimal_places=2)
     image_url = models.CharField(max_length=255, blank=True, null=True)
+    # image_url stays the one every existing card and grid reads. The rest of
+    # the shoot lives here, first entry mirrored into image_url on save.
+    image_urls = models.JSONField(default=list, blank=True)
     is_available = models.BooleanField(default=True)
 
     def __str__(self):

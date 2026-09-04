@@ -27,6 +27,11 @@ const de = {
     inboxAlerts: "Posteingangs-Benachrichtigungen",
     retry: "Wiederholen",
     subtitle: "Untertitel",
+    refresh: "Aktualisieren",
+    takePhoto: "Foto aufnehmen",
+    chooseFromGallery: "Aus Galerie wählen",
+    remove: "Entfernen",
+    uploading: "Wird hochgeladen…",
   },
   nav: {
     dashboard: "Dashboard",
@@ -45,6 +50,17 @@ const de = {
     account: "Mein Konto",
     settings: "Einstellungen",
     logout: "Abmelden",
+    staffManagement: "Personalverwaltung",
+    myAttendance: "Meine Anwesenheit",
+    groups: {
+      daily: "Täglich",
+      design: "Design",
+      stock: "Bestand",
+      people: "Personen",
+      business: "Geschäft",
+    },
+    orders: "Bestellungen",
+    menu: "Menü",
   },
   settingsPage: {
     title: "Einstellungen & Präferenzen",
@@ -269,6 +285,10 @@ const de = {
     imageUrlOptional: "Bild-URL (optional)",
     availableInInventory: "Im Inventar verfügbar",
     saveFabric: "Stoff speichern",
+    colorCode: "Farbcode",
+    colorWheel: "Farbrad",
+    colorCodeHint: "Im Farbrad wählen oder Code eingeben",
+    fabricPhotos: "Stoff-Fotos",
   },
   tailorsPage: {
     title: "Schneiderpersonal-Verwaltung",
@@ -643,7 +663,11 @@ const de = {
     selectExistingCustomerModalTitle: "Bestehenden Kunden auswählen",
     searchCustomerPlaceholder: "Nach Name oder Handynummer suchen...",
     noCustomersFoundMatching: "Keine passenden Kunden gefunden",
-  }
+  },
+  confirmed: {
+    title: "Bestellung für {name} angelegt 🎉",
+    subtitle: "Sie liegt jetzt in der Werkstatt und ist im Profil von {name} vermerkt.",
+  },
 };
 
 export default de;

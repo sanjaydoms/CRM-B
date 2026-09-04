@@ -25,6 +25,11 @@ const kn = {
     inboxAlerts: "ಇನ್‌ಬಾಕ್ಸ್ ಸೂಚನೆಗಳು",
     retry: "ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ",
     subtitle: "ಉಪಶೀರ್ಷಿಕೆ",
+    refresh: "ರಿಫ್ರೆಶ್",
+    takePhoto: "ಫೋಟೋ ತೆಗೆಯಿರಿ",
+    chooseFromGallery: "ಗ್ಯಾಲರಿಯಿಂದ ಆಯ್ಕೆಮಾಡಿ",
+    remove: "ತೆಗೆದುಹಾಕಿ",
+    uploading: "ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…",
   },
   nav: {
     dashboard: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್",
@@ -43,6 +48,17 @@ const kn = {
     account: "ನನ್ನ ಖಾತೆ",
     settings: "ಸೆಟ್ಟಿಂಗ್‌ಗಳು",
     logout: "ಲಾಗಿನ್‌ನಿಂದ ಹೊರಬನ್ನಿ",
+    staffManagement: "ಸಿಬ್ಬಂದಿ ನಿರ್ವಹಣೆ",
+    myAttendance: "ನನ್ನ ಹಾಜರಾತಿ",
+    groups: {
+      daily: "ದೈನಂದಿನ",
+      design: "ವಿನ್ಯಾಸ",
+      stock: "ಸ್ಟಾಕ್",
+      people: "ಜನರು",
+      business: "ವ್ಯವಹಾರ",
+    },
+    orders: "ಆರ್ಡರ್‌ಗಳು",
+    menu: "ಮೆನು",
   },
   settingsPage: {
     title: "ಸೆಟ್ಟಿಂಗ್‌ಗಳು ಮತ್ತು ಆದ್ಯತೆಗಳು",
@@ -267,6 +283,10 @@ const kn = {
     imageUrlOptional: "ಚಿತ್ರದ URL (ಐಚ್ಛಿಕ)",
     availableInInventory: "ದಾಸ್ತಾನಿನಲ್ಲಿ ಲಭ್ಯವಿದೆ",
     saveFabric: "ಬಟ್ಟೆಯನ್ನು ಉಳಿಸಿ",
+    colorCode: "ಬಣ್ಣದ ಕೋಡ್",
+    colorWheel: "ಬಣ್ಣದ ಚಕ್ರ",
+    colorCodeHint: "ಚಕ್ರದಿಂದ ಆಯ್ಕೆಮಾಡಿ ಅಥವಾ ಕೋಡ್ ಟೈಪ್ ಮಾಡಿ",
+    fabricPhotos: "ಬಟ್ಟೆ ಫೋಟೋಗಳು",
   },
   tailorsPage: {
     title: "ದರ್ಜಿ ಸಿಬ್ಬಂದಿ ನಿರ್ವಹಣೆ",
@@ -641,7 +661,11 @@ const kn = {
     selectExistingCustomerModalTitle: "ಹಾಲಿ ಗ್ರಾಹಕರನ್ನು ಆಯ್ಕೆಮಾಡಿ",
     searchCustomerPlaceholder: "ಹೆಸರು ಅಥವಾ ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯ ಮೂಲಕ ಹುಡುಕಿ...",
     noCustomersFoundMatching: "ಹೊಂದುವ ಗ್ರಾಹಕರು ಕಂಡುಬಂದಿಲ್ಲ",
-  }
+  },
+  confirmed: {
+    title: "{name} ಗಾಗಿ ಆರ್ಡರ್ ರಚಿಸಲಾಗಿದೆ 🎉",
+    subtitle: "ಇದು ಈಗ ಕಾರ್ಯಶಾಲೆಯಲ್ಲಿದೆ ಮತ್ತು {name} ಅವರ ಪ್ರೊಫೈಲ್‌ನಲ್ಲಿ ದಾಖಲಾಗಿದೆ.",
+  },
 };
 
 export default kn;

@@ -20,6 +20,11 @@ const ar = {
     date: "التاريخ",
     inboxAlerts: "تنبيهات البريد",
     retry: "إعادة المحاولة",
+    refresh: "تحديث",
+    takePhoto: "التقاط صورة",
+    chooseFromGallery: "اختر من المعرض",
+    remove: "إزالة",
+    uploading: "جارٍ الرفع…",
   },
   nav: {
     dashboard: "لوحة التحكم",
@@ -38,6 +43,17 @@ const ar = {
     account: "حسابي",
     settings: "الإعدادات",
     logout: "تسجيل الخروج",
+    staffManagement: "إدارة الموظفين",
+    myAttendance: "حضوري",
+    groups: {
+      daily: "يومي",
+      design: "التصميم",
+      stock: "المخزون",
+      people: "الأشخاص",
+      business: "الأعمال",
+    },
+    orders: "الطلبات",
+    menu: "القائمة",
   },
   settingsPage: {
     title: "الإعدادات والتفضيلات",
@@ -262,6 +278,10 @@ const ar = {
     imageUrlOptional: "رابط الصورة (اختياري)",
     availableInInventory: "متوفر في المخزون",
     saveFabric: "حفظ القماش",
+    colorCode: "رمز اللون",
+    colorWheel: "عجلة الألوان",
+    colorCodeHint: "اختر من العجلة أو اكتب الرمز",
+    fabricPhotos: "صور القماش",
   },
   tailorsPage: {
     title: "إدارة طاقم الخياطة",
@@ -636,7 +656,11 @@ const ar = {
     selectExistingCustomerModalTitle: "اختيار عميل حالي",
     searchCustomerPlaceholder: "البحث بالاسم أو رقم المحمول...",
     noCustomersFoundMatching: "لم يتم العثور على عملاء مطابقتهم",
-  }
+  },
+  confirmed: {
+    title: "تم إنشاء الطلب لـ {name} 🎉",
+    subtitle: "الطلب الآن لدى الورشة، ومسجَّل في ملف {name}.",
+  },
 };
 
 export default ar;

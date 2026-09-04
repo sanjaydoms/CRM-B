@@ -23,6 +23,11 @@ const ml = {
     inboxAlerts: "ഇൻബോക്സ് മുന്നറിയിപ്പുകൾ",
     retry: "വീണ്ടും ശ്രമിക്കുക",
     subtitle: "ഉപശീർഷകം",
+    refresh: "പുതുക്കുക",
+    takePhoto: "ഫോട്ടോ എടുക്കുക",
+    chooseFromGallery: "ഗാലറിയിൽ നിന്ന് തിരഞ്ഞെടുക്കുക",
+    remove: "നീക്കം ചെയ്യുക",
+    uploading: "അപ്‌ലോഡ് ചെയ്യുന്നു…",
   },
   nav: {
     dashboard: "ഡാഷ്‌ബോർഡ്",
@@ -41,6 +46,17 @@ const ml = {
     account: "എന്റെ അക്കൗണ്ട്",
     settings: "സെറ്റിംഗ്സ്",
     logout: "ലോഗ് ഔട്ട്",
+    staffManagement: "സ്റ്റാഫ് മാനേജ്‌മെന്റ്",
+    myAttendance: "എന്റെ ഹാജർ",
+    groups: {
+      daily: "ദൈനംദിനം",
+      design: "ഡിസൈൻ",
+      stock: "സ്റ്റോക്ക്",
+      people: "ആളുകൾ",
+      business: "ബിസിനസ്",
+    },
+    orders: "ഓർഡറുകൾ",
+    menu: "മെനു",
   },
   settingsPage: {
     title: "സെറ്റിംഗ്സും മുൻഗണനകളും",
@@ -265,6 +281,10 @@ const ml = {
     imageUrlOptional: "ചിത്രത്തിന്റെ URL (ഓപ്ഷണൽ)",
     availableInInventory: "ഇൻവെന്ററിയിൽ ലഭ്യമാണ്",
     saveFabric: "തുണിത്തരം സേവ് ചെയ്യുക",
+    colorCode: "നിറ കോഡ്",
+    colorWheel: "കളർ വീൽ",
+    colorCodeHint: "വീലിൽ നിന്ന് തിരഞ്ഞെടുക്കുക അല്ലെങ്കിൽ കോഡ് ടൈപ്പ് ചെയ്യുക",
+    fabricPhotos: "ഫാബ്രിക് ഫോട്ടോകൾ",
   },
   tailorsPage: {
     title: "തയ്യൽ ജീവനക്കാരുടെ മാനേജ്‌മെന്റ്",
@@ -639,7 +659,11 @@ const ml = {
     selectExistingCustomerModalTitle: "നിലവിലുള്ള ഉപഭോക്താവിനെ തിരഞ്ഞെടുക്കുക",
     searchCustomerPlaceholder: "പേരോ മൊബൈൽ നമ്പറോ ഉപയോഗിച്ച് തിരയുക...",
     noCustomersFoundMatching: "ചേരുന്ന ഉപഭോക്താക്കളെ കണ്ടെത്തിയില്ല",
-  }
+  },
+  confirmed: {
+    title: "{name} എന്നയാൾക്കായി ഓർഡർ സൃഷ്ടിച്ചു 🎉",
+    subtitle: "ഇത് ഇപ്പോൾ വർക്ക്‌റൂമിലാണ്, {name} യുടെ പ്രൊഫൈലിൽ രേഖപ്പെടുത്തിയിട്ടുണ്ട്.",
+  },
 };
 
 export default ml;

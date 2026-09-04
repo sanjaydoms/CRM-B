@@ -611,6 +611,20 @@ export const api = {
   },
 
   // Fabrics CRUD
+  // Photos go up before the fabric exists, so this returns URLs the form then
+  // saves with the rest of the record.
+  async uploadFabricImages(files) {
+    const formData = new FormData();
+    files.forEach(file => formData.append('images', file));
+    const res = await fetch(`${BASE_URL}/fabrics/upload-images/`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: formData,
+    });
+    if (!res.ok) await failWith(res, 'Failed to upload fabric images');
+    return res.json();
+  },
+
   async createFabric(fabricData) {
     const res = await fetch(`${BASE_URL}/fabrics/`, {
       method: 'POST',

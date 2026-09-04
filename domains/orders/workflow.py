@@ -16,11 +16,23 @@ def _requires_measurements(order, stage):
         customer_has_measurements, order_needs_measurements)
     if customer_has_measurements(order.customer):
         return None
+
+    jobs = list(order.garment_jobs.all())
+    # A garment carrying its own measurement snapshot has been measured, even
+    # when the customer's own record is empty -- the numbers the tailor needs
+    # are on the job.
+    if any(job.measurements for job in jobs):
+        return None
     # Nothing on this order asks for a measurement -- a saree with no petticoat
     # is the ordinary case. The rule assumed every garment is fitted, so a
     # saree-only order could never satisfy it and could never reach a tailor.
     # An order that asks for no measurements has none outstanding.
-    if not order_needs_measurements(order):
+    #
+    # Only an order that HAS garments can be exempt on those grounds. With no
+    # garment jobs at all the loop found nothing to ask, returned False, and
+    # waved through an order about which nothing whatsoever is known -- no
+    # dress, no numbers, no customer record -- straight to a tailor.
+    if jobs and not order_needs_measurements(order):
         return None
     return 'Measurements are not completed for this customer.'
 

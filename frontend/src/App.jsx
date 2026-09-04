@@ -793,10 +793,17 @@ function App() {
     name: '',
     material: '',
     color: '',
+    color_hex: '#c8a97e',
     price_per_meter: '',
     image_url: '',
+    image_urls: [],
     is_available: true
   });
+  // Photos chosen in the modal but not yet uploaded: the fabric may not exist
+  // yet, so they travel with the save rather than ahead of it.
+  const [fabricPhotoFiles, setFabricPhotoFiles] = useState([]);
+  const [fabricPhotoPreviews, setFabricPhotoPreviews] = useState([]);
+  const [fabricPhotoBusy, setFabricPhotoBusy] = useState(false);
 
   // Tailors CRUD State
   const [showTailorModal, setShowTailorModal] = useState(false);
@@ -866,7 +873,7 @@ function App() {
     try {
       const template = await api.getGarmentTemplate(key);
       setGarmentJobs(prev => [...prev, {
-        key, template, values: {}, quantities: {},
+        key, template, values: {}, quantities: {}, sources: {}, brought: {},
         pricing: { base: GARMENT_PRICES[template.name] || 15000, fabric: 0,
                    embroidery: 0, customization: 0, tailoring: 0 },
       }]);
@@ -919,16 +926,76 @@ function App() {
     )));
   };
 
+  /** Where one material comes from: boutique stock, or the customer's own. */
+  const updateGarmentSource = (key, fieldKey, source) => {
+    setGarmentJobs(prev => prev.map(job => (
+      job.key === key
+        ? { ...job, sources: { ...(job.sources || {}), [fieldKey]: source } }
+        : job
+    )));
+  };
+
+  /** What the customer brought for one material -- its name and its unit. */
+  const updateGarmentBrought = (key, fieldKey, entry) => {
+    setGarmentJobs(prev => prev.map(job => (
+      job.key === key
+        ? { ...job, brought: { ...(job.brought || {}), [fieldKey]: entry } }
+        : job
+    )));
+  };
+
+  /** What the order's Material Source answer means for a line nobody has
+   *  spoken for yet. "Mixed" deliberately defaults to stock and waits to be
+   *  told, because mixed means the answer differs line by line. */
+  const defaultMaterialSource = (job) =>
+    (job.values?.material_source === 'customer' ? 'CUSTOMER' : 'STORE');
+
   /** The material fields on a template, with the item chosen for each.
    *
    *  Read off the template rather than off a hardcoded list, so a garment that
    *  gains a material field gains a material line with it. */
-  const garmentMaterialFields = (job) => (
-    (job.template?.sections || [])
+  const garmentMaterialFields = (job) => {
+    const fallback = defaultMaterialSource(job);
+    return (job.template?.sections || [])
       .flatMap(section => section.fields || [])
       .filter(field => field.field_type === 'inventory_ref')
-      .map(field => ({ field, itemId: job.values?.[field.key] }))
-      .filter(entry => entry.itemId)
+      .map(field => {
+        const source = job.sources?.[field.key] || fallback;
+        const brought = job.brought?.[field.key] || {};
+        return {
+          field,
+          source,
+          itemId: job.values?.[field.key],
+          name: (brought.name || '').trim(),
+          unit: brought.unit,
+        };
+      })
+      // A line counts once it names something: a roll off the rack, or the
+      // cloth the customer handed over. Nothing named, nothing to plan.
+      .filter(entry => (entry.source === 'CUSTOMER' ? entry.name : entry.itemId));
+  };
+
+  /** One material line, in the shape the API stores.
+   *
+   *  Customer material carries its own name and never an inventory item -- the
+   *  serializer rejects the combination, because their cloth is not stock and
+   *  must never be reserved or deducted from it.
+   */
+  const materialLine = (job) => ({ field, source, itemId, name, unit }) => (
+    source === 'CUSTOMER'
+      ? {
+        field_key: field.key,
+        free_text: name,
+        quantity: job.quantities?.[field.key],
+        unit,
+        source: 'CUSTOMER',
+      }
+      : {
+        field_key: field.key,
+        inventory_item: itemId,
+        quantity: job.quantities?.[field.key],
+        source: 'STORE',
+      }
   );
 
   /** Validate every dress on the order; returns true when all of them pass. */
@@ -952,6 +1019,20 @@ function App() {
           jobQuantityErrors[field.key] = 'Enter how much of this material this garment needs.';
         }
       });
+      // A quantity typed against a customer material nobody named would be
+      // dropped on the way out, silently. Say so instead.
+      const fallbackSource = defaultMaterialSource(job);
+      (job.template?.sections || [])
+        .flatMap(section => section.fields || [])
+        .filter(field => field.field_type === 'inventory_ref')
+        .forEach(field => {
+          const source = job.sources?.[field.key] || fallbackSource;
+          const name = (job.brought?.[field.key]?.name || '').trim();
+          const raw = job.quantities?.[field.key];
+          if (source === 'CUSTOMER' && !name && raw !== undefined && raw !== '') {
+            jobQuantityErrors[field.key] = 'Name what the customer brought for this.';
+          }
+        });
       if (Object.keys(jobQuantityErrors).length) quantityErrors[job.key] = jobQuantityErrors;
     });
     setGarmentErrors(errors);
@@ -995,12 +1076,9 @@ function App() {
       quantities: job.quantities || {},
       pricing: job.pricing || {},
       design: job.design || {},
-      materials: garmentMaterialFields(job).map(({ field, itemId }) => ({
-        field_key: field.key,
-        inventory_item: itemId,
-        quantity: job.quantities?.[field.key],
-        source: 'STORE',
-      })),
+      sources: job.sources || {},
+      brought: job.brought || {},
+      materials: garmentMaterialFields(job).map(materialLine(job)),
     })),
     design: {
       notes: designNotes, links: designLinks, source: designSource,
@@ -1042,6 +1120,8 @@ function App() {
           template,
           values: garment.values || {},
           quantities: garment.quantities || {},
+          sources: garment.sources || {},
+          brought: garment.brought || {},
           pricing: garment.pricing || {},
           design: garment.design || {},
         });
@@ -1112,45 +1192,6 @@ function App() {
       setDraftSaveState(err.isConflict ? 'conflict' : 'failed');
       if (!err.isConflict) console.error('Could not save the draft', err);
       throw err;
-    }
-  };
-
-  /** Persist one GarmentJob per dress once the order exists to hang them on.
-   *
-   *  Materials go with the job rather than after it. A material selection used
-   *  to survive only as a bare item id inside `spec`, which no part of the
-   *  inventory system reads -- so an order could name six materials, reach
-   *  Delivered, and leave stock untouched. As JobMaterial rows with a quantity
-   *  they become a material plan, and the plan is what reserves and consumes.
-   */
-  const saveGarmentJobs = async (orderId) => {
-    for (const job of garmentJobs) {
-      const { spec, measurements } = splitSpec(job.template, job.values);
-      const materials = garmentMaterialFields(job).map(({ field, itemId }) => ({
-        field_key: field.key,
-        inventory_item: itemId,
-        quantity: job.quantities?.[field.key],
-        // Always STORE: these lines exist only because an inventory item was
-        // picked off the boutique's own racks. A garment marked "customer
-        // provided fabric" is the common case where the client brings the cloth
-        // and the boutique still supplies the lining, hooks and thread -- those
-        // trims are boutique stock and must be deducted. The customer's own
-        // material is not a line here at all; it lives in CustomerMaterial,
-        // which is a separate ledger and never touches boutique stock.
-        source: 'STORE',
-      }));
-      try {
-        await api.createGarmentJob({
-          order: orderId,
-          template: job.template.id,
-          spec,
-          measurements,
-          materials,
-        });
-      } catch (err) {
-        console.error(`Could not save the ${job.template.name} on this order`, err);
-        throw err;
-      }
     }
   };
 
@@ -1428,11 +1469,37 @@ function App() {
   };
 
   // Catalog Management Handlers
+  // Photos picked in the modal, whether from the gallery or straight off the
+  // camera, land here. Same handler for both inputs -- a capture and a pick
+  // arrive as the same File.
+  const handleFabricPhotosChange = (e) => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = '';           // so the same shot can be re-picked
+    if (!picked.length) return;
+    const room = 10 - (fabricPhotoFiles.length + (fabricForm.image_urls?.length || 0));
+    const files = picked.slice(0, Math.max(room, 0));
+    if (!files.length) return;
+    setFabricPhotoFiles(prev => [...prev, ...files]);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => setFabricPhotoPreviews(prev => [...prev, reader.result]);
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleSaveFabric = async (e) => {
     e.preventDefault();
     try {
+      let imageUrls = [...(fabricForm.image_urls || [])];
+      if (fabricPhotoFiles.length) {
+        setFabricPhotoBusy(true);
+        const { image_urls: uploaded } = await api.uploadFabricImages(fabricPhotoFiles);
+        imageUrls = [...imageUrls, ...uploaded];
+      }
       const payload = {
         ...fabricForm,
+        image_urls: imageUrls,
+        image_url: fabricForm.image_url || imageUrls[0] || '',
         price_per_meter: parseFloat(fabricForm.price_per_meter) || 0.00
       };
       if (editingFabric) {
@@ -1446,10 +1513,14 @@ function App() {
       }
       setShowFabricModal(false);
       setEditingFabric(null);
-      setFabricForm({ name: '', material: '', color: '', price_per_meter: '', image_url: '', is_available: true });
+      setFabricForm({ name: '', material: '', color: '', color_hex: '#c8a97e', price_per_meter: '', image_url: '', image_urls: [], is_available: true });
+      setFabricPhotoFiles([]);
+      setFabricPhotoPreviews([]);
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save fabric: " + err.message);
+    } finally {
+      setFabricPhotoBusy(false);
     }
   };
 
@@ -2833,41 +2904,41 @@ function App() {
                       meant reading all eleven. The runs below follow a boutique's
                       own shape: the daily loop first, then what goes into the
                       work, then the people who do it, then the books. */}
-                  <div className="portal-menu-group">Daily</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Dashboard</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
+                  <div className="portal-menu-group">{t('nav.groups.daily', 'Daily')}</div>
+                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.dashboard')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
 
-                  <div className="portal-menu-group">Design</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Manage Designs</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
+                  <div className="portal-menu-group">{t('nav.groups.design', 'Design')}</div>
+                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.manageDesigns')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
 
-                  <div className="portal-menu-group">Stock</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> Manage Fabrics</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> Inventory</a>
+                  <div className="portal-menu-group">{t('nav.groups.stock', 'Stock')}</div>
+                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> {t('nav.manageFabrics')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> {t('nav.inventory')}</a>
 
                   {/* Manage Tailors is WHO works here; Staff Management is their
                       employment, time and pay. They were already neighbours and
                       stay that way -- the pairing is the point of the group. */}
-                  <div className="portal-menu-group">People</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> Manage Tailors</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> Staff Management</a>
+                  <div className="portal-menu-group">{t('nav.groups.people', 'People')}</div>
+                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.manageTailors')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> {t('nav.staffManagement')}</a>
 
-                  <div className="portal-menu-group">Business</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> Invoices</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> Analytics</a>
+                  <div className="portal-menu-group">{t('nav.groups.business', 'Business')}</div>
+                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> {t('nav.invoices')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> {t('nav.analytics')}</a>
                 </>
               ) : currentUser.role === 'Master' ? (
                 <>
-                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
                   {/* A Master supervises the floor, so they get the team roster.
                       The screen hides every management control for them and the
                       API strips colleagues' pay from the response -- see
                       StaffSelfOrOwner. */}
-                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> Staff Management</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> {t('nav.staffManagement')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
                 </>
               ) : currentUser.role === 'Designer' ? (
                 <>
@@ -2876,12 +2947,12 @@ function App() {
                 </>
               ) : (
                 <>
-                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
                   {/* Production staff record their own hours here. Labelled for
                       what it is to them -- the screen behind it opens on
                       Attendance and shows only their own record. Without this
                       entry a tailor has no way to check in at all. */}
-                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Clock size={16} /> My Attendance</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Clock size={16} /> {t('nav.myAttendance')}</a>
                 </>
               )}
               {/* A rule rather than a heading: these two are the way OUT of the
@@ -2889,8 +2960,9 @@ function App() {
                   tailor with two menu items gets the same separation as the
                   owner with eleven. */}
               <div className="portal-menu-divider" />
-              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> My Account</a>
-              <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> Logout</a>
+              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> {t('nav.account')}</a>
+              <a className={`portal-menu-item ${dashboardTab === 'settings' ? 'active' : ''}`} onClick={() => { setDashboardTab('settings'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Settings size={16} /> {t('nav.settings')}</a>
+              <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
             </nav>
 
 
@@ -3719,7 +3791,7 @@ function App() {
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button className="btn-primary" onClick={() => {
                       setEditingFabric(null);
-                      setFabricForm({ name: '', material: '', color: '', price_per_meter: '', image_url: '', is_available: true });
+                      setFabricForm({ name: '', material: '', color: '', color_hex: '#c8a97e', price_per_meter: '', image_url: '', image_urls: [], is_available: true });
                       setShowFabricModal(true);
                     }}>
                       <Plus size={16} />
@@ -3754,7 +3826,10 @@ function App() {
                             height: '80px',
                             borderRadius: '8px',
                             overflow: 'hidden',
-                            background: fabric.color ? fabric.color.toLowerCase() : '#ccc',
+                            // "Aqua Blue" is not a CSS colour, so this tile was
+                            // blank for every fabric named the way a boutique
+                            // names one. The swatch the owner picked is exact.
+                            background: fabric.color_hex || (fabric.color ? fabric.color.toLowerCase() : '#ccc'),
                             flexShrink: 0,
                             display: 'flex',
                             alignItems: 'center',
@@ -3772,7 +3847,12 @@ function App() {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <h4 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>{fabric.name}</h4>
                             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Material: {fabric.material}</span>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Color: {fabric.color}</span>
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {fabric.color_hex && (
+                                <i title={fabric.color_hex} style={{ width: '12px', height: '12px', borderRadius: '3px', background: fabric.color_hex, border: '1px solid var(--border-color)', flexShrink: 0 }} />
+                              )}
+                              Color: {fabric.color}
+                            </span>
                             <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--accent-text, #b07c40)', marginTop: '4px' }}>
                               {formatMoney(fabric.price_per_meter)}/mtr
                             </span>
@@ -3790,10 +3870,14 @@ function App() {
                                 name: fabric.name,
                                 material: fabric.material,
                                 color: fabric.color,
+                                color_hex: fabric.color_hex || '#c8a97e',
                                 price_per_meter: fabric.price_per_meter.toString(),
                                 image_url: fabric.image_url || '',
+                                image_urls: fabric.image_urls || [],
                                 is_available: fabric.is_available
                               });
+                              setFabricPhotoFiles([]);
+                              setFabricPhotoPreviews([]);
                               setShowFabricModal(true);
                             }}>
                               <Edit2 size={12} /> Edit
@@ -6213,6 +6297,40 @@ function App() {
                     </div>
                   </div>
 
+                  {/* The wheel is the browser's own -- <input type="color">
+                      opens the OS picker, wheel and eyedropper included, and
+                      the box beside it takes a code straight off a shade card.
+                      They are the same value, edited from either end. */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.colorCode', 'Colour Code')}</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <input
+                        type="color"
+                        aria-label={t('fabricsPage.colorWheel', 'Colour wheel')}
+                        value={/^#[0-9a-fA-F]{6}$/.test(fabricForm.color_hex) ? fabricForm.color_hex : '#c8a97e'}
+                        onChange={e => setFabricForm({...fabricForm, color_hex: e.target.value})}
+                        style={{ width: '52px', height: '38px', padding: '2px', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', flexShrink: 0 }}
+                      />
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="#c8a97e"
+                        maxLength={7}
+                        pattern="#[0-9a-fA-F]{6}"
+                        title="#1a2b3c"
+                        value={fabricForm.color_hex}
+                        onChange={e => {
+                          const v = e.target.value.trim();
+                          setFabricForm({...fabricForm, color_hex: v && !v.startsWith('#') ? `#${v}` : v});
+                        }}
+                        style={{ maxWidth: '150px', fontFamily: 'monospace', margin: 0 }}
+                      />
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {t('fabricsPage.colorCodeHint', 'Pick from the wheel or type the code')}
+                      </span>
+                    </div>
+                  </div>
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}</label>
                     <input 
@@ -6225,6 +6343,54 @@ function App() {
                       value={fabricForm.price_per_meter}
                       onChange={e => setFabricForm({...fabricForm, price_per_meter: e.target.value})}
                     />
+                  </div>
+
+                  {/* Two inputs, one list: capture="environment" opens the
+                      phone's rear camera, the other the gallery. A boutique
+                      photographing a roll on the shelf never types a URL. */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.fabricPhotos', 'Fabric Photos')}</label>
+
+                    {(fabricForm.image_urls?.length > 0 || fabricPhotoPreviews.length > 0) && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {(fabricForm.image_urls || []).map((src, i) => (
+                          <div key={`saved-${i}`} style={{ position: 'relative' }}>
+                            <img src={src} alt="" style={{ width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-color)' }} />
+                            <button
+                              type="button"
+                              onClick={() => setFabricForm({...fabricForm, image_urls: fabricForm.image_urls.filter((_, idx) => idx !== i)})}
+                              style={{ position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', borderRadius: '50%', border: 'none', background: '#111', color: '#fff', cursor: 'pointer', lineHeight: 1 }}
+                              aria-label={t('common.remove', 'Remove')}
+                            >×</button>
+                          </div>
+                        ))}
+                        {fabricPhotoPreviews.map((src, i) => (
+                          <div key={`new-${i}`} style={{ position: 'relative' }}>
+                            <img src={src} alt="" style={{ width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-color)' }} />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFabricPhotoPreviews(prev => prev.filter((_, idx) => idx !== i));
+                                setFabricPhotoFiles(prev => prev.filter((_, idx) => idx !== i));
+                              }}
+                              style={{ position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', borderRadius: '50%', border: 'none', background: '#111', color: '#fff', cursor: 'pointer', lineHeight: 1 }}
+                              aria-label={t('common.remove', 'Remove')}
+                            >×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <input type="file" id="fabric-photo-camera" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFabricPhotosChange} />
+                      <input type="file" id="fabric-photo-gallery" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFabricPhotosChange} />
+                      <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 10px' }} onClick={() => document.getElementById('fabric-photo-camera').click()}>
+                        📷 {t('common.takePhoto', 'Take photo')}
+                      </button>
+                      <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 10px' }} onClick={() => document.getElementById('fabric-photo-gallery').click()}>
+                        {t('common.chooseFromGallery', 'Choose from gallery')}
+                      </button>
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -6250,7 +6416,9 @@ function App() {
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
-                    <button type="submit" className="btn-primary">{t('fabricsPage.saveFabric', 'Save Fabric')}</button>
+                    <button type="submit" className="btn-primary" disabled={fabricPhotoBusy}>
+                      {fabricPhotoBusy ? t('common.uploading', 'Uploading…') : t('fabricsPage.saveFabric', 'Save Fabric')}
+                    </button>
                   </div>
                 </form>
               </div>
@@ -6629,20 +6797,20 @@ function App() {
           <BottomNavigation
             tabs={
               (!currentUser.role || currentUser.role === 'Owner') ? [
-                { key: 'overview', label: 'Dashboard', icon: Users },
-                { key: 'orders', label: 'Orders', icon: ShoppingBag },
-                { key: 'customers', label: 'Customers', icon: Users },
-                { key: 'inventory', label: 'Inventory', icon: Package },
-                { key: 'more', label: 'Menu', icon: Menu }
+                { key: 'overview', label: t('nav.dashboard'), icon: Users },
+                { key: 'orders', label: t('nav.orders', 'Orders'), icon: ShoppingBag },
+                { key: 'customers', label: t('nav.customers'), icon: Users },
+                { key: 'inventory', label: t('nav.inventory'), icon: Package },
+                { key: 'more', label: t('nav.menu', 'Menu'), icon: Menu }
               ] : currentUser.role === 'Master' ? [
-                { key: 'assignments', label: 'Assignments', icon: Scissors },
-                { key: 'orders', label: 'Orders', icon: ShoppingBag },
-                { key: 'customers', label: 'Customers', icon: Users },
-                { key: 'more', label: 'Menu', icon: Menu }
+                { key: 'assignments', label: t('nav.myAssignments'), icon: Scissors },
+                { key: 'orders', label: t('nav.orders', 'Orders'), icon: ShoppingBag },
+                { key: 'customers', label: t('nav.customers'), icon: Users },
+                { key: 'more', label: t('nav.menu', 'Menu'), icon: Menu }
               ] : [
-                { key: 'assignments', label: 'Assignments', icon: Scissors },
-                { key: 'account', label: 'Account', icon: User },
-                { key: 'more', label: 'Menu', icon: Menu }
+                { key: 'assignments', label: t('nav.myAssignments'), icon: Scissors },
+                { key: 'account', label: t('nav.account'), icon: User },
+                { key: 'more', label: t('nav.menu', 'Menu'), icon: Menu }
               ]
             }
             activeTab={dashboardTab}
@@ -7403,6 +7571,13 @@ function App() {
                             quantityErrors={garmentQuantityErrors[job.key] || {}}
                             onQuantityChange={(fieldKey, quantity) =>
                               updateGarmentQuantity(job.key, fieldKey, quantity)}
+                            sources={job.sources || {}}
+                            brought={job.brought || {}}
+                            defaultSource={defaultMaterialSource(job)}
+                            onSourceChange={(fieldKey, source) =>
+                              updateGarmentSource(job.key, fieldKey, source)}
+                            onBroughtChange={(fieldKey, entry) =>
+                              updateGarmentBrought(job.key, fieldKey, entry)}
                           />
                         </div>
                       );
@@ -7613,6 +7788,25 @@ function App() {
                           style={{ display: 'none' }} 
                           onChange={handleFabricFilesChange}
                         />
+                        {/* The roll is in the room and the phone is in the
+                            hand. stopPropagation so this click does not also
+                            reach the zone and open the gallery on top. */}
+                        <input
+                          type="file"
+                          id="fabric-picker-camera"
+                          accept="image/*"
+                          capture="environment"
+                          style={{ display: 'none' }}
+                          onChange={handleFabricFilesChange}
+                        />
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ fontSize: '12px', padding: '6px 10px', marginTop: '12px' }}
+                          onClick={(e) => { e.stopPropagation(); document.getElementById('fabric-picker-camera').click(); }}
+                        >
+                          📷 {t('common.takePhoto', 'Take photo')}
+                        </button>
                       </div>
 
                       {fabricPreviews.length > 0 && (
@@ -7986,12 +8180,12 @@ function App() {
                   <>
                     <div className="page-title-group">
                       <h1 className="page-title">Review & Complete Order</h1>
-                      <p className="page-subtitle">Almost there! Please review your selections and order details. Once confirmed, we'll hand it over to your tailor and keep you updated at every step.</p>
+                      <p className="page-subtitle">Review the selections and order details. Once confirmed, it goes to the tailor and the customer is kept updated at every step.</p>
                     </div>
 
                     <div className="accent-banner" style={{ margin: '4px 0 16px', backgroundColor: '#e2f5ec', borderColor: '#c3ebdb', color: '#107c41', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Check size={16} />
-                      <span>All set! You're ready to create your order.</span>
+                      <span>All set — ready to create this order.</span>
                     </div>
 
                     {/* Section 1: Order Summary */}
@@ -8289,12 +8483,12 @@ function App() {
                   <>
                     <div className="page-title-group">
                       <h1 className="page-title">Create Order & Continue</h1>
-                      <p className="page-subtitle">You're all set! Choose how you'd like to proceed with your payment. Pay now in full or pay partially and the remaining after design completion.</p>
+                      <p className="page-subtitle">Record how the customer is paying: in full now, or part now and the rest after the design is completed.</p>
                     </div>
 
                     <div className="accent-banner" style={{ margin: '4px 0 16px', backgroundColor: '#e2f5ec', borderColor: '#c3ebdb', color: '#107c41', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <ShieldCheck size={16} />
-                      <span>Your order is safe and secure with Scaleezy.</span>
+                      <span>Order and payment details are stored securely with Scaleezy.</span>
                     </div>
 
                     {/* Order Review Summary Row */}
@@ -8355,7 +8549,7 @@ function App() {
                     {/* Payment Options Section */}
                     <div className="content-card">
                       <h3 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '16px' }}>2. Payment Options</h3>
-                      <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Choose how you want to pay for your order.</p>
+                      <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Choose how the customer is paying for this order.</p>
 
                       <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                         {/* Option 1: Full Payment */}
@@ -8418,7 +8612,7 @@ function App() {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                             <div>
                               <span style={{ fontSize: '13px', fontWeight: 700 }}>Pay Partially Now</span>
-                              <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>Pay a part now to confirm your order. Pay the remaining after design is completed.</p>
+                              <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>Take part payment now to confirm the order. The rest is due after the design is completed.</p>
                             </div>
                             <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: '2px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {paymentOption === 'partial' && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0f291e' }}></div>}
@@ -8767,13 +8961,29 @@ function App() {
       )}
 
       {/* CONFIRMED VIEW */}
-      {view === 'confirmed' && confirmedOrder && (
+      {view === 'confirmed' && confirmedOrder && (() => {
+        // The order carries the name it was saved under; the form is the
+        // fallback for the moment before it is re-read.
+        const confirmedCustomerName = (
+          confirmedOrder.customer_name
+          || `${customerForm.first_name || ''} ${customerForm.last_name || ''}`.trim()
+          || 'the customer');
+        return (
         <div className="order-confirmed-container">
           <div className="success-badge-container">
             <div className="success-circle"><Check size={40} /></div>
-            <h1 className="success-title">Your Order is Confirmed! 🎉</h1>
+            {/* The owner or a master places this order at the counter, with
+                the customer standing in front of them or not there at all.
+                Addressed to "you", the screen thanked the boutique for its own
+                order and named the customer as the reader. It names the
+                customer as the customer instead. */}
+            <h1 className="success-title">
+              {t('confirmed.title', 'Order created for {name} 🎉', { name: confirmedCustomerName })}
+            </h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-              Thank you, {customerForm.first_name}! We've received your order and our team has started working on your custom creation.
+              {t('confirmed.subtitle',
+                 'It is with the workroom now, and sits on {name}\'s profile with everything recorded here.',
+                 { name: confirmedCustomerName })}
             </p>
             <div className="order-id-badge">
               <span>Order ID: <strong>{confirmedOrder.order_id}</strong></span>
@@ -8830,10 +9040,10 @@ function App() {
             <div className="timeline-tracker">
               <div className="timeline-line"></div>
               {[
-                { label: 'Stylist Review', desc: 'Your stylist is reviewing your order details.', active: true, completed: true },
-                { label: 'Design & Creation', desc: 'Artisans will cut and assemble your custom garment.', active: false, completed: false },
+                { label: 'Stylist Review', desc: 'A stylist is reviewing the order details.', active: true, completed: true },
+                { label: 'Design & Creation', desc: 'Artisans will cut and assemble the garment.', active: false, completed: false },
                 { label: 'Quality Check', desc: 'Multi-level measurement and stitching validation.', active: false, completed: false },
-                { label: 'Packed & Shipped', desc: 'Packed securely and dispatched to your door.', active: false, completed: false }
+                { label: 'Packed & Shipped', desc: 'Packed securely and handed over to the customer.', active: false, completed: false }
               ].map((node, i) => (
                 <div key={i} className={`timeline-node ${node.completed ? 'completed' : ''} ${node.active ? 'active' : ''}`}>
                   <div className="timeline-node-circle">
@@ -8870,7 +9080,8 @@ function App() {
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Footer Navigation Bar (Only in Wizard View) */}
       {view === 'wizard' && currentStep < 6 && (

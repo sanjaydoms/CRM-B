@@ -17,6 +17,11 @@ const en = {
     date: "Date",
     inboxAlerts: "Inbox Alerts",
     retry: "Retry",
+    refresh: "Refresh",
+    takePhoto: "Take photo",
+    chooseFromGallery: "Choose from gallery",
+    remove: "Remove",
+    uploading: "Uploading…",
   },
   nav: {
     dashboard: "Dashboard",
@@ -35,6 +40,17 @@ const en = {
     account: "My Account",
     settings: "Settings",
     logout: "Logout",
+    staffManagement: "Staff Management",
+    myAttendance: "My Attendance",
+    groups: {
+      daily: "Daily",
+      design: "Design",
+      stock: "Stock",
+      people: "People",
+      business: "Business",
+    },
+    orders: "Orders",
+    menu: "Menu",
   },
   settingsPage: {
     title: "Settings & Preferences",
@@ -259,6 +275,10 @@ const en = {
     imageUrlOptional: "Image URL (Optional)",
     availableInInventory: "Available in Inventory",
     saveFabric: "Save Fabric",
+    colorCode: "Colour Code",
+    colorWheel: "Colour wheel",
+    colorCodeHint: "Pick from the wheel or type the code",
+    fabricPhotos: "Fabric Photos",
   },
   tailorsPage: {
     title: "Manage Tailoring Staff",
@@ -634,7 +654,11 @@ const en = {
     selectExistingCustomerModalTitle: "Select Existing Customer",
     searchCustomerPlaceholder: "Search by customer name or mobile number...",
     noCustomersFoundMatching: "No customers found matching",
-  }
+  },
+  confirmed: {
+    title: "Order created for {name} 🎉",
+    subtitle: "It is with the workroom now, and sits on {name}'s profile with everything recorded here.",
+  },
 };
 
 export default en;

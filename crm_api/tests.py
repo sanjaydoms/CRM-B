@@ -1,3 +1,4 @@
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -680,6 +681,39 @@ class BoutiqueCRMTests(TenantTestCase):
         response = self.client.delete(detail_url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(BoutiqueFabric.objects.filter(id=fabric_id).exists())
+
+    def test_fabric_colour_and_photos(self):
+        """The swatch is validated, and the first photo becomes the card image."""
+        self.authenticate_client()
+        url = reverse('fabric-list')
+
+        bad = self.client.post(url, {
+            "name": "Bad Swatch", "material": "Silk", "color": "Red",
+            "color_hex": "aqua-blue", "price_per_meter": 900.00}, format='json')
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('color_hex', bad.data)
+
+        good = self.client.post(url, {
+            "name": "Chanderi Silk", "material": "Silk Blend", "color": "Aqua Blue",
+            "color_hex": "#1A2B3C", "price_per_meter": 1250.00,
+            "image_urls": ["https://example.test/a.jpg", "https://example.test/b.jpg"]},
+            format='json')
+        self.assertEqual(good.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(good.data['color_hex'], '#1a2b3c')
+        # Every existing grid reads image_url; it must not stay empty when the
+        # owner only ever photographed the roll.
+        self.assertEqual(good.data['image_url'], "https://example.test/a.jpg")
+        self.assertEqual(len(good.data['image_urls']), 2)
+
+        upload = reverse('fabric-upload-images')
+        junk = SimpleUploadedFile('notes.txt', b'not an image', content_type='text/plain')
+        self.assertEqual(self.client.post(upload, {'images': junk}, format='multipart').status_code,
+                         status.HTTP_400_BAD_REQUEST)
+
+        shot = SimpleUploadedFile('roll.png', b'\x89PNG\r\n\x1a\n fake', content_type='image/png')
+        stored = self.client.post(upload, {'images': shot}, format='multipart')
+        self.assertEqual(stored.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(stored.data['image_urls']), 1)
 
     def test_tailor_crud(self):
         self.authenticate_client()

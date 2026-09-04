@@ -383,6 +383,32 @@ class BoutiqueFabricViewSet(viewsets.ModelViewSet):
     queryset = BoutiqueFabric.objects.all()
     serializer_class = BoutiqueFabricSerializer
 
+    # A fabric that does not exist yet has no id to hang an upload on, so the
+    # shots go up first and the form saves the URLs it gets back. Same storage
+    # path shape and same absolute-URL build as every other upload here.
+    @action(detail=False, methods=['post'], url_path='upload-images')
+    def upload_images(self, request):
+        files = request.FILES.getlist('images')
+        if not files:
+            return Response({'error': 'No images were sent.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if len(files) > 10:
+            return Response({'error': 'Up to 10 images at a time.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        urls = []
+        for f in files:
+            # A phone camera roll is not a trusted source: take images only.
+            if not (f.content_type or '').startswith('image/'):
+                return Response({'error': f"{f.name} is not an image."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if f.size > 10 * 1024 * 1024:
+                return Response({'error': f"{f.name} is larger than 10MB."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            path = f"fabrics/{uuid.uuid4()}_{f.name}"
+            saved = default_storage.save(path, ContentFile(f.read()))
+            urls.append(request.build_absolute_uri(default_storage.url(saved)))
+        return Response({'image_urls': urls}, status=status.HTTP_201_CREATED)
+
 class BoutiqueDesignViewSet(viewsets.ModelViewSet):
     queryset = DesignAsset.objects.filter(
         source__in=[DesignAsset.SOURCE_CATALOGUE, DesignAsset.SOURCE_SUGGESTION])
@@ -936,6 +962,70 @@ def _board_item_from_draft(order, customer, job, item, position, user):
     )
 
 
+# A boutique's stock categories and the customer-goods ledger's kinds are two
+# vocabularies for the same shelf. Lining is fabric to the person holding it;
+# thread and hooks are accessories; maggam work is embroidery.
+_CUSTOMER_MATERIAL_KIND = {
+    'FABRIC': 'FABRIC',
+    'LINING': 'FABRIC',
+    'BORDER': 'BORDER',
+    'EMBELLISHMENT': 'ACCESSORY',
+    'STITCHING': 'ACCESSORY',
+    'MAGGAM': 'EMBROIDERY',
+    'PACKAGING': 'OTHER',
+    'OTHER': 'OTHER',
+}
+
+
+def _collect_customer_materials(basket, template, job):
+    """Gather this garment's customer-supplied lines into the order's basket.
+
+    Keyed by name and unit, so one roll used for a saree's body and its border
+    is received once with the whole length -- not twice, which would tell the
+    boutique it holds twice what the customer actually handed over.
+    """
+    from apps.catalog.models import JobMaterial
+
+    categories = {
+        field.key: field.inventory_category
+        for section in template.sections.all()
+        for field in section.fields.all()
+    }
+    for line in job.materials.all():
+        if line.source != JobMaterial.Source.CUSTOMER or not line.free_text:
+            continue
+        name = line.free_text.strip()
+        unit = line.unit or 'UNIT'
+        key = (name.lower(), unit)
+        entry = basket.setdefault(key, {
+            'name': name,
+            'unit': unit,
+            'kind': _CUSTOMER_MATERIAL_KIND.get(
+                categories.get(line.field_key) or 'OTHER', 'OTHER'),
+            'quantity': Decimal('0'),
+            'fields': [],
+        })
+        entry['quantity'] += (line.quantity or Decimal('0'))
+        entry['fields'].append(f"{template.name} · {line.field_key}")
+
+
+def _receive_customer_materials(order, basket, user):
+    from apps.inventory import order_materials
+
+    for entry in basket.values():
+        if entry['quantity'] <= 0:
+            continue
+        order_materials.receive_customer_material(
+            order,
+            name=entry['name'][:200],
+            quantity=entry['quantity'],
+            unit=entry['unit'],
+            kind=entry['kind'],
+            user=user,
+            notes='Brought by the customer for ' + ', '.join(entry['fields']),
+        )
+
+
 def _part_items_from_draft(design):
     """The wizard's per-part choices, as board items.
 
@@ -1096,6 +1186,12 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 'delivery_address': delivery.get('address'),
             }, user=request.user, notify=False)
 
+            # What the customer physically handed over, gathered across every
+            # garment on the order and received once per distinct roll. The
+            # JobMaterial line says which garment part it is for; this is the
+            # goods ledger that answers "how much is left, and what goes back".
+            brought = {}
+
             for index, garment in enumerate(garments):
                 template = GarmentTemplate.objects.filter(
                     pk=garment.get('template')).first()
@@ -1121,6 +1217,7 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 })
                 serializer.is_valid(raise_exception=True)
                 job = serializer.save()
+                _collect_customer_materials(brought, template, job)
 
                 design = garment.get('design') or {}
                 # `items` is the old whole-design shortlist; `parts` is what the
@@ -1130,6 +1227,8 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 for position, item in enumerate(draft_items):
                     _board_item_from_draft(order, customer, job, item, position,
                                            request.user)
+
+            _receive_customer_materials(order, brought, request.user)
 
             if has_job_pricing:
                 from domains.orders.pricing import recompute_order_totals

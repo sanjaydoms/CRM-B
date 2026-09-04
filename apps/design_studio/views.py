@@ -244,6 +244,9 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
     RESERVED = {'search', 'ordering', 'price_min', 'price_max', 'favourite', 'occasion',
                 'page', 'page_size', 'format'}
 
+    # ?template=none -- the designs carrying no garment at all.
+    NO_GARMENT = 'none'
+
     ORDERINGS = {
         'newest': '-created_at',
         'oldest': 'created_at',
@@ -257,8 +260,20 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         params = self.request.query_params
 
         for name, field in self.DIRECT_FILTERS.items():
-            if value := params.get(name):
-                queryset = queryset.filter(**{field: value})
+            value = params.get(name)
+            if not value:
+                continue
+            # A design uploaded without a garment could be counted -- the
+            # categories endpoint counts them as "Uncategorised" -- but never
+            # listed, because every caller filters by a garment key and NULL
+            # matches none of them. So an upload with the garment left unset
+            # was invisible in the order flow's design step, under an empty
+            # state that told the boutique to go and upload one. 'none' is the
+            # way to ask for exactly those.
+            if name == 'template' and value == self.NO_GARMENT:
+                queryset = queryset.filter(template__isnull=True)
+                continue
+            queryset = queryset.filter(**{field: value})
 
         if occasion := params.get('occasion'):
             queryset = queryset.filter(

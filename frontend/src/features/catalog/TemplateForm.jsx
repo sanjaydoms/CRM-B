@@ -40,7 +40,22 @@ function useInventoryOptions(categories) {
   return byCategory;
 }
 
-function Field({ field, value, error, onChange, inventory, quantity, quantityError, onQuantityChange }) {
+// Mirrors Unit and DEFAULT_UNIT_BY_CATEGORY in apps/inventory/models.py. A
+// customer's own cloth has no stock row to read a unit off, so the form has to
+// offer the same vocabulary the ledger stores.
+const UNITS = [
+  ['METER', 'Meter'], ['PIECE', 'Piece'], ['PAIR', 'Pair'], ['ROLL', 'Roll'],
+  ['PACKET', 'Packet'], ['BOX', 'Box'], ['SET', 'Set'], ['KILOGRAM', 'Kilogram'],
+  ['GRAM', 'Gram'], ['STRING', 'String'], ['UNIT', 'Unit'],
+];
+
+const DEFAULT_UNIT = {
+  FABRIC: 'METER', BORDER: 'METER', LINING: 'METER', EMBELLISHMENT: 'PIECE',
+  STITCHING: 'PIECE', PACKAGING: 'PIECE', MAGGAM: 'PIECE', OTHER: 'UNIT',
+};
+
+function Field({ field, value, error, onChange, inventory, quantity, quantityError, onQuantityChange,
+                 source, brought, onSourceChange, onBroughtChange }) {
   const common = {
     className: 'form-control',
     id: `tf-${field.key}`,
@@ -138,13 +153,83 @@ function Field({ field, value, error, onChange, inventory, quantity, quantityErr
     case 'inventory_ref': {
       const items = inventory[field.inventory_category] || [];
       const selected = items.find((item) => String(item.id) === String(value ?? ''));
+      // Where this material comes from is a property of the material, not of
+      // the garment: the customer brings the saree and the boutique still
+      // supplies the fall cloth, the lining and the thread. That is what
+      // "Mixed" on the order means, and the only place it can be recorded
+      // truthfully is here, line by line.
+      const fromCustomer = source === 'CUSTOMER';
+      const unit = brought.unit || DEFAULT_UNIT[field.inventory_category] || 'UNIT';
+      const sourceToggle = (
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+          {[['STORE', 'From stock'], ['CUSTOMER', 'Customer brought']].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onSourceChange(field.key, key)}
+              style={{
+                fontSize: '12px', padding: '4px 10px', borderRadius: '99px', cursor: 'pointer',
+                border: '1px solid var(--border-color)',
+                background: source === key ? 'var(--text-primary)' : 'transparent',
+                color: source === key ? '#fff' : 'var(--text-secondary)',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      );
       // Picking the roll is half the answer. Without "how much", the order can
       // name a material but the inventory ledger can never reserve or consume
       // it -- which is exactly how a delivered order used to leave stock
       // untouched. So the quantity is asked for here, at the moment the choice
       // is made, rather than defaulted to a number nobody decided.
-      control = (
+      control = fromCustomer ? (
         <>
+          {sourceToggle}
+          <input
+            className="form-control"
+            id={`tf-${field.key}`}
+            type="text"
+            placeholder="What did the customer bring? e.g. Kanjivaram silk, maroon"
+            value={brought.name || ''}
+            onChange={(e) => onBroughtChange(field.key, { name: e.target.value, unit })}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+            <input
+              className="form-control"
+              id={`tf-${field.key}-qty`}
+              type="number"
+              min="0"
+              step="0.001"
+              style={{ maxWidth: '120px' }}
+              placeholder="Quantity"
+              aria-label={`Quantity the customer brought for ${field.label}`}
+              value={quantity ?? ''}
+              onChange={(e) => onQuantityChange(field.key, e.target.value)}
+            />
+            <select
+              className="form-control"
+              style={{ maxWidth: '140px' }}
+              aria-label={`Unit for ${field.label}`}
+              value={unit}
+              onChange={(e) => onBroughtChange(field.key, { name: brought.name || '', unit: e.target.value })}
+            >
+              {UNITS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </div>
+          {quantityError && (
+            <div style={{ fontSize: '12px', color: '#c0392b', marginTop: '4px' }}>
+              {quantityError}
+            </div>
+          )}
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            Received onto this order&apos;s customer-material ledger. Boutique stock is untouched.
+          </div>
+        </>
+      ) : (
+        <>
+          {sourceToggle}
           <select {...common}>
             <option value="">
               {items.length ? 'Select from stock' : 'Nothing in stock for this category'}
@@ -237,6 +322,13 @@ export default function TemplateForm({
   // against the template's own field list, and a quantity is not one of its
   // fields -- it belongs to the material line, not to the garment's spec.
   quantities = {}, quantityErrors = {}, onQuantityChange = () => {},
+  // Per-material source, and what the customer brought when it is theirs. Same
+  // reasoning as quantities: neither is a field of the garment's spec.
+  // `defaultSource` comes from the order's Material Source answer, so choosing
+  // "Customer Provided Fabric" up top starts every line on the customer and
+  // "Mixed" leaves each one to be said explicitly.
+  sources = {}, brought = {}, defaultSource = 'STORE',
+  onSourceChange = () => {}, onBroughtChange = () => {},
 }) {
   const definition = getSection(template, section);
   // File fields are not rendered, because nothing in this product can save one.
@@ -296,6 +388,10 @@ export default function TemplateForm({
           quantity={quantities[field.key]}
           quantityError={quantityErrors[field.key]}
           onQuantityChange={onQuantityChange}
+          source={sources[field.key] || defaultSource}
+          brought={brought[field.key] || {}}
+          onSourceChange={onSourceChange}
+          onBroughtChange={onBroughtChange}
         />
       ))}
     </div>

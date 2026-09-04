@@ -323,13 +323,20 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     let cancelled = false;
     Promise.all([
       api.getDesignLibrary({ template: garmentKey, status: 'ACTIVE' }),
+      // The garment select on the upload form defaults to no garment, so a
+      // boutique's own uploads routinely carry none -- and filtering strictly
+      // by this garment hid every one of them behind "no designs uploaded
+      // yet". They are the boutique's designs either way, so they follow the
+      // garment's designs rather than disappearing. Their photographs are
+      // filed under 'overall', which every garment has.
+      api.getDesignLibrary({ template: 'none', status: 'ACTIVE' }).catch(() => []),
       // Only for the part headings and their order; the designs carry the
       // photographs themselves.
       api.getGarmentTemplate(garmentKey).catch(() => null),
     ])
-      .then(([rows, tpl]) => {
+      .then(([rows, untagged, tpl]) => {
         if (cancelled) return;
-        setDesigns(rows || []);
+        setDesigns([...(rows || []), ...(untagged || [])]);
         setTemplate(tpl);
       })
       .catch((err) => { if (!cancelled) setError(err.message); });

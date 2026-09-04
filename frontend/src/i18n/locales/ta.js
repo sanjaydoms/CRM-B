@@ -24,6 +24,11 @@ const ta = {
     inboxAlerts: "இன்பாக்ஸ் அறிவிப்புகள்",
     retry: "மீண்டும் முயற்சிக்கவும்",
     subtitle: "துணைத்தலைப்பு",
+    refresh: "புதுப்பி",
+    takePhoto: "புகைப்படம் எடு",
+    chooseFromGallery: "கேலரியிலிருந்து தேர்ந்தெடு",
+    remove: "அகற்று",
+    uploading: "பதிவேற்றுகிறது…",
   },
   nav: {
     dashboard: "டாஷ்போர்டு",
@@ -42,6 +47,17 @@ const ta = {
     account: "என் கணக்கு",
     settings: "அமைப்புகள்",
     logout: "வெளியேறு",
+    staffManagement: "பணியாளர் மேலாண்மை",
+    myAttendance: "எனது வருகை",
+    groups: {
+      daily: "தினசரி",
+      design: "வடிவமைப்பு",
+      stock: "இருப்பு",
+      people: "நபர்கள்",
+      business: "வணிகம்",
+    },
+    orders: "ஆர்டர்கள்",
+    menu: "மெனு",
   },
   settingsPage: {
     title: "அமைப்புகள் மற்றும் விருப்பத்தேர்வுகள்",
@@ -266,6 +282,10 @@ const ta = {
     imageUrlOptional: "படம் URL (விருப்பத்தேர்வு)",
     availableInInventory: "சரக்கில் கிடைக்கிறது",
     saveFabric: "துணியைச் சேமி",
+    colorCode: "வண்ணக் குறியீடு",
+    colorWheel: "வண்ணச் சக்கரம்",
+    colorCodeHint: "சக்கரத்தில் தேர்ந்தெடு அல்லது குறியீட்டைத் தட்டச்சு செய்",
+    fabricPhotos: "துணி புகைப்படங்கள்",
   },
   tailorsPage: {
     title: "தையல் பணியாளர்கள் மேலாண்மை",
@@ -640,7 +660,11 @@ const ta = {
     selectExistingCustomerModalTitle: "வாடிக்கையாளரைத் தேர்ந்தெடு",
     searchCustomerPlaceholder: "பெயர் அல்லது மொபைல் எண் மூலம் தேடுங்கள்...",
     noCustomersFoundMatching: "பொருந்தக்கூடிய வாடிக்கையாளர்கள் கிடைக்கவில்லை",
-  }
+  },
+  confirmed: {
+    title: "{name} க்கான ஆர்டர் உருவாக்கப்பட்டது 🎉",
+    subtitle: "இது இப்போது பணிமனையில் உள்ளது, {name} இன் சுயவிவரத்தில் பதிவாகியுள்ளது.",
+  },
 };
 
 export default ta;

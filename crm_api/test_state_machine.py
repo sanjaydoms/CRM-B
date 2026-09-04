@@ -119,6 +119,42 @@ class StateMachineTestBase(TenantTestCase):
         }
 
 
+class StatusAnnouncementTests(StateMachineTestBase):
+    """Fifteen stages, six statuses: only a change is news."""
+
+    def notifications(self, **filters):
+        from crm_api.models import Notification
+        return Notification.objects.filter(**filters)
+
+    def test_a_stage_that_leaves_the_status_alone_announces_nothing(self):
+        self.advance_to('stitching_completed')
+        self.move('stitching_completed')        # Quality Check begins here
+        before = self.notifications().count()
+        messages = self.snapshot()['messages']
+
+        # Two more stages, same status: the owner, the customer, the tailor and
+        # the master were each told again on every one of them.
+        self.move('finishing')
+        self.move('pressing')
+
+        self.assertEqual(self.notifications().count(), before,
+                         'a status that did not change was announced again')
+        self.assertEqual(self.snapshot()['messages'], messages,
+                         'the customer was messaged about nothing')
+
+    def test_a_real_change_is_announced_once(self):
+        self.advance_to('stitching_completed')
+        before = self.notifications(recipient_role='Customer').count()
+
+        self.move('stitching_completed')        # Design & Creation -> Quality Check
+
+        self.assertEqual(self.notifications(recipient_role='Customer').count(),
+                         before + 1)
+        self.assertEqual(
+            self.notifications(recipient_role='Master',
+                               title__startswith='Quality Check Required').count(), 1)
+
+
 class InvalidTransitionTests(StateMachineTestBase):
 
     def test_pattern_cutting_to_ready_for_dispatch_is_refused(self):

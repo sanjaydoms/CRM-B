@@ -59,6 +59,16 @@ def create_order_notifications(order, created=False, status_changed=True):
                 recipient_email=order.tailor.user.email if order.tailor.user else None
             )
     else:
+        # Fifteen production stages map onto six customer-facing statuses, so
+        # most transitions leave the status exactly where it was. Announcing it
+        # again on every stage gave the owner four identical "Ready for
+        # Dispatch" rows, the customer three "Quality Check" ones, and the
+        # tailor the same stitching task four times -- measured on one order
+        # walked from Received to Delivered. Only a change is news. The
+        # per-stage handover is notify_next_stage_owners' job, not this one's.
+        if not status_changed:
+            return
+
         status = order.order_status
         Notification.objects.create(
             title=f"Order {order.order_id} Update: {status}",
@@ -95,12 +105,11 @@ def create_order_notifications(order, created=False, status_changed=True):
             recipient_role="Customer",
             recipient_email=client_email
         )
-        if status_changed:
-            send_customer_message(
-                order,
-                'stage_update',
-                f"{cust_msg}\nTrack your order: {tracking_url(order)}",
-            )
+        send_customer_message(
+            order,
+            'stage_update',
+            f"{cust_msg}\nTrack your order: {tracking_url(order)}",
+        )
 
         if status == 'Design & Creation' and order.tailor:
             Notification.objects.create(

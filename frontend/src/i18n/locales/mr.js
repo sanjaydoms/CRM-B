@@ -19,6 +19,11 @@ const mr = {
     date: "दिनांक",
     inboxAlerts: "इनबॉक्स सूचना",
     retry: "पुन्हा प्रयत्न करा",
+    refresh: "रिफ्रेश",
+    takePhoto: "फोटो काढा",
+    chooseFromGallery: "गॅलरीमधून निवडा",
+    remove: "काढून टाका",
+    uploading: "अपलोड होत आहे…",
   },
   nav: {
     dashboard: "डॅशबोर्ड",
@@ -37,6 +42,17 @@ const mr = {
     account: "माझे खाते",
     settings: "सेटिंग्ज",
     logout: "लॉगआउट",
+    staffManagement: "कर्मचारी व्यवस्थापन",
+    myAttendance: "माझी उपस्थिती",
+    groups: {
+      daily: "दैनंदिन",
+      design: "डिझाइन",
+      stock: "स्टॉक",
+      people: "लोक",
+      business: "व्यवसाय",
+    },
+    orders: "ऑर्डर",
+    menu: "मेनू",
   },
   settingsPage: {
     title: "सेटिंग्ज आणि प्राधान्ये",
@@ -261,6 +277,10 @@ const mr = {
     imageUrlOptional: "इमेज URL (पर्यायी)",
     availableInInventory: "इन्व्हेंटरीमध्ये उपलब्ध",
     saveFabric: "कापड जतन करा",
+    colorCode: "रंग कोड",
+    colorWheel: "रंग चक्र",
+    colorCodeHint: "चक्रातून निवडा किंवा कोड टाइप करा",
+    fabricPhotos: "फॅब्रिक फोटो",
   },
   tailorsPage: {
     title: "शिंपी कर्मचारी व्यवस्थापन",
@@ -635,7 +655,11 @@ const mr = {
     selectExistingCustomerModalTitle: "विद्यमान ग्राहक निवडा",
     searchCustomerPlaceholder: "नाव किंवा मोबाईल नंबरने शोधा...",
     noCustomersFoundMatching: "जुळणारे ग्राहक आढळले नाहीत",
-  }
+  },
+  confirmed: {
+    title: "{name} साठी ऑर्डर तयार झाली 🎉",
+    subtitle: "ती आता वर्करूमकडे आहे आणि {name} च्या प्रोफाइलवर नोंदलेली आहे.",
+  },
 };
 
 export default mr;
