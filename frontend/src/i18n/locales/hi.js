@@ -22,6 +22,9 @@ const hi = {
     chooseFromGallery: "गैलरी से चुनें",
     remove: "हटाएं",
     uploading: "अपलोड हो रहा है…",
+    saving: "सहेजा जा रहा है…",
+    updating: "अपडेट हो रहा है…",
+    discarding: "हटाया जा रहा है…",
   },
   nav: {
     dashboard: "डैशबोर्ड",
@@ -654,6 +657,7 @@ const hi = {
     selectExistingCustomerModalTitle: "मौजूदा ग्राहक चुनें",
     searchCustomerPlaceholder: "ग्राहक का नाम या मोबाइल नंबर खोजें...",
     noCustomersFoundMatching: "इसके मिलान का कोई ग्राहक नहीं मिला",
+    firstCustomerTitle: "अपना पहला ग्राहक बनाएं",
   },
   confirmed: {
     title: "{name} के लिए ऑर्डर बनाया गया 🎉",

@@ -24,6 +24,9 @@ const mr = {
     chooseFromGallery: "गॅलरीमधून निवडा",
     remove: "काढून टाका",
     uploading: "अपलोड होत आहे…",
+    saving: "जतन होत आहे…",
+    updating: "अद्यतनित होत आहे…",
+    discarding: "काढून टाकत आहे…",
   },
   nav: {
     dashboard: "डॅशबोर्ड",
@@ -655,6 +658,7 @@ const mr = {
     selectExistingCustomerModalTitle: "विद्यमान ग्राहक निवडा",
     searchCustomerPlaceholder: "नाव किंवा मोबाईल नंबरने शोधा...",
     noCustomersFoundMatching: "जुळणारे ग्राहक आढळले नाहीत",
+    firstCustomerTitle: "तुमचा पहिला ग्राहक तयार करा",
   },
   confirmed: {
     title: "{name} साठी ऑर्डर तयार झाली 🎉",

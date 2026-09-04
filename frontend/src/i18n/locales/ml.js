@@ -28,6 +28,9 @@ const ml = {
     chooseFromGallery: "ഗാലറിയിൽ നിന്ന് തിരഞ്ഞെടുക്കുക",
     remove: "നീക്കം ചെയ്യുക",
     uploading: "അപ്‌ലോഡ് ചെയ്യുന്നു…",
+    saving: "സേവ് ചെയ്യുന്നു…",
+    updating: "അപ്ഡേറ്റ് ചെയ്യുന്നു…",
+    discarding: "നീക്കം ചെയ്യുന്നു…",
   },
   nav: {
     dashboard: "ഡാഷ്‌ബോർഡ്",
@@ -659,6 +662,7 @@ const ml = {
     selectExistingCustomerModalTitle: "നിലവിലുള്ള ഉപഭോക്താവിനെ തിരഞ്ഞെടുക്കുക",
     searchCustomerPlaceholder: "പേരോ മൊബൈൽ നമ്പറോ ഉപയോഗിച്ച് തിരയുക...",
     noCustomersFoundMatching: "ചേരുന്ന ഉപഭോക്താക്കളെ കണ്ടെത്തിയില്ല",
+    firstCustomerTitle: "നിങ്ങളുടെ ആദ്യ ഉപഭോക്താവിനെ സൃഷ്ടിക്കുക",
   },
   confirmed: {
     title: "{name} എന്നയാൾക്കായി ഓർഡർ സൃഷ്ടിച്ചു 🎉",

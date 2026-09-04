@@ -30,6 +30,9 @@ const kn = {
     chooseFromGallery: "ಗ್ಯಾಲರಿಯಿಂದ ಆಯ್ಕೆಮಾಡಿ",
     remove: "ತೆಗೆದುಹಾಕಿ",
     uploading: "ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…",
+    saving: "ಉಳಿಸಲಾಗುತ್ತಿದೆ…",
+    updating: "ನವೀಕರಿಸಲಾಗುತ್ತಿದೆ…",
+    discarding: "ತೆಗೆದುಹಾಕಲಾಗುತ್ತಿದೆ…",
   },
   nav: {
     dashboard: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್",
@@ -661,6 +664,7 @@ const kn = {
     selectExistingCustomerModalTitle: "ಹಾಲಿ ಗ್ರಾಹಕರನ್ನು ಆಯ್ಕೆಮಾಡಿ",
     searchCustomerPlaceholder: "ಹೆಸರು ಅಥವಾ ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯ ಮೂಲಕ ಹುಡುಕಿ...",
     noCustomersFoundMatching: "ಹೊಂದುವ ಗ್ರಾಹಕರು ಕಂಡುಬಂದಿಲ್ಲ",
+    firstCustomerTitle: "ನಿಮ್ಮ ಮೊದಲ ಗ್ರಾಹಕರನ್ನು ರಚಿಸಿ",
   },
   confirmed: {
     title: "{name} ಗಾಗಿ ಆರ್ಡರ್ ರಚಿಸಲಾಗಿದೆ 🎉",

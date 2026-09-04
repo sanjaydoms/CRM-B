@@ -25,6 +25,9 @@ const ar = {
     chooseFromGallery: "اختر من المعرض",
     remove: "إزالة",
     uploading: "جارٍ الرفع…",
+    saving: "جارٍ الحفظ…",
+    updating: "جارٍ التحديث…",
+    discarding: "جارٍ الحذف…",
   },
   nav: {
     dashboard: "لوحة التحكم",
@@ -656,6 +659,7 @@ const ar = {
     selectExistingCustomerModalTitle: "اختيار عميل حالي",
     searchCustomerPlaceholder: "البحث بالاسم أو رقم المحمول...",
     noCustomersFoundMatching: "لم يتم العثور على عملاء مطابقتهم",
+    firstCustomerTitle: "أنشئ أول عميل لك",
   },
   confirmed: {
     title: "تم إنشاء الطلب لـ {name} 🎉",

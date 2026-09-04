@@ -329,6 +329,9 @@ export default function TemplateForm({
   // "Mixed" leaves each one to be said explicitly.
   sources = {}, brought = {}, defaultSource = 'STORE',
   onSourceChange = () => {}, onBroughtChange = () => {},
+  // Where to send someone whose inventory is empty. Optional because this form
+  // also renders in places that have no navigation to offer.
+  onGoToInventory = null,
 }) {
   const definition = getSection(template, section);
   // File fields are not rendered, because nothing in this product can save one.
@@ -355,9 +358,20 @@ export default function TemplateForm({
     .filter((f) => f.field_type !== 'file')
     .filter((f) => isVisible(f, values));
 
-  const inventory = useInventoryOptions(
-    fields.filter((f) => f.field_type === 'inventory_ref').map((f) => f.inventory_category)
-  );
+  const inventoryCategories = fields
+    .filter((f) => f.field_type === 'inventory_ref')
+    .map((f) => f.inventory_category);
+  const inventory = useInventoryOptions(inventoryCategories);
+
+  // Loaded-and-empty across every category this section asks about. A new
+  // boutique used to discover mid-order that every picker says "Nothing in
+  // stock" -- the guidance belongs before the choices, not scattered under
+  // them. Distinguished from still-loading so established boutiques never see
+  // the banner flash.
+  const inventoryLoaded = inventoryCategories.length > 0
+    && inventoryCategories.every((c) => c in inventory);
+  const inventoryEmpty = inventoryLoaded
+    && inventoryCategories.every((c) => (inventory[c] || []).length === 0);
 
   const handleChange = (key, value) => {
     // Prune after every edit: switching Peplum to Corset must take the flare
@@ -376,7 +390,23 @@ export default function TemplateForm({
   }
 
   return (
-    <div className="form-grid-2">
+    <div>
+      {inventoryEmpty && onGoToInventory && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+          padding: '12px 14px', marginBottom: '14px', borderRadius: '8px',
+          border: '1px dashed var(--border-color)', background: 'var(--surface-color, #fafafa)',
+        }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            Your inventory has nothing to pick from yet. Add fabrics and materials
+            first — this order is saved as a draft, so you can come straight back.
+          </div>
+          <button type="button" className="btn-secondary" style={{ flexShrink: 0, fontSize: '12px', padding: '6px 12px' }} onClick={onGoToInventory}>
+            Set up inventory
+          </button>
+        </div>
+      )}
+      <div className="form-grid-2">
       {fields.map((field) => (
         <Field
           key={field.key}
@@ -394,6 +424,7 @@ export default function TemplateForm({
           onBroughtChange={onBroughtChange}
         />
       ))}
+      </div>
     </div>
   );
 }

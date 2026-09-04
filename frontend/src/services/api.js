@@ -1,23 +1,102 @@
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 /**
- * A 401 anywhere means this session is over -- stop pretending otherwise.
+ * Collapse identical concurrent mutations into one network request.
  *
- * Nothing in this file inspected status for 401, while the platform console's
- * own client does exactly this and says why. So signing out on a phone left the
- * shop desktop failing every request with an alert, still painting the customer
- * list, the order book and the money from whatever was last in React state --
- * indefinitely, and with no hint that what was on screen was stale.
+ * Against a database a region away, a mutation takes 2-8 seconds and most
+ * buttons render no pending state, so people click again -- and every extra
+ * click used to become another POST: another order, another payment row,
+ * another customer. Keying by method+url+body and handing every caller the
+ * same in-flight response means the double-click and the burst-click cost
+ * exactly one request, without touching sixty call sites.
  *
- * Reloading rather than routing: the token is gone, so every screen behind it
- * is invalid, and a reload is the one operation that cannot leave a fragment of
- * the previous session behind. Guarded so a burst of concurrent 401s -- the
- * dashboard opens by firing eight requests -- reloads once.
+ * Scope is deliberately narrow: only while the first request is still in
+ * flight (the map is cleared the moment it settles -- this is not a cache),
+ * only for non-GET calls, and not for FormData bodies (two uploads with the
+ * same form object are not provably the same bytes). A deliberate repeat --
+ * submit, wait, submit again -- still goes through; stopping that is the
+ * job of the buttons' own pending states.
  */
-let sessionEndedHandled = false;
-const handleSessionEnded = () => {
-  if (sessionEndedHandled) return;
-  sessionEndedHandled = true;
+/**
+ * Tell the page how many API calls are in flight, so it can show a global
+ * activity bar. Every request against a database a region away takes seconds;
+ * a screen that does nothing during them reads as broken, and not every
+ * control can carry its own spinner. window events rather than React state so
+ * this module stays framework-free.
+ */
+let activeRequests = 0;
+const trackRequest = (promise) => {
+  activeRequests += 1;
+  window.dispatchEvent(new CustomEvent('api-activity', { detail: activeRequests }));
+  const settle = () => {
+    activeRequests -= 1;
+    window.dispatchEvent(new CustomEvent('api-activity', { detail: activeRequests }));
+  };
+  promise.then(settle, settle);
+  return promise;
+};
+
+const inFlightMutations = new Map();
+const guardedFetch = (url, options = {}) => {
+  const method = (options.method || 'GET').toUpperCase();
+  if (method === 'GET' || (options.body && typeof options.body !== 'string')) {
+    return trackRequest(fetch(url, options));
+  }
+  const key = `${method} ${url} ${options.body || ''}`;
+  const pending = inFlightMutations.get(key);
+  // clone() because a Response body can only be read once, and every caller
+  // that shared this request will want to read it.
+  if (pending) return pending.then((res) => res.clone());
+  const request = trackRequest(fetch(url, options));
+  inFlightMutations.set(key, request);
+  request.then(() => inFlightMutations.delete(key),
+               () => inFlightMutations.delete(key));
+  return request.then((res) => res.clone());
+};
+
+/**
+ * A CONFIRMED 401 means this session is over -- stop pretending otherwise.
+ *
+ * Nothing in this file inspected status for 401 once, so signing out on a
+ * phone left the shop desktop painting stale state forever. But the first cure
+ * overshot: ANY single 401 wiped the session, so one stray response ejected
+ * the owner mid-order. Hence the middle path below: a 401 triggers one direct
+ * check of the token, and only the server's confirmed no ends the session.
+ * Guarded so a burst of concurrent 401s -- the dashboard opens by firing
+ * eight requests -- runs one check and reloads once.
+ */
+let sessionCheckInFlight = false;
+const handleSessionEnded = async () => {
+  if (sessionCheckInFlight) return;
+  sessionCheckInFlight = true;
+  // One 401 is a claim, not proof. A blip mid-deploy, one flaky proxy
+  // response, or a single request racing a worker restart must not eject the
+  // owner mid-order -- that read as "the app logged me out by itself". So ask
+  // the server directly whether this token still stands, and end the session
+  // only on its confirmed no. A network failure keeps the session: offline is
+  // not signed out.
+  const token = localStorage.getItem('token');
+  if (token) {
+    try {
+      const tenantId = localStorage.getItem('tenant_id');
+      const res = await guardedFetch(`${BASE_URL}/auth/me/`, {
+        headers: {
+          'Authorization': `Token ${token}`,
+          ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
+        },
+      });
+      if (res.status !== 401 && res.status !== 403) {
+        sessionCheckInFlight = false;  // stray 401; a later real one re-checks
+        return;
+      }
+    } catch {
+      sessionCheckInFlight = false;
+      return;
+    }
+  }
+  // Confirmed dead (or never had a token). Reloading rather than routing: the
+  // token is gone, so every screen behind it is invalid, and a reload is the
+  // one operation that cannot leave a fragment of the previous session behind.
   localStorage.removeItem('token');
   localStorage.removeItem('tenant_id');
   window.location.reload();
@@ -92,7 +171,7 @@ const failWith = async (res, fallback) => {
 export const api = {
   // Auth API
   async login(username, password) {
-    const res = await fetch(`${BASE_URL}/auth/login/`, {
+    const res = await guardedFetch(`${BASE_URL}/auth/login/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -117,7 +196,7 @@ export const api = {
   },
 
   async signup(signupData) {
-    const res = await fetch(`${BASE_URL}/auth/signup/`, {
+    const res = await guardedFetch(`${BASE_URL}/auth/signup/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -144,7 +223,7 @@ export const api = {
   // way for an address that exists and one that does not, so there is nothing
   // here to branch on and nothing worth reporting except that it went through.
   async requestPasswordReset(email) {
-    const res = await fetch(`${BASE_URL}/auth/password-reset/`, {
+    const res = await guardedFetch(`${BASE_URL}/auth/password-reset/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })
@@ -155,7 +234,7 @@ export const api = {
   },
 
   async confirmPasswordReset(token, password) {
-    const res = await fetch(`${BASE_URL}/auth/password-reset/confirm/`, {
+    const res = await guardedFetch(`${BASE_URL}/auth/password-reset/confirm/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, password })
@@ -167,7 +246,7 @@ export const api = {
 
   async logout() {
     try {
-      await fetch(`${BASE_URL}/auth/logout/`, {
+      await guardedFetch(`${BASE_URL}/auth/logout/`, {
         method: 'POST',
         headers: getHeaders()
       });
@@ -182,7 +261,7 @@ export const api = {
     const token = localStorage.getItem('token');
     if (!token) return null;
     
-    const res = await fetch(`${BASE_URL}/auth/me/`, {
+    const res = await guardedFetch(`${BASE_URL}/auth/me/`, {
       headers: getHeaders()
     });
     if (!res.ok) {
@@ -205,7 +284,7 @@ export const api = {
   },
 
   async seedMockData() {
-    const res = await fetch(`${BASE_URL}/auth/seed-data/`, {
+    const res = await guardedFetch(`${BASE_URL}/auth/seed-data/`, {
       method: 'POST',
       headers: getHeaders()
     });
@@ -218,7 +297,7 @@ export const api = {
 
   // Get dashboard data
   async getDashboard() {
-    const res = await fetch(`${BASE_URL}/dashboard/`, {
+    const res = await guardedFetch(`${BASE_URL}/dashboard/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch dashboard');
@@ -227,7 +306,7 @@ export const api = {
 
   // Get all tailors
   async getTailors() {
-    const res = await fetch(`${BASE_URL}/tailors/`, {
+    const res = await guardedFetch(`${BASE_URL}/tailors/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch tailors');
@@ -236,7 +315,7 @@ export const api = {
 
   // Get boutique fabrics
   async getFabrics() {
-    const res = await fetch(`${BASE_URL}/fabrics/`, {
+    const res = await guardedFetch(`${BASE_URL}/fabrics/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch fabrics');
@@ -262,7 +341,7 @@ export const api = {
       formData.append('profile_photo', profilePhotoFile);
     }
 
-    const res = await fetch(`${BASE_URL}/customers/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/`, {
       method: 'POST',
       headers: getHeaders(true), // true = multipart (no Content-Type header)
       body: formData,
@@ -285,7 +364,7 @@ export const api = {
     const payload = { ...customerData };
     if (typeof payload.profile_photo === 'string') delete payload.profile_photo;
 
-    const res = await fetch(`${BASE_URL}/customers/${customerId}/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/${customerId}/`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify(payload),
@@ -305,13 +384,13 @@ export const api = {
   async getAppointments(params = {}) {
     const url = new URL(`${BASE_URL}/scheduling/appointments/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load appointments');
     return res.json();
   },
 
   async createAppointment(payload) {
-    const res = await fetch(`${BASE_URL}/scheduling/appointments/`, {
+    const res = await guardedFetch(`${BASE_URL}/scheduling/appointments/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(payload),
@@ -333,7 +412,7 @@ export const api = {
       formData.append('images', file);
     });
 
-    const res = await fetch(`${BASE_URL}/customers/${customerId}/design-preferences/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/${customerId}/design-preferences/`, {
       method: 'POST',
       headers: getHeaders(true),
       body: formData,
@@ -344,7 +423,7 @@ export const api = {
 
   // Sign off one design for production. Supersedes any previously approved design.
   async approveDesign(customerId, prefId, approvedImage = null) {
-    const res = await fetch(`${BASE_URL}/customers/${customerId}/design-preferences/${prefId}/approve/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/${customerId}/design-preferences/${prefId}/approve/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(approvedImage ? { approved_image: approvedImage } : {}),
@@ -358,7 +437,7 @@ export const api = {
 
   // Nominate who should perform a stage. Pass tailorId null to clear it.
   async assignStage(orderId, stageKey, tailorId) {
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/assign-stage/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/assign-stage/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ stage_key: stageKey, tailor_id: tailorId }),
@@ -372,7 +451,7 @@ export const api = {
 
   // Get AI Suggestions for a customer based on style inputs
   async getAISuggestions(customerId) {
-    const res = await fetch(`${BASE_URL}/customers/${customerId}/ai-suggestions/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/${customerId}/ai-suggestions/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch AI suggestions');
@@ -381,7 +460,7 @@ export const api = {
 
   // Get Boutique Designs for a customer based on style inputs
   async getBoutiqueDesigns(customerId) {
-    const res = await fetch(`${BASE_URL}/customers/${customerId}/boutique-designs/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/${customerId}/boutique-designs/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch boutique designs');
@@ -399,7 +478,7 @@ export const api = {
       formData.append('images', file);
     });
 
-    const res = await fetch(`${BASE_URL}/customers/${customerId}/fabric-selections/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/${customerId}/fabric-selections/`, {
       method: 'POST',
       headers: getHeaders(true),
       body: formData,
@@ -410,7 +489,7 @@ export const api = {
 
   // Create order (Step 5)
   async createOrder(customerId, orderData) {
-    const res = await fetch(`${BASE_URL}/customers/${customerId}/create-order/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/${customerId}/create-order/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(orderData),
@@ -430,7 +509,7 @@ export const api = {
 
   // Update order status
   async updateOrderStatus(orderId, status) {
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/update-status/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/update-status/`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ status }),
@@ -451,7 +530,7 @@ export const api = {
     if (comments) formData.append('tailor_comments', comments);
     if (imageFile) formData.append('completed_garment_image', imageFile);
 
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/submit-completion/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/submit-completion/`, {
       method: 'PATCH',
       headers: getHeaders(true),
       body: formData
@@ -461,7 +540,7 @@ export const api = {
   },
 
   async getBoutiqueSettings() {
-    const res = await fetch(`${BASE_URL}/boutique-settings/`, {
+    const res = await guardedFetch(`${BASE_URL}/boutique-settings/`, {
       method: 'GET',
       headers: getHeaders()
     });
@@ -470,7 +549,7 @@ export const api = {
   },
 
   async updateBoutiqueSettings(formData) {
-    const res = await fetch(`${BASE_URL}/boutique-settings/`, {
+    const res = await guardedFetch(`${BASE_URL}/boutique-settings/`, {
       method: 'POST',
       headers: getHeaders(true),
       body: formData
@@ -486,12 +565,34 @@ export const api = {
     if (imageFile) formData.append('image', imageFile);
     formData.append('completed_by', completedBy);
 
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/submit-stage-review/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/submit-stage-review/`, {
       method: 'POST',
       headers: getHeaders(true),
       body: formData
     });
     if (!res.ok) await failWith(res, 'Failed to submit stage review');
+    return res.json();
+  },
+
+  // The two sanctioned reversals. Both demand a reason because the record of
+  // who moved a garment backwards, and why, is the entire point of them.
+  async reopenStage(orderId, stageKey, reason) {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/reopen-stage/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ stage_key: stageKey, reason }),
+    });
+    if (!res.ok) await failWith(res, 'Could not reopen that stage.');
+    return res.json();
+  },
+
+  async failQualityCheck(orderId, reason) {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/fail-qc/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) await failWith(res, 'Could not record the QC failure.');
     return res.json();
   },
 
@@ -508,7 +609,7 @@ export const api = {
       });
     }
 
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/transition/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/transition/`, {
       method: 'POST',
       headers: getHeaders(true),
       body: formData
@@ -521,7 +622,7 @@ export const api = {
   },
 
   async updateOrder(orderId, orderData) {
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify(orderData),
@@ -541,7 +642,7 @@ export const api = {
   // granted -- and must not be, because that same action carries the money
   // fields.
   async saveMasterVerification(orderId, checks) {
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/master-verification/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/master-verification/`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ master_verification: checks }),
@@ -555,7 +656,7 @@ export const api = {
   // queued for the owner, who sends each one from their own WhatsApp by
   // following whatsapp_url, then marks it sent.
   async getQueuedCustomerMessages() {
-    const res = await fetch(`${BASE_URL}/orders/customer-messages/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/customer-messages/`, {
       headers: getHeaders(),
     });
     if (!res.ok) await failWith(res, 'Failed to fetch customer messages');
@@ -563,7 +664,7 @@ export const api = {
   },
 
   async markMessageSent(orderId, messageId) {
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/mark-message-sent/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/mark-message-sent/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ message_id: messageId }),
@@ -581,7 +682,7 @@ export const api = {
     const formData = new FormData();
     formData.append('view', view);
     formData.append('image', file);
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/garment-images/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/garment-images/`, {
       method: 'POST',
       headers: getHeaders(true),
       body: formData,
@@ -592,7 +693,7 @@ export const api = {
   },
 
   async deleteGarmentImage(orderId, imageId) {
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/garment-images/${imageId}/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/garment-images/${imageId}/`, {
       method: 'DELETE',
       headers: getHeaders(),
     });
@@ -600,7 +701,7 @@ export const api = {
   },
 
   async publishGarmentImages(orderId, published = true) {
-    const res = await fetch(`${BASE_URL}/orders/${orderId}/publish-garment-images/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/${orderId}/publish-garment-images/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ published }),
@@ -626,7 +727,7 @@ export const api = {
   },
 
   async createFabric(fabricData) {
-    const res = await fetch(`${BASE_URL}/fabrics/`, {
+    const res = await guardedFetch(`${BASE_URL}/fabrics/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(fabricData),
@@ -636,7 +737,7 @@ export const api = {
   },
 
   async updateFabric(id, fabricData) {
-    const res = await fetch(`${BASE_URL}/fabrics/${id}/`, {
+    const res = await guardedFetch(`${BASE_URL}/fabrics/${id}/`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify(fabricData),
@@ -646,7 +747,7 @@ export const api = {
   },
 
   async deleteFabric(id) {
-    const res = await fetch(`${BASE_URL}/fabrics/${id}/`, {
+    const res = await guardedFetch(`${BASE_URL}/fabrics/${id}/`, {
       method: 'DELETE',
       headers: getHeaders()
     });
@@ -656,7 +757,7 @@ export const api = {
 
   // Tailors CRUD
   async createTailor(tailorData) {
-    const res = await fetch(`${BASE_URL}/tailors/`, {
+    const res = await guardedFetch(`${BASE_URL}/tailors/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(tailorData),
@@ -666,7 +767,7 @@ export const api = {
   },
 
   async updateTailor(id, tailorData) {
-    const res = await fetch(`${BASE_URL}/tailors/${id}/`, {
+    const res = await guardedFetch(`${BASE_URL}/tailors/${id}/`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify(tailorData),
@@ -676,7 +777,7 @@ export const api = {
   },
 
   async deleteTailor(id) {
-    const res = await fetch(`${BASE_URL}/tailors/${id}/`, {
+    const res = await guardedFetch(`${BASE_URL}/tailors/${id}/`, {
       method: 'DELETE',
       headers: getHeaders()
     });
@@ -686,7 +787,7 @@ export const api = {
 
   // Designs CRUD
   async getAllBoutiqueDesigns() {
-    const res = await fetch(`${BASE_URL}/boutique-designs/`, {
+    const res = await guardedFetch(`${BASE_URL}/boutique-designs/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch all boutique designs');
@@ -694,7 +795,7 @@ export const api = {
   },
 
   async createBoutiqueDesign(designData) {
-    const res = await fetch(`${BASE_URL}/boutique-designs/`, {
+    const res = await guardedFetch(`${BASE_URL}/boutique-designs/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(designData),
@@ -704,7 +805,7 @@ export const api = {
   },
 
   async updateBoutiqueDesign(id, designData) {
-    const res = await fetch(`${BASE_URL}/boutique-designs/${id}/`, {
+    const res = await guardedFetch(`${BASE_URL}/boutique-designs/${id}/`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify(designData),
@@ -714,7 +815,7 @@ export const api = {
   },
 
   async deleteBoutiqueDesign(id) {
-    const res = await fetch(`${BASE_URL}/boutique-designs/${id}/`, {
+    const res = await guardedFetch(`${BASE_URL}/boutique-designs/${id}/`, {
       method: 'DELETE',
       headers: getHeaders()
     });
@@ -724,7 +825,7 @@ export const api = {
 
   // Customers & Orders full directory endpoints
   async getCustomers() {
-    const res = await fetch(`${BASE_URL}/customers/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch customers');
@@ -734,7 +835,7 @@ export const api = {
   // Full customer record, including nested orders and measurement history.
   // The list endpoint returns flat rows, so open a client through this.
   async getCustomer(customerId) {
-    const res = await fetch(`${BASE_URL}/customers/${customerId}/`, {
+    const res = await guardedFetch(`${BASE_URL}/customers/${customerId}/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch customer');
@@ -742,7 +843,7 @@ export const api = {
   },
 
   async getOrders() {
-    const res = await fetch(`${BASE_URL}/orders/`, {
+    const res = await guardedFetch(`${BASE_URL}/orders/`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch orders');
@@ -753,25 +854,25 @@ export const api = {
   async getInventoryItems(params = {}) {
     const url = new URL(`${BASE_URL}/inventory/items/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to fetch inventory');
     return res.json();
   },
 
   async getInventorySummary() {
-    const res = await fetch(`${BASE_URL}/inventory/items/summary/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/inventory/items/summary/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to fetch inventory summary');
     return res.json();
   },
 
   async getInventoryOptions() {
-    const res = await fetch(`${BASE_URL}/inventory/items/options/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/inventory/items/options/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to fetch inventory options');
     return res.json();
   },
 
   async saveInventoryItem(itemData, itemId = null) {
-    const res = await fetch(
+    const res = await guardedFetch(
       itemId ? `${BASE_URL}/inventory/items/${itemId}/` : `${BASE_URL}/inventory/items/`,
       {
         method: itemId ? 'PATCH' : 'POST',
@@ -789,7 +890,7 @@ export const api = {
   // Every stock change goes through one of the movement endpoints so the ledger
   // stays in step; the quantity fields themselves are read-only.
   async moveStock(itemId, movement, payload) {
-    const res = await fetch(`${BASE_URL}/inventory/items/${itemId}/${movement}/`, {
+    const res = await guardedFetch(`${BASE_URL}/inventory/items/${itemId}/${movement}/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(payload),
@@ -802,19 +903,19 @@ export const api = {
   },
 
   async getItemMovements(itemId) {
-    const res = await fetch(`${BASE_URL}/inventory/items/${itemId}/movements/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/inventory/items/${itemId}/movements/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to fetch stock history');
     return res.json();
   },
 
   async getSuppliers() {
-    const res = await fetch(`${BASE_URL}/inventory/suppliers/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/inventory/suppliers/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to fetch suppliers');
     return res.json();
   },
 
   async createSupplier(data) {
-    const res = await fetch(`${BASE_URL}/inventory/suppliers/`, {
+    const res = await guardedFetch(`${BASE_URL}/inventory/suppliers/`, {
       method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
     });
     if (!res.ok) await failWith(res, 'Failed to create supplier');
@@ -822,13 +923,13 @@ export const api = {
   },
 
   async getPurchaseOrders() {
-    const res = await fetch(`${BASE_URL}/inventory/purchase-orders/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/inventory/purchase-orders/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to fetch purchase orders');
     return res.json();
   },
 
   async createPurchaseOrder(data) {
-    const res = await fetch(`${BASE_URL}/inventory/purchase-orders/`, {
+    const res = await guardedFetch(`${BASE_URL}/inventory/purchase-orders/`, {
       method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
     });
     if (!res.ok) {
@@ -839,7 +940,7 @@ export const api = {
   },
 
   async receivePurchaseOrder(poId, lines) {
-    const res = await fetch(`${BASE_URL}/inventory/purchase-orders/${poId}/receive/`, {
+    const res = await guardedFetch(`${BASE_URL}/inventory/purchase-orders/${poId}/receive/`, {
       method: 'POST', headers: getHeaders(), body: JSON.stringify({ lines }),
     });
     if (!res.ok) {
@@ -853,7 +954,7 @@ export const api = {
     const url = new URL(`${BASE_URL}/notifications/`);
     url.searchParams.append('role', role);
     if (email) url.searchParams.append('email', email);
-    const res = await fetch(url.toString(), {
+    const res = await guardedFetch(url.toString(), {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to fetch notifications');
@@ -864,7 +965,7 @@ export const api = {
     const url = new URL(`${BASE_URL}/notifications/mark-all-read/`);
     url.searchParams.append('role', role);
     if (email) url.searchParams.append('email', email);
-    const res = await fetch(url.toString(), {
+    const res = await guardedFetch(url.toString(), {
       method: 'POST',
       headers: getHeaders()
     });
@@ -886,13 +987,13 @@ export const api = {
     Object.entries(orderInput).forEach(([key, value]) => {
       if (value) url.searchParams.append(key, value);
     });
-    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load design context');
     return res.json();
   },
 
   async discoverDesigns(payload) {
-    const res = await fetch(`${BASE_URL}/design-studio/discover/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/discover/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(payload)
@@ -902,7 +1003,7 @@ export const api = {
   },
 
   async createDesignBoard(customerId, title = '', contextSnapshot = {}, queries = []) {
-    const res = await fetch(`${BASE_URL}/design-studio/boards/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/boards/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({
@@ -921,7 +1022,7 @@ export const api = {
     Object.entries(params).forEach(([key, value]) => {
       if (value) url.searchParams.append(key, value);
     });
-    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load design boards');
     return res.json();
   },
@@ -931,7 +1032,7 @@ export const api = {
   // TailorBriefSerializer and two tests -- and its URL appeared nowhere in this
   // file, so the note could never be written from the product.
   async saveProductionNotes(boardId, itemId, notes) {
-    const res = await fetch(
+    const res = await guardedFetch(
       `${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/production-notes/`,
       {
         method: 'PATCH',
@@ -944,7 +1045,7 @@ export const api = {
   },
 
   async addDesignToBoard(boardId, design) {
-    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/boards/${boardId}/items/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(design)
@@ -954,7 +1055,7 @@ export const api = {
   },
 
   async removeDesignFromBoard(boardId, itemId) {
-    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/`, {
       method: 'DELETE',
       headers: getHeaders()
     });
@@ -963,7 +1064,7 @@ export const api = {
   },
 
   async selectBoardDesign(boardId, itemId) {
-    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/select/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/select/`, {
       method: 'POST',
       headers: getHeaders()
     });
@@ -972,7 +1073,7 @@ export const api = {
   },
 
   async customiseBoardDesign(boardId, itemId, changes) {
-    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/customise/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/boards/${boardId}/items/${itemId}/customise/`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify(changes)
@@ -982,7 +1083,7 @@ export const api = {
   },
 
   async approveDesignBoard(boardId) {
-    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/approve/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/boards/${boardId}/approve/`, {
       method: 'POST',
       headers: getHeaders()
     });
@@ -1006,7 +1107,7 @@ export const api = {
   },
 
   async getDesignCategories() {
-    const res = await fetch(`${BASE_URL}/design-studio/categories/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/design-studio/categories/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load design categories');
     return res.json();
   },
@@ -1016,13 +1117,13 @@ export const api = {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== '' && v !== null && v !== undefined) url.searchParams.append(k, v);
     });
-    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load the design library');
     return res.json();
   },
 
   async reviewDesign(id, decision, note = '') {
-    const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/review/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/assets/${id}/review/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ decision, note })
@@ -1033,19 +1134,19 @@ export const api = {
   },
 
   async getDesignApprovalHistory(id) {
-    const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/approval-history/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/design-studio/assets/${id}/approval-history/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load approval history');
     return res.json();
   },
 
   async getDesignDashboard() {
-    const res = await fetch(`${BASE_URL}/design-studio/dashboard/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/design-studio/dashboard/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load the design dashboard');
     return res.json();
   },
 
   async getDesignerPortfolio(id) {
-    const res = await fetch(`${BASE_URL}/design-studio/designers/${id}/portfolio/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/design-studio/designers/${id}/portfolio/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load the portfolio');
     return res.json();
   },
@@ -1054,7 +1155,7 @@ export const api = {
   // themselves. Idempotent server-side -- a second call against an
   // already-linked designer is refused rather than silently reissuing.
   async createDesignerLogin(id, email) {
-    const res = await fetch(`${BASE_URL}/design-studio/designers/${id}/create-login/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/designers/${id}/create-login/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ email })
@@ -1065,7 +1166,7 @@ export const api = {
   },
 
   async getDesignAsset(id) {
-    const res = await fetch(`${BASE_URL}/design-studio/assets/${id}/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/design-studio/assets/${id}/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load the design');
     return res.json();
   },
@@ -1078,13 +1179,13 @@ export const api = {
   async getCollections(params = {}) {
     const url = new URL(`${BASE_URL}/design-studio/collections/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load collections');
     return res.json();
   },
 
   async createCollection(payload) {
-    const res = await fetch(`${BASE_URL}/design-studio/collections/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/collections/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(payload)
@@ -1109,7 +1210,7 @@ export const api = {
     imageFiles.forEach(file => form.append('images', file));
     imageParts.forEach(part => form.append('image_parts', part));
 
-    const res = await fetch(`${BASE_URL}/design-studio/assets/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/assets/`, {
       method: 'POST',
       headers: getHeaders(true),
       body: form
@@ -1142,7 +1243,7 @@ export const api = {
   async getDesignAssignments(params = {}) {
     const url = new URL(`${BASE_URL}/design-studio/assignments/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load design assignments');
     return res.json();
   },
@@ -1150,7 +1251,7 @@ export const api = {
   // Posting for a garment that already has an assignment reassigns it, and
   // comes back 200 rather than 201. An approved garment is refused with 409.
   async assignDesignWork(payload) {
-    const res = await fetch(`${BASE_URL}/design-studio/assignments/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/assignments/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(payload)
@@ -1161,7 +1262,7 @@ export const api = {
   },
 
   async submitDesignAssignment(id, designId, note = '') {
-    const res = await fetch(`${BASE_URL}/design-studio/assignments/${id}/submit/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/assignments/${id}/submit/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ design: designId, note })
@@ -1173,7 +1274,7 @@ export const api = {
 
   // decision: 'approve' | 'changes'.
   async reviewDesignAssignment(id, decision, note = '') {
-    const res = await fetch(`${BASE_URL}/design-studio/assignments/${id}/review/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/assignments/${id}/review/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ decision, note })
@@ -1186,7 +1287,7 @@ export const api = {
   async getDesigners(params = {}) {
     const url = new URL(`${BASE_URL}/design-studio/designers/`);
     Object.entries(params).forEach(([k, v]) => { if (v) url.searchParams.append(k, v); });
-    const res = await fetch(url.toString(), { headers: getHeaders() });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load designers');
     return res.json();
   },
@@ -1195,7 +1296,7 @@ export const api = {
   // credit-only designer -- `email` is optional here and the row carries no
   // login until createDesignerLogin runs against it.
   async createDesigner(payload) {
-    const res = await fetch(`${BASE_URL}/design-studio/designers/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/designers/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(payload)
@@ -1210,19 +1311,19 @@ export const api = {
   // list reaches the wizard without a frontend release.
 
   async getGarmentTemplates() {
-    const res = await fetch(`${BASE_URL}/catalog/templates/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/catalog/templates/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load garment templates');
     return res.json();
   },
 
   async getGarmentTemplate(key) {
-    const res = await fetch(`${BASE_URL}/catalog/templates/${key}/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/catalog/templates/${key}/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, `Failed to load the ${key} template`);
     return res.json();
   },
 
   async createGarmentJob(payload) {
-    const res = await fetch(`${BASE_URL}/catalog/jobs/`, {
+    const res = await guardedFetch(`${BASE_URL}/catalog/jobs/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(payload)
@@ -1233,7 +1334,7 @@ export const api = {
   },
 
   async getGarmentJobs(orderId) {
-    const res = await fetch(`${BASE_URL}/catalog/jobs/?order=${encodeURIComponent(orderId)}`, {
+    const res = await guardedFetch(`${BASE_URL}/catalog/jobs/?order=${encodeURIComponent(orderId)}`, {
       headers: getHeaders()
     });
     if (!res.ok) await failWith(res, 'Failed to load the garments on this order');
@@ -1248,19 +1349,19 @@ export const api = {
   // boutique has done. See domains/orders/drafts.py.
 
   async listOrderDrafts() {
-    const res = await fetch(`${BASE_URL}/order-drafts/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/order-drafts/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load your saved orders');
     return res.json();
   },
 
   async getOrderDraft(id) {
-    const res = await fetch(`${BASE_URL}/order-drafts/${id}/`, { headers: getHeaders() });
+    const res = await guardedFetch(`${BASE_URL}/order-drafts/${id}/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to open that saved order');
     return res.json();
   },
 
   async createOrderDraft(body) {
-    const res = await fetch(`${BASE_URL}/order-drafts/`, {
+    const res = await guardedFetch(`${BASE_URL}/order-drafts/`, {
       method: 'POST', headers: getHeaders(), body: JSON.stringify(body),
     });
     if (!res.ok) await failWith(res, 'Failed to start saving this order');
@@ -1270,7 +1371,7 @@ export const api = {
   /** Save the draft. Throws a tagged error on 409 so the caller can tell a
    *  stale tab from a failed request -- they need different words. */
   async updateOrderDraft(id, body) {
-    const res = await fetch(`${BASE_URL}/order-drafts/${id}/`, {
+    const res = await guardedFetch(`${BASE_URL}/order-drafts/${id}/`, {
       method: 'PATCH', headers: getHeaders(), body: JSON.stringify(body),
     });
     if (res.status === 409) {
@@ -1284,7 +1385,7 @@ export const api = {
   },
 
   async deleteOrderDraft(id) {
-    const res = await fetch(`${BASE_URL}/order-drafts/${id}/`, {
+    const res = await guardedFetch(`${BASE_URL}/order-drafts/${id}/`, {
       method: 'DELETE', headers: getHeaders(),
     });
     if (!res.ok && res.status !== 404) await failWith(res, 'Failed to discard this order');
@@ -1294,7 +1395,7 @@ export const api = {
   /** Place the order. One request, one transaction, and the draft is the
    *  token -- a retry finds it spent rather than booking a second order. */
   async confirmOrderDraft(id) {
-    const res = await fetch(`${BASE_URL}/order-drafts/${id}/confirm/`, {
+    const res = await guardedFetch(`${BASE_URL}/order-drafts/${id}/confirm/`, {
       method: 'POST', headers: getHeaders(),
     });
     const data = await res.json().catch(() => ({}));
@@ -1308,7 +1409,7 @@ export const api = {
   },
 
   async saveDesignBoardToOrder(boardId, orderId) {
-    const res = await fetch(`${BASE_URL}/design-studio/boards/${boardId}/save-to-order/`, {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/boards/${boardId}/save-to-order/`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ order_id: orderId })
@@ -1335,7 +1436,7 @@ const inventoryUrl = (path, params = {}) => {
 };
 
 const inventoryGet = async (path, params, what) => {
-  const res = await fetch(inventoryUrl(path, params), { headers: getHeaders() });
+  const res = await guardedFetch(inventoryUrl(path, params), { headers: getHeaders() });
   const raw = await res.text();
   let data = null;
   try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
@@ -1344,7 +1445,7 @@ const inventoryGet = async (path, params, what) => {
 };
 
 const inventoryPost = async (path, body, what) => {
-  const res = await fetch(inventoryUrl(path), {
+  const res = await guardedFetch(inventoryUrl(path), {
     method: 'POST', headers: getHeaders(), body: JSON.stringify(body || {}),
   });
   const raw = await res.text();
@@ -1373,7 +1474,7 @@ Object.assign(api, {
   newBomVersion: (id) => inventoryPost(`boms/${id}/new-version/`),
   createBomLine: (payload) => inventoryPost('bom-lines/', payload),
   async deleteBomLine(id) {
-    const res = await fetch(inventoryUrl(`bom-lines/${id}/`), {
+    const res = await guardedFetch(inventoryUrl(`bom-lines/${id}/`), {
       method: 'DELETE', headers: getHeaders(),
     });
     if (!res.ok && res.status !== 204) await failWith(res, 'Could not remove the line.');
@@ -1382,6 +1483,21 @@ Object.assign(api, {
 
   // Order material plans
   getMaterialPlans: (params) => inventoryGet('material-plans/', params),
+  // The Master's gathering checklist: created on first look, ticked with a
+  // name, photographed for the road ahead.
+  getMaterialChecklist: (orderId) => inventoryGet('material-plans/checklist/', { order: orderId }),
+  gatherMaterialLine: (planId, lineId, gathered) =>
+    inventoryPost(`material-plans/${planId}/gather/`, { line_id: lineId, gathered }),
+  async addMaterialLinePhoto(planId, lineId, imageFile) {
+    const formData = new FormData();
+    formData.append('line_id', lineId);
+    formData.append('image', imageFile);
+    const res = await guardedFetch(`${BASE_URL}/inventory/material-plans/${planId}/line-photo/`, {
+      method: 'POST', headers: getHeaders(true), body: formData,
+    });
+    if (!res.ok) await failWith(res, 'Could not attach the photograph.');
+    return res.json();
+  },
   planMaterials: (payload) => inventoryPost('material-plans/plan/', payload),
   getPlanAvailability: (id) => inventoryGet(`material-plans/${id}/availability/`),
   reservePlan: (id, payload) => inventoryPost(`material-plans/${id}/reserve/`, payload),

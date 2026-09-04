@@ -177,3 +177,16 @@
     border-right-color: var(--border);
   }
 }
+
+/* The global network-activity bar's sweep, and the small spinner rotation. */
+@keyframes apiActivitySweep {
+  0% { left: -38%; }
+  100% { left: 100%; }
+}
+.spin {
+  animation: spinRotate 0.9s linear infinite;
+}
+@keyframes spinRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

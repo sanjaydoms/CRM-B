@@ -13,9 +13,17 @@ class RolePermission(permissions.BasePermission):
     STAFF_ORDER_ACTIONS = frozenset({
         'transition_stage', 'submit_completion', 'submit_stage_review',
         'update_status',
+        # Reversals reach the view for every staff member so the QC Master can
+        # fail a check; the precise role gates (Owner/Master for reopen,
+        # +QC Master for fail-qc) live in the services, where a refusal also
+        # explains itself.
+        'reopen_stage', 'fail_qc',
     })
 
     SUPERVISOR_ORDER_ACTIONS = frozenset({
+        # The gathering checklist's writes: ticking a line and photographing
+        # the material are the Owner's and the Master's, like the rest here.
+        'gather', 'line_photo',
         'assign_stage', 'upload_garment_image', 'delete_garment_image',
         'publish_garment_images',
         'master_verification',

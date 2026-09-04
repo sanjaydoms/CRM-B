@@ -31,6 +31,9 @@ const es = {
     chooseFromGallery: "Elegir de la galería",
     remove: "Quitar",
     uploading: "Subiendo…",
+    saving: "Guardando…",
+    updating: "Actualizando…",
+    discarding: "Descartando…",
   },
   nav: {
     dashboard: "Panel de control",
@@ -662,6 +665,7 @@ const es = {
     selectExistingCustomerModalTitle: "Seleccionar cliente existente",
     searchCustomerPlaceholder: "Buscar por nombre o número de móvil...",
     noCustomersFoundMatching: "No se encontraron clientes coincidentes",
+    firstCustomerTitle: "Crea tu primer cliente",
   },
   confirmed: {
     title: "Pedido creado para {name} 🎉",

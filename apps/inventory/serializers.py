@@ -268,7 +268,8 @@ class OrderMaterialLineSerializer(serializers.ModelSerializer):
             'material_name', 'unit', 'unit_display', 'required_quantity',
             'reserved_quantity', 'consumed_quantity', 'wasted_quantity',
             'returned_quantity', 'outstanding_reservation', 'available_stock',
-            'is_customer_supplied', 'sequence',
+            'is_customer_supplied',
+            'gathered_at', 'gathered_by_name', 'photos', 'sequence',
         ]
         read_only_fields = fields
 

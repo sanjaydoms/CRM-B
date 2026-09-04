@@ -32,6 +32,9 @@ const de = {
     chooseFromGallery: "Aus Galerie wählen",
     remove: "Entfernen",
     uploading: "Wird hochgeladen…",
+    saving: "Wird gespeichert…",
+    updating: "Wird aktualisiert…",
+    discarding: "Wird verworfen…",
   },
   nav: {
     dashboard: "Dashboard",
@@ -663,6 +666,7 @@ const de = {
     selectExistingCustomerModalTitle: "Bestehenden Kunden auswählen",
     searchCustomerPlaceholder: "Nach Name oder Handynummer suchen...",
     noCustomersFoundMatching: "Keine passenden Kunden gefunden",
+    firstCustomerTitle: "Ersten Kunden anlegen",
   },
   confirmed: {
     title: "Bestellung für {name} angelegt 🎉",

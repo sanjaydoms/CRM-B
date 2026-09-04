@@ -27,6 +27,9 @@ const gu = {
     chooseFromGallery: "ગેલેરીમાંથી પસંદ કરો",
     remove: "દૂર કરો",
     uploading: "અપલોડ થઈ રહ્યું છે…",
+    saving: "સાચવાઈ રહ્યું છે…",
+    updating: "અપડેટ થઈ રહ્યું છે…",
+    discarding: "દૂર થઈ રહ્યું છે…",
   },
   nav: {
     dashboard: "ડેશબોર્ડ",
@@ -658,6 +661,7 @@ const gu = {
     selectExistingCustomerModalTitle: "હાલના ગ્રાહક પસંદ કરો",
     searchCustomerPlaceholder: "નામ અથવા મોબાઇલ નંબરથી શોધો...",
     noCustomersFoundMatching: "મેળ ખાતા ગ્રાહકો મળ્યા નથી",
+    firstCustomerTitle: "તમારો પહેલો ગ્રાહક બનાવો",
   },
   confirmed: {
     title: "{name} માટે ઓર્ડર બનાવાયો 🎉",

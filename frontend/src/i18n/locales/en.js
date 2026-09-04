@@ -22,6 +22,9 @@ const en = {
     chooseFromGallery: "Choose from gallery",
     remove: "Remove",
     uploading: "Uploading…",
+    saving: "Saving…",
+    updating: "Updating…",
+    discarding: "Discarding…",
   },
   nav: {
     dashboard: "Dashboard",
@@ -654,6 +657,7 @@ const en = {
     selectExistingCustomerModalTitle: "Select Existing Customer",
     searchCustomerPlaceholder: "Search by customer name or mobile number...",
     noCustomersFoundMatching: "No customers found matching",
+    firstCustomerTitle: "Create Your First Customer",
   },
   confirmed: {
     title: "Order created for {name} 🎉",

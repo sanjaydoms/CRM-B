@@ -29,6 +29,9 @@ const ta = {
     chooseFromGallery: "கேலரியிலிருந்து தேர்ந்தெடு",
     remove: "அகற்று",
     uploading: "பதிவேற்றுகிறது…",
+    saving: "சேமிக்கிறது…",
+    updating: "புதுப்பிக்கிறது…",
+    discarding: "நீக்குகிறது…",
   },
   nav: {
     dashboard: "டாஷ்போர்டு",
@@ -660,6 +663,7 @@ const ta = {
     selectExistingCustomerModalTitle: "வாடிக்கையாளரைத் தேர்ந்தெடு",
     searchCustomerPlaceholder: "பெயர் அல்லது மொபைல் எண் மூலம் தேடுங்கள்...",
     noCustomersFoundMatching: "பொருந்தக்கூடிய வாடிக்கையாளர்கள் கிடைக்கவில்லை",
+    firstCustomerTitle: "உங்கள் முதல் வாடிக்கையாளரை உருவாக்கவும்",
   },
   confirmed: {
     title: "{name} க்கான ஆர்டர் உருவாக்கப்பட்டது 🎉",

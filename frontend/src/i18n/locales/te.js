@@ -24,6 +24,9 @@ const te = {
     chooseFromGallery: "గ్యాలరీ నుండి ఎంచుకోండి",
     remove: "తొలగించు",
     uploading: "అప్‌లోడ్ అవుతోంది…",
+    saving: "సేవ్ అవుతోంది…",
+    updating: "నవీకరిస్తోంది…",
+    discarding: "తొలగిస్తోంది…",
   },
   nav: {
     dashboard: "డాష్‌బోర్డ్",
@@ -655,6 +658,7 @@ const te = {
     selectExistingCustomerModalTitle: "పాత కస్టమర్‌ను ఎంచుకోండి",
     searchCustomerPlaceholder: "కస్టమర్ పేరు లేదా మొబైల్ సంఖ్య ద్వారా వెతకండి...",
     noCustomersFoundMatching: "సరిపోలే కస్టమర్లు ఏవీ కనుగొనబడలేదు",
+    firstCustomerTitle: "మీ మొదటి కస్టమర్‌ను సృష్టించండి",
   },
   confirmed: {
     title: "{name} కోసం ఆర్డర్ సృష్టించబడింది 🎉",
