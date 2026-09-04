@@ -33,6 +33,8 @@ const kn = {
     saving: "ಉಳಿಸಲಾಗುತ್ತಿದೆ…",
     updating: "ನವೀಕರಿಸಲಾಗುತ್ತಿದೆ…",
     discarding: "ತೆಗೆದುಹಾಕಲಾಗುತ್ತಿದೆ…",
+    close: "ಮುಚ್ಚಿ",
+    saveChanges: "ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ",
   },
   nav: {
     dashboard: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್",
@@ -143,6 +145,13 @@ const kn = {
     appointment: "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್",
     withStaff: "· {name} ಜೊತೆ",
     moreAppointments: "+{count} ಹೆಚ್ಚು ಬುಕ್ ಆಗಿವೆ",
+    appointmentDetails: "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ವಿವರಗಳು",
+    cancelAppointment: "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ರದ್ದುಗೊಳಿಸಿ",
+    showAllAppointments: "ಎಲ್ಲವನ್ನೂ ತೋರಿಸಿ",
+    showUpcomingOnly: "ಮುಂಬರುವವು ಮಾತ್ರ",
+    allAppointments: "ಎಲ್ಲಾ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಳು",
+    openAppointment: "ಈ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ತೆರೆಯಿರಿ",
+    bookAppointmentBtn: "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಬುಕ್ ಮಾಡಿ",
   },
   ordersPage: {
     title: "ಅಟೆಲಿಯರ್ ಆರ್ಡರ್ ರಿಜಿಸ್ಟ್ರಿ",

@@ -31,6 +31,8 @@ const ml = {
     saving: "സേവ് ചെയ്യുന്നു…",
     updating: "അപ്ഡേറ്റ് ചെയ്യുന്നു…",
     discarding: "നീക്കം ചെയ്യുന്നു…",
+    close: "അടയ്ക്കുക",
+    saveChanges: "മാറ്റങ്ങൾ സേവ് ചെയ്യുക",
   },
   nav: {
     dashboard: "ഡാഷ്‌ബോർഡ്",
@@ -141,6 +143,13 @@ const ml = {
     appointment: "അപ്പോയിന്റ്മെന്റ്",
     withStaff: "· {name} ഒപ്പം",
     moreAppointments: "+{count} എണ്ണം കൂടി ബുക്ക് ചെയ്തു",
+    appointmentDetails: "അപ്പോയിന്റ്മെന്റ് വിശദാംശങ്ങൾ",
+    cancelAppointment: "അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കുക",
+    showAllAppointments: "എല്ലാം കാണിക്കുക",
+    showUpcomingOnly: "വരാനിരിക്കുന്നവ മാത്രം",
+    allAppointments: "എല്ലാ അപ്പോയിന്റ്മെന്റുകളും",
+    openAppointment: "ഈ അപ്പോയിന്റ്മെന്റ് തുറക്കുക",
+    bookAppointmentBtn: "അപ്പോയിന്റ്മെന്റ് ബുക്ക് ചെയ്യുക",
   },
   ordersPage: {
     title: "അറ്റലിയർ ഓർഡർ രജിസ്ട്രി",

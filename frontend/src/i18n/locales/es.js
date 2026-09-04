@@ -34,6 +34,8 @@ const es = {
     saving: "Guardando…",
     updating: "Actualizando…",
     discarding: "Descartando…",
+    close: "Cerrar",
+    saveChanges: "Guardar cambios",
   },
   nav: {
     dashboard: "Panel de control",
@@ -144,6 +146,13 @@ const es = {
     appointment: "Cita",
     withStaff: "· con {name}",
     moreAppointments: "+{count} más reservadas",
+    appointmentDetails: "Detalles de la cita",
+    cancelAppointment: "Cancelar la cita",
+    showAllAppointments: "Ver todas",
+    showUpcomingOnly: "Solo próximas",
+    allAppointments: "Todas las citas",
+    openAppointment: "Abrir esta cita",
+    bookAppointmentBtn: "Reservar cita",
   },
   ordersPage: {
     title: "Registro de pedidos del Atelier",

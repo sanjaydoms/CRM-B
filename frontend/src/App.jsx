@@ -103,6 +103,15 @@ const waLink = (raw) => `https://wa.me/${String(raw || '').replace(/\D/g, '')}`;
 
 
 // Mirrors Appointment.TYPE_CHOICES in apps/scheduling/models.py.
+// Mirrors Appointment.STATUS_CHOICES in apps/scheduling/models.py.
+const APPOINTMENT_STATUS_LABELS = {
+  SCHEDULED: 'Scheduled',
+  CONFIRMED: 'Confirmed',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+  RESCHEDULED: 'Rescheduled',
+};
+
 const APPOINTMENT_TYPE_LABELS = {
   CONSULTATION: 'Design Consultation',
   MEASUREMENT: 'Measurement Fitting',
@@ -1439,6 +1448,12 @@ function App() {
     customer: '', appointment_type: 'TRIAL', scheduled_time: '', assigned_staff: '', notes: '',
   });
   const [savingAppointment, setSavingAppointment] = useState(false);
+  // The appointment the modal is looking at. Null means the modal is booking a
+  // new one -- same form either way, because it is the same five fields.
+  const [editingAppointment, setEditingAppointment] = useState(null);
+  // Cancelled and past appointments are the record, and the owner has to be
+  // able to open one. Off by default: the panel is about the day ahead.
+  const [showAllAppointments, setShowAllAppointments] = useState(false);
   const [fabrics, setFabrics] = useState([]);
   const [allDesigns, setAllDesigns] = useState([]);
   const [customersList, setCustomersList] = useState([]);
@@ -1782,24 +1797,83 @@ function App() {
     }
   };
 
+  const blankAppointmentForm = {
+    customer: '', appointment_type: 'TRIAL', scheduled_time: '',
+    assigned_staff: '', notes: '', status: 'SCHEDULED',
+  };
+
+  /** Reload the panel under whichever view it is showing. */
+  const reloadAppointments = async () => {
+    const fresh = await api.getAppointments(
+      showAllAppointments ? {} : { upcoming: 'true' });
+    setAppointments(fresh);
+  };
+
+  /** Open one to look at it. A datetime-local input wants the boutique's own
+   *  wall clock with no zone on the end, so the ISO string is trimmed to the
+   *  minute after being read in local time. */
+  const openAppointment = (appt) => {
+    const when = new Date(appt.scheduled_time);
+    const local = new Date(when.getTime() - when.getTimezoneOffset() * 60000)
+      .toISOString().slice(0, 16);
+    setEditingAppointment(appt);
+    setAppointmentForm({
+      customer: appt.customer,
+      appointment_type: appt.appointment_type,
+      scheduled_time: local,
+      assigned_staff: appt.assigned_staff || '',
+      notes: appt.notes || '',
+      status: appt.status,
+    });
+    setShowAppointmentModal(true);
+  };
+
+  const closeAppointmentModal = () => {
+    setShowAppointmentModal(false);
+    setEditingAppointment(null);
+    setAppointmentForm(blankAppointmentForm);
+  };
+
   const handleSaveAppointment = async (e) => {
     e.preventDefault();
     if (savingAppointment) return;
     setSavingAppointment(true);
     try {
-      await api.createAppointment({
+      const payload = {
         ...appointmentForm,
         assigned_staff: appointmentForm.assigned_staff || null,
         scheduled_time: new Date(appointmentForm.scheduled_time).toISOString(),
-      });
-      const fresh = await api.getAppointments({ upcoming: 'true' });
-      setAppointments(fresh);
-      setShowAppointmentModal(false);
-      setAppointmentForm({
-        customer: '', appointment_type: 'TRIAL', scheduled_time: '', assigned_staff: '', notes: '',
-      });
+      };
+      if (editingAppointment) {
+        // The client cannot be moved to another person's appointment: that is
+        // a different booking, not an edit of this one.
+        delete payload.customer;
+        await api.updateAppointment(editingAppointment.id, payload);
+      } else {
+        await api.createAppointment(payload);
+      }
+      await reloadAppointments();
+      closeAppointmentModal();
     } catch (err) {
-      alert("Could not book the appointment: " + err.message);
+      alert((editingAppointment ? "Could not save the appointment: "
+                                : "Could not book the appointment: ") + err.message);
+    } finally {
+      setSavingAppointment(false);
+    }
+  };
+
+  /** Cancelling keeps the record and the reason it existed; it does not delete
+   *  the customer's history. */
+  const handleCancelAppointment = async () => {
+    if (!editingAppointment) return;
+    if (!window.confirm('Cancel this appointment? The customer keeps the record of it.')) return;
+    setSavingAppointment(true);
+    try {
+      await api.updateAppointment(editingAppointment.id, { status: 'CANCELLED' });
+      await reloadAppointments();
+      closeAppointmentModal();
+    } catch (err) {
+      alert("Could not cancel the appointment: " + err.message);
     } finally {
       setSavingAppointment(false);
     }
@@ -3777,7 +3851,7 @@ function App() {
                     <h4>{t('dashboard.fabricLibrary', 'Fabric Library')}</h4>
                     <p>{t('dashboard.exploreFabrics', 'Explore fabrics')}</p>
                   </div>
-                  <div className="quick-action-item" onClick={() => setShowAppointmentModal(true)}>
+                  <div className="quick-action-item" onClick={() => { setEditingAppointment(null); setAppointmentForm(blankAppointmentForm); setShowAppointmentModal(true); }}>
                     <div className="quick-action-icon-box"><Calendar size={18} /></div>
                     <h4>{t('dashboard.bookAppointment', 'Book Appointment')}</h4>
                     <p>{t('dashboard.consultStylist', 'Consult with stylist')}</p>
@@ -4106,7 +4180,30 @@ function App() {
                 {/* Upcoming Appointments & Style Inspiration Row */}
                 <div className="dashboard-row-layout">
                   <div>
-                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>{t('dashboard.upcomingAppointments', 'Upcoming Appointments')}</h3>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                                  gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>
+                        {showAllAppointments
+                          ? t('dashboard.allAppointments', 'All Appointments')
+                          : t('dashboard.upcomingAppointments', 'Upcoming Appointments')}
+                      </h3>
+                      {/* Cancelled and finished appointments leave the panel,
+                          so without this the owner could never open one again. */}
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '11px', padding: '4px 10px' }}
+                        onClick={async () => {
+                          const next = !showAllAppointments;
+                          setShowAllAppointments(next);
+                          setAppointments(await api.getAppointments(next ? {} : { upcoming: 'true' }));
+                        }}
+                      >
+                        {showAllAppointments
+                          ? t('dashboard.showUpcomingOnly', 'Upcoming only')
+                          : t('dashboard.showAllAppointments', 'Show all')}
+                      </button>
+                    </div>
                     {/* Real appointments. These were two literal cards naming
                         "Anya (Stylist)" and "Rohit (Master Tailor)" on fixed
                         dates -- shown to every boutique including one created
@@ -4122,7 +4219,17 @@ function App() {
                       ) : appointments.slice(0, 5).map(appt => {
                         const when = new Date(appt.scheduled_time);
                         return (
-                          <div className="appt-card" key={appt.id}>
+                          <div
+                            className="appt-card"
+                            key={appt.id}
+                            role="button"
+                            tabIndex={0}
+                            title={t('dashboard.openAppointment', 'Open this appointment')}
+                            style={{ cursor: 'pointer',
+                                     opacity: appt.status === 'CANCELLED' ? 0.55 : 1 }}
+                            onClick={() => openAppointment(appt)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openAppointment(appt); }}
+                          >
                             <div className="appt-date-box">
                               <span className="appt-day">{when.toLocaleDateString(undefined, { day: '2-digit' })}</span>
                               <span className="appt-month">{when.toLocaleDateString(undefined, { month: 'short' })}</span>
@@ -4139,6 +4246,9 @@ function App() {
                               </span>
                               <span className="appt-time">
                                 {when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                                {appt.status && appt.status !== 'SCHEDULED'
+                                  ? ` · ${APPOINTMENT_STATUS_LABELS[appt.status] || appt.status}`
+                                  : ''}
                               </span>
                             </div>
                           </div>
@@ -6882,14 +6992,18 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '460px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    Book an Appointment
+                    {editingAppointment
+                      ? t('dashboard.appointmentDetails', 'Appointment Details')
+                      : t('dashboard.bookAppointment', 'Book an Appointment')}
                   </h3>
-                  <button className="close-btn" onClick={() => setShowAppointmentModal(false)}><X size={20} /></button>
+                  <button className="close-btn" onClick={closeAppointmentModal}><X size={20} /></button>
                 </div>
                 <form onSubmit={handleSaveAppointment} style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
                     <label className="form-label">Client *</label>
-                    <select className="form-control" required
+                    {/* Whose appointment this is cannot be edited -- moving it
+                        to another person is a different booking. */}
+                    <select className="form-control" required disabled={!!editingAppointment}
                             value={appointmentForm.customer}
                             onChange={(e) => setAppointmentForm({ ...appointmentForm, customer: e.target.value })}>
                       <option value="">Select a client</option>
@@ -6923,6 +7037,18 @@ function App() {
                       {tailors.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>
+                  {editingAppointment && (
+                    <div>
+                      <label className="form-label">Status</label>
+                      <select className="form-control"
+                              value={appointmentForm.status}
+                              onChange={(e) => setAppointmentForm({ ...appointmentForm, status: e.target.value })}>
+                        {Object.entries(APPOINTMENT_STATUS_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="form-label">Notes</label>
                     <textarea className="form-control" rows={2}
@@ -6930,9 +7056,22 @@ function App() {
                               onChange={(e) => setAppointmentForm({ ...appointmentForm, notes: e.target.value })} />
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowAppointmentModal(false)}>Cancel</button>
+                    {editingAppointment && appointmentForm.status !== 'CANCELLED' && (
+                      <button type="button" className="btn-secondary" disabled={savingAppointment}
+                              style={{ marginRight: 'auto', color: '#c0392b', borderColor: 'rgba(192,57,43,0.3)' }}
+                              onClick={handleCancelAppointment}>
+                        {t('dashboard.cancelAppointment', 'Cancel appointment')}
+                      </button>
+                    )}
+                    <button type="button" className="btn-secondary" onClick={closeAppointmentModal}>
+                      {t('common.close', 'Close')}
+                    </button>
                     <button type="submit" className="btn-primary" disabled={savingAppointment}>
-                      {savingAppointment ? 'Booking…' : 'Book appointment'}
+                      {savingAppointment
+                        ? t('common.saving', 'Saving…')
+                        : editingAppointment
+                          ? t('common.saveChanges', 'Save changes')
+                          : t('dashboard.bookAppointmentBtn', 'Book appointment')}
                     </button>
                   </div>
                 </form>

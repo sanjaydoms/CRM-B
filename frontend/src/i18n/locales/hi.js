@@ -25,6 +25,8 @@ const hi = {
     saving: "सहेजा जा रहा है…",
     updating: "अपडेट हो रहा है…",
     discarding: "हटाया जा रहा है…",
+    close: "बंद करें",
+    saveChanges: "परिवर्तन सहेजें",
   },
   nav: {
     dashboard: "डैशबोर्ड",
@@ -135,6 +137,13 @@ const hi = {
     appointment: "अपॉइंटमेंट",
     withStaff: "· {name} के साथ",
     moreAppointments: "+{count} और बुक हैं",
+    appointmentDetails: "अपॉइंटमेंट विवरण",
+    cancelAppointment: "अपॉइंटमेंट रद्द करें",
+    showAllAppointments: "सभी दिखाएं",
+    showUpcomingOnly: "केवल आगामी",
+    allAppointments: "सभी अपॉइंटमेंट",
+    openAppointment: "यह अपॉइंटमेंट खोलें",
+    bookAppointmentBtn: "अपॉइंटमेंट बुक करें",
   },
   ordersPage: {
     title: "एटेलियर ऑर्डर रजिस्ट्री",

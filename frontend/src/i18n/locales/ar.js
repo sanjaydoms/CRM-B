@@ -28,6 +28,8 @@ const ar = {
     saving: "جارٍ الحفظ…",
     updating: "جارٍ التحديث…",
     discarding: "جارٍ الحذف…",
+    close: "إغلاق",
+    saveChanges: "حفظ التغييرات",
   },
   nav: {
     dashboard: "لوحة التحكم",
@@ -138,6 +140,13 @@ const ar = {
     appointment: "موعد",
     withStaff: "· مع {name}",
     moreAppointments: "+{count} مواعيد أخرى محجوزة",
+    appointmentDetails: "تفاصيل الموعد",
+    cancelAppointment: "إلغاء الموعد",
+    showAllAppointments: "عرض الكل",
+    showUpcomingOnly: "القادمة فقط",
+    allAppointments: "كل المواعيد",
+    openAppointment: "افتح هذا الموعد",
+    bookAppointmentBtn: "حجز موعد",
   },
   ordersPage: {
     title: "سجل طلبات الأتيليه",

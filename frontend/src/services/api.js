@@ -389,6 +389,18 @@ export const api = {
     return res.json();
   },
 
+  // Rescheduling, reassigning, cancelling: the same record, edited.
+  async updateAppointment(id, payload) {
+    const res = await guardedFetch(`${BASE_URL}/scheduling/appointments/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(describeApiError(res, data));
+    return data;
+  },
+
   async createAppointment(payload) {
     const res = await guardedFetch(`${BASE_URL}/scheduling/appointments/`, {
       method: 'POST',

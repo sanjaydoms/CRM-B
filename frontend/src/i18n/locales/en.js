@@ -25,6 +25,8 @@ const en = {
     saving: "Saving…",
     updating: "Updating…",
     discarding: "Discarding…",
+    close: "Close",
+    saveChanges: "Save changes",
   },
   nav: {
     dashboard: "Dashboard",
@@ -135,6 +137,13 @@ const en = {
     appointment: "Appointment",
     withStaff: "· with {name}",
     moreAppointments: "+{count} more booked",
+    appointmentDetails: "Appointment Details",
+    cancelAppointment: "Cancel appointment",
+    showAllAppointments: "Show all",
+    showUpcomingOnly: "Upcoming only",
+    allAppointments: "All Appointments",
+    openAppointment: "Open this appointment",
+    bookAppointmentBtn: "Book appointment",
   },
   ordersPage: {
     title: "Atelier Orders Registry",

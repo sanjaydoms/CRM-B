@@ -35,6 +35,8 @@ const de = {
     saving: "Wird gespeichert…",
     updating: "Wird aktualisiert…",
     discarding: "Wird verworfen…",
+    close: "Schließen",
+    saveChanges: "Änderungen speichern",
   },
   nav: {
     dashboard: "Dashboard",
@@ -145,6 +147,13 @@ const de = {
     appointment: "Termin",
     withStaff: "· mit {name}",
     moreAppointments: "+{count} weitere gebucht",
+    appointmentDetails: "Termindetails",
+    cancelAppointment: "Termin absagen",
+    showAllAppointments: "Alle anzeigen",
+    showUpcomingOnly: "Nur bevorstehende",
+    allAppointments: "Alle Termine",
+    openAppointment: "Diesen Termin öffnen",
+    bookAppointmentBtn: "Termin buchen",
   },
   ordersPage: {
     title: "Atelier-Bestellregister",

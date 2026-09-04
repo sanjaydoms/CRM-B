@@ -32,6 +32,8 @@ const ta = {
     saving: "சேமிக்கிறது…",
     updating: "புதுப்பிக்கிறது…",
     discarding: "நீக்குகிறது…",
+    close: "மூடு",
+    saveChanges: "மாற்றங்களைச் சேமி",
   },
   nav: {
     dashboard: "டாஷ்போர்டு",
@@ -142,6 +144,13 @@ const ta = {
     appointment: "சந்திப்பு",
     withStaff: "· {name} உடன்",
     moreAppointments: "+{count} மேலும் பதிவு",
+    appointmentDetails: "சந்திப்பு விவரங்கள்",
+    cancelAppointment: "சந்திப்பை ரத்து செய்",
+    showAllAppointments: "அனைத்தையும் காட்டு",
+    showUpcomingOnly: "வரவிருப்பவை மட்டும்",
+    allAppointments: "அனைத்து சந்திப்புகள்",
+    openAppointment: "இந்த சந்திப்பைத் திற",
+    bookAppointmentBtn: "சந்திப்பைப் பதிவு செய்",
   },
   ordersPage: {
     title: "அட்டெலியர் ஆர்டர் பதிவேடு",

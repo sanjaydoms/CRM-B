@@ -30,6 +30,8 @@ const gu = {
     saving: "સાચવાઈ રહ્યું છે…",
     updating: "અપડેટ થઈ રહ્યું છે…",
     discarding: "દૂર થઈ રહ્યું છે…",
+    close: "બંધ કરો",
+    saveChanges: "ફેરફારો સાચવો",
   },
   nav: {
     dashboard: "ડેશબોર્ડ",
@@ -140,6 +142,13 @@ const gu = {
     appointment: "એપોઇન્ટમેન્ટ",
     withStaff: "· {name} સાથે",
     moreAppointments: "+{count} વધુ બુક થયેલ",
+    appointmentDetails: "એપોઇન્ટમેન્ટ વિગતો",
+    cancelAppointment: "એપોઇન્ટમેન્ટ રદ કરો",
+    showAllAppointments: "બધું બતાવો",
+    showUpcomingOnly: "ફક્ત આગામી",
+    allAppointments: "બધી એપોઇન્ટમેન્ટ",
+    openAppointment: "આ એપોઇન્ટમેન્ટ ખોલો",
+    bookAppointmentBtn: "એપોઇન્ટમેન્ટ બુક કરો",
   },
   ordersPage: {
     title: "એટેલિયર ઓર્ડર રજિસ્ટ્રી",

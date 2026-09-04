@@ -27,6 +27,8 @@ const mr = {
     saving: "जतन होत आहे…",
     updating: "अद्यतनित होत आहे…",
     discarding: "काढून टाकत आहे…",
+    close: "बंद करा",
+    saveChanges: "बदल जतन करा",
   },
   nav: {
     dashboard: "डॅशबोर्ड",
@@ -137,6 +139,13 @@ const mr = {
     appointment: "अपॉइंटमेंट",
     withStaff: "· {name} सोबत",
     moreAppointments: "+{count} अधिक बुक आहेत",
+    appointmentDetails: "अपॉइंटमेंट तपशील",
+    cancelAppointment: "अपॉइंटमेंट रद्द करा",
+    showAllAppointments: "सर्व दाखवा",
+    showUpcomingOnly: "फक्त आगामी",
+    allAppointments: "सर्व अपॉइंटमेंट",
+    openAppointment: "ही अपॉइंटमेंट उघडा",
+    bookAppointmentBtn: "अपॉइंटमेंट बुक करा",
   },
   ordersPage: {
     title: "अ‍ॅटेलियर ऑर्डर नोंदवही",

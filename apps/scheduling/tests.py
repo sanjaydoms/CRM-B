@@ -62,6 +62,32 @@ class UpcomingAppointmentTests(TenantTestCase):
         self.assertEqual(len(rows), 3)
         self.assertEqual(rows[0], str(self.past.id), 'ordered by when, soonest first')
 
+    def test_rescheduling_moves_the_same_record(self):
+        moved_to = (timezone.now() + timedelta(days=9)).replace(microsecond=0)
+        response = self.api.patch(
+            reverse('appointment-detail', args=[self.soon.id]),
+            {'scheduled_time': moved_to.isoformat(), 'assigned_staff': None,
+             'notes': 'Moved at the counter'},
+            format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+
+        self.soon.refresh_from_db()
+        self.assertEqual(self.soon.scheduled_time, moved_to)
+        self.assertEqual(self.soon.notes, 'Moved at the counter')
+        self.assertEqual(Appointment.objects.count(), 3, 'edited, not re-booked')
+
+    def test_cancelling_keeps_the_record_and_clears_the_panel(self):
+        response = self.api.patch(
+            reverse('appointment-detail', args=[self.soon.id]),
+            {'status': 'CANCELLED'}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+
+        self.soon.refresh_from_db()
+        self.assertEqual(self.soon.status, 'CANCELLED')
+        # Gone from the day ahead, still in the diary the owner can open.
+        self.assertNotIn(str(self.soon.id), self.ids('?upcoming=true'))
+        self.assertIn(str(self.soon.id), self.ids())
+
     def test_the_owner_sees_an_appointment_the_moment_it_is_booked(self):
         booked = self.api.post(reverse('appointment-list'), {
             'customer': str(self.customer.id),

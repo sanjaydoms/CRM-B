@@ -27,6 +27,8 @@ const te = {
     saving: "సేవ్ అవుతోంది…",
     updating: "నవీకరిస్తోంది…",
     discarding: "తొలగిస్తోంది…",
+    close: "మూసివేయి",
+    saveChanges: "మార్పులు సేవ్ చేయి",
   },
   nav: {
     dashboard: "డాష్‌బోర్డ్",
@@ -137,6 +139,13 @@ const te = {
     appointment: "అపాయింట్‌మెంట్",
     withStaff: "· {name} తో",
     moreAppointments: "+{count} మరిన్ని బుక్ చేయబడ్డాయి",
+    appointmentDetails: "అపాయింట్‌మెంట్ వివరాలు",
+    cancelAppointment: "అపాయింట్‌మెంట్ రద్దు చేయండి",
+    showAllAppointments: "అన్నీ చూపించు",
+    showUpcomingOnly: "రాబోయేవి మాత్రమే",
+    allAppointments: "అన్ని అపాయింట్‌మెంట్లు",
+    openAppointment: "ఈ అపాయింట్‌మెంట్ తెరవండి",
+    bookAppointmentBtn: "అపాయింట్‌మెంట్ బుక్ చేయండి",
   },
   ordersPage: {
     title: "ఎటేలియర్ ఆర్డర్ రిజిస్ట్రీ",
