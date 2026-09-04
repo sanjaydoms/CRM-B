@@ -144,6 +144,7 @@ const de = {
     noAppointments: "Keine Termine gebucht.",
     appointment: "Termin",
     withStaff: "· mit {name}",
+    moreAppointments: "+{count} weitere gebucht",
   },
   ordersPage: {
     title: "Atelier-Bestellregister",

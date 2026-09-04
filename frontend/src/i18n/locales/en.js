@@ -134,6 +134,7 @@ const en = {
     noAppointments: "No appointments booked.",
     appointment: "Appointment",
     withStaff: "· with {name}",
+    moreAppointments: "+{count} more booked",
   },
   ordersPage: {
     title: "Atelier Orders Registry",

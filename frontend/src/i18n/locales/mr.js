@@ -136,6 +136,7 @@ const mr = {
     noAppointments: "कोणत्याही अपॉइंटमेंट्स बुक केलेल्या नाहीत.",
     appointment: "अपॉइंटमेंट",
     withStaff: "· {name} सोबत",
+    moreAppointments: "+{count} अधिक बुक आहेत",
   },
   ordersPage: {
     title: "अ‍ॅटेलियर ऑर्डर नोंदवही",

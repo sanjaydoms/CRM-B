@@ -1683,7 +1683,9 @@ function App() {
 
     await load('orders', api.getOrders, setOrdersList);
     await load('tailors', api.getTailors, setTailors);
-    await load('appointments', api.getAppointments, setAppointments);
+    // The panel this fills says Upcoming, so it asks for upcoming: past
+    // bookings and cancelled ones are history, not the day ahead.
+    await load('appointments', () => api.getAppointments({ upcoming: 'true' }), setAppointments);
     await load('fabrics', api.getFabrics, setFabrics);
     await load('designs', api.getAllBoutiqueDesigns, setAllDesigns);
     await load('settings', api.getBoutiqueSettings, (data) => {
@@ -1790,7 +1792,7 @@ function App() {
         assigned_staff: appointmentForm.assigned_staff || null,
         scheduled_time: new Date(appointmentForm.scheduled_time).toISOString(),
       });
-      const fresh = await api.getAppointments();
+      const fresh = await api.getAppointments({ upcoming: 'true' });
       setAppointments(fresh);
       setShowAppointmentModal(false);
       setAppointmentForm({
@@ -4117,7 +4119,7 @@ function App() {
                         <div style={{ padding: '16px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
                           {t('dashboard.noAppointments', 'No appointments booked.')}
                         </div>
-                      ) : appointments.map(appt => {
+                      ) : appointments.slice(0, 5).map(appt => {
                         const when = new Date(appt.scheduled_time);
                         return (
                           <div className="appt-card" key={appt.id}>
@@ -4142,6 +4144,12 @@ function App() {
                           </div>
                         );
                       })}
+                      {appointments.length > 5 && (
+                        <div style={{ padding: '10px 16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          {t('dashboard.moreAppointments', '+{count} more booked',
+                             { count: appointments.length - 5 })}
+                        </div>
+                      )}
                     </div>
                   </div>
 

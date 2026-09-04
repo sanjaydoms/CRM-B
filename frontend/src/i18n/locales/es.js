@@ -143,6 +143,7 @@ const es = {
     noAppointments: "No hay citas reservadas.",
     appointment: "Cita",
     withStaff: "· con {name}",
+    moreAppointments: "+{count} más reservadas",
   },
   ordersPage: {
     title: "Registro de pedidos del Atelier",

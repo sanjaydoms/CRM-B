@@ -12,7 +12,20 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         customers = visible_customers(Customer.objects.all(), self.request.user)
-        return super().get_queryset().filter(customer__in=customers)
+        queryset = super().get_queryset().filter(customer__in=customers)
+
+        # The dashboard panel is headed "Upcoming Appointments" and was handed
+        # every appointment the boutique had ever booked, oldest first -- so a
+        # fitting from three months ago sat at the top of it, a cancelled one
+        # sat below that, and the trial happening this afternoon was somewhere
+        # further down. Asking for what the panel actually promises is one
+        # parameter; without it the panel could only ever grow more wrong.
+        if self.request.query_params.get('upcoming') == 'true':
+            from django.utils import timezone
+            queryset = queryset.filter(
+                scheduled_time__gte=timezone.now()
+            ).exclude(status='CANCELLED')
+        return queryset
 
     def perform_create(self, serializer):
         appointment = serializer.save()

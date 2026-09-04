@@ -134,6 +134,7 @@ const hi = {
     noAppointments: "कोई अपॉइंटमेंट बुक नहीं है।",
     appointment: "अपॉइंटमेंट",
     withStaff: "· {name} के साथ",
+    moreAppointments: "+{count} और बुक हैं",
   },
   ordersPage: {
     title: "एटेलियर ऑर्डर रजिस्ट्री",

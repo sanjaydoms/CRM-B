@@ -139,6 +139,7 @@ const gu = {
     noAppointments: "કોઈ એપોઇન્ટમેન્ટ બુક નથી.",
     appointment: "એપોઇન્ટમેન્ટ",
     withStaff: "· {name} સાથે",
+    moreAppointments: "+{count} વધુ બુક થયેલ",
   },
   ordersPage: {
     title: "એટેલિયર ઓર્ડર રજિસ્ટ્રી",

@@ -136,6 +136,7 @@ const te = {
     noAppointments: "అపాయింట్‌మెంట్‌లు ఏవీ లేవు.",
     appointment: "అపాయింట్‌మెంట్",
     withStaff: "· {name} తో",
+    moreAppointments: "+{count} మరిన్ని బుక్ చేయబడ్డాయి",
   },
   ordersPage: {
     title: "ఎటేలియర్ ఆర్డర్ రిజిస్ట్రీ",

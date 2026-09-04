@@ -140,6 +140,7 @@ const ml = {
     noAppointments: "അപ്പോയിന്റ്മെന്റുകളൊന്നും ബുക്ക് ചെയ്തിട്ടില്ല.",
     appointment: "അപ്പോയിന്റ്മെന്റ്",
     withStaff: "· {name} ഒപ്പം",
+    moreAppointments: "+{count} എണ്ണം കൂടി ബുക്ക് ചെയ്തു",
   },
   ordersPage: {
     title: "അറ്റലിയർ ഓർഡർ രജിസ്ട്രി",

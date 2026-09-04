@@ -141,6 +141,7 @@ const ta = {
     noAppointments: "சந்திப்புகள் எதுவும் பதிவு செய்யப்படவில்லை.",
     appointment: "சந்திப்பு",
     withStaff: "· {name} உடன்",
+    moreAppointments: "+{count} மேலும் பதிவு",
   },
   ordersPage: {
     title: "அட்டெலியர் ஆர்டர் பதிவேடு",

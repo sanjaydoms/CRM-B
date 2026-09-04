@@ -142,6 +142,7 @@ const kn = {
     noAppointments: "ಯಾವುದೇ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಬುಕ್ ಆಗಿಲ್ಲ.",
     appointment: "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್",
     withStaff: "· {name} ಜೊತೆ",
+    moreAppointments: "+{count} ಹೆಚ್ಚು ಬುಕ್ ಆಗಿವೆ",
   },
   ordersPage: {
     title: "ಅಟೆಲಿಯರ್ ಆರ್ಡರ್ ರಿಜಿಸ್ಟ್ರಿ",

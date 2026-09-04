@@ -137,6 +137,7 @@ const ar = {
     noAppointments: "لا توجد مواعيد محجوزة.",
     appointment: "موعد",
     withStaff: "· مع {name}",
+    moreAppointments: "+{count} مواعيد أخرى محجوزة",
   },
   ordersPage: {
     title: "سجل طلبات الأتيليه",
