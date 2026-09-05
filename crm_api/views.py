@@ -40,7 +40,9 @@ from domains.orders.messaging import send_customer_message
 from domains.orders.notifications import create_order_notifications
 from domains.orders.tracking import tracking_url
 from domains.orders.repositories import OrderRepository
-from domains.orders.services import OrderService, refresh_staff_availability
+from domains.orders.services import (
+    OrderService, fail_quality_check, refresh_staff_availability, reopen_order_stage,
+)
 
 class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
@@ -808,6 +810,55 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['POST'], url_path='reopen-stage')
+    def reopen_stage(self, request, pk=None):
+        """A supervisor reverses a settled stage, with a reason, on the record.
+
+        In STAFF_ORDER_ACTIONS so the request reaches the service, where the
+        real gate lives: workflow.check_reopen refuses everyone but the owner
+        and the Master, names the frontier rule, and nothing is written on a
+        refusal.
+        """
+        order = self.get_object()
+        try:
+            reopen_order_stage(
+                order,
+                request.data.get('stage_key'),
+                user=request.user,
+                reason=request.data.get('reason'),
+                request=request,
+            )
+        except PermissionError as pe:
+            return Response({'error': str(pe)}, status=status.HTTP_403_FORBIDDEN)
+        except ValueError as ve:
+            return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            OrderSerializer(OrderRepository.get_by_id(order.pk)).data,
+            status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['POST'], url_path='fail-qc')
+    def fail_qc(self, request, pk=None):
+        """Quality check rejects the garment: reopen the stitching band.
+
+        First-class rework, not a rollback -- see fail_quality_check for the
+        rules. The QC Master can invoke it directly; the service checks roles.
+        """
+        order = self.get_object()
+        try:
+            fail_quality_check(
+                order,
+                user=request.user,
+                reason=request.data.get('reason'),
+                request=request,
+            )
+        except PermissionError as pe:
+            return Response({'error': str(pe)}, status=status.HTTP_403_FORBIDDEN)
+        except ValueError as ve:
+            return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            OrderSerializer(OrderRepository.get_by_id(order.pk)).data,
+            status=status.HTTP_200_OK)
 
 class NotificationViewSet(viewsets.ModelViewSet):
     queryset = Notification.objects.all().order_by('-created_at')

@@ -439,3 +439,201 @@ class OrderService:
             from domains.orders.notifications import notify_next_stage_owners
             notify_next_stage_owners(order)
         return order
+
+
+#: ProductionTask has its own vocabulary -- PENDING where a stage says
+#: NOT_STARTED, BLOCKED where a stage says PAUSED. One translation, shared by
+#: the forward path and both reversals, because a task row that disagrees with
+#: its stage row was a real served-endpoint bug once already.
+STAGE_TO_TASK_STATUS = {
+    'NOT_STARTED': 'PENDING',
+    'IN_PROGRESS': 'IN_PROGRESS',
+    'COMPLETED': 'COMPLETED',
+    'SKIPPED': 'SKIPPED',
+    'PAUSED': 'BLOCKED',
+}
+
+
+def _sync_task_status(order, stage_key, stage_status):
+    """Keep the stage's ProductionTask row telling the same story."""
+    from apps.production.models import ProductionTask
+    task_status = STAGE_TO_TASK_STATUS.get(stage_status)
+    if task_status:
+        ProductionTask.objects.filter(
+            order=order, stage_key=stage_key).update(status=task_status)
+
+
+#: What each stage says about the customer-facing status once it is settled.
+#: Mirrors the map inside transition_order_stage, in its completed sense, so a
+#: reversal can recompute order_status from what actually remains settled.
+CLIENT_STATUS_WHEN_SETTLED = {
+    'created': 'Received',
+    'measurements_completed': 'Confirmed',
+    'fabric_confirmed': 'Confirmed',
+    'pattern_cutting': 'Design & Creation',
+    'maggam_work': 'Design & Creation',
+    'assigned_to_tailor': 'Design & Creation',
+    'stitching_in_progress': 'Design & Creation',
+    'stitching_completed': 'Quality Check',
+    'finishing': 'Quality Check',
+    'pressing': 'Quality Check',
+    'master_quality_check': 'Ready for Dispatch',
+    'trial_scheduled': 'Ready for Dispatch',
+    'trial_completed': 'Ready for Dispatch',
+    'ready_for_delivery': 'Ready for Dispatch',
+    'delivered': 'Delivered',
+}
+
+
+def recompute_client_status(order, config):
+    """The order_status the settled stages still justify, after a reversal.
+
+    Forward transitions write order_status from the stage just completed.
+    A reversal has no "stage just completed" -- what is true is whatever the
+    remaining settled stages add up to, so walk them in workflow order and
+    keep the last claim standing.
+    """
+    live = dict(order.stages.values_list('stage_key', 'status'))
+    status = 'Received'
+    for declared in workflow.ordered_stages(config):
+        key = declared['key']
+        if live.get(key) in workflow.SETTLED_STATUSES and key in CLIENT_STATUS_WHEN_SETTLED:
+            status = CLIENT_STATUS_WHEN_SETTLED[key]
+    return status
+
+
+def _log_reversal(order, event_type, user, metadata):
+    OrderActivity.objects.create(
+        order=order, event_type=event_type, user=user, metadata=metadata)
+
+
+def reopen_order_stage(order, stage_key, user, reason, request=None):
+    """A supervisor reverses a settled stage, on the record.
+
+    The mandatory reason is the whole point: the stage history stops being a
+    mystery ("why did pressing go backwards on the 14th?") and becomes a
+    sentence someone signed. Inventory is deliberately left alone -- material
+    consumed by the first attempt was really consumed; rework that needs more
+    cloth draws it when the stage completes again.
+    """
+    reason = (reason or '').strip()
+    if not reason:
+        raise workflow.TransitionError(
+            'A reason is required to reopen a completed stage.')
+
+    try:
+        stage = order.stages.get(stage_key=stage_key)
+    except OrderStage.DoesNotExist:
+        raise workflow.TransitionError(
+            f'Unknown stage "{stage_key}" for order {order.order_id}')
+
+    config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
+    role = resolve_user_role(user)
+    if role is None:
+        raise workflow.TransitionError('Sign in to update this order.')
+
+    workflow.check_reopen(order, stage, config=config, role=role, owner_role=OWNER)
+
+    with transaction.atomic():
+        previous = stage.status
+        # COMPLETED work resumes; a SKIPPED stage was never begun, so it goes
+        # back to the starting line instead of pretending to be in progress.
+        stage.status = 'IN_PROGRESS' if previous == 'COMPLETED' else 'NOT_STARTED'
+        stage.completed_at = None
+        stage.duration_seconds = 0
+        stage.save(update_fields=['status', 'completed_at', 'duration_seconds'])
+        _sync_task_status(order, stage_key, stage.status)
+
+        order.current_stage_key = stage_key
+        order.production_status = 'IN_PROGRESS'
+        order.order_status = recompute_client_status(order, config)
+        order.save(update_fields=['current_stage_key', 'production_status', 'order_status'])
+
+        _log_reversal(order, 'STAGE_REOPENED', user, {
+            'stage_key': stage_key,
+            'previous_status': previous,
+            'reason': reason,
+            'role': role,
+        })
+    return order
+
+
+def fail_quality_check(order, user, reason, request=None):
+    """QC rejects the garment: the stitching band reopens for rework.
+
+    A first-class transition, not a rollback: the reason is recorded on the QC
+    stage and in the activity log, the band (stitching through pressing) goes
+    back to work, and the customer-facing status drops to Design & Creation --
+    because that is what is now true of the garment.
+    """
+    reason = (reason or '').strip()
+    if not reason:
+        raise workflow.TransitionError(
+            'A reason is required to fail a quality check -- the tailor doing '
+            'the rework needs to know what was wrong.')
+
+    role = resolve_user_role(user)
+    if role is None:
+        raise workflow.TransitionError('Sign in to update this order.')
+    if role != OWNER and role not in workflow.QC_FAIL_ROLES:
+        raise PermissionError(
+            f'Role {role} is not authorized to fail a quality check.')
+
+    config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
+    keys = [s['key'] for s in workflow.ordered_stages(config)]
+    for needed in ('stitching_in_progress', 'master_quality_check'):
+        if needed not in keys:
+            raise workflow.TransitionError(
+                f'This boutique\'s workflow has no "{needed}" stage, so the '
+                f'rework loop does not apply to it.')
+
+    qc = order.stages.filter(stage_key='master_quality_check').first()
+    if qc is None:
+        raise workflow.TransitionError(
+            f'Order {order.order_id} has no quality check stage.')
+    if qc.status == 'COMPLETED':
+        raise workflow.TransitionError(
+            'This quality check has already passed. Reopen it first if that '
+            'was a mistake.')
+    stitching_settled = order.stages.filter(
+        stage_key='stitching_completed',
+        status__in=workflow.SETTLED_STATUSES).exists()
+    if not stitching_settled:
+        raise workflow.TransitionError(
+            'Stitching has not been completed yet, so there is nothing for '
+            'quality check to fail.')
+
+    band = keys[keys.index('stitching_in_progress'):keys.index('master_quality_check')]
+    with transaction.atomic():
+        for stage in order.stages.filter(stage_key__in=band):
+            if stage.status == 'NOT_STARTED':
+                continue
+            stage.status = ('IN_PROGRESS'
+                            if stage.stage_key == 'stitching_in_progress'
+                            else 'NOT_STARTED')
+            stage.completed_at = None
+            stage.duration_seconds = 0
+            stage.save(update_fields=['status', 'completed_at', 'duration_seconds'])
+            _sync_task_status(order, stage.stage_key, stage.status)
+
+        qc.status = 'NOT_STARTED'
+        qc.completed_at = None
+        qc.duration_seconds = 0
+        # The reason reaches the people doing the rework where they already
+        # look: on the QC stage row the Master's panel reads.
+        qc.comments = (f'QC FAILED: {reason}\n{qc.comments}'.strip()
+                       if qc.comments else f'QC FAILED: {reason}')
+        qc.save(update_fields=['status', 'completed_at', 'duration_seconds', 'comments'])
+        _sync_task_status(order, 'master_quality_check', 'NOT_STARTED')
+
+        order.current_stage_key = 'stitching_in_progress'
+        order.production_status = 'IN_PROGRESS'
+        order.order_status = recompute_client_status(order, config)
+        order.save(update_fields=['current_stage_key', 'production_status', 'order_status'])
+
+        _log_reversal(order, 'QC_FAILED', user, {
+            'reason': reason,
+            'role': role,
+            'reopened_stages': band,
+        })
+    return order

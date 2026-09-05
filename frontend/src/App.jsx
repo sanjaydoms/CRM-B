@@ -407,6 +407,7 @@ function GarmentGallery({ order, onChanged }) {
   const [error, setError] = useState(null);
   const [view, setView] = useState('FRONT');
   const fileRef = useRef(null);
+  const cameraRef = useRef(null);
 
   const images = order.garment_images || [];
   const published = order.garment_images_published;
@@ -498,6 +499,16 @@ function GarmentGallery({ order, onChanged }) {
         </select>
 
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={onPick} />
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPick} />
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{ fontSize: '12px', padding: '6px 10px' }}
+          disabled={busy}
+          onClick={() => cameraRef.current?.click()}
+        >
+          {busy ? 'Working…' : '📷 Take photo'}
+        </button>
         <button
           type="button"
           className="btn-secondary"
@@ -656,6 +667,185 @@ const normaliseDesignBrief = (brief) => {
   return { ...brief, design: brief.design || brief.selected || null };
 };
 
+/**
+ * What this garment needs from the store room, shown the moment it is chosen.
+ *
+ * Reads the boutique's own recipe (the active BOM for the template) so the
+ * person taking the order knows BEFORE promising a date whether the racks can
+ * stitch it. Read-only and quiet: no recipe, no card.
+ */
+function MaterialsNeeded({ templateId }) {
+  const [bom, setBom] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.getBoms({ template: templateId })
+      .then((data) => {
+        const boms = (data.results || data || []).filter((b) => b.is_active);
+        if (!cancelled) setBom(boms[0] || null);
+      })
+      .catch(() => { /* no recipe is a fine answer */ });
+    return () => { cancelled = true; };
+  }, [templateId]);
+  if (!bom || !(bom.lines || []).length) return null;
+  return (
+    <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px dashed var(--border-color)', borderRadius: '8px', padding: '10px 12px', marginBottom: '16px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+        Materials this garment needs · {bom.name}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px' }}>
+        {bom.lines.map((line) => (
+          <span key={line.id} style={{ fontSize: '12.5px', color: 'var(--text-primary)' }}>
+            {line.material_name}
+            {line.quantity ? ` — ${line.quantity} ${line.unit_display || line.unit || ''}` : (line.quantity_formula ? ' — per measurements' : '')}
+            {line.is_optional ? ' (optional)' : ''}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The Master\'s gathering checklist for one order.
+ *
+ * Every material the order plans, each with: a tick that records who had it in
+ * hand and when, photographs of the actual bolt or spool (camera or gallery)
+ * that travel with the order for QC and future rework, and the consumption
+ * note once stitching has drawn it. Visibility for everyone; ticking and
+ * photographing are the Owner\'s and the Master\'s.
+ */
+function MaterialsChecklist({ orderId, role, onActivity }) {
+  const [plan, setPlan] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const [busyLineId, setBusyLineId] = useState(null);
+  const canEdit = role === 'Owner' || role === 'Master';
+
+  const refresh = () => api.getMaterialChecklist(orderId)
+    .then((data) => { setPlan(data.plan); setLoaded(true); })
+    .catch(() => setLoaded(true));
+  // Fetch only when someone opens the panel. The registry renders one of
+  // these per order card, and an on-mount fetch would fire the whole page's
+  // worth of requests at a cross-region API on every visit.
+  useEffect(() => { if (opened) refresh(); /* eslint-disable-next-line */ }, [opened, orderId]);
+
+  if (!opened) {
+    return (
+      <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px', marginTop: '8px' }} onClick={() => setOpened(true)}>
+        Show materials
+      </button>
+    );
+  }
+  if (!loaded) return <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '6px 0' }}>Loading materials…</div>;
+  if (!plan || !(plan.lines || []).length) {
+    return <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '6px 0' }}>No materials were planned on this order.</div>;
+  }
+  const remaining = plan.lines.filter((l) => !l.gathered_at).length;
+
+  const act = async (fn) => {
+    try { await fn(); await refresh(); if (onActivity) onActivity(); }
+    catch (err) { alert(err.message); }
+    finally { setBusyLineId(null); }
+  };
+
+  return (
+    <div style={{ marginTop: '8px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: remaining ? '#b45309' : '#10b981' }}>
+        {remaining ? `⚠ ${remaining} of ${plan.lines.length} still to gather` : `✓ All ${plan.lines.length} materials gathered`}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {plan.lines.map((line) => (
+          <div key={line.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: canEdit ? 'pointer' : 'default', flex: '1 1 auto' }}>
+                <input
+                  type="checkbox"
+                  checked={!!line.gathered_at}
+                  disabled={!canEdit || busyLineId === line.id}
+                  onChange={(e) => {
+                    setBusyLineId(line.id);
+                    act(() => api.gatherMaterialLine(plan.id, line.id, e.target.checked));
+                  }}
+                />
+                <span style={{ textDecoration: line.gathered_at ? 'line-through' : 'none' }}>
+                  {line.material_name} — {line.required_quantity} {line.unit_display || line.unit}
+                  {line.is_customer_supplied ? ' (customer\u2019s own)' : ''}
+                </span>
+              </label>
+              {canEdit && (
+                <span style={{ display: 'inline-flex', gap: '6px' }}>
+                  <label className="btn-secondary" style={{ fontSize: '11px', padding: '3px 8px', cursor: 'pointer' }}>
+                    📷
+                    <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+                      disabled={busyLineId === line.id}
+                      onChange={(e) => {
+                        const f = e.target.files[0];
+                        if (!f) return;
+                        setBusyLineId(line.id);
+                        act(() => api.addMaterialLinePhoto(plan.id, line.id, f));
+                        e.target.value = '';
+                      }} />
+                  </label>
+                  <label className="btn-secondary" style={{ fontSize: '11px', padding: '3px 8px', cursor: 'pointer' }}>
+                    🖼
+                    <input type="file" accept="image/*" style={{ display: 'none' }}
+                      disabled={busyLineId === line.id}
+                      onChange={(e) => {
+                        const f = e.target.files[0];
+                        if (!f) return;
+                        setBusyLineId(line.id);
+                        act(() => api.addMaterialLinePhoto(plan.id, line.id, f));
+                        e.target.value = '';
+                      }} />
+                  </label>
+                </span>
+              )}
+            </div>
+            {(line.gathered_at || Number(line.consumed_quantity) > 0 || (line.photos || []).length > 0) && (
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center' }}>
+                {line.gathered_at && (
+                  <span>Gathered by {line.gathered_by_name || 'staff'} · {new Date(line.gathered_at).toLocaleDateString()}</span>
+                )}
+                {Number(line.consumed_quantity) > 0 && (
+                  <span>{line.consumed_quantity} {line.unit_display || line.unit} used in stitching</span>
+                )}
+                {(line.photos || []).map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noreferrer">
+                    <img src={url} alt="material" style={{ width: '34px', height: '34px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-color)' }} />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A thin bar across the very top whenever ANY api call is in flight.
+ *
+ * Every request pays seconds of cross-region latency, and not every control
+ * can carry its own spinner -- this is the app-wide answer to "is anything
+ * happening?". Driven by window events from services/api.js so the api module
+ * stays framework-free.
+ */
+function NetworkActivityBar() {
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    const onActivity = (e) => setActive(e.detail > 0);
+    window.addEventListener('api-activity', onActivity);
+    return () => window.removeEventListener('api-activity', onActivity);
+  }, []);
+  if (!active) return null;
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '3px', zIndex: 3000, overflow: 'hidden', background: 'rgba(15, 41, 30, 0.12)' }}>
+      <div style={{ position: 'absolute', top: 0, bottom: 0, width: '38%', background: 'var(--text-primary, #0f291e)', borderRadius: '3px', animation: 'apiActivitySweep 1.1s ease-in-out infinite' }} />
+    </div>
+  );
+}
+
 function App() {
   // The marketing site is static HTML at / and no longer a view in here -- see
   // frontend/index.html. This bundle is the workspace, served from /app, so it
@@ -700,9 +890,21 @@ function App() {
   // sign-in form is the wrong shape for "that address is not valid".
   const [authError, setAuthError] = useState(null);
   const [authBusy, setAuthBusy] = useState(false);
+  // Logout asks first: one mis-tap on a phone menu ended the whole session,
+  // and the POST behind it takes seconds with nothing on screen saying so.
+  // Getting-started checklist: dismissed per device+boutique, and it also
+  // disappears on its own once every step is genuinely done.
+  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(`onboarding_dismissed_${localStorage.getItem('tenant_id') || ''}`) === '1';
+    } catch { return false; }
+  });
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
 
   // Signup Wizard State
   const [signupStep, setSignupStep] = useState(1); // 1: Account, 2: Verify, 3: Profile, 4: Prefs, 5: Complete
+
   const [signupForm, setSignupForm] = useState({
     first_name: '',
     last_name: '',
@@ -717,6 +919,18 @@ function App() {
 
   // Customer/Order Wizard State
   const [currentStep, setCurrentStep] = useState(1);
+  // Which garment tile is fetching its template right now: the load takes
+  // seconds against the remote database, and a silent tile invites re-clicks.
+  const [addingGarmentKey, setAddingGarmentKey] = useState(null);
+
+  // A wizard step lands read from the top, not wherever the previous step's
+  // Next button happened to leave the scroll.
+  useEffect(() => {
+    // Instant, not smooth: the new step's content is still mounting, and a
+    // smooth scroll gets cancelled by the layout shifting under it.
+    window.scrollTo(0, 0);
+  }, [view, currentStep, signupStep]);
+
   const [customerId, setCustomerId] = useState(null);
   const [customerForm, setCustomerForm] = useState(DEFAULT_CUSTOMER_DATA);
   const [profilePhoto, setProfilePhoto] = useState(null);
@@ -789,6 +1003,7 @@ function App() {
   // Fabrics CRUD State
   const [showFabricModal, setShowFabricModal] = useState(false);
   const [editingFabric, setEditingFabric] = useState(null);
+  const [fabricSaving, setFabricSaving] = useState(false);
   const [fabricForm, setFabricForm] = useState({
     name: '',
     material: '',
@@ -801,6 +1016,7 @@ function App() {
   // Tailors CRUD State
   const [showTailorModal, setShowTailorModal] = useState(false);
   const [editingTailor, setEditingTailor] = useState(null);
+  const [tailorSaving, setTailorSaving] = useState(false);
   const [shareCredsTailor, setShareCredsTailor] = useState(null);
   // Recording a payment: which row is in flight, and what went wrong. Shown in
   // the Invoices header rather than through alert() -- a modal dialog over a
@@ -820,6 +1036,7 @@ function App() {
   // Designs CRUD State
   const [showDesignModal, setShowDesignModal] = useState(false);
   const [editingDesign, setEditingDesign] = useState(null);
+  const [designSaving, setDesignSaving] = useState(false);
   const [designForm, setDesignForm] = useState({
     name: '',
     garment_type: 'Lehenga',
@@ -863,6 +1080,8 @@ function App() {
 
   const addGarment = async (key) => {
     if (garmentJobs.some(job => job.key === key)) return;
+    if (addingGarmentKey) return;
+    setAddingGarmentKey(key);
     try {
       const template = await api.getGarmentTemplate(key);
       setGarmentJobs(prev => [...prev, {
@@ -873,6 +1092,8 @@ function App() {
     } catch (err) {
       console.error(err);
       alert('Could not load that garment form.');
+    } finally {
+      setAddingGarmentKey(null);
     }
   };
 
@@ -1156,6 +1377,7 @@ function App() {
 
   // Active Selected Dashboard Order for progress tracker
   const [selectedDashboardOrder, setSelectedDashboardOrder] = useState(null);
+  const [updatingOrderStatusId, setUpdatingOrderStatusId] = useState(null);
   const [expandedDna, setExpandedDna] = useState({});
   const [selectedDirectoryCustomer, setSelectedDirectoryCustomer] = useState(null);
   const [directoryDetailLoading, setDirectoryDetailLoading] = useState(false);
@@ -1164,6 +1386,7 @@ function App() {
   // wizard, so there was no way to answer "where is my dress?" from the profile.
   const [expandedCustomerOrderId, setExpandedCustomerOrderId] = useState(null);
   const [approvingDesignId, setApprovingDesignId] = useState(null);
+  const [submittingCompletionId, setSubmittingCompletionId] = useState(null);
   const [assigningStageKey, setAssigningStageKey] = useState(null);
 
   // Backend fetched collections
@@ -1199,6 +1422,7 @@ function App() {
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
   const [boutiqueSettings, setBoutiqueSettings] = useState(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [drapingLoading, setDrapingLoading] = useState(false);
   const [drapingCompleted, setDrapingCompleted] = useState(false);
   const [drapedImage, setDrapedImage] = useState('');
@@ -1213,6 +1437,12 @@ function App() {
   const [productionNotesDraft, setProductionNotesDraft] = useState('');
   const [savingProductionNotes, setSavingProductionNotes] = useState(false);
   const [selectedPerformerId, setSelectedPerformerId] = useState('');
+  const [stageTransitionBusy, setStageTransitionBusy] = useState(false);
+  // The two sanctioned reversals, both behind a mandatory-reason dialog:
+  // {type: 'reopen'|'failqc'} while the dialog is open.
+  const [reversalPrompt, setReversalPrompt] = useState(null);
+  const [reversalReason, setReversalReason] = useState('');
+  const [reversalBusy, setReversalBusy] = useState(false);
   const [globalError, setGlobalError] = useState(null);
   // Names of the dashboard collections that failed to load, so the UI can say so
   // instead of rendering an empty directory as if the boutique had no clients.
@@ -1236,6 +1466,14 @@ function App() {
 
   const [notifications, setNotifications] = useState([]);
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
+  // In-flight guards, same shape as signupBusy/savingPaymentId: a boolean for
+  // the shared bell, an order/row id for per-row controls.
+  const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false);
+  const [updatingStatusOrderId, setUpdatingStatusOrderId] = useState(null);
+  const [savingVerificationOrderId, setSavingVerificationOrderId] = useState(null);
+  const [assigningWorkflowOrderId, setAssigningWorkflowOrderId] = useState(null);
+  const [deletingFabricId, setDeletingFabricId] = useState(null);
+  const [deletingDraftId, setDeletingDraftId] = useState(null);
 
   // `user` is passed explicitly by callers that have just signed in: setCurrentUser
   // has not committed yet at that point, so reading it from state would bail out
@@ -1430,6 +1668,8 @@ function App() {
   // Catalog Management Handlers
   const handleSaveFabric = async (e) => {
     e.preventDefault();
+    if (fabricSaving) return;
+    setFabricSaving(true);
     try {
       const payload = {
         ...fabricForm,
@@ -1450,16 +1690,22 @@ function App() {
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save fabric: " + err.message);
+    } finally {
+      setFabricSaving(false);
     }
   };
 
   const handleDeleteFabric = async (id) => {
+    if (deletingFabricId) return;
     if (window.confirm("Are you sure you want to delete this fabric?")) {
+      setDeletingFabricId(id);
       try {
         await api.deleteFabric(id);
         fetchDashboardAndConfig();
       } catch (err) {
         alert("Failed to delete fabric: " + err.message);
+      } finally {
+        setDeletingFabricId(null);
       }
     }
   };
@@ -1489,6 +1735,8 @@ function App() {
 
   const handleSaveTailor = async (e) => {
     e.preventDefault();
+    if (tailorSaving) return;
+    setTailorSaving(true);
     try {
       const payload = {
         ...tailorForm,
@@ -1510,6 +1758,8 @@ function App() {
       }
     } catch (err) {
       alert("Failed to save tailor: " + err.message);
+    } finally {
+      setTailorSaving(false);
     }
   };
 
@@ -1525,16 +1775,22 @@ function App() {
   };
 
   const handleAssignWorkflow = async (orderId, updates) => {
+    if (assigningWorkflowOrderId) return;
+    setAssigningWorkflowOrderId(orderId);
     try {
       await api.updateOrder(orderId, updates);
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to update staff assignment: " + err.message);
+    } finally {
+      setAssigningWorkflowOrderId(null);
     }
   };
 
   const handleSaveDesign = async (e) => {
     e.preventDefault();
+    if (designSaving) return;
+    setDesignSaving(true);
     try {
       const payload = {
         ...designForm,
@@ -1557,6 +1813,8 @@ function App() {
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save design: " + err.message);
+    } finally {
+      setDesignSaving(false);
     }
   };
 
@@ -1575,11 +1833,13 @@ function App() {
   // Auth Action Handlers
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
+    if (authBusy) return;
     if (!loginEmail || !loginPassword) {
       alert("Please fill in all credentials.");
       return;
     }
     setAuthError(null);
+    setAuthBusy(true);
     try {
       const res = await api.login(loginEmail, loginPassword);
       setCurrentUser(res.user);
@@ -1603,6 +1863,8 @@ function App() {
       // still did -- worst on a phone, where the alert covers the form and
       // takes a second tap to clear before the password can be retyped.
       setAuthError(err.message || 'Invalid credentials.');
+    } finally {
+      setAuthBusy(false);
     }
   };
 
@@ -1651,9 +1913,16 @@ function App() {
   };
 
   const handleLogout = async () => {
-    await api.logout();
-    setCurrentUser(null);
-    setView('login');
+    if (logoutBusy) return;
+    setLogoutBusy(true);
+    try {
+      await api.logout();
+      setCurrentUser(null);
+      setView('login');
+      setShowLogoutConfirm(false);
+    } finally {
+      setLogoutBusy(false);
+    }
   };
 
   // Start Order Creation Flows
@@ -2239,6 +2508,18 @@ function App() {
     );
   }
 
+
+  // Driven by real data, so it can never disagree with the boutique's actual
+  // state -- and it teaches the workflow in the order the work happens.
+  const onboardingSteps = [
+    { key: 'boutique', label: 'Create your boutique', done: true },
+    { key: 'customer', label: 'Add your first customer', done: customersList.length > 0, go: () => setView('order-selector') },
+    { key: 'order', label: 'Create your first order', done: ordersList.length > 0, go: () => setView('order-selector') },
+    { key: 'staff', label: 'Add your staff (tailors & designers)', done: tailors.length > 0, go: () => setDashboardTab('tailors') },
+    { key: 'fabrics', label: 'Set up your fabric library', done: fabrics.length > 0, go: () => setDashboardTab('fabrics') },
+    { key: 'production', label: 'Move an order through production', done: ordersList.some(o => o.order_status && o.order_status !== 'Received'), go: () => setDashboardTab('orders') },
+  ];
+  const showOnboarding = !loading && !onboardingDismissed && onboardingSteps.some(step => !step.done);
   return (
     <div className="app-container">
       {/* 2. SIGN IN SCREEN (Image 2) */}
@@ -2337,8 +2618,8 @@ function App() {
                 </div>
               )}
 
-              <button type="submit" className="btn-primary" style={{ justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600, fontSize: '14px' }}>
-                Login to Workspace
+              <button type="submit" className="btn-primary" disabled={authBusy} style={{ justifyContent: 'center', padding: '14px', borderRadius: '8px', fontWeight: 600, fontSize: '14px', opacity: authBusy ? 0.6 : 1, cursor: authBusy ? 'wait' : 'pointer' }}>
+                {authBusy ? 'Signing in…' : 'Login to Workspace'}
               </button>
             </form>
 
@@ -2720,11 +3001,14 @@ function App() {
             onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
             onOpenNotifications={() => {
               setShowNotificationsDrawer(true);
+              if (markingNotificationsRead) return;
+              setMarkingNotificationsRead(true);
               api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
                 .then(() => fetchNotifications())
                     // Never let the bell take the app down: a refused or failed
                     // mark-read is not worth losing the session over.
-                    .catch(() => {});
+                    .catch(() => {})
+                    .finally(() => setMarkingNotificationsRead(false));
             }}
           />
 
@@ -2745,14 +3029,18 @@ function App() {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button 
+              <button
+                disabled={markingNotificationsRead}
                 onClick={() => {
                   setShowNotificationsDrawer(true);
+                  if (markingNotificationsRead) return;
+                  setMarkingNotificationsRead(true);
                   api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
                     .then(() => fetchNotifications())
                     // Never let the bell take the app down: a refused or failed
                     // mark-read is not worth losing the session over.
-                    .catch(() => {});
+                    .catch(() => {})
+                    .finally(() => setMarkingNotificationsRead(false));
                 }}
                 className="btn-secondary"
                 style={{ padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -2780,14 +3068,18 @@ function App() {
             </div>
 
             <div className="desktop-inbox-alert-btn" style={{ padding: '0 20px', marginBottom: '16px', marginTop: '16px' }}>
-              <button 
+              <button
+                disabled={markingNotificationsRead}
                 onClick={() => {
                   setShowNotificationsDrawer(true);
+                  if (markingNotificationsRead) return;
+                  setMarkingNotificationsRead(true);
                   api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
                     .then(() => fetchNotifications())
                     // Never let the bell take the app down: a refused or failed
                     // mark-read is not worth losing the session over.
-                    .catch(() => {});
+                    .catch(() => {})
+                    .finally(() => setMarkingNotificationsRead(false));
                 }}
                 className="btn-secondary"
                 style={{
@@ -2890,7 +3182,7 @@ function App() {
                   owner with eleven. */}
               <div className="portal-menu-divider" />
               <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> My Account</a>
-              <a className="portal-menu-item" onClick={() => { handleLogout(); setMobileNavOpen(false); }}><LogOut size={16} /> Logout</a>
+              <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> Logout</a>
             </nav>
 
 
@@ -2984,14 +3276,18 @@ function App() {
                                 <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
                                   {order.order_status}
                                 </span>
-                                <select 
+                                <select
                                   className="form-control"
                                   style={{ fontSize: '12px', padding: '4px 10px', width: '160px', margin: 0 }}
                                   value={order.order_status}
+                                  disabled={updatingStatusOrderId === order.id}
                                   onChange={(e) => {
+                                    if (updatingStatusOrderId) return;
+                                    setUpdatingStatusOrderId(order.id);
                                     api.updateOrderStatus(order.id, e.target.value)
                                       .then(() => fetchDashboardAndConfig())
-                                      .catch(err => alert("Failed to update status: " + err.message));
+                                      .catch(err => alert("Failed to update status: " + err.message))
+                                      .finally(() => setUpdatingStatusOrderId(null));
                                   }}
                                 >
                                   <option value="Received">Received</option>
@@ -3133,6 +3429,15 @@ function App() {
                               )}
                             </div>
 
+                            {/* The same gathering checklist, on the card the
+                                Master actually works from. */}
+                            <div style={{ marginTop: '12px', padding: '14px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'left' }}>
+                              <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                🧵 Raw Materials Checklist
+                              </h4>
+                              <MaterialsChecklist orderId={order.id} role={currentUser.role} />
+                            </div>
+
                             {/* Master Verification Checklist */}
                             {currentUser.role === 'Master' && (
                               <div style={{
@@ -3162,19 +3467,24 @@ function App() {
                                     const isChecked = order.master_verification?.[item.key] || false;
                                     return (
                                       <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                                        <input 
+                                        <input
                                           type="checkbox"
                                           checked={isChecked}
+                                          disabled={savingVerificationOrderId === order.id}
                                           onChange={async (e) => {
+                                            if (savingVerificationOrderId) return;
                                             const updatedVerification = {
                                               ...(order.master_verification || {}),
                                               [item.key]: e.target.checked
                                             };
+                                            setSavingVerificationOrderId(order.id);
                                             try {
                                               await api.saveMasterVerification(order.id, updatedVerification);
                                               fetchDashboardAndConfig();
                                             } catch (err) {
                                               alert("Failed to update verification check: " + err.message);
+                                            } finally {
+                                              setSavingVerificationOrderId(null);
                                             }
                                           }}
                                         />
@@ -3217,13 +3527,27 @@ function App() {
                                   </div>
                                   <div>
                                     <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Upload Completed Garment Photo</label>
-                                    <input 
-                                      type="file" 
+                                    <input
+                                      type="file"
                                       className="form-control"
                                       style={{ fontSize: '13px' }}
                                       id={`image-${order.id}`}
                                       accept="image/*"
                                     />
+                                    <input
+                                      type="file"
+                                      style={{ display: 'none' }}
+                                      id={`image-${order.id}-camera`}
+                                      accept="image/*"
+                                      capture="environment"
+                                    />
+                                    <label
+                                      htmlFor={`image-${order.id}-camera`}
+                                      className="btn-secondary"
+                                      style={{ display: 'inline-block', fontSize: '12px', padding: '6px 10px', marginTop: '6px', cursor: 'pointer' }}
+                                    >
+                                      📷 Take photo
+                                    </label>
                                     {order.completed_garment_image && (
                                       <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span style={{ fontSize: '11px', color: '#107c41', fontWeight: 600 }}>✓ Picture Uploaded</span>
@@ -3233,24 +3557,30 @@ function App() {
                                   </div>
                                 </div>
 
-                                <button 
-                                  className="btn-primary" 
+                                <button
+                                  className="btn-primary"
                                   style={{ alignSelf: 'flex-end', padding: '6px 16px', fontSize: '12px' }}
+                                  disabled={submittingCompletionId === order.id}
                                   onClick={async () => {
+                                    if (submittingCompletionId) return;
                                     const commentVal = document.getElementById(`comments-${order.id}`).value;
                                     const fileInput = document.getElementById(`image-${order.id}`);
-                                    const file = fileInput.files[0];
-                                    
+                                    const cameraInput = document.getElementById(`image-${order.id}-camera`);
+                                    const file = fileInput.files[0] || cameraInput?.files[0];
+
+                                    setSubmittingCompletionId(order.id);
                                     try {
                                       await api.submitCompletion(order.id, commentVal, file);
                                       alert("Completion report submitted successfully!");
                                       fetchDashboardAndConfig();
                                     } catch (err) {
                                       alert("Submission failed: " + err.message);
+                                    } finally {
+                                      setSubmittingCompletionId(null);
                                     }
                                   }}
                                 >
-                                  Submit & Send for Quality Check
+                                  {submittingCompletionId === order.id ? 'Submitting…' : 'Submit & Send for Quality Check'}
                                 </button>
                               </div>
                             )}
@@ -3298,6 +3628,59 @@ function App() {
                     </div>
                   </div>
                 </header>
+
+                {showOnboarding && (
+                  <section className="content-card" style={{ padding: '20px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
+                      <div>
+                        <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 500 }}>Getting started</h2>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          {onboardingSteps.filter(step => step.done).length} of {onboardingSteps.length} done — this is the order the work flows in.
+                        </p>
+                      </div>
+                      <button
+                        type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px' }}
+                        onClick={() => {
+                          setOnboardingDismissed(true);
+                          try {
+                            localStorage.setItem(`onboarding_dismissed_${localStorage.getItem('tenant_id') || ''}`, '1');
+                          } catch { /* per-device convenience only */ }
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {onboardingSteps.map((step, i) => (
+                        <button
+                          key={step.key}
+                          type="button"
+                          disabled={step.done || !step.go}
+                          onClick={step.go}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px',
+                            background: 'transparent', border: 'none', borderRadius: '6px', textAlign: 'left',
+                            cursor: step.done || !step.go ? 'default' : 'pointer', width: '100%',
+                            color: step.done ? 'var(--text-muted)' : 'var(--text-primary)',
+                          }}
+                        >
+                          <span style={{
+                            width: '20px', height: '20px', borderRadius: '50%', flexShrink: 0,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            border: step.done ? 'none' : '1.5px solid var(--border-color)',
+                            background: step.done ? '#10b981' : 'transparent', color: '#fff', fontSize: '12px',
+                          }}>
+                            {step.done ? <Check size={12} /> : i + 1}
+                          </span>
+                          <span style={{ fontSize: '13px', textDecoration: step.done ? 'line-through' : 'none' }}>
+                            {step.label}
+                          </span>
+                          {!step.done && step.go && <ArrowRight size={13} style={{ marginLeft: 'auto', opacity: 0.5 }} />}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 {/* Quick Action Grid */}
                 <section className="quick-action-button-grid">
@@ -3578,13 +3961,17 @@ function App() {
                             <select 
                               value={selectedDashboardOrder.order_status} 
                               onChange={async (e) => {
+                                if (updatingOrderStatusId) return;
                                 const newStatus = e.target.value;
+                                setUpdatingOrderStatusId(selectedDashboardOrder.id);
                                 try {
                                   await api.updateOrderStatus(selectedDashboardOrder.id, newStatus);
                                   setSelectedDashboardOrder(prev => ({ ...prev, order_status: newStatus }));
                                   fetchDashboardAndConfig();
                                 } catch (err) {
                                   alert("Failed to update status: " + err.message);
+                                } finally {
+                                  setUpdatingOrderStatusId(null);
                                 }
                               }}
                               style={{
@@ -3604,20 +3991,25 @@ function App() {
                           </div>
                           
                           {selectedDashboardOrder.order_status !== 'Delivered' && (
-                            <button 
-                              className="btn-primary" 
+                            <button
+                              className="btn-primary"
                               style={{ fontSize: '12px', padding: '8px 12px', justifyContent: 'center', width: '100%' }}
+                              disabled={updatingOrderStatusId === selectedDashboardOrder.id}
                               onClick={async () => {
+                                if (updatingOrderStatusId) return;
                                 const stages = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
                                 const currentIndex = stages.indexOf(selectedDashboardOrder.order_status);
                                 if (currentIndex !== -1 && currentIndex < stages.length - 1) {
                                   const nextStatus = stages[currentIndex + 1];
+                                  setUpdatingOrderStatusId(selectedDashboardOrder.id);
                                   try {
                                     await api.updateOrderStatus(selectedDashboardOrder.id, nextStatus);
                                     setSelectedDashboardOrder(prev => ({ ...prev, order_status: nextStatus }));
                                     fetchDashboardAndConfig();
                                   } catch (err) {
                                     alert("Failed to update status: " + err.message);
+                                  } finally {
+                                    setUpdatingOrderStatusId(null);
                                   }
                                 }
                               }}
@@ -3798,8 +4190,8 @@ function App() {
                             }}>
                               <Edit2 size={12} /> Edit
                             </button>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }} onClick={() => handleDeleteFabric(fabric.id)}>
-                              <Trash2 size={12} /> Delete
+                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }} disabled={deletingFabricId === fabric.id} onClick={() => handleDeleteFabric(fabric.id)}>
+                              {deletingFabricId === fabric.id ? 'Deleting…' : <><Trash2 size={12} /> Delete</>}
                             </button>
                           </div>
                         </div>
@@ -4026,10 +4418,11 @@ function App() {
                                   </span>
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                  <select 
+                                  <select
                                     className="form-control"
                                     style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
                                     value={order.master || ''}
+                                    disabled={assigningWorkflowOrderId === order.id}
                                     onChange={(e) => handleAssignWorkflow(order.id, { master: e.target.value || null })}
                                   >
                                     <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
@@ -4039,10 +4432,11 @@ function App() {
                                   </select>
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                  <select 
+                                  <select
                                     className="form-control"
                                     style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
                                     value={order.tailor || ''}
+                                    disabled={assigningWorkflowOrderId === order.id}
                                     onChange={(e) => handleAssignWorkflow(order.id, { tailor: e.target.value || null })}
                                   >
                                     <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
@@ -4348,10 +4742,14 @@ function App() {
                                 className="form-control"
                                 style={{ fontSize: '13px', padding: '6px 12px', width: '180px', margin: 0 }}
                                 value={order.order_status}
+                                disabled={updatingStatusOrderId === order.id}
                                 onChange={(e) => {
+                                  if (updatingStatusOrderId) return;
+                                  setUpdatingStatusOrderId(order.id);
                                   api.updateOrderStatus(order.id, e.target.value)
                                     .then(() => fetchDashboardAndConfig())
-                                    .catch(err => alert("Failed to update status: " + err.message));
+                                    .catch(err => alert("Failed to update status: " + err.message))
+                                    .finally(() => setUpdatingStatusOrderId(null));
                                 }}
                               >
                                 {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
@@ -4418,6 +4816,16 @@ function App() {
                             </div>
                           </div>
 
+                          {/* The gathering checklist: what the store room owes
+                              this order, who had it in hand, and the photos
+                              that ride down the roadmap. */}
+                          <div style={{ padding: '14px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'left' }}>
+                            <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              🧵 Raw Materials Checklist
+                            </h4>
+                            <MaterialsChecklist orderId={order.id} role={currentUser.role} />
+                          </div>
+
                           {/* Master Verification Checklist in Orders Tab */}
                           {currentUser.role === 'Master' && (
                             <div style={{
@@ -4444,19 +4852,24 @@ function App() {
                                   const isChecked = order.master_verification?.[item.key] || false;
                                   return (
                                     <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                                      <input 
+                                      <input
                                         type="checkbox"
                                         checked={isChecked}
+                                        disabled={savingVerificationOrderId === order.id}
                                         onChange={async (e) => {
+                                          if (savingVerificationOrderId) return;
                                           const updatedVerification = {
                                             ...(order.master_verification || {}),
                                             [item.key]: e.target.checked
                                           };
+                                          setSavingVerificationOrderId(order.id);
                                           try {
                                             await api.saveMasterVerification(order.id, updatedVerification);
                                             fetchDashboardAndConfig();
                                           } catch (err) {
                                             alert("Failed to update verification check: " + err.message);
+                                          } finally {
+                                            setSavingVerificationOrderId(null);
                                           }
                                         }}
                                       />
@@ -5606,15 +6019,19 @@ function App() {
                             </td>
                             <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>{formatMoney(Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)))}</td>
                             <td style={{ padding: '16px' }}>
-                              <select 
+                              <select
                                 value={order.payment_status}
+                                disabled={savingPaymentId === order.id}
                                 onChange={async (e) => {
+                                  setSavingPaymentId(order.id);
                                   try {
                                     await api.updateOrder(order.id, { payment_status: e.target.value });
                                     fetchDashboardAndConfig();
                                   } catch (err) {
                                     e.target.value = order.payment_status;
                                     setPaymentError(`Could not update ${order.order_id} — ${err.message}`);
+                                  } finally {
+                                    setSavingPaymentId(null);
                                   }
                                 }}
                                 className="form-control"
@@ -6041,16 +6458,19 @@ function App() {
                       style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} 
                       onSubmit={async (e) => {
                         e.preventDefault();
+                        if (settingsSaving) return;
                         const form = e.target;
                         const formData = new FormData();
                         formData.append('name', form.boutiqueName.value);
                         formData.append('address', form.boutiqueAddress.value);
                         formData.append('phone', form.boutiquePhone.value);
                         formData.append('email', form.boutiqueEmail.value);
-                        if (form.boutiqueLogo.files[0]) {
-                          formData.append('logo', form.boutiqueLogo.files[0]);
+                        const logoFile = form.boutiqueLogo.files[0] || form.boutiqueLogoCamera.files[0];
+                        if (logoFile) {
+                          formData.append('logo', logoFile);
                         }
                         formData.append('design_approval_required', form.designApprovalRequired.checked);
+                        setSettingsSaving(true);
                         try {
                           const updated = await api.updateBoutiqueSettings(formData);
                           setBoutiqueSettings(updated);
@@ -6058,6 +6478,8 @@ function App() {
                         } catch (err) {
                           console.error(err);
                           alert("Failed to update boutique settings");
+                        } finally {
+                          setSettingsSaving(false);
                         }
                       }}
                     >
@@ -6120,12 +6542,27 @@ function App() {
                               style={{ width: '48px', height: '48px', borderRadius: '4px', objectFit: 'contain', background: '#f8fafc', border: '1px solid var(--border-color)' }} 
                             />
                           )}
-                          <input 
-                            type="file" 
+                          <input
+                            type="file"
                             name="boutiqueLogo"
                             accept="image/*"
-                            className="form-control" 
+                            className="form-control"
                           />
+                          <input
+                            type="file"
+                            name="boutiqueLogoCamera"
+                            id="boutique-logo-camera"
+                            accept="image/*"
+                            capture="environment"
+                            style={{ display: 'none' }}
+                          />
+                          <label
+                            htmlFor="boutique-logo-camera"
+                            className="btn-secondary"
+                            style={{ display: 'inline-block', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            📷 Take photo
+                          </label>
                         </div>
                       </div>
 
@@ -6666,11 +7103,14 @@ function App() {
             onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
             onOpenNotifications={() => {
               setShowNotificationsDrawer(true);
+              if (markingNotificationsRead) return;
+              setMarkingNotificationsRead(true);
               api.markNotificationsAsRead(currentUser?.role || 'Owner', currentUser?.email)
                 .then(() => fetchNotifications())
                     // Never let the bell take the app down: a refused or failed
                     // mark-read is not worth losing the session over.
-                    .catch(() => {});
+                    .catch(() => {})
+                    .finally(() => setMarkingNotificationsRead(false));
             }}
           />
 
@@ -6769,7 +7209,9 @@ function App() {
                                       onClick={() => setDiscardingDraftId(null)}>
                                 {t('entry.keepIt', 'Keep it')}
                               </button>
-                              <button type="button" className="btn-primary" onClick={async () => {
+                              <button type="button" className="btn-primary" disabled={deletingDraftId === draft.id} onClick={async () => {
+                                if (deletingDraftId) return;
+                                setDeletingDraftId(draft.id);
                                 try {
                                   await api.deleteOrderDraft(draft.id);
                                   setResumableDrafts(prev => prev.filter(d => d.id !== draft.id));
@@ -6778,6 +7220,7 @@ function App() {
                                   alert('Could not discard that order — it is still saved.');
                                 } finally {
                                   setDiscardingDraftId(null);
+                                  setDeletingDraftId(null);
                                 }
                               }}>
                                 {t('entry.discardPermanently', 'Discard permanently')}
@@ -6797,7 +7240,9 @@ function App() {
               )}
 
               <div className="selector-cards-grid">
-                {/* Option 1: Existing Customer */}
+                {/* Option 1: Existing Customer -- pointless (and confusing) until
+                    the boutique actually has one, so it waits for the first. */}
+                {customersList.length > 0 && (
                 <div className="selector-option-card" onClick={openExistingCustomerModal}>
                   <div className="selector-option-icon">
                     <Users size={32} />
@@ -6825,6 +7270,7 @@ function App() {
                     <ArrowRight size={14} />
                   </button>
                 </div>
+                )}
 
                 {/* Option 2: New Customer */}
                 <div className="selector-option-card" onClick={handleStartNewCustomer}>
@@ -7219,11 +7665,12 @@ function App() {
                             key={template.key}
                             type="button"
                             className={chosen ? 'btn-primary' : 'btn-secondary'}
-                            style={{ padding: '7px 14px', fontSize: '13px', borderRadius: '999px', gap: '6px' }}
+                            style={{ padding: '7px 14px', fontSize: '13px', borderRadius: '999px', gap: '6px', opacity: addingGarmentKey && addingGarmentKey !== template.key ? 0.6 : 1 }}
+                            disabled={!!addingGarmentKey}
                             onClick={() => (chosen ? removeGarment(template.key) : addGarment(template.key))}
                           >
-                            {chosen ? <Check size={13} /> : <Plus size={13} />}
-                            {template.name}
+                            {addingGarmentKey === template.key ? <span className="spin" style={{ width: '13px', height: '13px', border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block' }} /> : (chosen ? <Check size={13} /> : <Plus size={13} />)}
+                            {addingGarmentKey === template.key ? 'Loading…' : template.name}
                           </button>
                         );
                       })}
@@ -7385,6 +7832,7 @@ function App() {
                       </button>
                     </div>
 
+                    <MaterialsNeeded templateId={job.template.id} />
                     {['basic', 'measurements', 'style', 'materials', 'production'].map(sectionKey => {
                       const section = job.template.sections.find(s => s.key === sectionKey);
                       if (!section) return null;
@@ -7403,6 +7851,7 @@ function App() {
                             quantityErrors={garmentQuantityErrors[job.key] || {}}
                             onQuantityChange={(fieldKey, quantity) =>
                               updateGarmentQuantity(job.key, fieldKey, quantity)}
+                            onGoToInventory={() => { setView('dashboard'); setDashboardTab('inventory'); }}
                           />
                         </div>
                       );
@@ -7535,17 +7984,33 @@ function App() {
                           />
                         </div>
                       </div>
-                      <div className="drag-drop-zone" onClick={() => document.getElementById('design-picker').click()}>
+                      <div className="drag-drop-zone" onClick={(e) => { if (e.target.tagName === 'INPUT') return; document.getElementById('design-picker').click(); }}>
                         <div className="drag-drop-icon">
                           <Upload size={24} />
                         </div>
-                        <div className="drag-drop-text">Drag & drop images here or <span>Upload Images</span></div>
+                        <div className="drag-drop-text">Drag & drop images here or <span>Choose from gallery</span></div>
                         <div className="drag-drop-subtext">JPG, PNG up to 10MB each • You can upload up to 10 images</div>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ marginTop: '8px', fontSize: '12px', padding: '6px 12px' }}
+                          onClick={(e) => { e.stopPropagation(); document.getElementById('design-picker-camera').click(); }}
+                        >
+                          📷 Take photo
+                        </button>
                         <input
                           type="file"
                           id="design-picker"
                           multiple
                           accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={handleDesignFilesChange}
+                        />
+                        <input
+                          type="file"
+                          id="design-picker-camera"
+                          accept="image/*"
+                          capture="environment"
                           style={{ display: 'none' }}
                           onChange={handleDesignFilesChange}
                         />
@@ -7599,18 +8064,34 @@ function App() {
 
                   {fabricTab === 'my-fabric' ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      <div className="drag-drop-zone" onClick={() => document.getElementById('fabric-picker').click()}>
+                      <div className="drag-drop-zone" onClick={(e) => { if (e.target.tagName === 'INPUT') return; document.getElementById('fabric-picker').click(); }}>
                         <div className="drag-drop-icon">
                           <Upload size={24} />
                         </div>
-                        <div className="drag-drop-text">Upload Fabric Images</div>
+                        <div className="drag-drop-text">Upload Fabric Images — <span>Choose from gallery</span></div>
                         <div className="drag-drop-subtext">Upload clear, well-lit photos for accurate representation</div>
-                        <input 
-                          type="file" 
-                          id="fabric-picker" 
-                          multiple 
-                          accept="image/*" 
-                          style={{ display: 'none' }} 
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ marginTop: '8px', fontSize: '12px', padding: '6px 12px' }}
+                          onClick={(e) => { e.stopPropagation(); document.getElementById('fabric-picker-camera').click(); }}
+                        >
+                          📷 Take photo
+                        </button>
+                        <input
+                          type="file"
+                          id="fabric-picker"
+                          multiple
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={handleFabricFilesChange}
+                        />
+                        <input
+                          type="file"
+                          id="fabric-picker-camera"
+                          accept="image/*"
+                          capture="environment"
+                          style={{ display: 'none' }}
                           onChange={handleFabricFilesChange}
                         />
                       </div>
@@ -7676,7 +8157,7 @@ function App() {
                               this component's state. The draft is on the server
                               before we navigate, so the work is waiting when
                               they come back. */}
-                          <button type="button" className="btn-secondary" onClick={async () => {
+                          <button type="button" className="btn-secondary" disabled={draftSaveState === 'saving'} onClick={async () => {
                             try {
                               await persistDraft({ step: 4 });
                             } catch (err) {
@@ -7687,7 +8168,7 @@ function App() {
                             setView('dashboard');
                             setDashboardTab('fabrics');
                           }}>
-                            Save &amp; add fabrics
+                            {draftSaveState === 'saving' ? 'Saving…' : <>Save &amp; add fabrics</>}
                           </button>
                         </div>
                       )}
@@ -9631,22 +10112,40 @@ function App() {
 
               <div>
                 <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Upload Progress Photo</label>
-                <input 
-                  type="file" 
+                <input
+                  type="file"
                   className="form-control"
                   style={{ fontSize: '12px' }}
                   accept="image/*"
                   onChange={(e) => setStageReviewImage(e.target.files[0])}
                 />
+                <input
+                  type="file"
+                  id="stage-review-photo-camera"
+                  accept="image/*"
+                  capture="environment"
+                  style={{ display: 'none' }}
+                  onChange={(e) => setStageReviewImage(e.target.files[0])}
+                />
+                <label
+                  htmlFor="stage-review-photo-camera"
+                  className="btn-secondary"
+                  style={{ display: 'inline-block', fontSize: '12px', padding: '6px 10px', marginTop: '6px', cursor: 'pointer' }}
+                >
+                  📷 Take photo
+                </label>
               </div>
 
               {/* Action Buttons Panel */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginTop: '10px' }}>
                 {selectedStageObj && (selectedStageObj.status === 'NOT_STARTED' || selectedStageObj.status === 'PAUSED') && (
-                  <button 
-                    className="btn-primary" 
+                  <button
+                    className="btn-primary"
                     style={{ background: '#3b82f6', color: '#fff', fontSize: '12px', padding: '8px' }}
+                    disabled={stageTransitionBusy}
                     onClick={async () => {
+                      if (stageTransitionBusy) return;
+                      setStageTransitionBusy(true);
                       try {
                         await api.transitionStage(
                           activeReviewOrder.id,
@@ -9664,6 +10163,8 @@ function App() {
                         fetchDashboardAndConfig();
                       } catch (err) {
                         alert("Failed to transition: " + err.message);
+                      } finally {
+                        setStageTransitionBusy(false);
                       }
                     }}
                   >
@@ -9673,10 +10174,13 @@ function App() {
 
                 {selectedStageObj && selectedStageObj.status === 'IN_PROGRESS' && (
                   <>
-                    <button 
-                      className="btn-secondary" 
+                    <button
+                      className="btn-secondary"
                       style={{ background: '#f59e0b', color: '#fff', border: 'none', fontSize: '12px', padding: '8px' }}
+                      disabled={stageTransitionBusy}
                       onClick={async () => {
+                        if (stageTransitionBusy) return;
+                        setStageTransitionBusy(true);
                         try {
                           await api.transitionStage(
                             activeReviewOrder.id,
@@ -9694,15 +10198,20 @@ function App() {
                           fetchDashboardAndConfig();
                         } catch (err) {
                           alert("Failed to transition: " + err.message);
+                        } finally {
+                          setStageTransitionBusy(false);
                         }
                       }}
                     >
                       Pause Stage
                     </button>
-                    <button 
-                      className="btn-primary" 
+                    <button
+                      className="btn-primary"
                       style={{ background: '#10b981', color: '#fff', fontSize: '12px', padding: '8px' }}
+                      disabled={stageTransitionBusy}
                       onClick={async () => {
+                        if (stageTransitionBusy) return;
+                        setStageTransitionBusy(true);
                         try {
                           await api.transitionStage(
                             activeReviewOrder.id,
@@ -9720,6 +10229,8 @@ function App() {
                           fetchDashboardAndConfig();
                         } catch (err) {
                           alert("Failed to transition: " + err.message);
+                        } finally {
+                          setStageTransitionBusy(false);
                         }
                       }}
                     >
@@ -9729,10 +10240,13 @@ function App() {
                 )}
 
                 {selectedStageObj && selectedStageObj.status !== 'COMPLETED' && selectedStageObj.status !== 'SKIPPED' && (
-                  <button 
-                    className="btn-secondary" 
+                  <button
+                    className="btn-secondary"
                     style={{ fontSize: '12px', padding: '8px' }}
+                    disabled={stageTransitionBusy}
                     onClick={async () => {
+                      if (stageTransitionBusy) return;
+                      setStageTransitionBusy(true);
                       try {
                         await api.transitionStage(
                           activeReviewOrder.id,
@@ -9750,10 +10264,40 @@ function App() {
                         fetchDashboardAndConfig();
                       } catch (err) {
                         alert("Failed to transition: " + err.message);
+                      } finally {
+                        setStageTransitionBusy(false);
                       }
                     }}
                   >
                     Skip Stage
+                  </button>
+                )}
+
+                {/* Reversals. Forward-only is the rule; these are the two
+                    audited exceptions, supervisors only, reason required.
+                    The server enforces all of it -- these buttons only appear
+                    where they could succeed. */}
+                {selectedStageObj && (selectedStageObj.status === 'COMPLETED' || selectedStageObj.status === 'SKIPPED')
+                  && (currentUser?.role === 'Owner' || currentUser?.role === 'Master') && (
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '12px', padding: '8px', color: '#b45309', borderColor: '#b45309' }}
+                    disabled={reversalBusy}
+                    onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'reopen' }); }}
+                  >
+                    Reopen Stage…
+                  </button>
+                )}
+                {selectedStageObj && selectedStageObj.stage_key === 'master_quality_check'
+                  && selectedStageObj.status !== 'COMPLETED'
+                  && ['Owner', 'Master', 'QC Master'].includes(currentUser?.role) && (
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: '12px', padding: '8px', color: '#b91c1c', borderColor: '#b91c1c' }}
+                    disabled={reversalBusy}
+                    onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'failqc' }); }}
+                  >
+                    Fail QC — Send for Rework…
                   </button>
                 )}
               </div>
@@ -9936,6 +10480,83 @@ function App() {
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      <NetworkActivityBar />
+      {reversalPrompt && (
+        <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1300 }}>
+          <div className="search-modal-card" style={{ maxWidth: '420px', width: '100%', padding: '24px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)', marginBottom: '8px' }}>
+              {reversalPrompt.type === 'failqc' ? 'Fail this quality check?' : 'Reopen this stage?'}
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+              {reversalPrompt.type === 'failqc'
+                ? 'The stitching stages reopen for rework and the order drops back to Design & Creation. Say what was wrong — the tailor doing the rework reads this.'
+                : 'This goes on the order\u2019s record with your name. Say why the stage is being reopened.'}
+            </p>
+            <textarea
+              className="form-control"
+              rows={3}
+              autoFocus
+              placeholder={reversalPrompt.type === 'failqc' ? 'e.g. Hem is crooked on the left panel' : 'e.g. Completed on the wrong order'}
+              value={reversalReason}
+              onChange={(e) => setReversalReason(e.target.value)}
+              style={{ marginBottom: '16px' }}
+            />
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn-secondary" disabled={reversalBusy} onClick={() => setReversalPrompt(null)}>
+                Cancel
+              </button>
+              <button
+                type="button" className="btn-primary" disabled={reversalBusy || !reversalReason.trim()}
+                onClick={async () => {
+                  if (reversalBusy) return;
+                  setReversalBusy(true);
+                  try {
+                    if (reversalPrompt.type === 'failqc') {
+                      await api.failQualityCheck(activeReviewOrder.id, reversalReason.trim());
+                    } else {
+                      await api.reopenStage(activeReviewOrder.id, selectedStageObj.stage_key, reversalReason.trim());
+                    }
+                    setReversalPrompt(null);
+                    setActiveReviewStage(null);
+                    setActiveReviewOrder(null);
+                    setSelectedStageObj(null);
+                    fetchDashboardAndConfig();
+                  } catch (err) {
+                    alert(err.message);
+                  } finally {
+                    setReversalBusy(false);
+                  }
+                }}
+              >
+                {reversalBusy ? 'Recording…' : (reversalPrompt.type === 'failqc' ? 'Fail QC' : 'Reopen Stage')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Rendered at the root so both sidebars' Logout items reach it,
+          whichever view is on screen. */}
+      {showLogoutConfirm && (
+        <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1300 }}>
+          <div className="search-modal-card" style={{ maxWidth: '360px', width: '100%', padding: '24px', textAlign: 'center' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)', marginBottom: '8px' }}>
+              Log out?
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+              You will need to sign in again to open your boutique.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button type="button" className="btn-secondary" disabled={logoutBusy} onClick={() => setShowLogoutConfirm(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" disabled={logoutBusy} onClick={handleLogout}>
+                {logoutBusy ? 'Logging out…' : 'Logout'}
+              </button>
+            </div>
           </div>
         </div>
       )}
