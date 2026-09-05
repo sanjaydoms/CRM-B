@@ -186,7 +186,7 @@ export const api = {
     
     // Store token and tenant_id
     if (data.token) {
-      sessionEndedHandled = false;
+      sessionCheckInFlight = false;
       localStorage.setItem('token', data.token);
     }
     if (data.tenant_id) {
@@ -210,7 +210,7 @@ export const api = {
     if (!res.ok) throw new Error(data.error || describeApiError(res, data));
     
     if (data.token) {
-      sessionEndedHandled = false; 
+      sessionCheckInFlight = false;
       localStorage.setItem('token', data.token);
     }
     if (data.tenant_id) {
