@@ -210,6 +210,7 @@ export const api = {
     if (!res.ok) throw new Error(data.error || describeApiError(res, data));
     
     if (data.token) {
+      sessionEndedHandled = false; 
       localStorage.setItem('token', data.token);
     }
     if (data.tenant_id) {
