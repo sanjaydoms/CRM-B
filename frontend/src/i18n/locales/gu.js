@@ -303,6 +303,7 @@ const gu = {
   designsPage: {
     title: "ડિઝાઇન કલેક્શન સંચાલન",
     subtitle: "કેટલોગ ડિઝાઇન અને AI સૂચનો ઉમેરો, સંપાદિત કરો અથવા હટાવો.",
+    boutiqueDesigns: "બુટીક ડિઝાઇન",
     addNewDesign: "નવી ડિઝાઇન ઉમેરો",
     catalogDesigns: "કેટલોગ ડિઝાઇન",
     aiStudio: "AI સ્ટુડિયો",

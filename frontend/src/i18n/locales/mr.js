@@ -300,6 +300,7 @@ const mr = {
   designsPage: {
     title: "डिझाइन संग्रह व्यवस्थापन",
     subtitle: "कॅटलॉग डिझाइन आणि AI सूचना जोडा, संपादित करा किंवा हटवा.",
+    boutiqueDesigns: "बुटीक डिझाइन्स",
     addNewDesign: "नवीन डिझाइन जोडा",
     catalogDesigns: "कॅटलॉग डिझाईन्स",
     aiStudio: "AI स्टुडिओ",

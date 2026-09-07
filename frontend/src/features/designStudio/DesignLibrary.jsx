@@ -4,6 +4,7 @@ import { ArrowLeft, Check, Clock, Edit2, Eye, Plus, Search, ShoppingBag, Trash2,
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 import DesignUpload from './DesignUpload';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
 
 /**
  * The boutique's design library.
@@ -271,6 +272,7 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
 }
 
 export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded, refreshToken, canReview = false }) {
+  const { t } = useLanguage();
   const [categories, setCategories] = useState([]);
   const [total, setTotal] = useState(0);
   const [openCategory, setOpenCategory] = useState(null);   // null = section list
@@ -377,7 +379,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
     return (
       <div className="content-card">
         <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span>Boutique Designs</span>
+          <span>{t('designsPage.boutiqueDesigns', 'Boutique Designs')}</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 400 }}>
               {total} design{total === 1 ? '' : 's'} in the library

@@ -306,6 +306,7 @@ const de = {
     shareWhatsappBtn: "Auf WhatsApp teilen"
   },
   designsPage: {
+    boutiqueDesigns: "Boutique-Designs",
     title: "Design-Kollektionsverwaltung",
     subtitle: "Katalogdesigns und KI-Vorschläge hinzufügen, bearbeiten oder löschen.",
     addNewDesign: "Neues Design hinzufügen",

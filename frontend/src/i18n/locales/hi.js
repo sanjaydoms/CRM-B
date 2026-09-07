@@ -298,6 +298,7 @@ const hi = {
   designsPage: {
     title: "डिजाइन संग्रह प्रबंधित करें",
     subtitle: "कैटलॉग डिजाइन और AI सुझावों को जोड़ें, संपादित करें या हटाएं।",
+    boutiqueDesigns: "बुटीक डिज़ाइन",
     addNewDesign: "नया डिजाइन जोड़ें",
     catalogDesigns: "कैटलॉग डिजाइन",
     aiStudio: "AI स्टूडियो",

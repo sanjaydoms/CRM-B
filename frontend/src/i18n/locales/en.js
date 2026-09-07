@@ -298,6 +298,7 @@ const en = {
   designsPage: {
     title: "Manage Design Collection",
     subtitle: "Add, edit, or delete catalog designs and AI suggestions.",
+    boutiqueDesigns: "Boutique Designs",
     addNewDesign: "Add New Design",
     catalogDesigns: "Catalog Designs",
     aiStudio: "AI Studio",

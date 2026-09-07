@@ -302,6 +302,7 @@ const ml = {
     shareWhatsappBtn: "WhatsApp-ൽ പങ്കുവെക്കുക"
   },
   designsPage: {
+    boutiqueDesigns: "ബൊട്ടീക്ക് ഡിസൈനുകൾ",
     title: "ഡിസൈൻ ശേഖര മാനേജ്‌മെന്റ്",
     subtitle: "കാറ്റലോഗ് ഡിസൈനുകളും AI നിർദ്ദേശങ്ങളും ചേർക്കുക, എഡിറ്റ് ചെയ്യുക അല്ലെങ്കിൽ നീക്കം ചെയ്യുക.",
     addNewDesign: "പുതിയ ഡിസൈൻ ചേർക്കുക",

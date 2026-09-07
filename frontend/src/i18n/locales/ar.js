@@ -301,6 +301,7 @@ const ar = {
   designsPage: {
     title: "إدارة مجموعة التصاميم",
     subtitle: "إضافة أو تعديل أو حذف تصاميم الكتالوج واقتراحات الذكاء الاصطناعي.",
+    boutiqueDesigns: "تصاميم البوتيك",
     addNewDesign: "إضافة تصميم جديد",
     catalogDesigns: "تصاميم الكتالوج",
     aiStudio: "استوديو الذكاء الاصطناعي",

@@ -304,6 +304,7 @@ const kn = {
     shareWhatsappBtn: "WhatsApp ನಲ್ಲಿ ಹಂಚಿಕೊಳ್ಳಿ"
   },
   designsPage: {
+    boutiqueDesigns: "ಬೊಟಿಕ್ ವಿನ್ಯಾಸಗಳು",
     title: "ವಿನ್ಯಾಸ ಸಂಗ್ರಹ ನಿರ್ವಹಣೆ",
     subtitle: "ಕ್ಯಾಟಲಾಗ್ ವಿನ್ಯಾಸಗಳು ಮತ್ತು AI ಸಲಹೆಗಳನ್ನು ಸೇರಿಸಿ, ಸಂಪಾದಿಸಿ ಅಥವಾ ಅಳಿಸಿ.",
     addNewDesign: "ಹೊಸ ವಿನ್ಯಾಸ ಸೇರಿಸಿ",

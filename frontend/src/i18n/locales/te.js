@@ -300,6 +300,7 @@ const te = {
   designsPage: {
     title: "డిజైన్ కలెక్షన్ నిర్వహణ",
     subtitle: "కేటలాగ్ డిజైన్‌లు మరియు AI సూచనలను జోడించండి, సవరించండి లేదా తొలగించండి.",
+    boutiqueDesigns: "బొటిక్ డిజైన్‌లు",
     addNewDesign: "కొత్త డిజైన్ జోడించండి",
     catalogDesigns: "కేటలాగ్ డిజైన్‌లు",
     aiStudio: "AI స్టూడియో",
