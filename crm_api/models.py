@@ -414,7 +414,7 @@ def get_default_workflow():
         {"key": "fabric_confirmed", "name": "Fabric Confirmed", "sla_hours": 24, "roles": ["Owner", "Master"]},
         {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master", "Pattern Master", "Cutting Master"]},
         {"key": "maggam_work", "name": "Maggam Work", "sla_hours": 96, "roles": ["Owner", "Master", "Maggam Master"], "optional": True},
-        {"key": "assigned_to_tailor", "name": "Assigned to Tailor", "sla_hours": 12, "roles": ["Owner", "Master"]},
+        {"key": "assigned_to_tailor", "name": "Assigned to Tailor", "sla_hours": 12, "roles": ["Owner", "Master", "Tailor"]},
         {"key": "stitching_in_progress", "name": "Stitching In Progress", "sla_hours": 72, "roles": ["Owner", "Tailor"]},
         {"key": "stitching_completed", "name": "Stitching Completed", "sla_hours": 12, "roles": ["Owner", "Tailor"]},
         {"key": "finishing", "name": "Hemming & Finishing", "sla_hours": 24, "roles": ["Owner", "Master", "Finishing Master"]},
