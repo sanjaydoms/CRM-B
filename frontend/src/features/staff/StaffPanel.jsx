@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Plus, Clock, Wallet, TrendingUp, Users } from 'lucide-react';
 
 import { api } from '../../services/api';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
 import Attendance from './Attendance';
 import Payroll from './Payroll';
 import Performance from './Performance';
@@ -31,6 +32,16 @@ const panel = {
 const money = (n) =>
   `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
+const getEmploymentTypes = (t) => [
+  ['FULL_TIME', t ? t('staffPage.fullTime', 'Full time') : 'Full time'],
+  ['PART_TIME', t ? t('staffPage.partTime', 'Part time') : 'Part time'],
+  ['CONTRACT', t ? t('staffPage.contract', 'Contract') : 'Contract'],
+  ['APPRENTICE', t ? t('staffPage.apprentice', 'Apprentice') : 'Apprentice'],
+];
+
+const employmentLabel = (value, t) =>
+  (getEmploymentTypes(t).find(([key]) => key === value) || [null, '—'])[1];
+
 /**
  * Whether this row actually carries pay, as opposed to having had it removed.
  *
@@ -42,16 +53,6 @@ const money = (n) =>
  * someone's wage is worse than saying nothing.
  */
 const showsPay = (terms) => terms?.hourly_rate !== undefined;
-
-const EMPLOYMENT_TYPES = [
-  ['FULL_TIME', 'Full time'],
-  ['PART_TIME', 'Part time'],
-  ['CONTRACT', 'Contract'],
-  ['APPRENTICE', 'Apprentice'],
-];
-
-const employmentLabel = (value) =>
-  (EMPLOYMENT_TYPES.find(([key]) => key === value) || [null, '—'])[1];
 
 function Modal({ title, onClose, children, width = '560px' }) {
   return (
@@ -121,6 +122,7 @@ const cleaned = (form) => {
 };
 
 function TermsForm({ member, terms, onCancel, onSaved }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState(() =>
     terms
       ? {
@@ -179,61 +181,61 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
         style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}
       >
         <div style={field}>
-          <label style={label} htmlFor="sp-type">Employment type</label>
+          <label style={label} htmlFor="sp-type">{t('staffPage.employmentType', 'Employment type')}</label>
           <select id="sp-type" value={form.employment_type} onChange={set('employment_type')}>
-            {EMPLOYMENT_TYPES.map(([value, text]) => (
+            {getEmploymentTypes(t).map(([value, text]) => (
               <option key={value} value={value}>{text}</option>
             ))}
           </select>
         </div>
         <div style={field}>
-          <label style={label} htmlFor="sp-rate">Hourly rate (₹)</label>
+          <label style={label} htmlFor="sp-rate">{t('staffPage.hourlyRate', 'Hourly rate')} (₹)</label>
           <input id="sp-rate" type="number" min="0" step="0.01"
                  value={form.hourly_rate} onChange={set('hourly_rate')} placeholder="0.00" />
         </div>
 
         <div style={field}>
-          <label style={label} htmlFor="sp-joined">Joined on</label>
+          <label style={label} htmlFor="sp-joined">{t('staffPage.joinedOn', 'Joined on')}</label>
           <input id="sp-joined" type="date" value={form.joined_at} onChange={set('joined_at')} />
         </div>
         <div style={field}>
-          <label style={label} htmlFor="sp-exit">Left on</label>
+          <label style={label} htmlFor="sp-exit">{t('staffPage.leftOn', 'Left on')}</label>
           <input id="sp-exit" type="date" value={form.exit_date} onChange={set('exit_date')} />
         </div>
 
         <div style={field}>
-          <label style={label} htmlFor="sp-hours">Expected hours a week</label>
+          <label style={label} htmlFor="sp-hours">{t('staffPage.expectedHours', 'Expected hours a week')}</label>
           <input id="sp-hours" type="number" min="0" step="0.5"
                  value={form.weekly_hours} onChange={set('weekly_hours')} placeholder="48" />
         </div>
         <div style={field}>
-          <label style={label} htmlFor="sp-phone">Phone</label>
+          <label style={label} htmlFor="sp-phone">{t('common.phone', 'Phone')}</label>
           <input id="sp-phone" value={form.phone} onChange={set('phone')} />
         </div>
 
         <div style={field}>
-          <label style={label} htmlFor="sp-dep-total">Security deposit (₹)</label>
+          <label style={label} htmlFor="sp-dep-total">{t('staffPage.securityDeposit', 'Security deposit')} (₹)</label>
           <input id="sp-dep-total" type="number" min="0" step="0.01"
                  value={form.deposit_total} onChange={set('deposit_total')} placeholder="0.00" />
         </div>
         <div style={field}>
-          <label style={label} htmlFor="sp-dep-weekly">Weekly deduction (₹)</label>
+          <label style={label} htmlFor="sp-dep-weekly">{t('staffPage.weeklyDeduction', 'Weekly deduction')} (₹)</label>
           <input id="sp-dep-weekly" type="number" min="0" step="0.01"
                  value={form.deposit_weekly} onChange={set('deposit_weekly')} placeholder="0.00" />
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '14px' }}>
-        <label style={label} htmlFor="sp-emergency">Emergency contact</label>
+        <label style={label} htmlFor="sp-emergency">{t('staffPage.emergencyContact', 'Emergency contact')}</label>
         <input id="sp-emergency" value={form.emergency_contact}
                onChange={set('emergency_contact')} />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '14px' }}>
-        <label style={label} htmlFor="sp-address">Address</label>
+        <label style={label} htmlFor="sp-address">{t('staffPage.address', 'Address')}</label>
         <textarea id="sp-address" rows={2} value={form.address} onChange={set('address')} />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '14px' }}>
-        <label style={label} htmlFor="sp-notes">Notes</label>
+        <label style={label} htmlFor="sp-notes">{t('staffPage.notes', 'Notes')}</label>
         <textarea id="sp-notes" rows={2} value={form.notes} onChange={set('notes')} />
       </div>
 
@@ -243,9 +245,9 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
       </p>
 
       <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '18px' }}>
-        <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn-secondary" onClick={onCancel}>{t('staffPage.cancel', 'Cancel')}</button>
         <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Saving…' : terms ? 'Save changes' : 'Create profile'}
+          {saving ? t('staffPage.saving', 'Saving…') : terms ? t('staffPage.saveChanges', 'Save changes') : t('staffPage.createProfile', 'Create profile')}
         </button>
       </div>
     </form>
@@ -253,6 +255,7 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
 }
 
 function AdvanceForm({ member, onCancel, onSaved }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState({
     amount: '', weekly_recovery: '',
     issued_on: new Date().toISOString().slice(0, 10), reason: '',
@@ -289,21 +292,21 @@ function AdvanceForm({ member, onCancel, onSaved }) {
       <div className="mobile-stack-grid"
            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
         <div style={field}>
-          <label style={label} htmlFor="adv-amount">Amount (₹)</label>
+          <label style={label} htmlFor="adv-amount">{t('common.amount', 'Amount')} (₹)</label>
           <input id="adv-amount" type="number" min="0.01" step="0.01" required
                  value={form.amount} onChange={set('amount')} placeholder="0.00" />
         </div>
         <div style={field}>
-          <label style={label} htmlFor="adv-weekly">Recover per week (₹)</label>
+          <label style={label} htmlFor="adv-weekly">{t('staffPage.weeklyDeduction', 'Weekly deduction')} (₹)</label>
           <input id="adv-weekly" type="number" min="0" step="0.01"
                  value={form.weekly_recovery} onChange={set('weekly_recovery')} placeholder="0.00" />
         </div>
         <div style={field}>
-          <label style={label} htmlFor="adv-date">Given on</label>
+          <label style={label} htmlFor="adv-date">{t('common.date', 'Date')}</label>
           <input id="adv-date" type="date" required value={form.issued_on} onChange={set('issued_on')} />
         </div>
         <div style={field}>
-          <label style={label} htmlFor="adv-reason">Reason</label>
+          <label style={label} htmlFor="adv-reason">{t('staffPage.notes', 'Reason')}</label>
           <input id="adv-reason" value={form.reason} onChange={set('reason')}
                  placeholder="Emergency advance" />
         </div>
@@ -313,9 +316,9 @@ function AdvanceForm({ member, onCancel, onSaved }) {
         never more than the week earned. Oldest advance first.
       </p>
       <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '18px' }}>
-        <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn-secondary" onClick={onCancel}>{t('staffPage.cancel', 'Cancel')}</button>
         <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Saving…' : 'Issue advance'}
+          {saving ? t('staffPage.saving', 'Saving…') : t('staffPage.issueAdvance', 'Issue advance')}
         </button>
       </div>
     </form>
@@ -323,6 +326,7 @@ function AdvanceForm({ member, onCancel, onSaved }) {
 }
 
 function Roster({ isOwner, canSeeTeam }) {
+  const { t } = useLanguage();
   const [roster, setRoster] = useState([]);
   const [terms, setTerms] = useState([]);
   // Owner only. The endpoint refuses everyone else, so this stays empty for a
@@ -362,8 +366,8 @@ function Roster({ isOwner, canSeeTeam }) {
   // InventoryPanel: refresh() sets loading state synchronously, and doing that
   // inside an effect is the cascading-render pattern React warns about.
   useEffect(() => {
-    const t = setTimeout(refresh, 0);
-    return () => clearTimeout(t);
+    const timer = setTimeout(refresh, 0);
+    return () => clearTimeout(timer);
   }, [refresh]);
 
   const advancesByStaff = useMemo(() => {
@@ -383,7 +387,7 @@ function Roster({ isOwner, canSeeTeam }) {
 
   const termsByStaff = useMemo(() => {
     const map = new Map();
-    terms.forEach((t) => map.set(String(t.staff), t));
+    terms.forEach((termItem) => map.set(String(termItem.staff), termItem));
     return map;
   }, [terms]);
 
@@ -391,9 +395,9 @@ function Roster({ isOwner, canSeeTeam }) {
   const rows = useMemo(() => {
     const source = canSeeTeam
       ? roster.map((person) => ({ member: person, terms: termsByStaff.get(String(person.id)) }))
-      : terms.map((t) => ({
-          member: { id: t.staff, name: t.staff_name, role: t.staff_role },
-          terms: t,
+      : terms.map((tItem) => ({
+          member: { id: tItem.staff, name: tItem.staff_name, role: tItem.staff_role },
+          terms: tItem,
         }));
     const needle = search.trim().toLowerCase();
     if (!needle) return source;
@@ -404,7 +408,7 @@ function Roster({ isOwner, canSeeTeam }) {
   const withTerms = rows.filter((r) => r.terms).length;
 
   if (loading) {
-    return <div style={{ padding: '32px', color: 'var(--text-muted)' }}>Loading staff…</div>;
+    return <div style={{ padding: '32px', color: 'var(--text-muted)' }}>{t('common.loading', 'Loading staff…')}</div>;
   }
 
   return (
@@ -425,18 +429,18 @@ function Roster({ isOwner, canSeeTeam }) {
             <div style={{
               fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
               color: 'var(--text-muted)',
-            }}>On the roster</div>
+            }}>{t('staffPage.onTheRoster', 'On the roster')}</div>
             <div style={{ fontSize: '22px', fontWeight: 600, marginTop: '6px' }}>{roster.length}</div>
           </div>
           <div style={{ ...panel, padding: '16px 18px', flex: '1 1 170px' }}>
             <div style={{
               fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
               color: 'var(--text-muted)',
-            }}>Employment set up</div>
+            }}>{t('staffPage.employmentSetUp', 'Employment set up')}</div>
             <div style={{ fontSize: '22px', fontWeight: 600, marginTop: '6px' }}>
               {withTerms}
               <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 400 }}>
-                {' '}of {roster.length}
+                {' '}{t('staffPage.of', 'of')}{' '}{roster.length}
               </span>
             </div>
           </div>
@@ -447,7 +451,7 @@ function Roster({ isOwner, canSeeTeam }) {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search staff by name or role"
+          placeholder={t('staffPage.searchPlaceholder', 'Search staff by name or role')}
           style={{ width: '100%', maxWidth: '340px', marginBottom: '16px' }}
         />
       )}
@@ -455,14 +459,14 @@ function Roster({ isOwner, canSeeTeam }) {
       {rows.length === 0 ? (
         <div style={{ ...panel, padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
           {canSeeTeam
-            ? 'No staff on the roster yet. Add people in Manage Tailors, then set up their employment details here.'
-            : 'Your employment details have not been set up yet. Your boutique owner can add them.'}
+            ? t('staffPage.noStaffTeam', 'No staff on the roster yet. Add people in Manage Tailors, then set up their employment details here.')
+            : t('staffPage.noStaffPersonal', 'Your employment details have not been set up yet. Your boutique owner can add them.')}
         </div>
       ) : (
         // Cards, not a table: a roster row is a name plus a few values, and it
         // reads correctly at 320px without a horizontal scroller.
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {rows.map(({ member, terms: t }) => (
+          {rows.map(({ member, terms: tVal }) => (
             <div key={member.id} style={{ ...panel, padding: '14px 16px' }}>
               <div style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
@@ -472,21 +476,21 @@ function Roster({ isOwner, canSeeTeam }) {
                   <div style={{ fontWeight: 600, fontSize: '15px' }}>{member.name}</div>
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     {member.role}
-                    {t && <> · {employmentLabel(t.employment_type)}</>}
+                    {tVal && <> · {employmentLabel(tVal.employment_type, t)}</>}
                   </div>
                 </div>
                 {isOwner && (
                   <button
                     type="button"
-                    className={t ? 'btn-secondary' : 'btn-primary'}
-                    onClick={() => setEditing({ member, terms: t })}
+                    className={tVal ? 'btn-secondary' : 'btn-primary'}
+                    onClick={() => setEditing({ member, terms: tVal })}
                   >
-                    {t ? 'Edit' : <><Plus size={14} /> Set up</>}
+                    {tVal ? t('staffPage.editBtn', 'Edit') : <><Plus size={14} /> {t('staffPage.setUpBtn', 'Set up')}</>}
                   </button>
                 )}
               </div>
 
-              {t && showsPay(t) && (
+              {tVal && showsPay(tVal) && (
                 <div
                   className="mobile-stack-grid"
                   style={{
@@ -496,21 +500,21 @@ function Roster({ isOwner, canSeeTeam }) {
                   }}
                 >
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Hourly rate</div>
-                    <div style={{ fontWeight: 600 }}>{money(t.hourly_rate)}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('staffPage.hourlyRate', 'Hourly rate')}</div>
+                    <div style={{ fontWeight: 600 }}>{money(tVal.hourly_rate)}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Deposit</div>
-                    <div style={{ fontWeight: 600 }}>{money(t.deposit_total)}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('staffPage.deposit', 'Deposit')}</div>
+                    <div style={{ fontWeight: 600 }}>{money(tVal.deposit_total)}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Weekly deduction</div>
-                    <div style={{ fontWeight: 600 }}>{money(t.deposit_weekly)}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('staffPage.weeklyDeduction', 'Weekly deduction')}</div>
+                    <div style={{ fontWeight: 600 }}>{money(tVal.deposit_weekly)}</div>
                   </div>
                 </div>
               )}
 
-              {t && showsPay(t) && depositByStaff.get(String(member.id)) && (
+              {tVal && showsPay(tVal) && depositByStaff.get(String(member.id)) && (
                 (() => {
                   const d = depositByStaff.get(String(member.id));
                   return (
@@ -521,7 +525,7 @@ function Roster({ isOwner, canSeeTeam }) {
                       <div style={{ fontSize: '11px', letterSpacing: '0.08em',
                                     textTransform: 'uppercase',
                                     color: 'var(--text-muted)', marginBottom: '8px' }}>
-                        Security deposit
+                        {t('staffPage.securityDeposit', 'Security deposit')}
                       </div>
                       <div
                         className="mobile-stack-grid"
@@ -529,21 +533,21 @@ function Roster({ isOwner, canSeeTeam }) {
                                  gap: '10px' }}
                       >
                         <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Agreed</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('staffPage.agreed', 'Agreed')}</div>
                           <div style={{ fontWeight: 600 }}>{money(d.agreed)}</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Recovered</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('staffPage.recovered', 'Recovered')}</div>
                           <div style={{ fontWeight: 600 }}>{money(d.recovered)}</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Remaining</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('staffPage.remaining', 'Remaining')}</div>
                           <div style={{ fontWeight: 600 }}>{money(d.remaining)}</div>
                         </div>
                       </div>
                       {d.fully_recovered && (
                         <div style={{ fontSize: '12px', color: '#1e8a5c', marginTop: '8px' }}>
-                          Security deposit fully recovered.
+                          {t('staffPage.fullyRecovered', 'Security deposit fully recovered.')}
                         </div>
                       )}
                     </div>
@@ -551,7 +555,7 @@ function Roster({ isOwner, canSeeTeam }) {
                 })()
               )}
 
-              {isOwner && t && showsPay(t) && (
+              {isOwner && tVal && showsPay(tVal) && (
                 <div style={{
                   marginTop: '12px', paddingTop: '12px',
                   borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
@@ -560,18 +564,18 @@ function Roster({ isOwner, canSeeTeam }) {
                                 alignItems: 'center', marginBottom: '8px' }}>
                     <div style={{ fontSize: '11px', letterSpacing: '0.08em',
                                   textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                      Advances
+                      {t('staffPage.advances', 'Advances')}
                     </div>
                     <button type="button" className="btn-secondary"
                             onClick={() => setIssuingFor(member)}
                             style={{ minHeight: '34px', fontSize: '12px',
                                      display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <Plus size={12} /> Issue advance
+                      <Plus size={12} /> {t('staffPage.issueAdvance', 'Issue advance')}
                     </button>
                   </div>
                   {(advancesByStaff.get(String(member.id)) || []).length === 0 ? (
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      No outstanding advance.
+                      {t('staffPage.noAdvance', 'No outstanding advance.')}
                     </div>
                   ) : (
                     (advancesByStaff.get(String(member.id)) || []).map((a) => (
@@ -581,17 +585,17 @@ function Roster({ isOwner, canSeeTeam }) {
                                     gap: '10px', marginBottom: '6px' }}>
                         <div>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Issued {new Date(a.issued_on).toLocaleDateString([], { day: 'numeric', month: 'short' })}
+                            {t('staffPage.issued', 'Issued')} {new Date(a.issued_on).toLocaleDateString([], { day: 'numeric', month: 'short' })}
                           </div>
                           <div style={{ fontWeight: 600 }}>{money(a.issued)}</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Recovered</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('staffPage.recovered', 'Recovered')}</div>
                           <div style={{ fontWeight: 600 }}>{money(a.recovered)}</div>
                         </div>
                         <div>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Outstanding · {money(a.weekly_recovery)}/wk
+                            {t('staffPage.outstanding', 'Outstanding')} · {money(a.weekly_recovery)}{t('staffPage.perWk', '/wk')}
                           </div>
                           <div style={{ fontWeight: 600 }}>{money(a.outstanding)}</div>
                         </div>
@@ -601,15 +605,15 @@ function Roster({ isOwner, canSeeTeam }) {
                 </div>
               )}
 
-              {t && !showsPay(t) && (
+              {tVal && !showsPay(tVal) && (
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
-                  Employment set up. Pay details are visible to the boutique owner only.
+                  {t('staffPage.payVisibleOwnerOnly', 'Employment set up. Pay details are visible to the boutique owner only.')}
                 </div>
               )}
 
-              {!t && (
+              {!tVal && (
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
-                  No employment details yet — this person works exactly as before.
+                  {t('staffPage.noEmploymentDetails', 'No employment details yet — this person works exactly as before.')}
                 </div>
               )}
             </div>
@@ -618,7 +622,7 @@ function Roster({ isOwner, canSeeTeam }) {
       )}
 
       {issuingFor && (
-        <Modal title={`Issue advance — ${issuingFor.name}`} onClose={() => setIssuingFor(null)}>
+        <Modal title={`${t('staffPage.issueAdvance', 'Issue advance')} — ${issuingFor.name}`} onClose={() => setIssuingFor(null)}>
           <AdvanceForm
             member={issuingFor}
             onCancel={() => setIssuingFor(null)}
@@ -630,8 +634,8 @@ function Roster({ isOwner, canSeeTeam }) {
       {editing && (
         <Modal
           title={editing.terms
-            ? `Employment details — ${editing.member.name}`
-            : `Set up ${editing.member.name}`}
+            ? `${t('staffPage.employmentSetUp', 'Employment details')} — ${editing.member.name}`
+            : `${t('staffPage.setUpBtn', 'Set up')} ${editing.member.name}`}
           onClose={() => setEditing(null)}
         >
           <TermsForm
@@ -646,14 +650,8 @@ function Roster({ isOwner, canSeeTeam }) {
   );
 }
 
-const TABS = [
-  { key: 'roster', label: 'Staff', icon: Users },
-  { key: 'attendance', label: 'Attendance', icon: Clock },
-  { key: 'payroll', label: 'Payroll', icon: Wallet },
-  { key: 'performance', label: 'Performance', icon: TrendingUp },
-];
-
 export default function StaffPanel({ currentUser }) {
+  const { t } = useLanguage();
   // Mirrors the backend: the owner manages, a Master supervises (reads the team
   // without its pay), everyone else sees themselves. This is UX only -- every
   // one of these boundaries is enforced again server-side, and the buttons
@@ -666,18 +664,25 @@ export default function StaffPanel({ currentUser }) {
   // Managers open it on the team. Same screen, different first thing.
   const [tab, setTab] = useState(canSeeTeam ? 'roster' : 'attendance');
 
+  const tabsList = useMemo(() => [
+    { key: 'roster', label: t('staffPage.tabStaff', 'Staff'), icon: Users },
+    { key: 'attendance', label: t('staffPage.tabAttendance', 'Attendance'), icon: Clock },
+    { key: 'payroll', label: t('staffPage.tabPayroll', 'Payroll'), icon: Wallet },
+    { key: 'performance', label: t('staffPage.tabPerformance', 'Performance'), icon: TrendingUp },
+  ], [t]);
+
   return (
     <>
       <header className="portal-header">
         <div className="portal-header-left">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-              {canSeeTeam ? 'Staff Management' : 'My Attendance'}
+              {canSeeTeam ? t('staffPage.title', 'Staff Management') : t('staffPage.myAttendance', 'My Attendance')}
             </h1>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
               {canSeeTeam
-                ? 'Employment terms, attendance, payroll and performance for your team.'
-                : 'Check in and out, and see the hours recorded for you.'}
+                ? t('staffPage.subtitleTeam', 'Employment terms, attendance, payroll and performance for your team.')
+                : t('staffPage.subtitlePersonal', 'Check in and out, and see the hours recorded for you.')}
             </p>
           </div>
         </div>
@@ -689,10 +694,10 @@ export default function StaffPanel({ currentUser }) {
         paddingBottom: '10px',
       }}>
         {(isOwner
-            ? TABS
+            ? tabsList
             : canSeeTeam
-              ? TABS.filter((t) => t.key !== 'payroll')
-              : TABS.filter((t) => ['attendance', 'roster', 'performance'].includes(t.key)))
+              ? tabsList.filter((item) => item.key !== 'payroll')
+              : tabsList.filter((item) => ['attendance', 'roster', 'performance'].includes(item.key)))
           .map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -701,7 +706,7 @@ export default function StaffPanel({ currentUser }) {
             className={tab === key ? 'btn-primary' : 'btn-secondary'}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
-            <Icon size={14} /> {canSeeTeam || key !== 'roster' ? label : 'My details'}
+            <Icon size={14} /> {canSeeTeam || key !== 'roster' ? label : t('staffPage.myDetails', 'My details')}
           </button>
         ))}
       </div>
