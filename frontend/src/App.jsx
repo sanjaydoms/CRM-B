@@ -6853,8 +6853,11 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>{t('common.cancel', 'Cancel')}</button>
-                    <button type="submit" className="btn-primary">{t('tailorsPage.saveTailorBtn', 'Save Tailor')}</button>
+                    <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)} disabled={tailorSaving}>{t('common.cancel', 'Cancel')}</button>
+                    <button type="submit" className="btn-primary" disabled={tailorSaving} style={{ opacity: tailorSaving ? 0.7 : 1, cursor: tailorSaving ? 'not-allowed' : 'pointer' }}>
+                      {tailorSaving && <RotateCw size={15} className="spin" />}
+                      {t('tailorsPage.saveTailorBtn', 'Save Tailor')}
+                    </button>
                   </div>
                 </form>
               </div>
