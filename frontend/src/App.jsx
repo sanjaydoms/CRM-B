@@ -579,11 +579,11 @@ function StageTimeline({ stages, onSelectStage }) {
   }
 
   return (
-    <div ref={scrollerRef} style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      margin: '8px 0', padding: '12px 16px', background: 'var(--surface-color)',
+    <div ref={scrollerRef} className="custom-scroll" style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+      margin: '12px 0', padding: '14px 16px', background: 'var(--surface-color)',
       borderRadius: '8px', border: '1px solid var(--border-color)',
-      overflowX: 'auto', gap: '4px'
+      overflowX: 'auto', gap: '4px', width: '100%', boxSizing: 'border-box'
     }}>
       {stages.map((stage, idx, arr) => {
         const isCompleted = stage.status === 'COMPLETED';
@@ -5300,8 +5300,8 @@ function App() {
             {/* 5b. CUSTOMER DETAIL VIEW (Image 5/6 extension) */}
             {dashboardTab === 'customers' && selectedDirectoryCustomer && (
               <div className="customer-detail-view-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                {/* Back Navigation & Main Header */}
-                <div className="customer-detail-header-row">
+                {/* Top header navigation & actions */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px', width: '100%', boxSizing: 'border-box' }}>
                   <button
                     onClick={() => setSelectedDirectoryCustomer(null)}
                     style={{
@@ -5329,7 +5329,7 @@ function App() {
                       role does not permit this" with everything they had typed
                       thrown away and no route onward. */}
                   {(!currentUser?.role || currentUser.role === 'Owner') && (
-                    <div className="customer-detail-header-actions">
+                    <div className="customer-detail-header-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                       {/* Flow Option 1: Re-use Existing Design */}
                       <button
                         className="btn-outline"
@@ -5390,13 +5390,13 @@ function App() {
                 </div>
 
                 {/* Customer Main Banner */}
-                <div className="customer-detail-banner-card">
-                  <div className="user-avatar-circle" style={{ width: '80px', height: '80px', fontSize: '24px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
+                <div className="customer-detail-banner-card" style={{ width: '100%', boxSizing: 'border-box', flexWrap: 'wrap', display: 'flex', gap: '16px' }}>
+                  <div className="user-avatar-circle" style={{ width: '70px', height: '70px', fontSize: '22px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
                     <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(selectedDirectoryCustomer.first_name)}`} alt="Profile" />
                   </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '0 0 6px 0' }}>
-                      <h2 style={{ fontSize: '24px', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '0 0 6px 0', flexWrap: 'wrap' }}>
+                      <h2 style={{ fontSize: '22px', fontWeight: 600, margin: 0, color: 'var(--text-primary)', wordBreak: 'break-word' }}>
                         {selectedDirectoryCustomer.first_name} {selectedDirectoryCustomer.last_name}
                       </h2>
                       <span style={{
@@ -5412,7 +5412,7 @@ function App() {
                         {selectedDirectoryCustomer.segment}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', gap: '20px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', gap: '12px 20px', flexWrap: 'wrap', fontSize: '13px', color: 'var(--text-secondary)' }}>
                       <span>📞 {formatMobile(selectedDirectoryCustomer.mobile_number)}</span>
                       {selectedDirectoryCustomer.email_address && <span>✉️ {selectedDirectoryCustomer.email_address}</span>}
                       {selectedDirectoryCustomer.address && <span>📍 {selectedDirectoryCustomer.address}, {selectedDirectoryCustomer.city_region}</span>}
@@ -5424,16 +5424,18 @@ function App() {
                 <div className="responsive-profile-grid">
 
                   {/* Left Column */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
 
                     {/* Measurements & Info */}
                     <div style={{
                       background: 'var(--surface-color)',
                       border: '1px solid var(--border-color)',
                       borderRadius: '12px',
-                      padding: '24px'
+                      padding: '24px',
+                      width: '100%',
+                      boxSizing: 'border-box'
                     }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                         <span>Body Measurements & Sizing</span>
                         {(() => {
                           const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
@@ -5446,7 +5448,7 @@ function App() {
                       </h3>
                       {selectedDirectoryCustomer.measurements ? (
                         <>
-                          <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                          <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px 24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
                             {(() => {
                               const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
                               const visible = getVisibleMeasurementFields(parts);
@@ -5488,7 +5490,7 @@ function App() {
                                         <span style={{ fontWeight: 600 }}>Version {arr.length - idx}</span>
                                         <span>{dateStr}</span>
                                       </div>
-                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', color: 'var(--text-secondary)' }}>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '8px 12px', color: 'var(--text-secondary)' }}>
                                         {visible.includes('bust') && <div>Bust: <strong style={{ color: 'var(--text-primary)' }}>{hist.bust || '—'}</strong></div>}
                                         {visible.includes('waist') && <div>Waist: <strong style={{ color: 'var(--text-primary)' }}>{hist.waist || '—'}</strong></div>}
                                         {visible.includes('hips') && <div>Hips: <strong style={{ color: 'var(--text-primary)' }}>{hist.hips || '—'}</strong></div>}
@@ -5514,7 +5516,9 @@ function App() {
                       background: 'var(--surface-color)',
                       border: '1px solid var(--border-color)',
                       borderRadius: '12px',
-                      padding: '24px'
+                      padding: '24px',
+                      width: '100%',
+                      boxSizing: 'border-box'
                     }}>
                       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
                         Order History
@@ -5524,7 +5528,7 @@ function App() {
                       ) : !selectedDirectoryCustomer.orders || selectedDirectoryCustomer.orders.length === 0 ? (
                         <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No orders have been placed by this customer yet.</p>
                       ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', boxSizing: 'border-box' }}>
                           {selectedDirectoryCustomer.orders.map(order => {
                             // The row opens the order's production progress.
                             // It used to jump straight into the new-order
@@ -5539,11 +5543,14 @@ function App() {
                                 background: 'rgba(0,0,0,0.015)',
                                 border: `1px solid ${isOpen ? 'var(--accent-text, #b07c40)' : 'var(--border-color)'}`,
                                 borderRadius: '8px',
-                                padding: '16px'
+                                padding: '16px',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                overflow: 'hidden'
                               }}>
                                 <div
                                   onClick={() => setExpandedCustomerOrderId(isOpen ? null : order.id)}
-                                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', gap: '12px' }}
+                                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', gap: '12px', flexWrap: 'wrap' }}
                                 >
                                   <div>
                                     <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</div>
@@ -5580,23 +5587,24 @@ function App() {
                                 </div>
 
                                 {isOpen && (
-                                  <div style={{ marginTop: '16px', borderTop: '1px dashed var(--border-color)', paddingTop: '12px' }}>
+                                  <div style={{ marginTop: '16px', borderTop: '1px dashed var(--border-color)', paddingTop: '12px', width: '100%', overflow: 'hidden', boxSizing: 'border-box' }}>
                                     <StageTimeline
                                       stages={stages}
                                       onSelectStage={(stage) => openStageReview(order, stage)}
                                     />
 
                                     {stages.length > 0 && (
-                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '8px', marginTop: '12px' }}>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(135px, 1fr))', gap: '8px', marginTop: '12px', width: '100%', boxSizing: 'border-box' }}>
                                         {stages.map(stage => (
                                           <div key={stage.stage_key} style={{
                                             fontSize: '11px',
                                             padding: '8px 10px',
                                             borderRadius: '6px',
                                             background: 'var(--surface-color)',
-                                            border: '1px solid var(--border-color)'
+                                            border: '1px solid var(--border-color)',
+                                            boxSizing: 'border-box'
                                           }}>
-                                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{stage.stage_name}</div>
+                                            <div style={{ fontWeight: 600, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>{stage.stage_name}</div>
                                             <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
                                               {stage.status.replace('_', ' ').toLowerCase()}
                                               {stage.assigned_to_name ? ` · ${stage.assigned_to_name}` : ''}
