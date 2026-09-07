@@ -10144,11 +10144,11 @@ function App() {
                 {selectedStageObj && (selectedStageObj.status === 'NOT_STARTED' || selectedStageObj.status === 'PAUSED') && (
                   <button
                     className="btn-primary"
-                    style={{ background: '#3b82f6', color: '#fff', fontSize: '12px', padding: '8px' }}
-                    disabled={stageTransitionBusy}
+                    style={{ background: '#3b82f6', color: '#fff', fontSize: '12px', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', opacity: stageTransitionBusy ? 0.7 : 1, cursor: stageTransitionBusy ? 'not-allowed' : 'pointer' }}
+                    disabled={Boolean(stageTransitionBusy)}
                     onClick={async () => {
                       if (stageTransitionBusy) return;
-                      setStageTransitionBusy(true);
+                      setStageTransitionBusy('IN_PROGRESS');
                       try {
                         await api.transitionStage(
                           activeReviewOrder.id,
@@ -10171,6 +10171,7 @@ function App() {
                       }
                     }}
                   >
+                    {stageTransitionBusy === 'IN_PROGRESS' && <RotateCw size={14} className="spin" />}
                     Start In-Progress
                   </button>
                 )}
@@ -10179,11 +10180,11 @@ function App() {
                   <>
                     <button
                       className="btn-secondary"
-                      style={{ background: '#f59e0b', color: '#fff', border: 'none', fontSize: '12px', padding: '8px' }}
-                      disabled={stageTransitionBusy}
+                      style={{ background: '#f59e0b', color: '#fff', border: 'none', fontSize: '12px', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', opacity: stageTransitionBusy ? 0.7 : 1, cursor: stageTransitionBusy ? 'not-allowed' : 'pointer' }}
+                      disabled={Boolean(stageTransitionBusy)}
                       onClick={async () => {
                         if (stageTransitionBusy) return;
-                        setStageTransitionBusy(true);
+                        setStageTransitionBusy('PAUSED');
                         try {
                           await api.transitionStage(
                             activeReviewOrder.id,
@@ -10206,15 +10207,16 @@ function App() {
                         }
                       }}
                     >
+                      {stageTransitionBusy === 'PAUSED' && <RotateCw size={14} className="spin" />}
                       Pause Stage
                     </button>
                     <button
                       className="btn-primary"
-                      style={{ background: '#10b981', color: '#fff', fontSize: '12px', padding: '8px' }}
-                      disabled={stageTransitionBusy}
+                      style={{ background: '#10b981', color: '#fff', fontSize: '12px', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', opacity: stageTransitionBusy ? 0.7 : 1, cursor: stageTransitionBusy ? 'not-allowed' : 'pointer' }}
+                      disabled={Boolean(stageTransitionBusy)}
                       onClick={async () => {
                         if (stageTransitionBusy) return;
-                        setStageTransitionBusy(true);
+                        setStageTransitionBusy('COMPLETED');
                         try {
                           await api.transitionStage(
                             activeReviewOrder.id,
@@ -10237,6 +10239,7 @@ function App() {
                         }
                       }}
                     >
+                      {stageTransitionBusy === 'COMPLETED' && <RotateCw size={14} className="spin" />}
                       Complete Stage
                     </button>
                   </>
@@ -10245,11 +10248,11 @@ function App() {
                 {selectedStageObj && selectedStageObj.status !== 'COMPLETED' && selectedStageObj.status !== 'SKIPPED' && (
                   <button
                     className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '8px' }}
-                    disabled={stageTransitionBusy}
+                    style={{ fontSize: '12px', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', opacity: stageTransitionBusy ? 0.7 : 1, cursor: stageTransitionBusy ? 'not-allowed' : 'pointer' }}
+                    disabled={Boolean(stageTransitionBusy)}
                     onClick={async () => {
                       if (stageTransitionBusy) return;
-                      setStageTransitionBusy(true);
+                      setStageTransitionBusy('SKIPPED');
                       try {
                         await api.transitionStage(
                           activeReviewOrder.id,
@@ -10272,6 +10275,7 @@ function App() {
                       }
                     }}
                   >
+                    {stageTransitionBusy === 'SKIPPED' && <RotateCw size={14} className="spin" />}
                     Skip Stage
                   </button>
                 )}
@@ -10514,6 +10518,7 @@ function App() {
               </button>
               <button
                 type="button" className="btn-primary" disabled={reversalBusy || !reversalReason.trim()}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={async () => {
                   if (reversalBusy) return;
                   setReversalBusy(true);
@@ -10535,6 +10540,7 @@ function App() {
                   }
                 }}
               >
+                {reversalBusy && <RotateCw size={14} className="spin" />}
                 {reversalBusy ? 'Recording…' : (reversalPrompt.type === 'failqc' ? 'Fail QC' : 'Reopen Stage')}
               </button>
             </div>
