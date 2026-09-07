@@ -4596,6 +4596,17 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={loading}
+                      onClick={() => fetchDashboardAndConfig()}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', fontSize: '13px' }}
+                      title="Refresh Orders Data"
+                    >
+                      <RotateCw size={15} className={loading ? 'spin' : ''} />
+                      <span>{loading ? t('common.loading', 'Loading...') : t('common.refresh', 'Refresh')}</span>
+                    </button>
                     {(!currentUser?.role || currentUser.role === 'Owner') && (
                       <button className="btn-primary" onClick={handleStartNewCustomer}>
                         <Plus size={16} /> {t('ordersPage.newOrder')}
