@@ -998,6 +998,8 @@ function App() {
   // Lehenga order came to be priced as whichever garment the profile named.
   const [quotePrices, setQuotePrices] = useState({ packaging: 500, discount: 0 });
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [paymentModalOrder, setPaymentModalOrder] = useState(null);
+  const [additionalPayment, setAdditionalPayment] = useState('');
 
   // Fabrics CRUD State
   const [showFabricModal, setShowFabricModal] = useState(false);
@@ -5933,7 +5935,6 @@ function App() {
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.billingClient', 'Billing Client')}</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.date', 'Date')}</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.totalPrice', 'Total Price')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.advancePaid', 'Advance Paid')}</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.totalPaid', 'Total Paid')}</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.balanceDue', 'Balance Due')}</th>
                         <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.status', 'Payment Status')}</th>
@@ -5958,7 +5959,7 @@ function App() {
                         if (filtered.length === 0) {
                           return (
                             <tr>
-                              <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              <td colSpan="10" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                 {ordersList.length === 0
                                   ? t('invoicesPage.emptyState', 'Invoices appear here once you have created an order.')
                                   : t('invoicesPage.noMatchingInvoices', 'No invoices matching the criteria.')}
@@ -5973,7 +5974,6 @@ function App() {
                             <td style={{ padding: '16px' }}>{order.customer_name}</td>
                             <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{fmtDate(order.order_date)}</td>
                             <td style={{ padding: '16px', fontWeight: 600 }}>{formatMoney(order.total_amount)}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatMoney(order.advance_paid)}</td>
                             {/* Editable, because until now there was no screen
                                 anywhere that could record a part payment. The
                                 only control was the status dropdown beside it,
@@ -5989,38 +5989,64 @@ function App() {
                                 and derives the label, clamps to the total and
                                 caps the advance -- only the input was missing. */}
                             <td style={{ padding: '16px', color: '#107c41', fontWeight: 600 }}>
-                              <span style={{ marginRight: '2px' }}>₹</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                max={order.total_amount}
-                                defaultValue={parseFloat(order.amount_paid || 0)}
-                                disabled={savingPaymentId === order.id}
-                                aria-label={`Amount paid for invoice ${order.order_id}`}
-                                onBlur={async (e) => {
-                                  const next = parseFloat(e.target.value);
-                                  const current = parseFloat(order.amount_paid || 0);
-                                  // Blur fires on every tab-through; only write
-                                  // when the number actually moved.
-                                  if (isNaN(next) || next === current) {
-                                    e.target.value = current;
-                                    return;
-                                  }
-                                  setSavingPaymentId(order.id);
-                                  try {
-                                    await api.updateOrder(order.id, { amount_paid: next });
-                                    await fetchDashboardAndConfig();
-                                  } catch (err) {
-                                    e.target.value = current;
-                                    setPaymentError(`Could not record that payment for ${order.order_id} — ${err.message}`);
-                                  } finally {
-                                    setSavingPaymentId(null);
-                                  }
-                                }}
-                                onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-                                style={{ width: '110px', padding: '4px 6px', fontSize: '13px', fontWeight: 600, color: '#107c41', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'transparent' }}
-                              />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ marginRight: '2px' }}>₹</span>
+                                <input
+                                  key={`paid-input-${order.id}-${order.amount_paid}`}
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  max={order.total_amount}
+                                  defaultValue={parseFloat(order.amount_paid || 0)}
+                                  disabled={savingPaymentId === order.id}
+                                  aria-label={`Amount paid for invoice ${order.order_id}`}
+                                  onBlur={async (e) => {
+                                    const next = parseFloat(e.target.value);
+                                    const current = parseFloat(order.amount_paid || 0);
+                                    if (isNaN(next) || next === current) {
+                                      e.target.value = current;
+                                      return;
+                                    }
+                                    setSavingPaymentId(order.id);
+                                    try {
+                                      await api.updateOrder(order.id, { amount_paid: next });
+                                      await fetchDashboardAndConfig();
+                                    } catch (err) {
+                                      e.target.value = current;
+                                      setPaymentError(`Could not record that payment for ${order.order_id} — ${err.message}`);
+                                    } finally {
+                                      setSavingPaymentId(null);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                                  style={{ width: '90px', padding: '4px 6px', fontSize: '13px', fontWeight: 600, color: '#107c41', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'transparent' }}
+                                />
+                                <button
+                                  type="button"
+                                  title="Add subsequent payment"
+                                  onClick={() => {
+                                    setPaymentModalOrder(order);
+                                    setAdditionalPayment('');
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '24px',
+                                    height: '24px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#e6f4ea',
+                                    color: '#107c41',
+                                    border: '1px solid #ceead6',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    fontSize: '14px',
+                                    flexShrink: 0
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
                             </td>
                             <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>{formatMoney(Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)))}</td>
                             <td style={{ padding: '16px' }}>
@@ -6042,17 +6068,6 @@ function App() {
                                 className="form-control"
                                 style={{ padding: '4px 8px', fontSize: '12px', width: '130px', margin: 0 }}
                               >
-                                {/* "Partially Paid" is not offered here on
-                                    purpose: it is a *derived* label, not a
-                                    thing to choose. Selecting it sent no
-                                    amount, so the server recomputed the same
-                                    label from the same number and the control
-                                    snapped back -- a dropdown that visibly
-                                    refused its own option. It still appears as
-                                    the current value when the amount beside it
-                                    puts the order there. Pending and Paid stay
-                                    because both are unambiguous shortcuts:
-                                    nothing received, and settled in full. */}
                                 <option value="Pending">{t('invoicesPage.pending', 'Pending')}</option>
                                 {order.payment_status === 'Partially Paid' && (
                                   <option value="Partially Paid">{t('invoicesPage.partiallyPaid', 'Partially Paid')}</option>
@@ -6061,12 +6076,26 @@ function App() {
                               </select>
                             </td>
                             <td style={{ padding: '16px' }}>
-                              <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
-                                setConfirmedOrder(order);
-                                setShowInvoiceModal(true);
-                              }}>
-                                <FileText size={12} /> {t('invoicesPage.viewInvoice', 'View Invoice')}
-                              </button>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                {Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)) > 0 && (
+                                  <button
+                                    className="btn-primary"
+                                    style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#107c41', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                    onClick={() => {
+                                      setPaymentModalOrder(order);
+                                      setAdditionalPayment('');
+                                    }}
+                                  >
+                                    <Plus size={13} /> {t('invoicesPage.addPayment', 'Add Payment')}
+                                  </button>
+                                )}
+                                <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
+                                  setConfirmedOrder(order);
+                                  setShowInvoiceModal(true);
+                                }}>
+                                  <FileText size={12} /> {t('invoicesPage.viewInvoice', 'View Invoice')}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ));
@@ -9736,6 +9765,140 @@ function App() {
                 onClick={() => window.print()}
               >
                 Print Invoice
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RECORD ADDITIONAL PAYMENT MODAL */}
+      {paymentModalOrder && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          zIndex: 1000, padding: '20px'
+        }}>
+          <div style={{
+            backgroundColor: '#fff',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '440px',
+            padding: '24px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            display: 'flex', flexDirection: 'column', gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                Record Additional Payment
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPaymentModalOrder(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', fontSize: '13px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>{paymentModalOrder.customer_name}</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '2px' }}>Invoice ID: <strong>{paymentModalOrder.order_id}</strong></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #e2e8f0' }}>
+                <div>Total Bill: <strong>{formatMoney(paymentModalOrder.total_amount)}</strong></div>
+                <div>Advance Paid: <strong>{formatMoney(paymentModalOrder.advance_paid)}</strong></div>
+                <div>Current Paid: <strong style={{ color: '#107c41' }}>{formatMoney(paymentModalOrder.amount_paid)}</strong></div>
+                <div>Balance Due: <strong style={{ color: '#ff4d4d' }}>{formatMoney(Math.max(0, Number(paymentModalOrder.total_amount) - Number(paymentModalOrder.amount_paid || 0)))}</strong></div>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: '#0f172a' }}>
+                Enter New Payment Amount (₹):
+              </label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                max={Math.max(0, Number(paymentModalOrder.total_amount) - Number(paymentModalOrder.amount_paid || 0))}
+                placeholder="e.g. 2000"
+                value={additionalPayment}
+                onChange={(e) => setAdditionalPayment(e.target.value)}
+                autoFocus
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  fontSize: '15px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            {parseFloat(additionalPayment || 0) > 0 && (() => {
+              const currentP = parseFloat(paymentModalOrder.amount_paid || 0);
+              const totalP = parseFloat(paymentModalOrder.total_amount || 0);
+              const addP = parseFloat(additionalPayment || 0);
+              const calcTotalPaid = Math.min(totalP, currentP + addP);
+              const calcBalance = Math.max(0, totalP - calcTotalPaid);
+              const calcStatus = calcTotalPaid >= totalP ? 'Paid' : calcTotalPaid > 0 ? 'Partially Paid' : 'Pending';
+
+              return (
+                <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px', fontSize: '13px' }}>
+                  <div style={{ fontWeight: 700, color: '#166534', marginBottom: '6px' }}>Updated Summary Preview:</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0' }}>
+                    <span>New Total Paid:</span>
+                    <strong style={{ color: '#107c41' }}>{formatMoney(calcTotalPaid)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0' }}>
+                    <span>New Balance Due:</span>
+                    <strong style={{ color: '#dc2626' }}>{formatMoney(calcBalance)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0' }}>
+                    <span>New Payment Status:</span>
+                    <strong>{calcStatus}</strong>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setPaymentModalOrder(null)}
+                style={{ flex: 1, padding: '10px', fontSize: '13px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={!additionalPayment || parseFloat(additionalPayment) <= 0 || savingPaymentId === paymentModalOrder.id}
+                onClick={async () => {
+                  const currentP = parseFloat(paymentModalOrder.amount_paid || 0);
+                  const totalP = parseFloat(paymentModalOrder.total_amount || 0);
+                  const addP = parseFloat(additionalPayment || 0);
+                  const newPaid = Math.min(totalP, currentP + addP);
+
+                  setSavingPaymentId(paymentModalOrder.id);
+                  try {
+                    await api.updateOrder(paymentModalOrder.id, { amount_paid: newPaid });
+                    await fetchDashboardAndConfig();
+                    setPaymentModalOrder(null);
+                  } catch (err) {
+                    setPaymentError(`Could not record payment for ${paymentModalOrder.order_id} — ${err.message}`);
+                  } finally {
+                    setSavingPaymentId(null);
+                  }
+                }}
+                style={{ flex: 1, padding: '10px', fontSize: '13px', backgroundColor: '#107c41' }}
+              >
+                {savingPaymentId === paymentModalOrder.id ? 'Recording...' : `Record ${formatMoney(parseFloat(additionalPayment || 0))}`}
               </button>
             </div>
           </div>
