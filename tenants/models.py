@@ -32,6 +32,42 @@ class Domain(DomainMixin):
     pass
 
 
+class WhatsAppAccount(models.Model):
+    STATUS_CHOICES = [
+        ('DISCONNECTED', 'Disconnected'),
+        ('CONNECTING', 'Connecting'),
+        ('CONNECTED', 'Connected'),
+    ]
+
+    tenant = models.OneToOneField(
+        BoutiqueTenant,
+        on_delete=models.CASCADE,
+        related_name='whatsapp_account'
+    )
+    session_id = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+        help_text="Unique session identifier for the WhatsApp Baileys socket instance."
+    )
+    phone_number = models.CharField(
+        max_length=32,
+        blank=True,
+        default='',
+        help_text="Paired WhatsApp phone number for this tenant."
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='DISCONNECTED'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"WhatsApp ({self.session_id}) for {self.tenant.name}"
+
+
 class DemoRequest(models.Model):
 
     STATUS_CHOICES = [

@@ -677,6 +677,14 @@ export const api = {
     return res.json();
   },
 
+  async getWhatsAppStatus() {
+    const res = await guardedFetch(`${BASE_URL}/whatsapp/status/`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) await failWith(res, 'Failed to fetch WhatsApp status');
+    return res.json();
+  },
+
   // Finished-garment photographs. Published as a set, because publishing is
   // what tells the customer their outfit is ready.
   async uploadGarmentImage(orderId, view, file) {

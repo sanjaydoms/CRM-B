@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import {
   Users, ShoppingBag, Scissors, Search,
-  Upload, Check, ArrowRight, ArrowLeft, Heart,
+  Upload, Check, CheckCircle2, ArrowRight, ArrowLeft, Heart,
   MessageSquare, Star, Copy, ShieldCheck, Compass, BarChart2,
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark,
@@ -1430,6 +1430,7 @@ function App() {
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
+  const [whatsappStatus, setWhatsappStatus] = useState({ connected: false, status: 'disconnected', qrCode: null });
   const [boutiqueSettings, setBoutiqueSettings] = useState(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [drapingLoading, setDrapingLoading] = useState(false);
@@ -1662,10 +1663,38 @@ function App() {
 
     if (!user?.role || user.role === 'Owner') {
       await load('customer messages', api.getQueuedCustomerMessages, setQueuedMessages);
+      await load('whatsapp status', api.getWhatsAppStatus, (data) => {
+        setWhatsappStatus({
+          connected: !!data.connected,
+          status: data.status || 'disconnected',
+          qrCode: data.qrCode || null,
+        });
+      });
     }
 
     setLoading(false);
   };
+
+  const fetchWhatsAppStatus = useCallback(async () => {
+    try {
+      const data = await api.getWhatsAppStatus();
+      setWhatsappStatus({
+        connected: !!data.connected,
+        status: data.status || 'disconnected',
+        qrCode: data.qrCode || null,
+      });
+    } catch {
+      /* ignore silent background error */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'dashboard' && dashboardTab === 'overview') {
+      fetchWhatsAppStatus();
+      const interval = setInterval(fetchWhatsAppStatus, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [view, dashboardTab, fetchWhatsAppStatus]);
 
   /** Record that the owner sent a queued message from their own WhatsApp. */
   const handleMarkMessageSent = async (orderId, messageId) => {
@@ -3616,6 +3645,95 @@ function App() {
                     </div>
                   </div>
                 </header>
+
+                {/* WhatsApp Connection & QR Code Banner */}
+                {whatsappStatus.connected ? (
+                  <div className="content-card" style={{ padding: '16px 20px', marginBottom: '16px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <MessageSquare size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '14px', color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          WhatsApp Linked & Active <CheckCircle2 size={16} color="#16A34A" />
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          Your boutique WhatsApp account is connected. Automated messages and customer notifications are active.
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '12px', fontWeight: 600, padding: '4px 10px', background: '#DCFCE7', color: '#15803D', borderRadius: '20px' }}>
+                      Connected
+                    </span>
+                  </div>
+                ) : whatsappStatus.qrCode ? (
+                  <div className="content-card" style={{ padding: '24px', marginBottom: '20px', border: '1px solid #25D366', borderRadius: '16px', background: '#FAFFFA', boxShadow: '0 4px 12px rgba(37, 211, 102, 0.08)' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', alignItems: 'center' }}>
+                      <div style={{ flex: '1 1 300px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#25D366', fontWeight: 700, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          <MessageSquare size={16} /> Link WhatsApp Account
+                        </div>
+                        <h3 style={{ margin: '8px 0 6px 0', fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          Scan QR Code to Link Your WhatsApp
+                        </h3>
+                        <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                          Scan this QR code with WhatsApp on your mobile device to link your boutique's WhatsApp account. Once connected, this QR code will automatically disappear.
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px', color: 'var(--text-primary)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#E8F5E9', color: '#2E7D32', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
+                            <span>Open <strong>WhatsApp</strong> on your mobile phone</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#E8F5E9', color: '#2E7D32', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>2</span>
+                            <span>Go to <strong>Settings</strong> &gt; <strong>Linked Devices</strong></span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#E8F5E9', color: '#2E7D32', fontWeight: 600, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</span>
+                            <span>Tap <strong>Link a Device</strong> and scan the QR code</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: '#ffffff', borderRadius: '16px', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', flexShrink: 0 }}>
+                        <img
+                          src={whatsappStatus.qrCode}
+                          alt="WhatsApp Link QR Code"
+                          style={{ width: '180px', height: '180px', objectFit: 'contain', borderRadius: '8px' }}
+                        />
+                        <div style={{ marginTop: '10px', fontSize: '12px', color: '#16A34A', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <RotateCw size={12} className="spin" /> Waiting for scan...
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="content-card" style={{ padding: '20px', marginBottom: '20px', border: '1px dashed #25D366', borderRadius: '16px', background: '#FAFFFA' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#E8F5E9', color: '#25D366', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <MessageSquare size={20} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            Link Boutique WhatsApp Account <RotateCw size={14} className="spin" color="#16A34A" />
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            Initializing connection &amp; generating QR code... Please wait a few seconds.
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => fetchWhatsAppStatus()}
+                      >
+                        <RotateCw size={13} />
+                        <span>Generate QR Code</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {showOnboarding && (
                   <section className="content-card" style={{ padding: '20px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>

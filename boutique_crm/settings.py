@@ -391,5 +391,15 @@ UPSTASH_REDIS_REST_TOKEN = os.environ.get(
     'gQAAAAAAAkn0AAIgcDFhMjY5MTkxMTQ5YzM0OTU2YTljZDMwNDQwNjNkYzc3Zg'
 )
 
+INTERNAL_API_SECRET = os.environ.get(
+    'INTERNAL_API_SECRET',
+    'scaleezy_internal_secret_key_2026'
+)
+WHATSAPP_SERVICE_URL = os.environ.get(
+    'WHATSAPP_SERVICE_URL',
+    'http://127.0.0.1:3001'
+)
+
+
 
 
