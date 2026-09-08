@@ -21,6 +21,25 @@ def log_backend(message):
     return ''
 
 
+def whatsapp_backend(message):
+    """Deliver a CustomerMessage using crm_api.whatsapp_service."""
+    from crm_api.whatsapp_service import send_whatsapp_message
+    from django.db import connection
+
+    tenant = getattr(connection, 'tenant', None)
+    res = send_whatsapp_message(
+        phone=message.to_number,
+        message_text=message.body,
+        tenant=tenant,
+    )
+    if not res.get('success'):
+        err = res.get('error') or res.get('data') or 'WhatsApp delivery failed'
+        raise RuntimeError(f"WhatsApp sending failed: {err}")
+
+    data = res.get('data') or {}
+    return str(data.get('messageId') or data.get('id') or 'whatsapp_sent')
+
+
 def get_backend():
 
     path = getattr(settings, 'CUSTOMER_MESSAGE_BACKEND', '') or ''

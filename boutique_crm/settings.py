@@ -369,7 +369,10 @@ TRACKING_BASE_URL = (
     or 'http://localhost:8000'
 )
 
-CUSTOMER_MESSAGE_BACKEND = os.environ.get('CUSTOMER_MESSAGE_BACKEND', '')
+CUSTOMER_MESSAGE_BACKEND = os.environ.get(
+    'CUSTOMER_MESSAGE_BACKEND',
+    'domains.orders.messaging.whatsapp_backend',
+)
 
 WHATSAPP_COUNTRY_CODE = os.environ.get('WHATSAPP_COUNTRY_CODE', '91')
 
