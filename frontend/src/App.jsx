@@ -3179,8 +3179,8 @@ function App() {
                   number, and pointed at that. */}
               {boutiqueSettings?.phone && (
                 <div className="portal-sidebar-help">
-                  <h4 style={{ fontSize: '12px', fontWeight: 700 }}>Need Help?</h4>
-                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Message your boutique directly.</p>
+                  <h4 style={{ fontSize: '12px', fontWeight: 700, margin: 0 }}>Need Help?</h4>
+                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0 }}>Message your boutique directly.</p>
                   <button
                     className="whatsapp-btn"
                     style={{ width: '100%', padding: '6px', fontSize: '11px' }}
