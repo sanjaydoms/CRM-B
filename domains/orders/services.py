@@ -433,7 +433,8 @@ class OrderService:
         create_order_notifications(
             order,
             created=False,
-            status_changed=order.order_status != previous_order_status,
+            status_changed=True,
+            stage_name=order_stage.stage_name,
         )
         if new_status in ('COMPLETED', 'SKIPPED'):
             from domains.orders.notifications import notify_next_stage_owners

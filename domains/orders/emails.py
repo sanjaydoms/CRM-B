@@ -144,3 +144,77 @@ def send_order_confirmation(order):
                 "Order confirmation email failed for order %s", order.order_id)
 
     transaction.on_commit(_send)
+
+
+def _stage_update_content(order, stage_name=None, custom_message=None):
+    customer = order.customer
+    boutique = _boutique_name()
+    plural = 'Garments' if len(garment_names(order)) > 1 else 'Garment'
+    due = (order.estimated_delivery.strftime('%d %b %Y')
+           if order.estimated_delivery else 'to be confirmed')
+    link = tracking_url(order)
+    current_stage = stage_name or order.order_status
+
+    subject = f"Order Stage Update: {order.order_id} - {current_stage} | {boutique}"
+    msg_text = custom_message or f"Your order {order.order_id} status has been updated to: {current_stage}."
+
+    prefix = f"Dear {customer.first_name},"
+    if msg_text and msg_text.startswith(prefix):
+        msg_text = msg_text[len(prefix):].lstrip(" \n,")
+        if msg_text:
+            msg_text = msg_text[0].upper() + msg_text[1:]
+
+    body = (
+        f"Dear {customer.first_name},\n\n"
+        f"{msg_text}\n\n"
+        f"Order number: {order.order_id}\n"
+        f"Current stage: {current_stage}\n"
+        f"{plural}: {garment_label(order)}\n"
+        f"Expected delivery: {due}\n\n"
+        f"You can follow its live progress here:\n{link}\n\n"
+        f"Warm regards,\n{boutique}"
+    )
+
+    html = f"""
+<div style="font-family:Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;
+            color:#1c1c1c;line-height:1.55">
+  <h2 style="font-size:20px;margin:0 0 4px">Order Status Update</h2>
+  <p style="color:#666;font-size:13px;margin:0 0 20px">{boutique}</p>
+  <p style="font-size:14px">Dear {customer.first_name},</p>
+  <p style="font-size:14px">{msg_text}</p>
+  <div style="border:1px solid #e2e2e2;border-radius:8px;padding:16px;margin:18px 0;
+              font-size:14px">
+    <div style="margin-bottom:8px"><strong>Order number</strong><br>{order.order_id}</div>
+    <div style="margin-bottom:8px"><strong>Current stage</strong><br>{current_stage}</div>
+    <div style="margin-bottom:8px"><strong>{plural}</strong><br>{garment_label(order)}</div>
+    <div><strong>Expected delivery</strong><br>{due}</div>
+  </div>
+  <p style="font-size:14px">
+    <a href="{link}" style="background:#0f291e;color:#fff;text-decoration:none;
+       padding:10px 18px;border-radius:6px;display:inline-block">Track your order</a>
+  </p>
+  <p style="font-size:12px;color:#777;margin-top:24px">
+    We will continue to update you as work progresses.<br>{boutique}
+  </p>
+</div>
+""".strip()
+
+    return subject, body, html
+
+
+def send_stage_update_email(order, stage_name=None, custom_message=None):
+    """Queue the stage update email, after the order transaction is safely committed."""
+    address = (getattr(order.customer, 'email_address', '') or '').strip()
+    if not address:
+        return
+
+    def _send():
+        try:
+            subject, body, html = _stage_update_content(order, stage_name, custom_message)
+            _deliver(subject, address, body, html)
+        except Exception:
+            logger.exception(
+                "Stage update email failed for order %s", order.order_id)
+
+    transaction.on_commit(_send)
+
