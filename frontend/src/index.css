@@ -4109,3 +4109,14 @@ table.data-table tbody tr:hover {
     font-size: 16px !important;
   }
 }
+
+/* Remove default browser arrows from number inputs */
+.no-spinners::-webkit-outer-spin-button,
+.no-spinners::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.no-spinners[type=number] {
+  -moz-appearance: textfield;
+}
+
