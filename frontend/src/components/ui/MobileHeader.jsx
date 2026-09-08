@@ -1,5 +1,4 @@
 import { Menu, Bell } from 'lucide-react';
-import LanguageSelector from '../LanguageSelector.jsx';
 
 /**
  * The phone header.
@@ -26,7 +25,6 @@ export function MobileHeader({ title, currentUser, notificationsCount, onOpenNot
           </div>
 
           <div className="mobile-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <LanguageSelector />
             <button type="button" className="icon-btn-touch relative-btn" onClick={onOpenNotifications} aria-label="Notifications">
               <Bell size={20} />
               {notificationsCount > 0 && (

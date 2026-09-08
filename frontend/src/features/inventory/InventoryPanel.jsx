@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDownCircle, BarChart3, BookOpen, ClipboardList, History, MapPin, Package, Plus, Scissors, Search, Truck, X } from 'lucide-react';
 import { api } from '../../services/api';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
-import LanguageSelector from '../../components/LanguageSelector.jsx';
 import CatalogBrowser from './CatalogBrowser';
 import LocationsTab from './LocationsTab';
 import RecipesTab from './RecipesTab';

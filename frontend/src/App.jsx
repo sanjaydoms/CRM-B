@@ -34,7 +34,6 @@ import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 import { MobileHeader } from './components/ui/MobileHeader';
 import { useLanguage } from './i18n/LanguageContext.jsx';
-import LanguageSelector from './components/LanguageSelector.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
 import { BottomNavigation } from './components/ui/BottomNavigation';
 
@@ -3592,7 +3591,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                    <LanguageSelector />
                     <button
                       type="button"
                       className="btn-secondary"
@@ -4576,7 +4574,6 @@ function App() {
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                    <LanguageSelector />
                     <button
                       type="button"
                       className="btn-secondary"
