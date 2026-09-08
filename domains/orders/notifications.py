@@ -3,13 +3,13 @@ from decimal import Decimal
 
 from crm_api.models import Notification
 from domains.orders.garments import garment_label, garment_names
-from domains.orders.emails import send_order_confirmation
+from domains.orders.emails import send_order_confirmation, send_stage_update_email
 from domains.orders.messaging import send_customer_message
 from domains.orders.tracking import tracking_url
 
 
 
-def create_order_notifications(order, created=False, status_changed=True):
+def create_order_notifications(order, created=False, status_changed=True, stage_name=None):
     client_name = f"{order.customer.first_name} {order.customer.last_name}"
     client_email = order.customer.email_address
     
@@ -60,38 +60,47 @@ def create_order_notifications(order, created=False, status_changed=True):
             )
     else:
         status = order.order_status
+        display_stage = stage_name or status
+
         Notification.objects.create(
-            title=f"Order {order.order_id} Update: {status}",
-            message=f"Order {order.order_id} status updated to {status}.",
+            title=f"Order {order.order_id} Update: {display_stage}",
+            message=f"Order {order.order_id} status updated to {display_stage}.",
             recipient_role="Owner"
         )
         
-        cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} status has been updated to: {status}."
-        if status == 'Design & Creation':
-            cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} is now in the Design & Creation phase. Our master tailors are crafting it!"
-        elif status == 'Ready for Dispatch':
-            passed_qc = order.stages.filter(
-                stage_key='master_quality_check', status='COMPLETED').exists()
-            if passed_qc:
-                cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} has passed quality checks and is Ready for Dispatch!"
-            else:
-                cust_msg = f"Dear {order.customer.first_name}, your garment for order {order.order_id} is Ready for Dispatch!"
-        elif status == 'Shipped':
-            if order.delivery_method == 'Courier':
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been Shipped via {order.courier_service or 'Courier'}! Tracking Number: {order.tracking_number or 'TBD'}."
-            else:
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been dispatched for direct pickup!"
-        elif status == 'Delivered':
-            from core.formatting import format_money
-            balance = Decimal(str(order.total_amount or 0)) - Decimal(str(order.amount_paid or 0))
-            if balance > 0:
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered! Please complete your remaining balance of {format_money(balance)}."
-            else:
-                cust_msg = f"Dear {order.customer.first_name}, your order {order.order_id} has been successfully Delivered. We hope you love your bespoke garment!"
+        if stage_name and stage_name != status:
+            cust_msg = f"Your garment for order {order.order_id} is now in the {stage_name} stage ({status})."
+            if status == 'Design & Creation':
+                cust_msg = f"Your garment for order {order.order_id} is now in the {stage_name} stage. Our master tailors are crafting it!"
+            elif status == 'Ready for Dispatch':
+                cust_msg = f"Your garment for order {order.order_id} is in the {stage_name} stage and is Ready for Dispatch!"
+        else:
+            cust_msg = f"Your order {order.order_id} status has been updated to: {status}."
+            if status == 'Design & Creation':
+                cust_msg = f"Your garment for order {order.order_id} is now in the Design & Creation phase. Our master tailors are crafting it!"
+            elif status == 'Ready for Dispatch':
+                passed_qc = order.stages.filter(
+                    stage_key='master_quality_check', status='COMPLETED').exists()
+                if passed_qc:
+                    cust_msg = f"Your garment for order {order.order_id} has passed quality checks and is Ready for Dispatch!"
+                else:
+                    cust_msg = f"Your garment for order {order.order_id} is Ready for Dispatch!"
+            elif status == 'Shipped':
+                if order.delivery_method == 'Courier':
+                    cust_msg = f"Your order {order.order_id} has been Shipped via {order.courier_service or 'Courier'}! Tracking Number: {order.tracking_number or 'TBD'}."
+                else:
+                    cust_msg = f"Your order {order.order_id} has been dispatched for direct pickup!"
+            elif status == 'Delivered':
+                from core.formatting import format_money
+                balance = Decimal(str(order.total_amount or 0)) - Decimal(str(order.amount_paid or 0))
+                if balance > 0:
+                    cust_msg = f"Your order {order.order_id} has been successfully Delivered! Please complete your remaining balance of {format_money(balance)}."
+                else:
+                    cust_msg = f"Your order {order.order_id} has been successfully Delivered. We hope you love your bespoke garment!"
 
         Notification.objects.create(
-            title=f"Order Update: {status}",
-            message=cust_msg,
+            title=f"Order Update: {display_stage}",
+            message=f"Dear {order.customer.first_name}, {cust_msg}",
             recipient_role="Customer",
             recipient_email=client_email
         )
@@ -99,7 +108,12 @@ def create_order_notifications(order, created=False, status_changed=True):
             send_customer_message(
                 order,
                 'stage_update',
-                f"{cust_msg}\nTrack your order: {tracking_url(order)}",
+                f"Dear {order.customer.first_name}, {cust_msg}\nTrack your order: {tracking_url(order)}",
+            )
+            send_stage_update_email(
+                order,
+                stage_name=display_stage,
+                custom_message=cust_msg,
             )
 
         if status == 'Design & Creation' and order.tailor:
