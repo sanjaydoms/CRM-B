@@ -5,7 +5,7 @@ from rest_framework import status
 from django.conf import settings
 from django_tenants.utils import schema_context
 from tenants.models import WhatsAppAccount
-from .whatsapp_service import send_whatsapp_message, get_whatsapp_status
+from .whatsapp_service import send_whatsapp_message, get_whatsapp_status, reset_whatsapp_session
 
 logger = logging.getLogger(__name__)
 
@@ -128,3 +128,17 @@ class WhatsAppStatusView(APIView):
         result = get_whatsapp_status(session_id=session_id, tenant=current_tenant)
         return Response(result, status=status.HTTP_200_OK)
 
+
+class WhatsAppResetView(APIView):
+    """
+    API endpoint in Django to force reset WhatsApp session and generate fresh QR code.
+    """
+
+    def post(self, request):
+        current_tenant = getattr(request, 'tenant', None)
+        session_id = None
+        if current_tenant and hasattr(current_tenant, 'whatsapp_account'):
+            session_id = current_tenant.whatsapp_account.session_id
+
+        result = reset_whatsapp_session(session_id=session_id, tenant=current_tenant)
+        return Response(result, status=status.HTTP_200_OK)

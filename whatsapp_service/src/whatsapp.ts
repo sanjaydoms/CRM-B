@@ -97,20 +97,30 @@ export async function initWhatsApp(sessionId: string = 'default'): Promise<void>
         session.status = 'disconnected';
         session.isInitializing = false;
         session.qrCode = null;
+        session.sock = null;
 
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401 && statusCode !== 403;
 
         console.log(
           `[whatsapp_service] [Session: ${sessionId}] Connection closed (status code: ${statusCode || 'unknown'}). Reconnecting: ${shouldReconnect}`
         );
 
+        if (!shouldReconnect) {
+          console.log(`[whatsapp_service] [Session: ${sessionId}] Session logged out or auth invalid. Cleaning auth folder.`);
+          try {
+            if (fs.existsSync(authFolder)) {
+              fs.rmSync(authFolder, { recursive: true, force: true });
+            }
+          } catch (e) {
+            console.error(`[whatsapp_service] Failed to remove auth folder:`, e);
+          }
+        }
+
         if (shouldReconnect) {
           setTimeout(() => {
             initWhatsApp(sessionId);
           }, 3000);
-        } else {
-          console.log(`[whatsapp_service] [Session: ${sessionId}] Session logged out.`);
         }
       } else if (connection === 'connecting') {
         session.status = 'connecting';
@@ -120,8 +130,41 @@ export async function initWhatsApp(sessionId: string = 'default'): Promise<void>
     session.status = 'disconnected';
     session.isInitializing = false;
     session.qrCode = null;
+    session.sock = null;
     console.error(`[whatsapp_service] [Session: ${sessionId}] Failed to initialize socket:`, err);
   }
+}
+
+export async function resetWhatsApp(sessionId: string = 'default', forceClean: boolean = true): Promise<void> {
+  const session = getSessionData(sessionId);
+  try {
+    if (session.sock) {
+      try {
+        session.sock.end(undefined);
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  session.sock = null;
+  session.status = 'disconnected';
+  session.isInitializing = false;
+  session.qrCode = null;
+
+  if (forceClean) {
+    const authFolder = sessionId === 'default'
+      ? path.resolve(process.cwd(), 'auth_info')
+      : path.resolve(process.cwd(), 'auth_info', sessionId);
+    if (fs.existsSync(authFolder)) {
+      try {
+        fs.rmSync(authFolder, { recursive: true, force: true });
+        console.log(`[whatsapp_service] [Session: ${sessionId}] Force cleaned auth folder: ${authFolder}`);
+      } catch (e) {
+        console.error(`[whatsapp_service] Failed to force clean auth folder:`, e);
+      }
+    }
+  }
+
+  await initWhatsApp(sessionId);
 }
 
 export function getWhatsAppStatus(sessionId: string = 'default'): { status: ConnectionStatus; connected: boolean; sessionId: string; qrCode: string | null } {

@@ -685,6 +685,15 @@ export const api = {
     return res.json();
   },
 
+  async resetWhatsAppStatus() {
+    const res = await guardedFetch(`${BASE_URL}/whatsapp/reset/`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!res.ok) await failWith(res, 'Failed to reset WhatsApp connection');
+    return res.json();
+  },
+
   // Finished-garment photographs. Published as a set, because publishing is
   // what tells the customer their outfit is ready.
   async uploadGarmentImage(orderId, view, file) {

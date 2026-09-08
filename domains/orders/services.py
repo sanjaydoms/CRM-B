@@ -430,14 +430,14 @@ class OrderService:
         if stage_key in ('stitching_in_progress', 'stitching_completed', 'delivered'):
             refresh_staff_availability(order.tailor, order.master)
 
-        create_order_notifications(
-            order,
-            created=False,
-            status_changed=True,
-            stage_name=order_stage.stage_name,
-            stage_key=order_stage.stage_key,
-        )
         if new_status in ('COMPLETED', 'SKIPPED'):
+            create_order_notifications(
+                order,
+                created=False,
+                status_changed=True,
+                stage_name=order_stage.stage_name,
+                stage_key=order_stage.stage_key,
+            )
             from domains.orders.notifications import notify_next_stage_owners
             notify_next_stage_owners(order)
         return order

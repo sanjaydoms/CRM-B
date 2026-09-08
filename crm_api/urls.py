@@ -16,7 +16,7 @@ router.register(r'order-drafts', OrderDraftViewSet, basename='order-draft')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 router.register(r'boutique-settings', BoutiqueSettingsViewSet, basename='boutique-settings')
 
-from .whatsapp_views import WhatsAppWebhookView, WhatsAppSendMessageView, WhatsAppStatusView
+from .whatsapp_views import WhatsAppWebhookView, WhatsAppSendMessageView, WhatsAppStatusView, WhatsAppResetView
 
 urlpatterns = [
     path('', include(router.urls)),
@@ -33,6 +33,8 @@ urlpatterns = [
     path('whatsapp/webhook/', WhatsAppWebhookView.as_view(), name='whatsapp-webhook'),
     path('whatsapp/send/', WhatsAppSendMessageView.as_view(), name='whatsapp-send'),
     path('whatsapp/status/', WhatsAppStatusView.as_view(), name='whatsapp-status'),
+    path('whatsapp/reset/', WhatsAppResetView.as_view(), name='whatsapp-reset'),
+    path('whatsapp/connect/', WhatsAppResetView.as_view(), name='whatsapp-connect'),
 ]
 
 
