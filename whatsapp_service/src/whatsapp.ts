@@ -40,6 +40,18 @@ function getSessionData(sessionId: string): SessionData {
 export async function initWhatsApp(sessionId: string = 'default'): Promise<void> {
   const session = getSessionData(sessionId);
   if (session.isInitializing) return;
+
+  // Clean up pre-existing socket to prevent duplicate active sockets & status 440 conflicts
+  if (session.sock) {
+    try {
+      session.sock.ev.removeAllListeners('connection.update');
+      session.sock.ev.removeAllListeners('creds.update');
+      session.sock.ev.removeAllListeners('messages.upsert');
+      session.sock.end(undefined);
+    } catch (e) {}
+    session.sock = null;
+  }
+
   session.isInitializing = true;
 
   try {
@@ -100,13 +112,15 @@ export async function initWhatsApp(sessionId: string = 'default'): Promise<void>
         session.sock = null;
 
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401 && statusCode !== 403;
+        const isReplaced = statusCode === DisconnectReason.connectionReplaced || statusCode === 440;
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 403;
+        const shouldReconnect = !isLoggedOut && !isReplaced;
 
         console.log(
           `[whatsapp_service] [Session: ${sessionId}] Connection closed (status code: ${statusCode || 'unknown'}). Reconnecting: ${shouldReconnect}`
         );
 
-        if (!shouldReconnect) {
+        if (isLoggedOut) {
           console.log(`[whatsapp_service] [Session: ${sessionId}] Session logged out or auth invalid. Cleaning auth folder.`);
           try {
             if (fs.existsSync(authFolder)) {

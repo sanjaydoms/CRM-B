@@ -1691,8 +1691,6 @@ function App() {
   useEffect(() => {
     if (view === 'dashboard' && (dashboardTab === 'overview' || dashboardTab === 'settings')) {
       fetchWhatsAppStatus();
-      const interval = setInterval(fetchWhatsAppStatus, 3000);
-      return () => clearInterval(interval);
     }
   }, [view, dashboardTab, fetchWhatsAppStatus]);
 
@@ -10820,3 +10818,4 @@ function App() {
 }
 
 export default App;
+
