@@ -6011,58 +6011,8 @@ function App() {
                               <td style={{ padding: '12px 10px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
                                 {formatMoney(order.total_amount)}
                               </td>
-                              <td style={{ padding: '12px 10px' }}>
-                                <div style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  backgroundColor: '#f8fafc',
-                                  border: '1px solid #cbd5e1',
-                                  borderRadius: '6px',
-                                  padding: '3px 6px',
-                                  boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                                }}>
-                                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#16a34a', marginRight: '2px' }}>₹</span>
-                                  <input
-                                    key={`paid-input-${order.id}-${order.amount_paid}`}
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    max={order.total_amount}
-                                    defaultValue={parseFloat(order.amount_paid || 0)}
-                                    disabled={savingPaymentId === order.id}
-                                    aria-label={`Amount paid for invoice ${order.order_id}`}
-                                    className="no-spinners"
-                                    onBlur={async (e) => {
-                                      const next = parseFloat(e.target.value);
-                                      const current = parseFloat(order.amount_paid || 0);
-                                      if (isNaN(next) || next === current) {
-                                        e.target.value = current;
-                                        return;
-                                      }
-                                      setSavingPaymentId(order.id);
-                                      try {
-                                        await api.updateOrder(order.id, { amount_paid: next });
-                                        await fetchDashboardAndConfig();
-                                      } catch (err) {
-                                        e.target.value = current;
-                                        setPaymentError(`Could not record that payment for ${order.order_id} — ${err.message}`);
-                                      } finally {
-                                        setSavingPaymentId(null);
-                                      }
-                                    }}
-                                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-                                    style={{
-                                      width: '70px',
-                                      border: 'none',
-                                      outline: 'none',
-                                      background: 'transparent',
-                                      fontSize: '12px',
-                                      fontWeight: 700,
-                                      color: '#16a34a',
-                                      padding: 0
-                                    }}
-                                  />
-                                </div>
+                              <td style={{ padding: '12px 10px', fontWeight: 700, color: '#16a34a', whiteSpace: 'nowrap' }}>
+                                {formatMoney(order.amount_paid)}
                               </td>
                               <td style={{ padding: '12px 10px' }}>
                                 {balanceDue > 0 ? (
