@@ -247,6 +247,41 @@ class CustomerMessageTests(TrackingTestBase):
         self.assertEqual(message.status, 'SENT')
         self.assertEqual(message.provider_message_id, 'WA-12345')
 
+    def test_four_whatsapp_stages(self):
+        owner = self._owner()
+        tailor = Tailor.objects.create(name="Durga", role="Tailor")
+        self.order.tailor = tailor
+        self.order.save()
+
+        # 1. Measurement completed
+        OrderService.transition_order_stage(self.order, 'measurements_completed', 'COMPLETED', user=owner)
+        self.assertTrue(CustomerMessage.objects.filter(order=self.order, template_key='measurement_completed').exists())
+
+        # Prerequisite intermediate stages
+        for stage in ['fabric_confirmed', 'pattern_cutting', 'assigned_to_tailor', 'stitching_in_progress']:
+            OrderService.transition_order_stage(self.order, stage, 'COMPLETED', user=owner)
+
+        # 2. Product ready
+        OrderService.transition_order_stage(self.order, 'stitching_completed', 'COMPLETED', user=owner)
+        self.assertTrue(CustomerMessage.objects.filter(order=self.order, template_key='product_ready').exists())
+
+        for stage in ['finishing', 'pressing']:
+            OrderService.transition_order_stage(self.order, stage, 'COMPLETED', user=owner)
+
+        # 3. TryOn step
+        OrderService.transition_order_stage(self.order, 'master_quality_check', 'COMPLETED', user=owner)
+        OrderService.transition_order_stage(self.order, 'trial_scheduled', 'COMPLETED', user=owner)
+        self.assertTrue(CustomerMessage.objects.filter(order=self.order, template_key='tryon_step').exists())
+
+        # 4. Ready for delivery
+        OrderService.transition_order_stage(self.order, 'trial_completed', 'COMPLETED', user=owner)
+        OrderService.transition_order_stage(self.order, 'ready_for_delivery', 'COMPLETED', user=owner)
+        self.assertTrue(CustomerMessage.objects.filter(order=self.order, template_key='ready_for_delivery').exists())
+
+
+
+
+
 class WhatsAppNumberTests(TenantTestCase):
 
     def test_bare_national_number_gains_the_country_code(self):

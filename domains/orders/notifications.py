@@ -9,7 +9,7 @@ from domains.orders.tracking import tracking_url
 
 
 
-def create_order_notifications(order, created=False, status_changed=True, stage_name=None):
+def create_order_notifications(order, created=False, status_changed=True, stage_name=None, stage_key=None):
     client_name = f"{order.customer.first_name} {order.customer.last_name}"
     client_email = order.customer.email_address
     
@@ -67,24 +67,39 @@ def create_order_notifications(order, created=False, status_changed=True, stage_
             message=f"Order {order.order_id} status updated to {display_stage}.",
             recipient_role="Owner"
         )
-        
-        if stage_name and stage_name != status:
+
+        s_key = (stage_key or getattr(order, 'current_stage_key', '') or '').lower()
+        s_name = (stage_name or '').lower()
+        msg_template = 'stage_update'
+
+        # Step 1: Measurement completed
+        if s_key == 'measurements_completed' or s_name == 'measurements completed':
+            msg_template = 'measurement_completed'
+            cust_msg = f"Your measurements for order {order.order_id} have been completed successfully! Our studio is now proceeding with crafting your outfit."
+        # Step 2: Product ready (stitching completed / quality check)
+        elif s_key in ('stitching_completed', 'master_quality_check') or s_name in ('stitching completed', 'master quality check'):
+            msg_template = 'product_ready'
+            cust_msg = f"Your outfit for order {order.order_id} is ready! Stitching and quality inspection are completed."
+        # Step 3: TryOn step (trial scheduled / completed)
+        elif s_key in ('trial_scheduled', 'trial_completed') or 'trial' in s_name or 'tryon' in s_name:
+            msg_template = 'tryon_step'
+            cust_msg = f"Your outfit for order {order.order_id} is ready for your Try-On fitting! Please visit our studio for your trial."
+        # Step 4: Ready for Delivery section
+        elif s_key in ('ready_for_delivery', 'ready_for_dispatch') or s_name == 'ready for delivery' or status == 'Ready for Dispatch':
+            msg_template = 'ready_for_delivery'
+            passed_qc = order.stages.filter(stage_key='master_quality_check', status='COMPLETED').exists()
+            if passed_qc:
+                cust_msg = f"Your garment for order {order.order_id} has passed quality checks and is Ready for Delivery!"
+            else:
+                cust_msg = f"Your garment for order {order.order_id} is Ready for Delivery! You can collect your outfit or expect delivery shortly."
+        elif stage_name and stage_name != status:
             cust_msg = f"Your garment for order {order.order_id} is now in the {stage_name} stage ({status})."
             if status == 'Design & Creation':
                 cust_msg = f"Your garment for order {order.order_id} is now in the {stage_name} stage. Our master tailors are crafting it!"
-            elif status == 'Ready for Dispatch':
-                cust_msg = f"Your garment for order {order.order_id} is in the {stage_name} stage and is Ready for Dispatch!"
         else:
             cust_msg = f"Your order {order.order_id} status has been updated to: {status}."
             if status == 'Design & Creation':
                 cust_msg = f"Your garment for order {order.order_id} is now in the Design & Creation phase. Our master tailors are crafting it!"
-            elif status == 'Ready for Dispatch':
-                passed_qc = order.stages.filter(
-                    stage_key='master_quality_check', status='COMPLETED').exists()
-                if passed_qc:
-                    cust_msg = f"Your garment for order {order.order_id} has passed quality checks and is Ready for Dispatch!"
-                else:
-                    cust_msg = f"Your garment for order {order.order_id} is Ready for Dispatch!"
             elif status == 'Shipped':
                 if order.delivery_method == 'Courier':
                     cust_msg = f"Your order {order.order_id} has been Shipped via {order.courier_service or 'Courier'}! Tracking Number: {order.tracking_number or 'TBD'}."
@@ -107,7 +122,7 @@ def create_order_notifications(order, created=False, status_changed=True, stage_
         if status_changed:
             send_customer_message(
                 order,
-                'stage_update',
+                msg_template,
                 f"Dear {order.customer.first_name}, {cust_msg}\nTrack your order: {tracking_url(order)}",
             )
             send_stage_update_email(
