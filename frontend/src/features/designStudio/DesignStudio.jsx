@@ -56,9 +56,6 @@ function NoPreview() {
 function DesignCard({ design, isShortlisted, shortlistingId, onShortlist, onInspect }) {
   const busy = shortlistingId === `${design.source}:${design.source_ref}`;
   const image = resolveImage(design.image_url);
-  // Catalogue rows and imported references both point at URLs that can rot.
-  // Without this the browser renders the alt text, which escapes the tile and
-  // spills across the card's badges.
   const [broken, setBroken] = useState(false);
   return (
     <div className={`fabric-card ${isShortlisted ? 'selected' : ''}`} style={{ position: 'relative' }}>
@@ -136,20 +133,10 @@ export default function DesignStudio({
   customerId, draftId, garmentKey, garmentName,
   initialItems, orderInput = {}, onBoardChange, notes, onNotesChange,
 }) {
-  // One of the two identifies who this is for. Before Confirm there is no
-  // Customer row -- deliberately, so an abandoned order leaves nothing behind
-  // -- and the draft is the whole of what is known. The server resolves either
-  // into the same context, so nothing below this line asks which it was.
   const source = customerId
     ? { customer_id: customerId }
     : (draftId ? { draft_id: draftId } : null);
   const sourceKey = customerId || draftId || '';
-  // Before Confirm there is no customer to own a board, so a shortlist lives in
-  // the draft and is reported upward for the wizard to persist. It becomes a
-  // real board at Confirm, against the real customer, attached to this garment.
-  // Declared here with the other source derivations because the effect that
-  // reports selections upward reads it, and that effect is defined above
-  // ensureBoard -- a `const` further down is in its temporal dead zone.
   const draftMode = !customerId;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -200,43 +187,17 @@ export default function DesignStudio({
   }, [sourceKey, garmentKey, orderInput.garment_type, orderInput.occasion, orderInput.budget, orderInput.delivery_timeline, keywords, activeSources]);
 
   useEffect(() => {
-    // Deferred by a tick so the search is kicked off after the commit rather
-    // than during it, and so rapid changes in the wizard above collapse into a
-    // single request. Re-runs only on what the search actually depends on.
     let cancelled = false;
     const timer = setTimeout(() => { if (!cancelled) runSearch(); }, 0);
     return () => { cancelled = true; clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey, garmentKey, orderInput.garment_type, orderInput.occasion]);
 
-  // Recover the customer's existing board before reporting anything upward.
-  //
-  // This component lives under {currentStep === 3 && ...}, so it unmounts on
-  // every step change and every tab toggle, losing `board` and `items` with it.
-  // On the next mount `board` is null, the effect below fires immediately with
-  // {boardId: null, approved: false}, and the wizard's designBoard state is
-  // overwritten with that -- so the `if (designBoard.boardId &&
-  // designBoard.approved)` guard at submit time is false and the approved
-  // design is never attached. The order reaches the floor with no design,
-  // behind a green confirmation screen and with no message: the branch that
-  // exists specifically to make an attach FAILURE loud is never reached,
-  // because nothing was attempted.
-  //
-  // Going back from step 4, or pressing Edit on the step-6 summary, is enough.
-  // The studio also forgot the board it had already created, so re-shortlisting
-  // made a SECOND DesignBoard for the same customer.
-  //
-  // The server already supports the lookup (DesignBoardViewSet filters on
-  // customer_id), so this is a fetch rather than new plumbing.
   const [boardLoaded, setBoardLoaded] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    // A board is a persisted shortlist and belongs to a real customer, so
-    // there is none to load before Confirm. The draft holds the selection in
-    // its own payload until then -- see the wizard's serialiseWizard.
+    
     if (!customerId) {
-      // Re-hydrate whatever this garment had shortlisted in the draft, so a
-      // refresh or a resume comes back to the same board.
+      
       if (initialItems && initialItems.length) setItems(initialItems);
       setBoardLoaded(true);
       return;
@@ -256,21 +217,17 @@ export default function DesignStudio({
   }, [customerId]);
 
   useEffect(() => {
-    // Held until the recovery above has answered, or the first run reports
-    // "no board" and undoes the very state it is about to load.
     if (!boardLoaded) return;
     if (onBoardChange) {
       onBoardChange({
         boardId: board?.id || null,
         selected: selectedItem,
         approved: board?.status === 'APPROVED',
-        // Draft mode has no board to re-read, so the whole shortlist travels
-        // up for the wizard to store on this garment in the draft payload.
         items: draftMode ? items : undefined,
         garmentKey,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, [boardLoaded, board?.id, board?.status, selectedItem?.id, items.length, draftMode]);
 
   const ensureBoard = async () => {
