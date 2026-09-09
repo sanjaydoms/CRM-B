@@ -1,10 +1,37 @@
 import React from 'react';
 import { fmtDate, formatMoney, formatMobile, orderGarmentNames, orderGarmentLabel } from '../../services/format';
+import { resolveMediaUrl } from '../../services/media';
+
+/**
+ * Helper to safely extract logo URL from settings.
+ */
+const getBoutiqueLogoUrl = (boutiqueSettings) => {
+  if (!boutiqueSettings) return null;
+  let logo = boutiqueSettings.logo || boutiqueSettings.boutique_logo || boutiqueSettings.logo_url;
+  if (typeof logo === 'object' && logo !== null) {
+    logo = logo.url || logo.path || logo.src || null;
+  }
+  if (!logo || typeof logo !== 'string') return null;
+  return resolveMediaUrl(logo);
+};
 
 /**
  * Normalizes order & boutique data for invoice rendering.
  */
 export const normalizeInvoiceData = (order, boutiqueSettings, currentUser) => {
+  const getOwnerName = () => {
+    if (boutiqueSettings?.owner_name) return boutiqueSettings.owner_name;
+    if (boutiqueSettings?.owner) return boutiqueSettings.owner;
+    if (currentUser) {
+      const name = `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim();
+      if (name) return name;
+    }
+    return 'Aditi Dey';
+  };
+
+  const ownerName = getOwnerName();
+  const boutiqueLogo = getBoutiqueLogoUrl(boutiqueSettings);
+
   if (!order) {
     return {
       orderId: '12345',
@@ -14,12 +41,12 @@ export const normalizeInvoiceData = (order, boutiqueSettings, currentUser) => {
       customerMobile: '123-456-7890',
       customerEmail: 'imani.olowe@example.com',
       customerType: 'Custom Tailoring',
-      boutiqueName: boutiqueSettings?.name || 'SCALEEZY Atelier',
-      boutiqueAddress: boutiqueSettings?.address || '123 Anywhere St., Any City, ST 12345',
-      boutiquePhone: boutiqueSettings?.phone || '+123-456-7890',
-      boutiqueEmail: boutiqueSettings?.email || 'contact@scaleezy.com',
-      boutiqueLogo: boutiqueSettings?.logo || null,
-      ownerName: currentUser ? `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim() : 'Aditi Mehta',
+      boutiqueName: boutiqueSettings?.name || 'Aditi Boutique',
+      boutiqueAddress: boutiqueSettings?.address || 'Hyderabad',
+      boutiquePhone: boutiqueSettings?.phone || '7656789876',
+      boutiqueEmail: boutiqueSettings?.email || 'aditi@gmail.com',
+      boutiqueLogo: boutiqueLogo,
+      ownerName: ownerName,
       tailorName: 'Rajesh Kumar',
       estimatedDelivery: new Date(Date.now() + 7 * 86400000).toISOString(),
       garmentLabel: 'Eggshell Camisole Top & Cuban Collar Shirt',
@@ -70,8 +97,8 @@ export const normalizeInvoiceData = (order, boutiqueSettings, currentUser) => {
     boutiqueAddress: boutiqueSettings?.address || '',
     boutiquePhone: boutiqueSettings?.phone || '',
     boutiqueEmail: boutiqueSettings?.email || '',
-    boutiqueLogo: boutiqueSettings?.logo || null,
-    ownerName: currentUser ? `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim() : '',
+    boutiqueLogo: boutiqueLogo,
+    ownerName: ownerName,
     tailorName: order.tailor_name || '',
     estimatedDelivery: order.estimated_delivery || '',
     garmentLabel: orderGarmentLabel(order),
@@ -112,17 +139,28 @@ export const ClassicInvoiceTemplate = ({ data }) => {
     }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
-        <div>
-          {data.boutiqueLogo ? (
-            <img src={data.boutiqueLogo} alt="Logo" style={{ maxHeight: '64px', objectFit: 'contain' }} />
-          ) : (
-            <span style={{ fontSize: '42px', fontWeight: 700, fontFamily: 'serif', color: '#1c1917', lineHeight: 1 }}>
-              &amp;
-            </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {data.boutiqueLogo && (
+            <img
+              src={data.boutiqueLogo}
+              alt="Boutique Logo"
+              style={{ maxHeight: '60px', maxWidth: '180px', objectFit: 'contain' }}
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
           )}
+          <div>
+            <h2 style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'serif', color: '#1c1917', margin: 0, lineHeight: 1.2 }}>
+              {data.boutiqueName}
+            </h2>
+            {data.ownerName && (
+              <span style={{ fontSize: '11px', color: '#52525b', display: 'block', marginTop: '2px', fontFamily: 'sans-serif' }}>
+                Owner: {data.ownerName}
+              </span>
+            )}
+          </div>
         </div>
         <div>
-          <h1 style={{ fontSize: '36px', fontWeight: 400, letterSpacing: '4px', color: '#000000', margin: 0, textTransform: 'uppercase', fontFamily: "'Playfair Display', Didot, Georgia, serif" }}>
+          <h1 style={{ fontSize: '32px', fontWeight: 400, letterSpacing: '4px', color: '#000000', margin: 0, textTransform: 'uppercase', fontFamily: "'Playfair Display', Didot, Georgia, serif" }}>
             INVOICE
           </h1>
         </div>
@@ -213,15 +251,18 @@ export const ClassicInvoiceTemplate = ({ data }) => {
           </span>
           <div style={{ color: '#3f3f46', lineHeight: 1.5 }}>
             <div>Payment Status: <strong>{data.paymentStatus}</strong></div>
-            <div>Boutique Owner: {data.ownerName || 'Boutique Manager'}</div>
+            {data.ownerName && <div>Boutique Owner: <strong>{data.ownerName}</strong></div>}
             {data.balanceDue > 0 && <div>Balance Owed: {formatMoney(data.balanceDue)}</div>}
           </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
+        <div style={{ textAlign: 'right', lineHeight: 1.4 }}>
           <span style={{ fontSize: '14px', fontWeight: 700, color: '#1c1917', display: 'block', fontFamily: "Georgia, serif" }}>
             {data.boutiqueName}
           </span>
-          {data.boutiqueAddress && <span>{data.boutiqueAddress}</span>}
+          {data.ownerName && <span style={{ display: 'block', color: '#3f3f46', fontWeight: 600 }}>Owner: {data.ownerName}</span>}
+          {data.boutiqueAddress && <span style={{ display: 'block' }}>{data.boutiqueAddress}</span>}
+          {data.boutiquePhone && <span style={{ display: 'block' }}>📞 {formatMobile(data.boutiquePhone)}</span>}
+          {data.boutiqueEmail && <span style={{ display: 'block' }}>✉️ {data.boutiqueEmail}</span>}
         </div>
       </div>
     </div>
@@ -265,21 +306,19 @@ export const ModernInvoiceTemplate = ({ data }) => {
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          {data.boutiqueLogo ? (
-            <img src={data.boutiqueLogo} alt="Logo" style={{ maxHeight: '52px', objectFit: 'contain', marginBottom: '6px' }} />
-          ) : (
-            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', color: '#9f1239' }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '50%', border: '2px solid #be185d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '16px' }}>
-                ✿
-              </div>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: '#881337', marginTop: '4px' }}>{data.boutiqueName}</span>
-            </div>
+          {data.boutiqueLogo && (
+            <img
+              src={data.boutiqueLogo}
+              alt="Boutique Logo"
+              style={{ maxHeight: '56px', maxWidth: '180px', objectFit: 'contain', marginBottom: '6px' }}
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
           )}
-          {data.boutiqueAddress && (
-            <span style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '4px', maxWidth: '180px' }}>
-              {data.boutiqueAddress}
-            </span>
-          )}
+          <span style={{ fontSize: '16px', fontWeight: 700, color: '#881337', display: 'block' }}>{data.boutiqueName}</span>
+          {data.ownerName && <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569' }}>Owner: {data.ownerName}</span>}
+          {data.boutiqueAddress && <span style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>📍 {data.boutiqueAddress}</span>}
+          {data.boutiquePhone && <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>📞 {formatMobile(data.boutiquePhone)}</span>}
+          {data.boutiqueEmail && <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>✉️ {data.boutiqueEmail}</span>}
         </div>
       </div>
 
@@ -319,10 +358,11 @@ export const ModernInvoiceTemplate = ({ data }) => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #cbd5e1', paddingTop: '16px', marginBottom: '40px' }}>
         <div>
           <span style={{ fontSize: '10px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '4px' }}>
-            PAYMENT ACCOUNT
+            BOUTIQUE &amp; PAYMENT DETAILS
           </span>
           <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Status: <strong style={{ color: '#0f172a' }}>{data.paymentStatus}</strong></span>
-          <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Paid: {formatMoney(data.amountPaid)}</span>
+          <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Owner: <strong style={{ color: '#0f172a' }}>{data.ownerName}</strong></span>
+          {data.boutiquePhone && <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Contact: {formatMobile(data.boutiquePhone)}</span>}
         </div>
         <div style={{ textAlign: 'right' }}>
           <span style={{ fontSize: '10px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '2px' }}>
@@ -381,28 +421,17 @@ export const ElegantInvoiceTemplate = ({ data }) => {
             Invoice
           </h1>
         </div>
-        <div>
-          {data.boutiqueLogo ? (
-            <img src={data.boutiqueLogo} alt="Logo" style={{ maxHeight: '60px', borderRadius: '50%' }} />
-          ) : (
-            <div style={{
-              width: '64px',
-              height: '64px',
-              borderRadius: '50%',
-              backgroundColor: '#e6d7c3',
-              color: '#574c43',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              textAlign: 'center',
-              fontSize: '10px',
-              fontWeight: 700,
-              lineHeight: 1.2,
-              padding: '6px'
-            }}>
-              Your logo
-            </div>
+        <div style={{ textAlign: 'right' }}>
+          {data.boutiqueLogo && (
+            <img
+              src={data.boutiqueLogo}
+              alt="Boutique Logo"
+              style={{ maxHeight: '60px', maxWidth: '180px', objectFit: 'contain', marginBottom: '4px', marginLeft: 'auto' }}
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
           )}
+          <span style={{ fontSize: '14px', fontWeight: 700, color: '#574c43', display: 'block', marginTop: '4px' }}>{data.boutiqueName}</span>
+          {data.ownerName && <span style={{ fontSize: '11px', color: '#71717a', display: 'block' }}>Owner: {data.ownerName}</span>}
         </div>
       </div>
 
@@ -469,12 +498,15 @@ export const ElegantInvoiceTemplate = ({ data }) => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px' }}>
         <div style={{ maxWidth: '280px' }}>
           <span style={{ fontSize: '13px', fontWeight: 600, color: '#1c1917', display: 'block', marginBottom: '4px' }}>
-            Payment method
+            ATELIER DETAILS
           </span>
           <div style={{ fontSize: '11px', color: '#71717a', lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 700, color: '#1c1917' }}>{data.boutiqueName}</div>
+            {data.ownerName && <div>Boutique Owner: {data.ownerName}</div>}
+            {data.boutiqueAddress && <div>Address: {data.boutiqueAddress}</div>}
+            {data.boutiquePhone && <div>Phone: {formatMobile(data.boutiquePhone)}</div>}
+            {data.boutiqueEmail && <div>Email: {data.boutiqueEmail}</div>}
             <div>Payment Status: <strong>{data.paymentStatus}</strong></div>
-            <div>Boutique: {data.boutiqueName}</div>
-            {data.balanceDue > 0 && <div>Balance: {formatMoney(data.balanceDue)}</div>}
           </div>
         </div>
 
