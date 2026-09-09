@@ -174,8 +174,9 @@ export const ClassicInvoiceTemplate = ({ data }) => {
             BILLED TO:
           </span>
           <span style={{ fontSize: '14px', fontWeight: 600, color: '#27272a', display: 'block' }}>{data.customerName}</span>
-          {data.customerMobile && <span style={{ display: 'block', color: '#52525b', fontSize: '13px' }}>{formatMobile(data.customerMobile)}</span>}
-          {data.customerAddress && <span style={{ display: 'block', color: '#52525b', fontSize: '13px', maxWidth: '280px', marginTop: '2px' }}>{data.customerAddress}</span>}
+          {data.customerMobile && <span style={{ display: 'block', color: '#52525b', fontSize: '13px' }}>📞 {formatMobile(data.customerMobile)}</span>}
+          {data.customerEmail && <span style={{ display: 'block', color: '#52525b', fontSize: '13px' }}>✉️ {data.customerEmail}</span>}
+          {data.customerAddress && <span style={{ display: 'block', color: '#52525b', fontSize: '13px', maxWidth: '280px', marginTop: '2px' }}>📍 {data.customerAddress}</span>}
         </div>
         <div style={{ textAlign: 'right', fontSize: '13px', color: '#27272a' }}>
           <div>Invoice No. <strong>{data.orderId}</strong></div>
@@ -317,9 +318,17 @@ export const ModernInvoiceTemplate = ({ data }) => {
             Invoice
           </h1>
           <div>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+              CUSTOMER DETAILS:
+            </span>
             <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>{data.customerName}</h3>
-            <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Date: {fmtDate(data.orderDate)}</span>
-            <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Invoice Nº: {data.orderId}</span>
+            {data.customerMobile && <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>📞 {formatMobile(data.customerMobile)}</span>}
+            {data.customerEmail && <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>✉️ {data.customerEmail}</span>}
+            {data.customerAddress && <span style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>📍 {data.customerAddress}</span>}
+            <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #e2e8f0' }}>
+              <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Date: {fmtDate(data.orderDate)}</span>
+              <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Invoice Nº: {data.orderId}</span>
+            </div>
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -475,9 +484,9 @@ export const ElegantInvoiceTemplate = ({ data }) => {
           <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1c1917', margin: '0 0 4px 0', textTransform: 'uppercase' }}>
             {data.customerName}
           </h3>
-          {data.customerAddress && <span style={{ display: 'block', fontSize: '12px', color: '#71717a' }}>Address: {data.customerAddress}</span>}
-          {data.customerEmail && <span style={{ display: 'block', fontSize: '12px', color: '#71717a' }}>{data.customerEmail}</span>}
-          {data.customerMobile && <span style={{ display: 'block', fontSize: '12px', color: '#71717a' }}>Phone number: {formatMobile(data.customerMobile)}</span>}
+          {data.customerMobile && <span style={{ display: 'block', fontSize: '12px', color: '#71717a' }}>📞 {formatMobile(data.customerMobile)}</span>}
+          {data.customerEmail && <span style={{ display: 'block', fontSize: '12px', color: '#71717a' }}>✉️ {data.customerEmail}</span>}
+          {data.customerAddress && <span style={{ display: 'block', fontSize: '12px', color: '#71717a' }}>📍 {data.customerAddress}</span>}
         </div>
         <div style={{ textAlign: 'right', fontSize: '13px' }}>
           <div style={{ fontWeight: 600, color: '#1c1917' }}>Invoice No:</div>
