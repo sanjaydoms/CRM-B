@@ -24,9 +24,6 @@ const panel = {
   borderRadius: '12px',
 };
 
-//: Rows the documents catalogue but which cannot hold stock -- a payment
-//: gateway, a garment category. Shown, because the catalogue is meant to be
-//: complete, but not offered a "Stock this" button.
 const TYPE_LABEL = {
   MATERIAL: 'Material', CONSUMABLE: 'Consumable', TOOL: 'Tool', MACHINE: 'Machine',
   ASSET: 'Asset', DOCUMENT: 'Document', SYSTEM: 'System', PRODUCT_CATEGORY: 'Garment type',
