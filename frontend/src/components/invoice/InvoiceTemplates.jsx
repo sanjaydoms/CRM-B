@@ -66,9 +66,9 @@ export const normalizeInvoiceData = (order, boutiqueSettings, currentUser) => {
       subtotal: 500,
       taxes: 0,
       totalAmount: 500,
-      amountPaid: 500,
-      balanceDue: 0,
-      paymentStatus: 'Paid',
+      amountPaid: 300,
+      balanceDue: 200,
+      paymentStatus: 'Partially Paid',
       invoiceTemplate: 'classic'
     };
   }
@@ -81,8 +81,9 @@ export const normalizeInvoiceData = (order, boutiqueSettings, currentUser) => {
 
   const totalAmount = Number(order.total_amount || 0);
   const taxes = Number(order.taxes || 0);
-  const subtotal = totalAmount - taxes;
-  const amountPaid = Number(order.amount_paid || 0);
+  const discount = Number(order.discount || 0);
+  const subtotal = Math.max(0, totalAmount - taxes + discount);
+  const amountPaid = Number(order.amount_paid ?? order.advance_paid ?? 0);
   const balanceDue = Math.max(0, totalAmount - amountPaid);
 
   return {
@@ -111,13 +112,13 @@ export const normalizeInvoiceData = (order, boutiqueSettings, currentUser) => {
     jobs: pricedJobs,
     jobTotal,
     packagingHandling: Number(order.packaging_handling || 0),
-    discount: Number(order.discount || 0),
-    subtotal,
-    taxes,
-    totalAmount,
-    amountPaid,
-    balanceDue,
-    paymentStatus: order.payment_status || 'Pending',
+    discount: discount,
+    subtotal: subtotal,
+    taxes: taxes,
+    totalAmount: totalAmount,
+    amountPaid: amountPaid,
+    balanceDue: balanceDue,
+    paymentStatus: order.payment_status || (balanceDue === 0 ? 'Paid' : amountPaid > 0 ? 'Partially Paid' : 'Pending'),
     invoiceTemplate: order.invoice_template || boutiqueSettings?.invoice_template || 'classic'
   };
 };
@@ -218,20 +219,36 @@ export const ClassicInvoiceTemplate = ({ data }) => {
         </tbody>
       </table>
 
-      {/* Subtotal & Total Block */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '48px', fontFamily: 'sans-serif' }}>
-        <div style={{ width: '220px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '13px', fontWeight: 700, color: '#1c1917' }}>
+      {/* Price Breakdown & Balance Block */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '40px', fontFamily: 'sans-serif' }}>
+        <div style={{ width: '260px', backgroundColor: '#f4f4f5', padding: '16px 20px', borderRadius: '8px', border: '1px solid #e4e4e7' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', color: '#52525b' }}>
             <span>Subtotal</span>
-            <span>{formatMoney(data.subtotal)}</span>
+            <span style={{ fontWeight: 600 }}>{formatMoney(data.subtotal)}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '13px', fontWeight: 700, color: '#1c1917' }}>
-            <span>Tax ({data.taxes > 0 ? '5%' : '0%'})</span>
-            <span>{formatMoney(data.taxes)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 6px 0', borderTop: '1px solid #1c1917', fontSize: '20px', fontWeight: 800, color: '#000000', marginTop: '4px' }}>
-            <span>Total</span>
+          {data.taxes > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', color: '#52525b' }}>
+              <span>Tax (5%)</span>
+              <span style={{ fontWeight: 600 }}>{formatMoney(data.taxes)}</span>
+            </div>
+          )}
+          {data.discount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', color: '#166534' }}>
+              <span>Discount</span>
+              <span style={{ fontWeight: 600 }}>−{formatMoney(data.discount)}</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 6px 0', borderTop: '2px solid #1c1917', fontSize: '16px', fontWeight: 800, color: '#1c1917', marginTop: '6px' }}>
+            <span>Total Amount</span>
             <span>{formatMoney(data.totalAmount)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 4px 0', borderTop: '1px solid #d4d4d8', fontSize: '12px', color: '#52525b', marginTop: '6px' }}>
+            <span>Paid Amount ({data.paymentStatus})</span>
+            <span style={{ fontWeight: 700, color: '#15803d' }}>{formatMoney(data.amountPaid)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '13px', fontWeight: 800, color: data.balanceDue > 0 ? '#b91c1c' : '#15803d' }}>
+            <span>Rest Amount (Due)</span>
+            <span>{formatMoney(data.balanceDue)}</span>
           </div>
         </div>
       </div>
@@ -252,7 +269,7 @@ export const ClassicInvoiceTemplate = ({ data }) => {
           <div style={{ color: '#3f3f46', lineHeight: 1.5 }}>
             <div>Payment Status: <strong>{data.paymentStatus}</strong></div>
             {data.ownerName && <div>Boutique Owner: <strong>{data.ownerName}</strong></div>}
-            {data.balanceDue > 0 && <div>Balance Owed: {formatMoney(data.balanceDue)}</div>}
+            {data.balanceDue > 0 && <div>Balance Owed: <strong>{formatMoney(data.balanceDue)}</strong></div>}
           </div>
         </div>
         <div style={{ textAlign: 'right', lineHeight: 1.4 }}>
@@ -323,7 +340,7 @@ export const ModernInvoiceTemplate = ({ data }) => {
       </div>
 
       {/* Table */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '40px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '32px' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid #cbd5e1', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1px', color: '#475569' }}>
             <th style={{ padding: '10px 4px', textAlign: 'left', fontWeight: 700 }}>DESCRIPTION</th>
@@ -354,8 +371,8 @@ export const ModernInvoiceTemplate = ({ data }) => {
         </tbody>
       </table>
 
-      {/* Payment & Total Section */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #cbd5e1', paddingTop: '16px', marginBottom: '40px' }}>
+      {/* Payment & Total Breakdown Section */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', backgroundColor: '#f8fafc', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0', marginBottom: '32px' }}>
         <div>
           <span style={{ fontSize: '10px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '4px' }}>
             BOUTIQUE &amp; PAYMENT DETAILS
@@ -364,13 +381,29 @@ export const ModernInvoiceTemplate = ({ data }) => {
           <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Owner: <strong style={{ color: '#0f172a' }}>{data.ownerName}</strong></span>
           {data.boutiquePhone && <span style={{ fontSize: '12px', color: '#64748b', display: 'block' }}>Contact: {formatMobile(data.boutiquePhone)}</span>}
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <span style={{ fontSize: '10px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '2px' }}>
-            TOTAL
-          </span>
-          <span style={{ fontSize: '28px', fontWeight: 800, color: '#be185d', lineHeight: 1 }}>
-            {formatMoney(data.totalAmount)}
-          </span>
+        <div style={{ width: '250px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', padding: '3px 0' }}>
+            <span>Subtotal</span>
+            <span>{formatMoney(data.subtotal)}</span>
+          </div>
+          {data.taxes > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', padding: '3px 0' }}>
+              <span>Tax (5%)</span>
+              <span>{formatMoney(data.taxes)}</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 800, color: '#0f172a', paddingTop: '8px', borderTop: '2px solid #cbd5e1', marginTop: '4px' }}>
+            <span>Total Amount</span>
+            <span style={{ color: '#be185d' }}>{formatMoney(data.totalAmount)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#15803d', fontWeight: 700, paddingTop: '6px', borderTop: '1px solid #e2e8f0', marginTop: '6px' }}>
+            <span>Paid Amount</span>
+            <span>{formatMoney(data.amountPaid)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: data.balanceDue > 0 ? '#dc2626' : '#15803d', fontWeight: 800, paddingTop: '4px' }}>
+            <span>Rest Amount (Due)</span>
+            <span>{formatMoney(data.balanceDue)}</span>
+          </div>
         </div>
       </div>
 
@@ -510,15 +543,17 @@ export const ElegantInvoiceTemplate = ({ data }) => {
           </div>
         </div>
 
-        <div style={{ width: '230px' }}>
+        <div style={{ width: '250px' }}>
           <div style={{ backgroundColor: '#e8ddd3', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, color: '#574c43', marginBottom: '2px' }}>
             <span>SUB TOTAL</span>
             <span>{formatMoney(data.subtotal)}</span>
           </div>
-          <div style={{ backgroundColor: '#f5ebe0', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, color: '#574c43', marginBottom: '2px' }}>
-            <span>TAX</span>
-            <span>{formatMoney(data.taxes)}</span>
-          </div>
+          {data.taxes > 0 && (
+            <div style={{ backgroundColor: '#f5ebe0', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, color: '#574c43', marginBottom: '2px' }}>
+              <span>TAX</span>
+              <span>{formatMoney(data.taxes)}</span>
+            </div>
+          )}
           {data.discount > 0 && (
             <div style={{ backgroundColor: '#f5ebe0', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, color: '#574c43', marginBottom: '2px' }}>
               <span>DISCOUNT</span>
@@ -526,8 +561,16 @@ export const ElegantInvoiceTemplate = ({ data }) => {
             </div>
           )}
           <div style={{ backgroundColor: '#c4b5a5', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 800, color: '#ffffff', marginTop: '4px' }}>
-            <span>TOTAL</span>
+            <span>TOTAL AMOUNT</span>
             <span>{formatMoney(data.totalAmount)}</span>
+          </div>
+          <div style={{ backgroundColor: '#efe7df', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, color: '#15803d', marginTop: '4px' }}>
+            <span>PAID AMOUNT</span>
+            <span>{formatMoney(data.amountPaid)}</span>
+          </div>
+          <div style={{ backgroundColor: data.balanceDue > 0 ? '#fee2e2' : '#dcfce7', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 800, color: data.balanceDue > 0 ? '#991b1b' : '#166534', marginTop: '2px' }}>
+            <span>REST AMOUNT (DUE)</span>
+            <span>{formatMoney(data.balanceDue)}</span>
           </div>
         </div>
       </div>
