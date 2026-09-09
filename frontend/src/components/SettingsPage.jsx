@@ -83,7 +83,7 @@ export const SettingsPage = ({
         className="settings-grid" 
         style={{ 
           display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', 
           gap: '24px' 
         }}
       >
@@ -304,10 +304,10 @@ export const SettingsPage = ({
             )}
           </div>
         </div>
-      </div>
 
-      {/* Invoice Template Selection Section */}
-      <InvoiceTemplateSelector currentUser={currentUser} />
+        {/* Invoice Template Selection Card (Right side of WhatsApp Link card) */}
+        <InvoiceTemplateSelector currentUser={currentUser} />
+      </div>
     </div>
   );
 };
