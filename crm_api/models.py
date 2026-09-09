@@ -40,6 +40,10 @@ def upload_to_stage_images(instance, filename):
     return _unguessable_path('stage_images', filename)
 
 
+def upload_to_staff_photos(instance, filename):
+    return _unguessable_path('staff_photos', filename)
+
+
 def upload_to_finished_garments(instance, filename):
     return _unguessable_path('finished_garments', filename)
 
@@ -48,20 +52,35 @@ def upload_to_fabrics(instance, filename):
     return _unguessable_path('fabrics', filename)
 
 
+def national_mobile(raw):
+    """The bare ten-digit mobile in `raw`, or '' if there is not one.
+
+    Strips everything that is not a digit, an international 00 prefix, the
+    country code when what is left is longer than a national number, and
+    leading zeros. Returns exactly NATIONAL_NUMBER_LENGTH digits or nothing.
+    This is what the staff and designer serializers store and what
+    whatsapp_number prefixes with the country code -- one set of rules with
+    two callers, so the number the boutique saves and the number it messages
+    can never disagree about who is on the other end.
+    """
+    digits = re.sub(r'\D', '', raw or '')
+    country_code = getattr(settings, 'WHATSAPP_COUNTRY_CODE', '91')
+    if digits.startswith('00'):
+        digits = digits[2:]
+    if len(digits) > NATIONAL_NUMBER_LENGTH and digits.startswith(country_code):
+        digits = digits[len(country_code):]
+    digits = digits.lstrip('0')
+    return digits if len(digits) == NATIONAL_NUMBER_LENGTH else ''
+
+
 def whatsapp_number(raw):
     digits = re.sub(r'\D', '', raw or '')
     country_code = getattr(settings, 'WHATSAPP_COUNTRY_CODE', '91')
-
     if digits.startswith('00'):
         digits = digits[2:]
 
-    if len(digits) > NATIONAL_NUMBER_LENGTH and digits.startswith(country_code):
-        national = digits[len(country_code):]
-    else:
-        national = digits
-    national = national.lstrip('0')
-
-    if len(national) == NATIONAL_NUMBER_LENGTH:
+    national = national_mobile(raw)
+    if national:
         return country_code + national
     return digits if 11 <= len(digits) <= 15 else ''
 
@@ -233,13 +252,10 @@ class Tailor(models.Model):
     ROLE_CHOICES = [
         ('Master', 'Master (generalist)'),
         ('Tailor', 'Tailor'),
-        ('Measurement Master', 'Measurement Master'),
-        ('Pattern Master', 'Pattern Master'),
-        ('Cutting Master', 'Cutting Master'),
         ('Maggam Master', 'Maggam Master'),
-        ('Finishing Master', 'Finishing Master'),
-        ('Pressing Staff', 'Pressing Staff'),
-        ('QC Master', 'QC Master'),
+        ('Karigar', 'Karigar'),
+        ('Packaging Staff', 'Packaging Staff'),
+        ('QC Staff', 'QC Staff'),
     ]
 
     name = models.CharField(max_length=100)
@@ -248,10 +264,36 @@ class Tailor(models.Model):
     status = models.CharField(max_length=50, default="Available") # Available, Busy
     role = models.CharField(max_length=50, choices=ROLE_CHOICES, default="Tailor")
     email = models.EmailField(blank=True, null=True)
+    #: The staff member's own avatar, set when they are added and editable by
+    #: them from My Account. Surfaced on their login (see auth_views.user_payload)
+    #: so the workspace shows their face rather than a placeholder.
+    profile_photo = models.ImageField(upload_to=upload_to_staff_photos, blank=True,
+                                      null=True, max_length=IMAGE_PATH_MAX_LENGTH)
     user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='tailor_profile')
 
     def __str__(self):
         return f"{self.name} - {self.role} ({self.status})"
+
+class UserAvatar(models.Model):
+    """One avatar per login, for anyone -- owner, staff or designer.
+
+    Avatar is fundamentally a fact about a User (a login has a face), but staff
+    photos were first stored on Tailor.profile_photo because that is where the
+    owner sets them when adding someone, before that person's User even exists.
+    This model is the per-user store the self-edit writes to, so the OWNER --
+    who has no Tailor row at all -- can set their own photo too. user_payload
+    reads this first and falls back to the Tailor/Designer photo, so a staff
+    member's owner-assigned photo still shows until they choose their own.
+    """
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='avatar')
+    image = models.ImageField(upload_to=upload_to_staff_photos,
+                              max_length=IMAGE_PATH_MAX_LENGTH)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"avatar for {self.user_id}"
+
 
 class Order(models.Model):
     order_id = models.CharField(max_length=50, unique=True, db_index=True) # e.g. T2B-240529-7856
@@ -417,16 +459,16 @@ class CustomerMessage(models.Model):
 def get_default_workflow():
     return [
         {"key": "created", "name": "Created", "sla_hours": 12, "roles": ["Owner", "Master"]},
-        {"key": "measurements_completed", "name": "Measurements Completed", "sla_hours": 24, "roles": ["Owner", "Master", "Measurement Master"]},
+        {"key": "measurements_completed", "name": "Measurements Completed", "sla_hours": 24, "roles": ["Owner", "Master"]},
         {"key": "fabric_confirmed", "name": "Fabric Confirmed", "sla_hours": 24, "roles": ["Owner", "Master"]},
-        {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master", "Pattern Master", "Cutting Master"]},
-        {"key": "maggam_work", "name": "Maggam Work", "sla_hours": 96, "roles": ["Owner", "Master", "Maggam Master"], "optional": True},
+        {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "maggam_work", "name": "Maggam Work", "sla_hours": 96, "roles": ["Owner", "Master", "Maggam Master", "Karigar"], "optional": True},
         {"key": "assigned_to_tailor", "name": "Assigned to Tailor", "sla_hours": 12, "roles": ["Owner", "Master"]},
         {"key": "stitching_in_progress", "name": "Stitching In Progress", "sla_hours": 72, "roles": ["Owner", "Tailor"]},
         {"key": "stitching_completed", "name": "Stitching Completed", "sla_hours": 12, "roles": ["Owner", "Tailor"]},
-        {"key": "finishing", "name": "Hemming & Finishing", "sla_hours": 24, "roles": ["Owner", "Master", "Finishing Master"]},
-        {"key": "pressing", "name": "Pressing", "sla_hours": 12, "roles": ["Owner", "Master", "Pressing Staff"]},
-        {"key": "master_quality_check", "name": "Master Quality Check", "sla_hours": 12, "roles": ["Owner", "Master", "QC Master"]},
+        {"key": "finishing", "name": "Hemming & Finishing", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "pressing", "name": "Pressing & Packaging", "sla_hours": 12, "roles": ["Owner", "Master", "Packaging Staff"]},
+        {"key": "master_quality_check", "name": "Master Quality Check", "sla_hours": 12, "roles": ["Owner", "Master", "QC Staff"]},
         {"key": "trial_scheduled", "name": "Trial Scheduled", "sla_hours": 48, "roles": ["Owner", "Master"]},
         {"key": "trial_completed", "name": "Trial Completed", "sla_hours": 24, "roles": ["Owner", "Master"]},
         {"key": "ready_for_delivery", "name": "Ready for Delivery", "sla_hours": 24, "roles": ["Owner", "Master"]},
@@ -443,6 +485,24 @@ class BoutiqueSettings(models.Model):
     workflow_config = models.JSONField(default=get_default_workflow, blank=True)
     design_approval_required = models.BooleanField(default=False)
     customer_messaging_enabled = models.BooleanField(default=True)
+
+    #: How the OWNER distributes the modules this boutique is entitled to among
+    #: its own roles, as {role: {module_key: true/false}}. The platform console
+    #: decides entitlement on BoutiqueTenant.enabled_modules; this decides
+    #: distribution, and entitlement wins.
+    #:
+    #: Sparse, for the same reason enabled_modules is: it stores only the
+    #: decisions an owner actually made. An absent key means "whatever
+    #: core.modules.ROLE_DEFAULTS says", NOT off -- if absence meant off, the
+    #: deploy that adds a module to the registry would switch that module off
+    #: for every role in every boutique at once, and nobody would have made
+    #: that decision.
+    #:
+    #: 'Owner' is never stored here. An owner who could switch off their own
+    #: Inventory would have no screen left to switch it back on, so the write
+    #: path refuses Owner entries and core.modules.role_allows short-circuits
+    #: to True for Owner regardless of what is stored.
+    role_modules = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return self.name

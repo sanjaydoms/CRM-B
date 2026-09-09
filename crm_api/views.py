@@ -3,6 +3,7 @@ import os
 import secrets
 import uuid
 from decimal import Decimal
+from datetime import timedelta
 
 from django.utils import timezone
 from django.contrib.auth.models import User
@@ -18,7 +19,14 @@ from core.roles import OWNER, resolve_user_role
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.db.models import Q, Sum, Count
+from django.db.models import (
+    Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value,
+)
+from django.db.models.functions import Coalesce, Greatest
+
+#: One decimal shape for every money expression the dashboard builds, so
+#: Coalesce/Greatest/ExpressionWrapper never disagree on precision.
+MONEY = DecimalField(max_digits=12, decimal_places=2)
 
 from .models import (
     Customer, CustomerMessage, GarmentImage, Measurement, DesignPreference,
@@ -868,7 +876,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         """Quality check rejects the garment: reopen the stitching band.
 
         First-class rework, not a rollback -- see fail_quality_check for the
-        rules. The QC Master can invoke it directly; the service checks roles.
+        rules. The QC Staff can invoke it directly; the service checks roles.
         """
         order = self.get_object()
         try:
@@ -921,38 +929,156 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
 class DashboardView(views.APIView):
 
+    #: Order statuses that mean the garment is done with, so they drop out of
+    #: "active work" and "money still to collect against live orders". Matches
+    #: the two terminal values Order.order_status uses.
+    CLOSED_STATUSES = ('Delivered', 'Cancelled')
+
     def get(self, request):
         orders = visible_orders(Order.objects.all(), request.user)
         customers = visible_customers(Customer.objects.all(), request.user)
-
+        today = timezone.localdate()
+        month_start = today.replace(day=1)
         total_customers = customers.count()
 
-        order_totals = orders.aggregate(
-            total=Count('id'),
-            paid=Sum('total_amount', filter=Q(payment_status='Paid')),
-            partial=Sum('advance_paid', filter=Q(payment_status='Partially Paid')),
+        # ---- money -----------------------------------------------------------
+        # Collected: a fully-paid order counts its total; a partial one counts
+        # whatever it has actually taken (amount_paid, or the advance if that is
+        # the only figure recorded). revenue = everything collected to date.
+        collected = Coalesce(Greatest('amount_paid', 'advance_paid'),
+                             Value(Decimal('0'), output_field=MONEY))
+        money = orders.exclude(order_status='Cancelled').aggregate(
+            revenue_total=Sum(collected),
+            revenue_month=Sum(collected, filter=Q(order_date__date__gte=month_start)),
+            billed=Sum('total_amount'),
         )
-        total_orders = order_totals['total']
-        revenue = float(order_totals['paid'] or 0.0) + float(order_totals['partial'] or 0.0)
+        revenue_total = float(money['revenue_total'] or 0)
+        revenue_month = float(money['revenue_month'] or 0)
+        # Outstanding: what is billed but not yet collected on live orders. A
+        # per-row max(total - collected, 0) so an overpaid row cannot net off a
+        # genuine debt on another.
+        outstanding_expr = Greatest(
+            ExpressionWrapper(F('total_amount') - collected, output_field=MONEY),
+            Value(Decimal('0'), output_field=MONEY))
+        outstanding = float(
+            orders.exclude(order_status__in=self.CLOSED_STATUSES)
+                  .aggregate(due=Sum(outstanding_expr))['due'] or 0)
 
-        status_counts = orders.values('order_status').annotate(count=Count('id', distinct=True))
+        # ---- orders & pipeline ----------------------------------------------
+        status_counts = orders.values('order_status').annotate(
+            count=Count('id', distinct=True))
+        pipeline = {item['order_status']: item['count'] for item in status_counts}
+        total_orders = orders.count()
+        active = orders.exclude(order_status__in=self.CLOSED_STATUSES)
+        active_orders = active.count()
+        due_soon = active.filter(estimated_delivery__gte=today,
+                                 estimated_delivery__lte=today + timedelta(days=7)).count()
+        overdue = active.filter(estimated_delivery__lt=today).count()
 
-        recent_orders = visible_orders(OrderRepository.summary_queryset(), request.user)[:5]
-        recent_orders_data = OrderSummarySerializer(recent_orders, many=True, context={'request': request}).data
-
-        recent_customers = visible_customers(CustomerRepository.summary_queryset(), request.user)[:5]
-        recent_customers_data = CustomerSummarySerializer(recent_customers, many=True, context={'request': request}).data
+        recent_orders_data = OrderSummarySerializer(
+            visible_orders(OrderRepository.summary_queryset(), request.user)[:6],
+            many=True, context={'request': request}).data
+        recent_customers_data = CustomerSummarySerializer(
+            visible_customers(CustomerRepository.summary_queryset(), request.user)[:5],
+            many=True, context={'request': request}).data
 
         return Response({
             'stats': {
                 'total_customers': total_customers,
                 'total_orders': total_orders,
-                'revenue': revenue,
-                'status_distribution': {item['order_status']: item['count'] for item in status_counts}
+                'active_orders': active_orders,
+                'due_soon': due_soon,
+                'overdue': overdue,
+                # revenue kept as an alias of the all-time figure so any older
+                # caller reading stats.revenue still works.
+                'revenue': revenue_total,
+                'revenue_total': revenue_total,
+                'revenue_month': revenue_month,
+                'outstanding': outstanding,
+                'status_distribution': pipeline,
             },
+            'today': self._today(request, today),
+            'attention': self._attention(request, orders, today),
             'recent_orders': recent_orders_data,
-            'recent_customers': recent_customers_data
+            'recent_customers': recent_customers_data,
         })
+
+    def _today(self, request, today):
+        """Appointments booked for today and who is on the floor right now.
+
+        Every cross-app read here is guarded: the dashboard is the first screen
+        a boutique sees and must render even if scheduling or attendance has no
+        data, a table is mid-migration, or a module is switched off.
+        """
+        out = {'appointments': [], 'staff_working': 0, 'staff_present': 0}
+        try:
+            from apps.scheduling.models import Appointment
+            appts = (Appointment.objects
+                     .filter(scheduled_time__date=today)
+                     .exclude(status='CANCELLED')
+                     .select_related('customer', 'assigned_staff')
+                     .order_by('scheduled_time')[:6])
+            out['appointments'] = [{
+                'id': str(a.id),
+                'time': timezone.localtime(a.scheduled_time).strftime('%H:%M'),
+                'type': a.get_appointment_type_display(),
+                'customer': f"{a.customer.first_name} {a.customer.last_name}".strip()
+                            if a.customer else '',
+                'with': a.assigned_staff.name if a.assigned_staff else '',
+            } for a in appts]
+        except Exception:
+            pass
+        try:
+            from apps.staff.models import AttendanceSession
+            day = AttendanceSession.objects.filter(date=today)
+            out['staff_present'] = day.values('staff').distinct().count()
+            out['staff_working'] = (day.filter(check_out__isnull=True)
+                                    .values('staff').distinct().count())
+        except Exception:
+            pass
+        return out
+
+    def _attention(self, request, orders, today):
+        """The short list of things the owner most likely needs to act on."""
+        out = {'unpaid': [], 'due': [], 'low_stock': 0, 'pending_designs': 0}
+        live = orders.exclude(order_status__in=self.CLOSED_STATUSES)
+
+        collected = Coalesce(Greatest('amount_paid', 'advance_paid'),
+                             Value(Decimal('0'), output_field=MONEY))
+        balance = ExpressionWrapper(F('total_amount') - collected, output_field=MONEY)
+        unpaid = (live.annotate(_balance=balance).filter(_balance__gt=0)
+                  .select_related('customer').order_by('-_balance')[:5])
+        out['unpaid'] = [{
+            'id': o.id, 'order_id': o.order_id,
+            'customer': f"{o.customer.first_name} {o.customer.last_name}".strip()
+                        if o.customer else '',
+            'balance': float(o._balance or 0),
+        } for o in unpaid]
+
+        due = (live.filter(estimated_delivery__isnull=False)
+               .filter(Q(estimated_delivery__lt=today)
+                       | Q(estimated_delivery__lte=today + timedelta(days=7)))
+               .select_related('customer').order_by('estimated_delivery')[:5])
+        out['due'] = [{
+            'id': o.id, 'order_id': o.order_id,
+            'customer': f"{o.customer.first_name} {o.customer.last_name}".strip()
+                        if o.customer else '',
+            'due': o.estimated_delivery.isoformat() if o.estimated_delivery else None,
+            'overdue': bool(o.estimated_delivery and o.estimated_delivery < today),
+        } for o in due]
+
+        try:
+            from apps.inventory import reports as inv_reports
+            out['low_stock'] = len(inv_reports.low_stock(limit=100))
+        except Exception:
+            pass
+        try:
+            from apps.design_studio.models import DesignAssignment
+            out['pending_designs'] = DesignAssignment.objects.filter(
+                status='SUBMITTED').count()
+        except Exception:
+            pass
+        return out
 
 class BoutiqueSettingsViewSet(viewsets.ViewSet):
     def list(self, request):
@@ -985,6 +1111,101 @@ class BoutiqueSettingsViewSet(viewsets.ViewSet):
         config.save()
         serializer = BoutiqueSettingsSerializer(config, context={'request': request})
         return Response(serializer.data)
+
+    # The owner's distribution switchboard: of the modules the platform has
+    # sold this boutique, which ones does each of its roles see?
+    #
+    # Its own route rather than fields on the settings body above, because that
+    # body is readable by every signed-in role (/api/boutique-settings/ is
+    # ALWAYS_ON, so the middleware never gates it) and who-can-see-what is not
+    # theirs to read or write. OwnerOnly rather than a fresh check:
+    # core.permissions already owns "is this the boutique owner", and a second
+    # implementation is a second thing to get wrong. Declaring it here also
+    # replaces the viewset's default RolePermission, which grants every
+    # non-Owner staff member every safe method -- a GET would have leaked the
+    # whole map to the floor.
+    @action(detail=False, methods=['get', 'patch'], url_path='role-modules',
+            permission_classes=[OwnerOnly])
+    def role_modules(self, request):
+        from core.modules import (
+            ALL_ROLES, GROUPS, MODULE_GROUP, MODULES, effective_modules, is_enabled,
+        )
+        from .serializers import clean_role_modules
+
+        config, _ = BoutiqueSettings.objects.get_or_create(id=1)
+
+        if request.method == 'PATCH':
+            patch = clean_role_modules(request.data.get('role_modules'))
+            # MERGE, never replace. Two owners with the settings screen open,
+            # one editing Tailor and one editing QC Staff, would otherwise
+            # have whichever saved second silently delete the other's work --
+            # and the screen would show it as saved.
+            #
+            # ponytail: merge-only, so an entry can be overwritten but never
+            # removed. Explicit true and explicit false already cover both
+            # outcomes; add a null-clears-the-entry case if the UI ever wants a
+            # "back to the default for this role" button.
+            #
+            # Locked, because a merge is a read-modify-write and the read above
+            # has already happened. Two owners saving at the same instant both
+            # read the pre-merge map, and whichever committed second wrote its
+            # merge over the other's -- the exact loss this comment claims to
+            # prevent. ATOMIC_REQUESTS is not set, so the transaction has to be
+            # spelled here; select_for_update is what makes the second request
+            # re-read AFTER the first commits instead of merging onto a value
+            # that is already stale. Validation stays outside the lock: a 400
+            # should not hold a row.
+            with transaction.atomic():
+                config = BoutiqueSettings.objects.select_for_update().get(pk=config.pk)
+                # isinstance, not `or {}`: a corrupt column (a list, a string, a
+                # per-role value that is not a map) 500'd the owner's PATCH --
+                # the only way back -- while core.modules.role_allows and
+                # core.permissions both healed it silently for every reader. A
+                # boutique whose column got mangled could then be repaired from
+                # psql and nowhere else. The write path is now at least as
+                # forgiving as the read path: unreadable means "no decisions
+                # recorded", and this patch records the first ones.
+                stored = config.role_modules
+                merged = dict(stored) if isinstance(stored, dict) else {}
+                for role, modules in patch.items():
+                    prior = merged.get(role)
+                    merged[role] = {**(prior if isinstance(prior, dict) else {}),
+                                    **modules}
+                config.role_modules = merged
+                config.save(update_fields=['role_modules'])
+
+        # Entitlement is re-read from the registry row rather than taken off
+        # request.tenant. TenantHeaderMiddleware caches the tenant OBJECT for
+        # five minutes but re-reads is_active/enabled_modules from the row on
+        # every request, so a console change gates immediately while the cached
+        # object stays stale in every worker but the one that cleared it. One
+        # small query stops this screen from showing a module as available
+        # while the middleware is already refusing it.
+        from tenants.models import BoutiqueTenant
+        tenant = getattr(request, 'tenant', None)
+        entitlement = {} if tenant is None else (
+            BoutiqueTenant.objects.filter(pk=tenant.pk)
+            .values_list('enabled_modules', flat=True).first() or {})
+
+        entitled = [key for key in MODULES if is_enabled(entitlement, key)]
+        # Same healing on the read side: a GET against a corrupt column reports
+        # "no decisions" rather than handing the screen a JSON list to render.
+        stored = config.role_modules if isinstance(config.role_modules, dict) else {}
+        return Response({
+            'roles': list(ALL_ROLES),
+            'groups': dict(GROUPS),
+            # `entitled` per module as well as the list below: a module the
+            # boutique has not bought can still be configured here (it may buy
+            # it next month), and without this flag the screen would show a
+            # switch that looks live and changes nothing.
+            'modules': [{'key': key, 'label': MODULES[key][0],
+                         'group': MODULE_GROUP.get(key), 'entitled': key in entitled}
+                        for key in MODULES],
+            'entitled': entitled,
+            'role_modules': stored,
+            'effective': {role: effective_modules(entitlement, stored, role)
+                          for role in ALL_ROLES},
+        })
 
 
 def _board_item_from_draft(order, customer, job, item, position, user):

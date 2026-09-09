@@ -196,6 +196,7 @@ function SubmitPanel({ assignment, designs, onSubmitted, onError }) {
 }
 
 function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError }) {
+  const { t } = useLanguage();
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const design = assignment.design_detail;

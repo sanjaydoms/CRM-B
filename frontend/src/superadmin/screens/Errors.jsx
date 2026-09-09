@@ -1,5 +1,12 @@
 /**
- * The Error Center: one row per distinct bug, not one per crash.
+ * The Error Center: one row per distinct crash, not one per occurrence.
+ *
+ * Scoped to kind='crash' and nothing else. ErrorEvent now also holds handled
+ * exceptions, refusals by a platform control, deliberate 4xx and frontend
+ * crashes -- the last two by the thousand -- and they live next door on the
+ * Error Handling screen. The API defaults to crashes precisely so this screen
+ * did not have to change to stay what it is; if it is ever given a `kind`
+ * filter, that decision is being reversed.
  *
  * The server groups by fingerprint (exception class + normalised path + the
  * last in-project frame), so `count` is the number of times this one bug has
@@ -162,7 +169,8 @@ export default function Errors({ route, onBadges }) {
     <>
       <SectionHead
         title="Error Center"
-        subtitle="Unhandled server exceptions, grouped into one row per distinct bug."
+        subtitle="Unhandled server exceptions — the ones nothing caught. Everything the
+                  product handled is under Error Handling."
       >
         <SearchBox value={filters.q} onChange={(q) => set({ q })}
           placeholder="Exception, message or path…" />
@@ -189,7 +197,12 @@ export default function Errors({ route, onBadges }) {
             title="Nothing has crashed."
             detail="Every unhandled 500 in this project is captured with a fingerprint, a count
                     and its in-project stack frames. An empty feed means there is nothing to
-                    capture, not that nothing is watching."
+                    capture, not that nothing is watching — but it is not a clean bill of
+                    health either: a failure the code caught and carried on from never
+                    reaches this screen. Those are under Error Handling."
+            action={<button className="sa-btn" onClick={() => route.go('handling')}>
+              Open Error Handling
+            </button>}
           />
         )}
       >

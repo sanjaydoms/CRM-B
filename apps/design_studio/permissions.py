@@ -1,6 +1,7 @@
 
 from rest_framework import permissions
 
+from core.permissions import ModuleAccess
 from core.permissions import OwnerOnly as CoreOwnerOnly
 from core.roles import DESIGNER, OWNER, resolve_user_role
 
@@ -8,12 +9,12 @@ MASTER = 'Master'
 TAILOR = 'Tailor'
 
 
-class DesignStudioPermission(permissions.BasePermission):
+class DesignStudioPermission(ModuleAccess):
 
 
     message = "Your role does not permit this action in the Design Studio."
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         role = resolve_user_role(request.user)
         if role is None:
             return False
@@ -28,13 +29,13 @@ class DesignLibraryPermission(DesignStudioPermission):
 
     OWN_UPLOAD_ACTIONS = {'update', 'partial_update', 'destroy'}
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         action = getattr(view, 'action', None)
         if action == 'create':
             return resolve_user_role(request.user) is not None
         if action in self.OWN_UPLOAD_ACTIONS and resolve_user_role(request.user) == DESIGNER:
             return True
-        return super().has_permission(request, view)
+        return super().has_role_permission(request, view)
 
     def has_object_permission(self, request, view, obj):
         role = resolve_user_role(request.user)
@@ -42,7 +43,7 @@ class DesignLibraryPermission(DesignStudioPermission):
             return True
         if role == DESIGNER and getattr(view, 'action', None) in self.OWN_UPLOAD_ACTIONS:
             return obj.created_by_id == request.user.id
-        return super().has_permission(request, view)
+        return super().has_role_permission(request, view)
 
 
 class OwnerOnly(CoreOwnerOnly):
@@ -62,14 +63,14 @@ def visible_boards(queryset, user):
     return queryset.none()
 
 
-class DesignAssignmentPermission(permissions.BasePermission):
+class DesignAssignmentPermission(ModuleAccess):
 
     message = "Your role does not permit this action on design assignments."
 
     SUPERVISOR_ACTIONS = {'create', 'update', 'partial_update', 'destroy', 'review'}
     DESIGNER_ACTIONS = {'list', 'retrieve', 'submit'}
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         role = resolve_user_role(request.user)
         if role is None:
             return False

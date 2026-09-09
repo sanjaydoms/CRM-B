@@ -10,15 +10,18 @@ from rest_framework.response import Response
 
 from apps.activities.models import UniversalActivity
 from core import formatting as core_formatting
-from core.permissions import SUPERVISOR_ROLES, StaffSelfOrOwner
+from core.permissions import OwnerOnly, SUPERVISOR_ROLES, StaffSelfOrOwner
 from core.roles import OWNER, resolve_user_role
 from crm_api.models import Tailor
 
 from . import attendance, performance
-from .models import AttendanceSession, StaffPerformanceReview, StaffProfile
+from .models import (
+    AttendanceSession, DayMark, StaffDocument, StaffPerformanceReview,
+    StaffProfile,
+)
 from .serializers import (
-    AttendanceSessionSerializer, StaffPerformanceReviewSerializer,
-    StaffProfileSerializer,
+    AttendanceSessionSerializer, DayMarkSerializer, StaffDocumentSerializer,
+    StaffPerformanceReviewSerializer, StaffProfileSerializer,
 )
 
 
@@ -223,6 +226,10 @@ class AttendanceSessionViewSet(viewsets.ReadOnlyModelViewSet):
                 if parsed is None:
                     return queryset.none()
                 queryset = queryset.filter(date=parsed)
+            # A since/until range, for the daily/weekly/monthly filter. Same
+            # malformed-narrows-to-nothing rule as `date` above: a bad bound is
+            # a probe or a bug, and either way it must not 500 or widen.
+            queryset = self._apply_range(queryset)
             return queryset
 
         profile = _staff_for(self.request.user)
@@ -230,8 +237,24 @@ class AttendanceSessionViewSet(viewsets.ReadOnlyModelViewSet):
             return queryset.none()
         # NOTE the `staff` parameter is not honoured on this branch. Reading it
         # here would let a tailor ask for a colleague by id; their own profile
-        # is the only staff row this branch can ever name.
-        return queryset.filter(staff=profile)
+        # is the only staff row this branch can ever name. The date range is
+        # safe to honour, though -- it only ever narrows a person's own days.
+        return self._apply_range(queryset.filter(staff=profile))
+
+    def _apply_range(self, queryset):
+        """Narrow to [since, until] inclusive; a malformed bound narrows to none."""
+        for param, lookup in (('since', 'date__gte'), ('until', 'date__lte')):
+            raw = self.request.query_params.get(param)
+            if not raw:
+                continue
+            try:
+                parsed = parse_date(raw)
+            except ValueError:
+                parsed = None
+            if parsed is None:
+                return queryset.none()
+            queryset = queryset.filter(**{lookup: parsed})
+        return queryset
 
     @action(detail=False, methods=['GET'])
     def current(self, request):
@@ -730,3 +753,94 @@ class PerformanceView(views.APIView):
                              'them today.'),
             'results': rows,
         })
+
+
+class StaffDocumentViewSet(viewsets.ModelViewSet):
+    """Identity and employment documents for the roster.
+
+    Scoped MORE tightly than StaffProfileViewSet, deliberately. That viewset
+    gives supervisors the whole roster because supervising a floor means knowing
+    who is on it and how to reach them. A copy of somebody's Aadhaar answers no
+    supervisory question, so a Master gets their own documents and nobody
+    else's -- only the owner, who is the person the boutique holds these on
+    behalf of, sees the roster's.
+    """
+
+    serializer_class = StaffDocumentSerializer
+    permission_classes = [StaffSelfOrOwner]
+
+    def get_queryset(self):
+        queryset = StaffDocument.objects.select_related('staff', 'designer')
+        role = resolve_user_role(self.request.user)
+        if role != OWNER:
+            # An account can be attached to a roster row, to a designer, or to
+            # neither. Whichever it is, they see their own documents only.
+            staff = getattr(self.request.user, 'tailor_profile', None)
+            designer = getattr(self.request.user, 'designer_profile', None)
+            if staff is not None:
+                queryset = queryset.filter(staff=staff)
+            elif designer is not None:
+                queryset = queryset.filter(designer=designer)
+            else:
+                return queryset.none()
+
+        # The staff screen opens one person at a time, so it asks for one
+        # person's documents rather than pulling the boutique's and filtering
+        # in the browser.
+        if staff_id := self.request.query_params.get('staff'):
+            queryset = queryset.filter(staff_id=staff_id)
+        if designer_id := self.request.query_params.get('designer'):
+            queryset = queryset.filter(designer_id=designer_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(uploaded_by=self.request.user)
+
+
+class DayMarkViewSet(viewsets.ModelViewSet):
+    """Leave and weekly-off marks for the muster roll. Owner-only.
+
+    A staff member does not mark their own leave here -- that is the owner's
+    record of who was away, not a request-for-leave workflow -- so this is
+    OwnerOnly rather than the self-or-owner scoping attendance uses.
+
+    create() upserts on (staff, date): marking a day that already has a mark
+    changes its kind instead of failing the unique constraint, which is what
+    lets the muster grid cycle a cell A -> Leave -> Weekly-off.
+    """
+
+    serializer_class = DayMarkSerializer
+    permission_classes = [OwnerOnly]
+
+    def get_queryset(self):
+        qs = DayMark.objects.select_related('staff')
+        params = self.request.query_params
+        if staff_id := params.get('staff'):
+            try:
+                qs = qs.filter(staff_id=int(staff_id))
+            except (TypeError, ValueError):
+                return qs.none()
+        for name, lookup in (('since', 'date__gte'), ('until', 'date__lte')):
+            raw = params.get(name)
+            if not raw:
+                continue
+            try:
+                parsed = parse_date(raw)
+            except ValueError:
+                parsed = None
+            if parsed is None:
+                return qs.none()
+            qs = qs.filter(**{lookup: parsed})
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        mark, created = DayMark.objects.update_or_create(
+            staff=data['staff'], date=data['date'],
+            defaults={'kind': data['kind'], 'note': data.get('note', ''),
+                      'created_by': request.user})
+        out = self.get_serializer(mark)
+        code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(out.data, status=code)

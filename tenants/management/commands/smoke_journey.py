@@ -168,7 +168,7 @@ class Command(BaseCommand):
         j.phase("[3] Staff and stock")
         staff = {}
         for name, role in (('Master Ravi', 'Master'), ('Tailor Sunita', 'Tailor'),
-                           ('QC Anand', 'QC Master')):
+                           ('QC Anand', 'QC Staff')):
             email = f'{role.split()[0].lower()}-{tag}@smoke.test'
             resp = owner.post('/api/tailors/', {
                 'name': name, 'role': role, 'specialty': 'Bridal',
@@ -320,12 +320,12 @@ class Command(BaseCommand):
                     StockMovement.objects.filter(
                         movement_type__in=['RESERVATION', 'CONSUMPTION']).exists())
 
-        if 'QC Master' in staff and staff['QC Master']['pw']:
-            qc = login(staff['QC Master']['email'], staff['QC Master']['pw'])
-            if j.check('QC Master can log in', qc is not None):
+        if 'QC Staff' in staff and staff['QC Staff']['pw']:
+            qc = login(staff['QC Staff']['email'], staff['QC Staff']['pw'])
+            if j.check('QC Staff can log in', qc is not None):
                 rows = qc.get('/api/orders/').data
                 rows = rows['results'] if isinstance(rows, dict) else rows
-                j.check('QC Master discovers the order unassigned',
+                j.check('QC Staff discovers the order unassigned',
                         any(o['order_id'] == order_id for o in rows),
                         f'{len(rows)} visible')
                 with schema_context(schema):
@@ -333,7 +333,7 @@ class Command(BaseCommand):
                     stage = Order.objects.get(pk=order_pk).stages.get(
                         stage_key='master_quality_check')
                     j.check('nobody assigned the QC stage', stage.assigned_to_id is None)
-                j.check('QC Master completes the inspection',
+                j.check('QC Staff completes the inspection',
                         step(qc, 'master_quality_check').status_code == 200)
 
         for key in keys[keys.index('master_quality_check') + 1:]:

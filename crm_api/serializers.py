@@ -3,6 +3,8 @@ import hashlib
 
 from rest_framework import serializers
 
+from core.validators import validate_mobile
+
 from apps.design_studio.models import DesignAsset
 from .models import (
     Customer, CustomerMessage, GarmentImage, Measurement, DesignPreference,
@@ -16,7 +18,12 @@ class BoutiqueSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BoutiqueSettings
-        fields = '__all__'
+        # Every signed-in role reads this endpoint -- /api/boutique-settings/ is
+        # ALWAYS_ON, so the middleware never gates it. role_modules is the
+        # owner's map of who may see what, and `fields = '__all__'` would have
+        # handed it to the roles it restricts the moment the field landed. It
+        # has its own Owner-only route instead.
+        exclude = ['role_modules']
 
     def get_timezone(self, obj):
         from django.db import connection
@@ -25,20 +32,134 @@ class BoutiqueSettingsSerializer(serializers.ModelSerializer):
         return (getattr(getattr(connection, 'tenant', None), 'timezone', '')
                 or DEFAULT_TIMEZONE)
 
+
+def clean_role_modules(payload):
+    """Validate an owner's {role: {module_key: bool}} patch, or raise.
+
+    A plain function rather than a Serializer because there is no model field
+    per role to declare -- the shape is a free-form map whose keys are the role
+    list and the module registry, both of which live in core.modules.
+
+    REJECTS instead of dropping. A typo'd role or module key stored quietly is
+    a permission that never applies to anybody: no error, no 403, nothing in a
+    log, and nothing to grep for when the owner reports that switching a module
+    off did not switch it off. Naming the bad key in the 400 costs one line
+    here and saves the afternoon.
+    """
+    from core.modules import ALL_ROLES, MODULES
+    from core.roles import OWNER
+
+    if not isinstance(payload, dict):
+        raise serializers.ValidationError(
+            {'role_modules': 'Expected {"<role>": {"<module_key>": true|false}}.'})
+
+    if OWNER in payload:
+        raise serializers.ValidationError({'role_modules': (
+            f"{OWNER} access is not stored here. An owner who could switch off "
+            f"their own modules would have no screen left to switch them back "
+            f"on. Owners see every module the boutique is entitled to.")})
+
+    unknown_roles = sorted(r for r in payload if r not in ALL_ROLES)
+    if unknown_roles:
+        raise serializers.ValidationError(
+            {'role_modules': f"Unknown role(s): {', '.join(unknown_roles)}."})
+
+    unknown_modules, not_a_switch = set(), set()
+    for role, modules in payload.items():
+        if not isinstance(modules, dict):
+            raise serializers.ValidationError(
+                {'role_modules': f"{role} must map module keys to true or false."})
+        for key, value in modules.items():
+            if key not in MODULES:
+                unknown_modules.add(key)
+            elif not isinstance(value, bool):
+                not_a_switch.add(key)
+
+    if unknown_modules:
+        raise serializers.ValidationError(
+            {'role_modules': f"Unknown module(s): {', '.join(sorted(unknown_modules))}."})
+    if not_a_switch:
+        raise serializers.ValidationError({'role_modules': (
+            f"Module switches are true or false: "
+            f"{', '.join(sorted(not_a_switch))}.")})
+
+    return {role: dict(modules) for role, modules in payload.items()}
+
+
 class TailorSerializer(serializers.ModelSerializer):
+    #: The mobile number, which lives on StaffProfile rather than here.
+    #:
+    #: Onboarding asks for it on the same form as the name and the role, so it
+    #: has to be writable through this serializer -- but the column stays in
+    #: apps.staff, where the roster's sensitive fields already live, instead of
+    #: becoming another `__all__` column readable by the whole floor. Read is
+    #: therefore narrowed in to_representation the way `email` already is.
+    phone = serializers.CharField(required=False, allow_blank=True,
+                                  max_length=20)
+
+    #: Free text, not the model's ChoiceField. The fixed roles above are the
+    #: common ones the UI offers, but an owner can type a custom role for a
+    #: worker the list does not name -- a janitor, a cleaner, a helper. An
+    #: unknown role resolves to the least-privileged floor defaults
+    #: (core.modules.role_allows falls back to _TAILOR), so a custom role can
+    #: never grant more than a tailor by accident.
+    role = serializers.CharField(max_length=50, required=False)
+
     class Meta:
         model = Tailor
         fields = '__all__'
         read_only_fields = ['user']
 
+    def validate_phone(self, value):
+        return validate_mobile(value)
+
+    def _write_phone(self, tailor, phone):
+        """Put the number on the employment record, creating one if needed.
+
+        get_or_create rather than a plain update: a person added through the
+        merged staff screen has no StaffProfile yet, and the number typed on the
+        onboarding form must not be dropped on the floor because the row it
+        belongs on does not exist.
+        """
+        from apps.staff.models import StaffProfile
+        profile, _ = StaffProfile.objects.get_or_create(staff=tailor)
+        if profile.phone != phone:
+            profile.phone = phone
+            profile.save(update_fields=['phone', 'updated_at'])
+
+    def create(self, validated_data):
+        phone = validated_data.pop('phone', None)
+        tailor = super().create(validated_data)
+        if phone is not None:
+            self._write_phone(tailor, phone)
+        return tailor
+
+    def update(self, instance, validated_data):
+        phone = validated_data.pop('phone', None)
+        tailor = super().update(instance, validated_data)
+        if phone is not None:
+            self._write_phone(tailor, phone)
+        return tailor
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get('request')
+
+        profile = getattr(instance, 'staff_profile', None)
+        data['phone'] = profile.phone if profile else ''
+
         if request is not None:
+            from core.permissions import SUPERVISOR_ROLES
             from core.roles import OWNER, resolve_user_role
-            if resolve_user_role(request.user) != OWNER:
+            role = resolve_user_role(request.user)
+            if role != OWNER:
                 data.pop('email', None)
                 data.pop('user', None)
+                # A Master has to be able to reach their team -- the same
+                # reasoning apps.staff.serializers gives for keeping `phone`
+                # out of CONFIDENTIAL_FIELDS. Everyone else gets no number.
+                if role not in SUPERVISOR_ROLES:
+                    data.pop('phone', None)
 
         bootstrap = getattr(instance, '_bootstrap_password', None)
         if bootstrap:

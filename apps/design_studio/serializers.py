@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from core.validators import validate_mobile
 
 from .models import (
     Collection, Designer, DesignApproval, DesignAsset, DesignAssignment, DesignBoard,
@@ -13,11 +14,14 @@ class DesignerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Designer
         fields = [
-            'id', 'name', 'employee_id', 'email', 'profile_image', 'specialisation',
+            'id', 'name', 'employee_id', 'email', 'phone', 'profile_image', 'specialisation',
             'experience_years', 'bio', 'is_active', 'joined_at', 'last_active_at',
             'staff', 'design_count', 'has_login', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+    def validate_phone(self, value):
+        return validate_mobile(value)
 
     def get_has_login(self, designer):
         return designer.user_id is not None

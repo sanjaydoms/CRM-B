@@ -23,6 +23,17 @@ SUPERADMIN_PREFIX = '/api/superadmin/'
 
 PUBLIC_ONLY_PREFIXES = (SUPERADMIN_PREFIX, '/admin/')
 
+#: Endpoints under /api/ that are legitimately reachable without a boutique.
+#: Everything else there is refused with "tenant context required", because
+#: serving it from the public schema is how a request meant for one boutique
+#: reads the registry instead.
+#:
+#: `/api/auth/` is the front door -- you cannot name your boutique before you
+#: have signed in to it. `/api/client-errors/` is the browser saying it crashed,
+#: which is most likely to happen on the login screen, before any tenant is
+#: known. Both are additions to this list, not exceptions to the rule.
+TENANT_OPTIONAL_PREFIXES = ('/api/auth/', '/api/client-errors/')
+
 
 def _get_tenant_by_schema(tenant_model, schema_name):
     hit = _tenant_cache.get(schema_name)
@@ -93,12 +104,34 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
     UNAVAILABLE = {"error": "This boutique is temporarily unavailable. "
                             "Please contact support."}
 
+    def _refuse(self, request, payload, status, *, reason, boutique=''):
+        """
+        Refuse a request and leave a trace of it.
+
+        Every refusal below is a platform control doing its job -- suspension, a
+        switched-off module, maintenance, a boutique whose schema is gone. Until
+        this existed none of them were recorded anywhere, so the Super Admin
+        console could switch a module off and have no way to see it bite, and a
+        boutique locked out by its own suspension looked identical to a boutique
+        that had simply stopped using the product.
+
+        Routed through one helper rather than eight call sites so the response
+        and the record cannot drift apart: you cannot add a refusal here and
+        forget to file it.
+        """
+        from core.exceptions import record_refusal
+        record_refusal(request, reason=reason,
+                       message=payload.get('error', ''),
+                       status_code=status, boutique=boutique)
+        return JsonResponse(payload, status=status)
+
     def process_exception(self, request, exception):
         from superadmin.schemas import MissingSchema
         if isinstance(exception, MissingSchema):
             logger.error('%s', exception)
             connection.set_schema_to_public()
-            return JsonResponse(self.UNAVAILABLE, status=503)
+            return self._refuse(request, self.UNAVAILABLE, 503,
+                                reason='MissingSchema')
         return None
 
     def process_request(self, request):
@@ -108,12 +141,12 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
 
         maintenance = _maintenance_mode()
         if maintenance and not any(request.path.startswith(p) for p in ALWAYS_ON):
-            return JsonResponse(
+            return self._refuse(
+                request,
                 {"error": maintenance.get('message')
                           or "The platform is down for maintenance. Please try again shortly.",
                  "maintenance": True},
-                status=503,
-            )
+                503, reason='MaintenanceMode')
 
         tenant_schema = request.headers.get("X-Tenant-ID")
 
@@ -124,9 +157,9 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
         if tenant_schema and tenant_schema != 'public':
             tenant = _get_tenant_by_schema(tenant_model, tenant_schema)
             if tenant is None:
-                return JsonResponse(
-                    {"error": f"Unknown tenant '{tenant_schema}'."}, status=400
-                )
+                return self._refuse(
+                    request, {"error": f"Unknown tenant '{tenant_schema}'."}, 400,
+                    reason='UnknownTenant')
 
         if not tenant:
             auth_header = request.headers.get("Authorization")
@@ -156,32 +189,40 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
                 control = _control_state(tenant_model, tenant)
             except TenantGone:
                 _tenant_cache.pop(tenant.schema_name, None)
-                return JsonResponse(
-                    {"error": f"Unknown tenant '{tenant.schema_name}'."}, status=400)
+                return self._refuse(
+                    request, {"error": f"Unknown tenant '{tenant.schema_name}'."}, 400,
+                    reason='TenantGone', boutique=tenant.schema_name)
 
             if not _schema_exists(tenant.schema_name):
                 logger.error(
                     'Tenant %r has a registry row but no database schema. '
                     'Refusing the request rather than resolving it against the '
                     'public schema.', tenant.schema_name)
-                return JsonResponse(self.UNAVAILABLE, status=503)
+                return self._refuse(request, self.UNAVAILABLE, 503,
+                                    reason='MissingSchema',
+                                    boutique=tenant.schema_name)
 
         if not control['is_active']:
-            return JsonResponse(
+            return self._refuse(
+                request,
                 {"error": "This boutique's access has been suspended. "
                           "Please contact support."},
-                status=403,
-            )
+                403, reason='BoutiqueSuspended',
+                boutique=getattr(tenant, 'schema_name', ''))
 
         if tenant is not None:
             module = module_for_path(request.path)
             if module is not None and not is_enabled(control['enabled_modules'], module):
-                return JsonResponse(
+                # The module goes in the reason, not just the message, so the
+                # console shows one row per switched-off module rather than one
+                # row for "a module was off" that keeps rewriting itself.
+                return self._refuse(
+                    request,
                     {"error": f"The {MODULES[module][0]} module is switched off for "
                               f"this boutique. Contact platform support to enable it.",
                      "module": module},
-                    status=403,
-                )
+                    403, reason=f'ModuleDisabled:{module}',
+                    boutique=getattr(tenant, 'schema_name', ''))
 
         if tenant and tenant.schema_name != public_schema_name:
             tenant.domain_url = request.get_host()
@@ -192,10 +233,12 @@ class TenantHeaderMiddleware(TenantMainMiddleware):
         else:
             connection.set_schema_to_public()
             timezone.deactivate()
-            if request.path.startswith('/api/') and not request.path.startswith(PUBLIC_ONLY_PREFIXES) and not request.path.startswith('/api/auth/'):
-                return JsonResponse(
+            if (request.path.startswith('/api/')
+                    and not request.path.startswith(PUBLIC_ONLY_PREFIXES)
+                    and not request.path.startswith(TENANT_OPTIONAL_PREFIXES)):
+                return self._refuse(
+                    request,
                     {"error": "Boutique tenant context required for this endpoint. If you are a Superadmin, please use the Superadmin Console at /superadmin.html."},
-                    status=400,
-                )
+                    400, reason='TenantContextRequired')
 
 

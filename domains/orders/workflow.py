@@ -185,9 +185,9 @@ def check_transition(order, stage, new_status, *, config, role, owner_role):
 #: happened, and that is a supervisor's signature.
 REOPEN_ROLES = frozenset({'Master'})
 
-#: Who may fail a quality check. The QC Master is the person actually holding
+#: Who may fail a quality check. The QC Staff is the person actually holding
 #: the garment at that bench, so they can fail it without fetching a Master.
-QC_FAIL_ROLES = frozenset({'Master', 'QC Master'})
+QC_FAIL_ROLES = frozenset({'Master', 'QC Staff'})
 
 
 def check_reopen(order, stage, *, config, role, owner_role):

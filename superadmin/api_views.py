@@ -335,14 +335,38 @@ class HealthView(ConsoleView):
 
 
 class ErrorsView(ConsoleView):
+    """
+    The feed behind the Error Center.
+
+    **Defaults to crashes and nothing else.** ErrorEvent now holds five kinds --
+    crashes, handled exceptions, refusals by a platform control, deliberate 4xx
+    and frontend crashes -- and the last two are high-volume by nature. A feed
+    that mixed them would bury the rows that mean somebody's request died under
+    rows that mean validation worked. So the kind is chosen here rather than
+    left to the caller: `?kind=` selects one, `?kind=all` lifts the filter, and
+    an unfiltered request gets the feed this screen has always shown.
+    """
+
+    #: `all` is not a kind, it is the absence of the filter.
+    KINDS = {k for k, _ in ErrorEvent.KINDS}
+    DEFAULT_KIND = 'crash'
 
     def get(self, request):
         params = request.query_params
         page = _int(params.get('page'), 1)
         page_size = _int(params.get('page_size'), 50, high=200)
 
+        requested = params.get('kind') or self.DEFAULT_KIND
+        if requested != 'all' and requested not in self.KINDS:
+            return Response(
+                {'error': f"Unknown kind '{requested}'. "
+                          f"Expected one of {sorted(self.KINDS)} or 'all'."},
+                status=status.HTTP_400_BAD_REQUEST)
+
         with public_scope():
             queryset = ErrorEvent.objects.all()
+            if requested != 'all':
+                queryset = queryset.filter(kind=requested)
             if params.get('status'):
                 queryset = queryset.filter(status=params['status'])
             if params.get('severity'):
@@ -359,6 +383,7 @@ class ErrorsView(ConsoleView):
             start = (page - 1) * page_size
             rows = [{
                 'id': e.id, 'fingerprint': e.fingerprint,
+                'kind': e.kind, 'source': e.source,
                 'exception_type': e.exception_type, 'message': e.message,
                 'traceback': e.traceback, 'path': e.path, 'method': e.method,
                 'status_code': e.status_code, 'boutique': e.boutique,
@@ -368,16 +393,32 @@ class ErrorsView(ConsoleView):
                 'notes': e.notes, 'resolved_by': e.resolved_by, 'resolved_at': e.resolved_at,
             } for e in queryset[start:start + page_size]]
 
-            summary = {
-                'unresolved': ErrorEvent.objects.exclude(
-                    status__in=('resolved', 'ignored')).count(),
-                'critical': ErrorEvent.objects.filter(
-                    severity='critical').exclude(status__in=('resolved', 'ignored')).count(),
-            }
+            summary = _error_summary()
 
         return Response({'errors': rows, 'count': total, 'page': page,
-                         'page_size': page_size,
+                         'page_size': page_size, 'kind': requested,
                          'pages': max(1, -(-total // page_size)), 'summary': summary})
+
+
+def _error_summary():
+    """
+    The counts every error surface shows, computed once so the feed and the
+    badge cannot disagree.
+
+    `unresolved` and `critical` stay scoped to crashes. They are what the
+    navigation badge renders, and a badge that counted refusals would sit at
+    several hundred permanently the moment a module is switched off -- which is
+    the state it most needs to stay legible in. The per-kind counts are additive:
+    nothing that read this payload before sees a number change meaning.
+    """
+    open_errors = ErrorEvent.objects.exclude(status__in=('resolved', 'ignored'))
+    crashes = open_errors.filter(kind='crash')
+    return {
+        'unresolved': crashes.count(),
+        'critical': crashes.filter(severity='critical').count(),
+        'by_kind': {kind: open_errors.filter(kind=kind).count()
+                    for kind, _ in ErrorEvent.KINDS},
+    }
 
 
 class ErrorSummaryView(ConsoleView):
@@ -385,11 +426,7 @@ class ErrorSummaryView(ConsoleView):
 
     def get(self, request):
         with public_scope():
-            open_errors = ErrorEvent.objects.exclude(status__in=('resolved', 'ignored'))
-            return Response({
-                'unresolved': open_errors.count(),
-                'critical': open_errors.filter(severity='critical').count(),
-            })
+            return Response(_error_summary())
 
 
 class ErrorDetailView(ConsoleView):

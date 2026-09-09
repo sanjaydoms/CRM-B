@@ -107,16 +107,27 @@ def _supabase_storage():
         'bypassed entirely.')
 
 
+#: The kinds that mean something went wrong, as opposed to something was
+#: refused. A suspended boutique generating refusals all day is the platform
+#: working; counting those here would put a permanent number next to the word
+#: "unresolved" and teach whoever reads this probe to ignore it.
+FAULT_KINDS = ('crash', 'handled', 'frontend')
+
+
 def _errors():
     from .models import ErrorEvent
 
-    counts = ErrorEvent.objects.exclude(status__in=('resolved', 'ignored')).aggregate(
+    open_events = ErrorEvent.objects.exclude(status__in=('resolved', 'ignored'))
+    counts = open_events.filter(kind__in=FAULT_KINDS).aggregate(
         total=Count('id'), critical=Count('id', filter=Q(severity='critical')))
+    refusals = open_events.filter(kind='refusal').count()
+    aside = f' {refusals} platform refusal(s) recorded separately.' if refusals else ''
+
     if counts['critical']:
         return 'critical', (f'{counts["critical"]} unresolved critical error(s), '
-                            f'{counts["total"]} unresolved in total.')
+                            f'{counts["total"]} unresolved in total.{aside}')
     return 'healthy', (f'No unresolved critical errors. {counts["total"]} '
-                       f'unresolved at lower severities.')
+                       f'unresolved at lower severities.{aside}')
 
 
 def _whatsapp():

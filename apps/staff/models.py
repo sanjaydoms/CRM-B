@@ -36,7 +36,7 @@ from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 from django.db import models
 
-from crm_api.models import Tailor
+from crm_api.models import IMAGE_PATH_MAX_LENGTH, Tailor, _unguessable_path
 
 
 class StaffProfile(models.Model):
@@ -490,3 +490,170 @@ class StaffPerformanceReview(models.Model):
             return None
         return (Decimal(sum(given)) / Decimal(len(given))).quantize(
             Decimal('0.1'), rounding=ROUND_HALF_UP)
+
+
+def staff_document_storage():
+    """Raw storage when Cloudinary is in use, because these are not all images.
+
+    STORAGES['default'] becomes MediaCloudinaryStorage when CLOUDINARY_URL is
+    set, and that endpoint refuses anything it cannot decode as an image -- so
+    a signed contract, which arrives as a PDF, could never be uploaded at all.
+    Raw storage takes the bytes as they come. Read off the same setting that
+    decides the default rather than the environment variable, so a checkout
+    with no credentials and every test run (where the setting deliberately
+    stays local) fall through to the disk exactly as the rest of the project
+    does.
+    """
+    from django.conf import settings
+    if 'cloudinary' in settings.STORAGES['default']['BACKEND']:
+        from cloudinary_storage.storage import RawMediaCloudinaryStorage
+        return RawMediaCloudinaryStorage()
+    from django.core.files.storage import default_storage
+    return default_storage
+
+
+class DayMark(models.Model):
+    """A non-present status the owner records for one person on one day.
+
+    Attendance itself is never stored here -- a present day is an
+    AttendanceSession, and the muster reads presence from those. This model
+    only carries the days that are deliberately NOT worked: leave and the
+    weekly off. Everything with neither a session nor a mark, up to today, is
+    absence, which is an absence of rows rather than a row of its own.
+
+    Display only, by explicit product decision: a mark changes the muster roll
+    and nothing else. Payroll still pays actual attended hours, so a LEAVE day
+    contributes no pay unless a later phase decides paid leave is a feature.
+    """
+
+    class Kind(models.TextChoices):
+        LEAVE = 'LEAVE', 'Leave'
+        WEEKLY_OFF = 'WEEKLY_OFF', 'Weekly off'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    staff = models.ForeignKey(
+        Tailor, on_delete=models.CASCADE, related_name='day_marks')
+    date = models.DateField(db_index=True)
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    note = models.TextField(blank=True, default='')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='day_marks_created')
+
+    class Meta:
+        ordering = ['-date']
+        constraints = [
+            # One mark per person per day. A day is leave OR a weekly off, never
+            # both, and marking it again just changes which -- upsert, not a
+            # second row.
+            models.UniqueConstraint(fields=['staff', 'date'],
+                                    name='staff_daymark_one_per_day'),
+        ]
+
+    def __str__(self):
+        return f"{self.staff_id} {self.date} {self.kind}"
+
+
+def upload_to_staff_documents(instance, filename):
+    """A random directory per file, exactly like every other upload here.
+
+    The path is unguessable on purpose: these are identity documents, and a
+    predictable URL under /media/ is readable by anyone who can guess it,
+    whatever the API says about permissions.
+    """
+    return _unguessable_path('staff_documents', filename)
+
+
+class StaffDocument(models.Model):
+    """An identity or employment document held for someone on the roster.
+
+    Lives in this app rather than on Tailor for the reason the module docstring
+    gives about pay: TailorSerializer is `fields = '__all__'` and the roster is
+    readable by every signed-in staff member, so an `aadhaar_number` column on
+    Tailor would be readable by the whole floor from the day it was added. A
+    government identifier is at least as sensitive as an hourly rate, so it gets
+    the same treatment -- its own table, its own owner-scoped serializer and
+    queryset.
+
+    The number is stored in full at the boutique owner's instruction. It is
+    therefore Owner-only on read, never written to a log, and never included in
+    the roster payload. If that policy is ever revisited, `number` is the one
+    column to change and this is the only model that holds it.
+    """
+
+    class Kind(models.TextChoices):
+        AADHAAR = 'AADHAAR', 'Aadhaar'
+        PAN = 'PAN', 'PAN card'
+        DRIVING_LICENCE = 'DRIVING_LICENCE', 'Driving licence'
+        VOTER_ID = 'VOTER_ID', 'Voter ID'
+        BANK_PASSBOOK = 'BANK_PASSBOOK', 'Bank passbook'
+        CONTRACT = 'CONTRACT', 'Signed contract'
+        CERTIFICATE = 'CERTIFICATE', 'Certificate'
+        OTHER = 'OTHER', 'Other'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    #: CASCADE, unlike AttendanceSession's SET_NULL. An attendance row is a
+    #: financial record that has to outlive the person's roster entry; a copy of
+    #: somebody's Aadhaar is the opposite -- once they are off the roster there
+    #: is no reason to still be holding it.
+    #: Exactly one of these is set -- see the constraint below. A designer is
+    #: not a Tailor (design_studio.Designer is its own table, and a design-only
+    #: designer has no roster row at all), so a document held for one cannot
+    #: hang off `staff`. Both are nullable and the database enforces the choice
+    #: rather than trusting every caller to make it.
+    staff = models.ForeignKey(
+        Tailor, on_delete=models.CASCADE, related_name='documents',
+        null=True, blank=True)
+    designer = models.ForeignKey(
+        'design_studio.Designer', on_delete=models.CASCADE,
+        related_name='documents', null=True, blank=True)
+
+    kind = models.CharField(max_length=20, choices=Kind.choices,
+                            default=Kind.OTHER)
+
+    #: Blank is normal: a signed contract or a certificate has no number.
+    number = models.CharField(max_length=64, blank=True, default='')
+
+    #: What the owner would call it -- "Aadhaar (front)", "2026 contract".
+    label = models.CharField(max_length=120, blank=True, default='')
+
+    file = models.FileField(upload_to=upload_to_staff_documents,
+                            storage=staff_document_storage,
+                            max_length=IMAGE_PATH_MAX_LENGTH)
+
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='uploaded_staff_documents')
+
+    class Meta:
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['staff', 'kind']),
+            models.Index(fields=['designer', 'kind']),
+        ]
+        constraints = [
+            # A row belonging to nobody is unreachable by either scoping branch
+            # in the viewset, which means an Aadhaar copy nobody can see and
+            # nobody can delete. A row belonging to both would be reachable by
+            # two different people's queries. Neither is allowed to exist.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(staff__isnull=False, designer__isnull=True)
+                    | models.Q(staff__isnull=True, designer__isnull=False)
+                ),
+                name='staff_document_belongs_to_exactly_one',
+            ),
+        ]
+
+    @property
+    def holder(self):
+        """The person this is held for, whichever table they are in."""
+        return self.staff or self.designer
+
+    def __str__(self):
+        holder = self.holder
+        return f"{holder.name if holder else 'unassigned'} - {self.get_kind_display()}"

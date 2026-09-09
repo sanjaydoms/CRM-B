@@ -56,8 +56,8 @@ def do_everything_except_design_studio(schema_name, owner_email):
 
         User.objects.create_user(username='cutter@onb.test', email='cutter@onb.test',
                                  password='staff-pass-12345')
-        Tailor.objects.create(name='Devi K', specialty='Cutting',
-                              role='Cutting Master')
+        Tailor.objects.create(name='Devi K', specialty='Handwork',
+                              role='Karigar')
 
         customer = Customer.objects.create(first_name='Nita', last_name='R',
                                            mobile_number='9000000031')

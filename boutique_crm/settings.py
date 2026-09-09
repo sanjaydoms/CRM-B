@@ -58,6 +58,10 @@ SHARED_APPS = [
     'django_tenants',  # mandatory
     'tenants',
     'superadmin',
+    # Owns no models, so it adds no migration to either schema set. Installed
+    # only so CoreConfig.ready() imports core.checks -- the module registry's
+    # guards have to be registered to fail a deploy.
+    'core',
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -89,12 +93,18 @@ TENANT_APPS = [
     'apps.catalog',
     'apps.staff',
     'apps.payroll',
+    'apps.finance',
 ]
 
 INSTALLED_APPS = list(set(SHARED_APPS + TENANT_APPS))
 
 MIDDLEWARE = [
     'core.exceptions.capture_middleware',
+    # Outermost real middleware, so it sees the final status of every request --
+    # including the ones TenantHeaderMiddleware refuses before a view is
+    # reached. Those file themselves with a reason, and set a marker this reads,
+    # so a refusal is recorded once as a refusal rather than twice.
+    'core.exceptions.ClientErrorMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'tenants.middleware.TenantHeaderMiddleware',  # header tenant switcher
     'django.middleware.security.SecurityMiddleware',
@@ -319,6 +329,10 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'password_reset': os.environ.get('PASSWORD_RESET_RATE', '5/hour'),
         'login': os.environ.get('LOGIN_RATE', '20/hour'),
+        # A public write endpoint, so it is rate limited. Generous enough that a
+        # component crashing in a render loop still gets its first reports
+        # through, low enough that it cannot be used to fill the table.
+        'client_error': os.environ.get('CLIENT_ERROR_RATE', '30/hour'),
     },
     'EXCEPTION_HANDLER': 'core.exceptions.platform_exception_handler',
 }
@@ -332,6 +346,13 @@ import logging  # noqa: E402  -- local to this section, like corsheaders above
 def _log_level(raw):
     level = (raw or '').strip().upper()
     return level if level in logging.getLevelNamesMapping() else 'WARNING'
+
+
+#: The one switch that turns off capture of handled exceptions. It writes a row
+#: per distinct swallowed failure, which is the point, but a capture path that
+#: cannot be switched off is a capture path that has to be deployed perfectly
+#: the first time. Set CAPTURE_HANDLED_ERRORS=0 to fall back to log-only.
+CAPTURE_HANDLED_ERRORS = os.environ.get('CAPTURE_HANDLED_ERRORS', '1') != '0'
 
 
 LOGGING = {
@@ -348,12 +369,31 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'plain',
         },
+        # Files every logger.exception() in the project as an ErrorEvent of
+        # kind='handled'. This is what makes a swallowed failure -- an order
+        # email that did not send, a metric that could not be read -- visible in
+        # the Super Admin console instead of only in the Render log stream.
+        #
+        # A handler rather than edits at the ~49 catch sites, so the ones written
+        # after today are captured without anyone remembering to. ERROR level, so
+        # a warning carrying exc_info is not filed as a product error.
+        'error_events': {
+            'class': 'core.exceptions.ErrorEventLogHandler',
+            'level': 'ERROR',
+        },
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': ['console'] + (
+            ['error_events'] if CAPTURE_HANDLED_ERRORS else []),
         'level': _log_level(os.environ.get('DJANGO_LOG_LEVEL')),
     },
     'loggers': {
+        # Left on the console handler alone, and deliberately not given
+        # 'error_events': this logger carries exactly the unhandled 500s that
+        # got_request_exception has already filed as kind='crash'. Capturing it
+        # here too would file every crash twice -- once with its traceback, once
+        # without. core.exceptions._LOGGERS_ALREADY_CAPTURED enforces the same
+        # rule for anything that reaches the handler by another route.
         'django.request': {
             'handlers': ['console'],
             'level': 'ERROR',

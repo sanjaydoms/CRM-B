@@ -21,10 +21,129 @@ from django.db import connection, transaction
 from tenants.models import BoutiqueTenant, Domain
 from tenants.provision import provision_tenant
 from django_tenants.utils import schema_context
+from core.modules import MODULE_GROUP, effective_modules
 from core.roles import OWNER, resolve_user_role
 from apps.email_service.services import EmailService
 
 logger = logging.getLogger(__name__)
+
+
+def _role_modules():
+    """BoutiqueSettings.role_modules, or {} when there is nothing to read.
+
+    ponytail: this is ONE extra query per /auth/me/, not zero. BoutiqueSettings
+    is a single row in the tenant schema and nothing else on the auth path
+    already fetches it, so there is no ride to hitch on. It is deliberately not
+    cached either: the map changes the moment an owner revokes a role's access,
+    and a cache would leave the revoked module in that role's navigation until
+    it expired. If /auth/me/ ever becomes hot, cache it per (schema, row
+    version) and bust it in the BoutiqueSettings write path -- not on a TTL.
+
+    Returns {} rather than raising on anything: login is the one endpoint that
+    must never 500, and an unreadable role map means "no explicit decisions",
+    which ROLE_DEFAULTS already answers for.
+    """
+    if connection.schema_name == 'public':
+        return {}
+    try:
+        from crm_api.models import BoutiqueSettings
+        # id=1, spelled exactly as core.permissions._role_modules spells it --
+        # the gate that actually refuses the request -- and as
+        # BoutiqueSettingsViewSet get_or_creates it. This was .first(), which
+        # Django orders by pk, and nothing guarantees the lowest pk IS row 1:
+        # BoutiqueSettings has no unique constraint and no singleton save(), so
+        # a second row can exist (a fixture, a restored dump, a psql session, a
+        # future viewset that POSTs without an id). With id=1 missing and a
+        # stray row present, this payload described one map while the
+        # permission class enforced another: the navigation offered a module
+        # every request for it then 403'd.
+        stored = BoutiqueSettings.objects.values_list(
+            'role_modules', flat=True).filter(id=1).first()
+    except Exception:
+        logger.exception('role_modules unreadable in schema %s',
+                         connection.schema_name)
+        return {}
+    # isinstance, not `or {}`: the column is JSON written by an API and can hold
+    # a list or a string. The gate heals a malformed value to "no explicit
+    # decisions" (core.permissions, core.modules.role_allows); healing it the
+    # same way here keeps the two agreeing on a corrupt column too. An absent
+    # row lands here as None for the same reason.
+    return stored if isinstance(stored, dict) else {}
+
+
+def user_payload(user, role=None):
+    """The ONE user object /auth/login/, /auth/me/ and /auth/signup/ return.
+
+    Written once because it used to be written three times. Login and
+    /auth/me/ disagreeing about the same account is a bug this codebase has
+    already shipped (see the core/roles.py docstring), and it is worse now
+    that the frontend gates its navigation on "modules": a login reporting a
+    different set from /auth/me/ makes the nav change shape on first refresh.
+
+    `role` is passed in only where it is already a fact (signup creates the
+    owner); everywhere else it is resolved.
+    """
+    if role is None:
+        role = resolve_user_role(user)
+
+    tailor_id = designer_id = None
+    profile_photo = ''
+    if connection.schema_name != 'public':
+        # The profile tables only exist in a tenant schema. getattr covers the
+        # reverse one-to-one raising instead of returning None; the try covers
+        # the table being unreadable, which must not take login down with it.
+        try:
+            tailor = getattr(user, 'tailor_profile', None)
+            designer = getattr(user, 'designer_profile', None)
+            tailor_id = getattr(tailor, 'id', None)
+            designer_id = getattr(designer, 'id', None)
+            # The avatar the workspace shows for this login, in preference
+            # order: the user's own choice (UserAvatar, which the owner also
+            # uses), then a staff member's owner-assigned photo, then a
+            # designer's Design Studio image. The frontend resolves each the
+            # same way.
+            avatar = getattr(user, 'avatar', None)
+            if avatar is not None and avatar.image:
+                profile_photo = avatar.image.url
+            elif tailor is not None and tailor.profile_photo:
+                profile_photo = tailor.profile_photo.url
+            elif designer is not None and getattr(designer, 'profile_image', ''):
+                profile_photo = designer.profile_image
+        except Exception:
+            logger.exception('profile lookup failed for user %s', user.pk)
+
+    # ponytail: entitlement is read off the tenant object the middleware
+    # attached, which it caches for 300s -- so a module the platform switched
+    # off can linger in the navigation for that long. The gate itself reads a
+    # fresh row every request, so the stale case is a dead nav item that 403s,
+    # not access. Read the control row here too if that becomes a support call.
+    modules = effective_modules(
+        getattr(getattr(connection, 'tenant', None), 'enabled_modules', None),
+        _role_modules(),
+        role,
+    )
+
+    module_groups = {}
+    for key in modules:
+        # .get, not []: a module added to the registry without a group entry is
+        # a KeyError, and a KeyError here is a 500 on login.
+        group = MODULE_GROUP.get(key)
+        if group:
+            module_groups.setdefault(group, []).append(key)
+
+    return {
+        "id": user.id,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "username": user.username,
+        "role": role,
+        "tailor_id": tailor_id,
+        "designer_id": designer_id,
+        "profile_photo": profile_photo,
+        "modules": modules,
+        "module_groups": module_groups,
+    }
 
 
 def find_tenants_for_account(email_or_username):
@@ -162,16 +281,9 @@ class SignupView(views.APIView):
                 return Response({
                     "token": token.key,
                     "tenant_id": tenant.schema_name,
-                    "user": {
-                        "id": user.id,
-                        "first_name": user.first_name,
-                        "last_name": user.last_name,
-                        "email": user.email,
-                        "username": user.username,
-                        "role": OWNER,
-                        "tailor_id": None,
-                        "designer_id": None,
-                    }
+                    # This account IS the owner -- it is what signup just made
+                    # -- so the role is asserted rather than looked up.
+                    "user": user_payload(user, role=OWNER),
                 }, status=status.HTTP_201_CREATED)
         except Exception as e:
             logger.exception('%s failed', self.__class__.__name__)
@@ -228,24 +340,11 @@ class LoginView(views.APIView):
         connection.set_tenant(tenant)
 
         try:
-            role = resolve_user_role(user)
-            tailor_id = user.tailor_profile.id if getattr(user, 'tailor_profile', None) else None
-            designer_id = user.designer_profile.id if getattr(user, 'designer_profile', None) else None
-
             token, created = Token.objects.get_or_create(user=user)
             return Response({
                 "token": token.key,
                 "tenant_id": tenant.schema_name,
-                "user": {
-                    "id": user.id,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                    "username": user.username,
-                    "role": role,
-                    "tailor_id": tailor_id,
-                    "designer_id": designer_id
-                }
+                "user": user_payload(user),
             }, status=status.HTTP_200_OK)
         except Exception as e:
             logger.exception('%s failed', self.__class__.__name__)
@@ -270,33 +369,41 @@ class MeView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
-        role = resolve_user_role(user)
-        tailor_id = None
-        designer_id = None
-        if connection.schema_name != 'public':
-            try:
-                if getattr(user, 'tailor_profile', None):
-                    tailor_id = user.tailor_profile.id
-            except Exception:
-                pass
-            try:
-                if getattr(user, 'designer_profile', None):
-                    designer_id = user.designer_profile.id
-            except Exception:
-                pass
+        # Same user object as login, plus the schema the caller is in. The
+        # extra key is the ONLY difference the two responses may have.
+        return Response({**user_payload(request.user),
+                         "tenant_id": connection.schema_name},
+                        status=status.HTTP_200_OK)
 
-        return Response({
-            "id": user.id,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
-            "username": user.username,
-            "role": role,
-            "tailor_id": tailor_id,
-            "designer_id": designer_id,
-            "tenant_id": connection.schema_name
-        }, status=status.HTTP_200_OK)
+    def patch(self, request):
+        """Let a signed-in staff member set their own avatar.
+
+        Self-scoped by construction: it writes to request.user's own roster row
+        and nothing else, so it needs no role gate beyond being authenticated.
+        Returns the same user object get() does, so the caller can drop the
+        response straight back into its currentUser and the new face shows at
+        once.
+        """
+        photo = request.FILES.get('profile_photo')
+        if photo is None:
+            return Response({'error': 'No photo was sent.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not (photo.content_type or '').startswith('image/'):
+            return Response({'error': 'Your profile photo must be an image.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if photo.size > 5 * 1024 * 1024:
+            return Response({'error': 'That image is larger than 5MB.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        # Per-user store, so this works for the owner as well as staff and
+        # designers -- none of whom may have a Tailor row. user_payload reads
+        # this before the roster photo, so the user's own choice wins.
+        from crm_api.models import UserAvatar
+        avatar, _ = UserAvatar.objects.get_or_create(user=request.user)
+        avatar.image = photo
+        avatar.save()
+        return Response({**user_payload(request.user),
+                         "tenant_id": connection.schema_name},
+                        status=status.HTTP_200_OK)
 
 class _PasswordResetThrottle(AnonRateThrottle):
 

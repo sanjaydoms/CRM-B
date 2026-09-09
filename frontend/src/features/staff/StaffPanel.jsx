@@ -15,9 +15,10 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Plus, Clock, Wallet, TrendingUp, Users } from 'lucide-react';
+import { X, Plus, Clock, Wallet, TrendingUp, Users, FileText, Trash2 } from 'lucide-react';
 
 import { api } from '../../services/api';
+import { ASSIGNABLE_ROLES, DOCUMENT_KINDS } from '../../constants/roles';
 import Attendance from './Attendance';
 import Payroll from './Payroll';
 import Performance from './Performance';
@@ -52,6 +53,27 @@ const EMPLOYMENT_TYPES = [
 
 const employmentLabel = (value) =>
   (EMPLOYMENT_TYPES.find(([key]) => key === value) || [null, '—'])[1];
+
+/**
+ * A mobile number is ten national digits, whatever was typed or pasted.
+ *
+ * Mirrors national_mobile() in crm_api/models.py step for step -- drop
+ * everything that is not a digit, an international 00, the country code when
+ * more than ten digits remain, and leading zeros -- so what the field shows
+ * is what the server will store. Two rules that merely looked alike were not
+ * enough: "first ten digits" turned a pasted "+91 98765 43210" into
+ * 9198765432, a number that passes every check and reaches nobody.
+ *
+ * No maxLength on the input, on purpose. It counts characters, so it would
+ * cut that same paste to "+91 98765 " before this function ever saw it. The
+ * limit is here; the server (core.validators) is the one that decides.
+ */
+const tenDigits = (e) => {
+  let d = e.target.value.replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.length > 10 && d.startsWith('91')) d = d.slice(2);
+  return d.replace(/^0+/, '').slice(0, 10);
+};
 
 function Modal({ title, onClose, children, width = '560px' }) {
   return (
@@ -208,7 +230,8 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
         </div>
         <div style={field}>
           <label style={label} htmlFor="sp-phone">Phone</label>
-          <input id="sp-phone" value={form.phone} onChange={set('phone')} />
+          <input id="sp-phone" value={form.phone} inputMode="numeric"
+                 onChange={(e) => setForm((f) => ({ ...f, phone: tenDigits(e) }))} />
         </div>
 
         <div style={field}>
@@ -322,9 +345,428 @@ function AdvanceForm({ member, onCancel, onSaved }) {
   );
 }
 
+/**
+ * Onboarding: one form for the roster row, the login and the mobile number.
+ *
+ * This used to be two screens. Manage Tailors created the person and minted
+ * their login; Staff Management then set up their employment separately, and
+ * its own empty state told the owner to go to the other screen first. Adding
+ * somebody therefore meant knowing that the roster and the employment record
+ * were different things, which is an implementation detail of this codebase
+ * rather than a fact about hiring a tailor.
+ *
+ * POSTs to the roster endpoint, which is what mints the account: supply an
+ * email and the server generates a password and returns it exactly once, in
+ * `bootstrap_password`. It is shown here and never again -- there is no second
+ * copy to read, so the modal stays open on the credential until it is
+ * dismissed deliberately.
+ */
+function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
+  const editing = Boolean(member);
+  const [form, setForm] = useState({
+    name: member?.name || '',
+    phone: member?.phone || '',
+    email: member?.email || '',
+    specialty: member?.specialty || '',
+    role: member?.role || 'Tailor',
+    status: member?.status || 'Available',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [created, setCreated] = useState(null);
+  const [photo, setPhoto] = useState(null);
+  // A custom role the owner types (janitor, cleaner...). The select holds the
+  // sentinel '__custom__' while they type; the real value lives here.
+  const knownValues = ASSIGNABLE_ROLES.map((r) => r.value);
+  const memberRoleIsCustom = editing && form.role && !knownValues.includes(form.role);
+  const [customRole, setCustomRole] = useState(memberRoleIsCustom ? form.role : '');
+  const [roleChoice, setRoleChoice] = useState(memberRoleIsCustom ? '__custom__' : form.role);
+  // Custom roles already on the roster, offered for reuse.
+  const reusable = customRoles.filter((r) => !knownValues.includes(r));
+
+  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) { setError('A name is needed.'); return; }
+    if (roleChoice === '__custom__' && !customRole.trim()) {
+      setError('Type a name for the custom role.'); return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        // Specialty is a free-text note on the roster row and the model
+        // requires it, so the role stands in when it is left blank.
+        specialty: form.specialty.trim() || form.role,
+        role: form.role,
+        status: form.status,
+      };
+      let saved;
+      if (form.role === 'Designer') {
+        // A designer is not a roster row, so this goes to its own endpoint --
+        // and the login is a second call there rather than a side effect of
+        // creating the record, which is how design_studio already works.
+        const designerPayload = {
+          name: payload.name,
+          phone: payload.phone,
+          email: payload.email,
+          specialisation: form.specialty.trim(),
+        };
+        saved = editing
+          ? await api.updateDesigner(member.id, designerPayload)
+          : await api.createDesigner(designerPayload);
+        if (payload.email && !saved.has_login) {
+          saved = await api.createDesignerLogin(saved.id, payload.email);
+        }
+      } else {
+        // A photo makes this multipart; without one it stays plain JSON.
+        let body = payload;
+        if (photo) {
+          body = new FormData();
+          Object.entries(payload).forEach(([k, v]) => body.append(k, v));
+          body.append('profile_photo', photo);
+        }
+        saved = editing
+          ? await api.updateTailor(member.id, body)
+          : await api.createTailor(body);
+      }
+      onSaved();
+      // An edit can mint an account too -- giving an address to somebody who
+      // joined without one is how a person who never had a login gets one.
+      if (saved?.bootstrap_password) setCreated(saved);
+      else onCancel();
+    } catch (err) {
+      setError(err.message || 'Could not save this person.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (created) {
+    return (
+      <Modal title="Account created" onClose={onCancel}>
+        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+          {created.name} can sign in with the details below. This password is
+          shown once and is not stored anywhere it can be read again.
+        </p>
+        <div style={{ ...panel, padding: '14px 16px', marginTop: '12px' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Email</div>
+          <div style={{ fontWeight: 600, marginBottom: '10px' }}>{created.email}</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Password</div>
+          <div style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: '15px' }}>
+            {created.bootstrap_password}
+          </div>
+        </div>
+        {/* Carried over from the retired Manage Tailors screen. A password
+            shown once is only useful if it can be handed over in the same
+            breath -- the owner is standing next to the person. */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap',
+                      justifyContent: 'flex-end', marginTop: '16px' }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              const text = `Atelier Staff Login Credentials:\nPortal: ${window.location.origin}\nEmail: ${created.email}\nPassword: ${created.bootstrap_password}`;
+              navigator.clipboard?.writeText(text);
+            }}
+          >Copy</button>
+          <a
+            className="btn-secondary"
+            style={{ textDecoration: 'none' }}
+            target="_blank"
+            rel="noreferrer"
+            href={`https://wa.me/?text=${encodeURIComponent(
+              `Hello ${created.name},\nHere are your Atelier login credentials:\nPortal: ${window.location.origin}\nEmail: ${created.email}\nPassword: ${created.bootstrap_password}`
+            )}`}
+          >Share on WhatsApp</a>
+          <button type="button" className="btn-primary" onClick={onCancel}>Done</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title={editing ? `Edit ${member.name}` : 'Add staff'} onClose={onCancel}>
+      <form onSubmit={submit}>
+        {error && (
+          <div style={{
+            background: 'rgba(220,80,60,0.12)', border: '1px solid rgba(220,80,60,0.35)',
+            color: '#c0392b', borderRadius: '8px', padding: '10px 12px',
+            fontSize: '13px', marginBottom: '12px',
+          }}>{error}</div>
+        )}
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Name</span>
+          <input className="form-input" value={form.name} onChange={set('name')}
+                 placeholder="Full name" autoFocus />
+        </label>
+        {form.role !== 'Designer' && (
+          <label style={{ display: 'block', marginBottom: '10px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Profile photo</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
+              <div style={{ width: 48, height: 48, borderRadius: '50%', overflow: 'hidden',
+                            background: '#eee', flexShrink: 0 }}>
+                {(photo || member?.profile_photo) && (
+                  <img src={photo ? URL.createObjectURL(photo) : member.profile_photo}
+                       alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                )}
+              </div>
+              <input type="file" accept="image/*"
+                     onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Shows on their login. They can change it themselves from My Account.
+            </span>
+          </label>
+        )}
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Mobile number</span>
+          <input className="form-input" value={form.phone} inputMode="numeric"
+                 onChange={(e) => setForm({ ...form, phone: tenDigits(e) })}
+                 placeholder="10-digit mobile" />
+        </label>
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Role</span>
+          <select className="form-input" value={roleChoice} disabled={editing}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setRoleChoice(v);
+                    setForm({ ...form, role: v === '__custom__' ? customRole : v });
+                  }}>
+            {ASSIGNABLE_ROLES.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+            {reusable.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+            <option value="__custom__">Other (add a custom role)…</option>
+          </select>
+          {roleChoice === '__custom__' && (
+            <input className="form-input" style={{ marginTop: '8px' }} value={customRole}
+                   placeholder="e.g. Janitor, Cleaner, Helper"
+                   onChange={(e) => { setCustomRole(e.target.value); setForm({ ...form, role: e.target.value }); }} />
+          )}
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            {editing
+              ? 'A person cannot be moved between the production floor and the Design Studio -- they are different records.'
+              : roleChoice === '__custom__'
+                ? 'A custom role gets the same access as floor staff -- attendance and their own assignments.'
+                : ASSIGNABLE_ROLES.find((r) => r.value === roleChoice)?.hint}
+          </span>
+        </label>
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Email for their login
+          </span>
+          <input className="form-input" type="email" value={form.email} onChange={set('email')}
+                 placeholder="Leave blank for no login" />
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            Give an address and a password is generated and shown once.
+          </span>
+        </label>
+        <label style={{ display: 'block', marginBottom: '10px' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            {form.role === 'Designer' ? 'Specialisation (optional)' : 'Specialty (optional)'}
+          </span>
+          <input className="form-input" value={form.specialty} onChange={set('specialty')}
+                 placeholder="Bridal blouses, lehenga…" />
+        </label>
+        {editing && form.role !== 'Designer' && (
+          <label style={{ display: 'block', marginBottom: '10px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Status</span>
+            <select className="form-input" value={form.status} onChange={set('status')}>
+              <option value="Available">Available</option>
+              <option value="Busy">Busy</option>
+            </select>
+          </label>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+          <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? 'Saving…' : (editing ? 'Save changes' : 'Add staff')}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * Identity and employment documents for one person.
+ *
+ * Owner-only on the server for anyone else's row, so this is rendered behind
+ * the same check. The number is stored in full at the boutique's instruction;
+ * it is deliberately not shown in the roster card, only here, behind a
+ * deliberate click on one person.
+ */
+function DocumentsModal({ member, onClose }) {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [form, setForm] = useState({ kind: 'AADHAAR', number: '', label: '' });
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await api.getStaffDocuments(
+        member.isDesigner ? { designer: member.id } : { staff: member.id });
+      setDocs(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      setError(err.message || 'Could not load documents.');
+    } finally {
+      setLoading(false);
+    }
+  }, [member.id, member.isDesigner]);
+
+  useEffect(() => {
+    const t = setTimeout(refresh, 0);
+    return () => clearTimeout(t);
+  }, [refresh]);
+
+  const upload = async (e) => {
+    e.preventDefault();
+    if (!file) { setError('Choose a file to upload.'); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      // FormData rather than JSON: this request carries a file, and the
+      // staff helper posts it as multipart when it sees one.
+      const body = new FormData();
+      body.append(member.isDesigner ? 'designer' : 'staff', member.id);
+      body.append('kind', form.kind);
+      body.append('number', form.number.trim());
+      body.append('label', form.label.trim());
+      body.append('file', file);
+      await api.uploadStaffDocument(body);
+      setForm({ kind: 'AADHAAR', number: '', label: '' });
+      setFile(null);
+      e.target.reset();
+      await refresh();
+    } catch (err) {
+      setError(err.message || 'Could not upload that document.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (doc) => {
+    setError(null);
+    try {
+      await api.deleteStaffDocument(doc.id);
+      await refresh();
+    } catch (err) {
+      setError(err.message || 'Could not remove that document.');
+    }
+  };
+
+  return (
+    <Modal title={`Documents — ${member.name}`} onClose={onClose} width="620px">
+      {error && (
+        <div style={{
+          background: 'rgba(220,80,60,0.12)', border: '1px solid rgba(220,80,60,0.35)',
+          color: '#c0392b', borderRadius: '8px', padding: '10px 12px',
+          fontSize: '13px', marginBottom: '12px',
+        }}>{error}</div>
+      )}
+
+      {loading ? (
+        <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading…</div>
+      ) : docs.length === 0 ? (
+        <div style={{ ...panel, padding: '18px', textAlign: 'center',
+                      color: 'var(--text-secondary)', fontSize: '13px' }}>
+          No documents held for {member.name} yet.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {docs.map((doc) => (
+            <div key={doc.id} style={{
+              ...panel, padding: '10px 12px', display: 'flex',
+              alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: '13px' }}>
+                  {doc.kind_display}{doc.label ? ` · ${doc.label}` : ''}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  {doc.number || 'No number recorded'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {doc.file_url && (
+                  <a className="btn-secondary" href={doc.file_url}
+                     target="_blank" rel="noreferrer"
+                     style={{ textDecoration: 'none', fontSize: '12px' }}>View</a>
+                )}
+                <button type="button" className="btn-secondary" onClick={() => remove(doc)}
+                        style={{ color: '#b91c1c', borderColor: '#b91c1c' }}
+                        aria-label={`Remove ${doc.kind_display}`}>
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form onSubmit={upload} style={{
+        marginTop: '16px', paddingTop: '14px',
+        borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+      }}>
+        <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
+                      color: 'var(--text-muted)', marginBottom: '10px' }}>
+          Add a document
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <label>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Type</span>
+            <select className="form-input" value={form.kind}
+                    onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+              {DOCUMENT_KINDS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Number</span>
+            <input className="form-input" value={form.number}
+                   onChange={(e) => setForm({ ...form, number: e.target.value })}
+                   placeholder="Optional" />
+          </label>
+        </div>
+        <label style={{ display: 'block', marginTop: '10px' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Label</span>
+          <input className="form-input" value={form.label}
+                 onChange={(e) => setForm({ ...form, label: e.target.value })}
+                 placeholder="Aadhaar (front), 2026 contract…" />
+        </label>
+        <label style={{ display: 'block', marginTop: '10px' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            File (image or PDF, up to 10MB)
+          </span>
+          <input className="form-input" type="file" accept="image/*,application/pdf"
+                 onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        </label>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '14px' }}>
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? 'Uploading…' : <><Plus size={14} /> Upload</>}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function Roster({ isOwner, canSeeTeam }) {
   const [roster, setRoster] = useState([]);
+  const [designers, setDesigners] = useState([]);
   const [terms, setTerms] = useState([]);
+  const [attendanceToday, setAttendanceToday] = useState([]);
   // Owner only. The endpoint refuses everyone else, so this stays empty for a
   // Master and the deposit block simply does not render for them.
   const [deposits, setDeposits] = useState([]);
@@ -334,6 +776,9 @@ function Roster({ isOwner, canSeeTeam }) {
   const [loadError, setLoadError] = useState(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [person, setPerson] = useState(null);
+  const [documentsFor, setDocumentsFor] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -341,16 +786,26 @@ function Roster({ isOwner, canSeeTeam }) {
     try {
       // Independent failures: a staff member may read their own terms but not
       // the roster, so one refusal must not blank the whole screen.
-      const [people, profiles, deposited, advanced] = await Promise.all([
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const [people, designed, profiles, deposited, advanced, present] = await Promise.all([
         canSeeTeam ? api.getTailors().catch(() => []) : Promise.resolve([]),
+        // Designers are a separate table with a separate endpoint. They are on
+        // this screen because this is where a boutique adds a person, not
+        // because they became roster rows.
+        canSeeTeam ? api.getDesigners().catch(() => []) : Promise.resolve([]),
         api.getStaffProfiles().catch(() => []),
         isOwner ? api.getDeposits().catch(() => []) : Promise.resolve([]),
         isOwner ? api.getAdvances({ active: 'true' }).catch(() => []) : Promise.resolve([]),
+        // Today's attendance, for the "on the floor now" figure in the overview.
+        canSeeTeam ? api.getAttendance({ date: today }).catch(() => []) : Promise.resolve([]),
       ]);
       setRoster(Array.isArray(people) ? people : []);
+      setDesigners(Array.isArray(designed) ? designed : []);
       setTerms(Array.isArray(profiles) ? profiles : []);
       setDeposits(Array.isArray(deposited) ? deposited : []);
       setAdvances(Array.isArray(advanced) ? advanced : []);
+      setAttendanceToday(Array.isArray(present) ? present : []);
     } catch (err) {
       setLoadError(err.message || 'Could not load the staff list.');
     } finally {
@@ -390,7 +845,17 @@ function Roster({ isOwner, canSeeTeam }) {
   /** Owners see the roster; a staff member sees only the row their own terms name. */
   const rows = useMemo(() => {
     const source = canSeeTeam
-      ? roster.map((person) => ({ member: person, terms: termsByStaff.get(String(person.id)) }))
+      ? [
+          ...roster.map((person) => ({
+            member: person, terms: termsByStaff.get(String(person.id)),
+          })),
+          // Marked rather than duck-typed: several things below have to know
+          // which table this person came from, and `isDesigner` says it once.
+          ...designers.map((d) => ({
+            member: { ...d, role: 'Designer', isDesigner: true },
+            terms: undefined,
+          })),
+        ]
       : terms.map((t) => ({
           member: { id: t.staff, name: t.staff_name, role: t.staff_role },
           terms: t,
@@ -399,9 +864,46 @@ function Roster({ isOwner, canSeeTeam }) {
     if (!needle) return source;
     return source.filter(({ member }) =>
       `${member.name} ${member.role}`.toLowerCase().includes(needle));
-  }, [canSeeTeam, roster, terms, termsByStaff, search]);
+  }, [canSeeTeam, roster, designers, terms, termsByStaff, search]);
 
   const withTerms = rows.filter((r) => r.terms).length;
+
+  // How many of each role, for the summary at the top. Production staff are
+  // grouped by their Tailor role; designers are their own table, added on.
+  const roleCounts = useMemo(() => {
+    const counts = {};
+    roster.forEach((p) => { counts[p.role] = (counts[p.role] || 0) + 1; });
+    if (designers.length) counts.Designer = designers.length;
+    return counts;
+  }, [roster, designers]);
+
+  // Every role string already on the roster, so a custom one (janitor, cleaner)
+  // can be picked again instead of retyped.
+  const rosterRoles = useMemo(
+    () => [...new Set(roster.map((p) => p.role).filter(Boolean))],
+    [roster]);
+
+  // The owner's staff overview: headcount, who is available, who is on the
+  // floor today, and the mix of employment terms.
+  const analytics = useMemo(() => {
+    const total = roster.length + designers.length;
+    const busy = roster.filter((p) => (p.status || '').toLowerCase() === 'busy').length;
+    const available = roster.length - busy;
+    const presentIds = new Set(attendanceToday.map((s) => String(s.staff)));
+    const workingNow = new Set(
+      attendanceToday.filter((s) => s.is_open).map((s) => String(s.staff))).size;
+    const emp = {};
+    terms.forEach((t) => {
+      const k = t.employment_type || 'UNSET';
+      emp[k] = (emp[k] || 0) + 1;
+    });
+    return { total, available, busy, presentToday: presentIds.size, workingNow, emp };
+  }, [roster, designers, attendanceToday, terms]);
+
+  // "Master" -> "Masters", but roles ending in "Staff" stay as they are.
+  const plural = (role, n) =>
+    (n === 1 || /staff$/i.test(role)) ? role : `${role}s`;
+
 
   if (loading) {
     return <div style={{ padding: '32px', color: 'var(--text-muted)' }}>Loading staff…</div>;
@@ -419,43 +921,90 @@ function Roster({ isOwner, canSeeTeam }) {
         </div>
       )}
 
-      {canSeeTeam && (
-        <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
-          <div style={{ ...panel, padding: '16px 18px', flex: '1 1 170px' }}>
-            <div style={{
-              fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
-              color: 'var(--text-muted)',
-            }}>On the roster</div>
-            <div style={{ fontSize: '22px', fontWeight: 600, marginTop: '6px' }}>{roster.length}</div>
-          </div>
-          <div style={{ ...panel, padding: '16px 18px', flex: '1 1 170px' }}>
-            <div style={{
-              fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
-              color: 'var(--text-muted)',
-            }}>Employment set up</div>
-            <div style={{ fontSize: '22px', fontWeight: 600, marginTop: '6px' }}>
-              {withTerms}
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 400 }}>
-                {' '}of {roster.length}
-              </span>
+      {canSeeTeam && (() => {
+        const tile = (label, value, sub, tone) => (
+          <div style={{ ...panel, padding: '16px 18px', flex: '1 1 150px' }}>
+            <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
+                          color: 'var(--text-muted)' }}>{label}</div>
+            <div style={{ fontSize: '22px', fontWeight: 600, marginTop: '6px', color: tone || 'inherit' }}>
+              {value}
+              {sub != null && (
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 400 }}> {sub}</span>
+              )}
             </div>
+          </div>
+        );
+        return (
+          <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
+            {tile('Total staff', analytics.total)}
+            {tile('Available now', analytics.available,
+                  analytics.busy ? `· ${analytics.busy} busy` : null, '#1e8a5c')}
+            {tile('On the floor today', analytics.presentToday,
+                  analytics.workingNow ? `· ${analytics.workingNow} in now` : null)}
+            {tile('Employment set up', withTerms, `of ${roster.length}`)}
+          </div>
+        );
+      })()}
+
+      {canSeeTeam && Object.keys(roleCounts).length > 0 && (
+        <div style={{ marginBottom: '18px' }}>
+          <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
+                        color: 'var(--text-muted)', marginBottom: '8px' }}>
+            By role
+          </div>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {Object.entries(roleCounts).sort((a, b) => b[1] - a[1]).map(([role, n]) => (
+              <div key={role} style={{ ...panel, padding: '10px 14px', display: 'flex',
+                                       alignItems: 'baseline', gap: '6px' }}>
+                <span style={{ fontSize: '18px', fontWeight: 700 }}>{n}</span>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{plural(role, n)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canSeeTeam && withTerms > 0 && (
+        <div style={{ marginBottom: '18px' }}>
+          <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
+                        color: 'var(--text-muted)', marginBottom: '8px' }}>
+            By employment
+          </div>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {EMPLOYMENT_TYPES.filter(([k]) => analytics.emp[k]).map(([k, label]) => (
+              <div key={k} style={{ ...panel, padding: '10px 14px', display: 'flex',
+                                    alignItems: 'baseline', gap: '6px' }}>
+                <span style={{ fontSize: '18px', fontWeight: 700 }}>{analytics.emp[k]}</span>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{label}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
       {canSeeTeam && (
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search staff by name or role"
-          style={{ width: '100%', maxWidth: '340px', marginBottom: '16px' }}
-        />
+        <div style={{
+          display: 'flex', gap: '10px', alignItems: 'center',
+          flexWrap: 'wrap', marginBottom: '16px',
+        }}>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search staff by name or role"
+            style={{ flex: '1 1 240px', maxWidth: '340px' }}
+          />
+          {isOwner && (
+            <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
+              <Plus size={16} /> Add staff
+            </button>
+          )}
+        </div>
       )}
 
       {rows.length === 0 ? (
         <div style={{ ...panel, padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
           {canSeeTeam
-            ? 'No staff on the roster yet. Add people in Manage Tailors, then set up their employment details here.'
+            ? 'No staff on the roster yet. Add someone with the button above -- their role, mobile number and login are all set up in one go.'
             : 'Your employment details have not been set up yet. Your boutique owner can add them.'}
         </div>
       ) : (
@@ -469,22 +1018,60 @@ function Roster({ isOwner, canSeeTeam }) {
                 gap: '12px', flexWrap: 'wrap',
               }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: '15px' }}>{member.name}</div>
+                  {isOwner ? (
+                    <button
+                      type="button"
+                      onClick={() => setPerson(member)}
+                      title="Edit name, role and specialty"
+                      style={{
+                        fontWeight: 600, fontSize: '15px', background: 'none',
+                        border: 'none', padding: 0, cursor: 'pointer',
+                        color: 'inherit', textAlign: 'left',
+                      }}
+                    >{member.name}</button>
+                  ) : (
+                    <div style={{ fontWeight: 600, fontSize: '15px' }}>{member.name}</div>
+                  )}
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     {member.role}
                     {t && <> · {employmentLabel(t.employment_type)}</>}
                   </div>
                 </div>
                 {isOwner && (
-                  <button
-                    type="button"
-                    className={t ? 'btn-secondary' : 'btn-primary'}
-                    onClick={() => setEditing({ member, terms: t })}
-                  >
-                    {t ? 'Edit' : <><Plus size={14} /> Set up</>}
-                  </button>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    {member.phone && (
+                      <a href={`tel:${member.phone}`} className="btn-secondary"
+                         style={{ textDecoration: 'none', fontSize: '12px' }}>
+                        {member.phone}
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setDocumentsFor(member)}
+                      title="Identity and employment documents"
+                    >
+                      <FileText size={14} /> Documents
+                    </button>
+                    {!member.isDesigner && (
+                      <button
+                        type="button"
+                        className={t ? 'btn-secondary' : 'btn-primary'}
+                        onClick={() => setEditing({ member, terms: t })}
+                      >
+                        {t ? 'Edit' : <><Plus size={14} /> Set up</>}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
+
+              {member.isDesigner && (
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                  Design Studio · {member.design_count ?? 0} design(s)
+                  {member.has_login ? '' : ' · no login yet'}
+                </div>
+              )}
 
               {t && showsPay(t) && (
                 <div
@@ -607,7 +1194,10 @@ function Roster({ isOwner, canSeeTeam }) {
                 </div>
               )}
 
-              {!t && (
+              {/* Only a roster row can have employment terms -- StaffProfile's
+                  FK points at Tailor -- so telling a designer theirs are
+                  missing describes a state they can never leave. */}
+              {!t && !member.isDesigner && (
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
                   No employment details yet — this person works exactly as before.
                 </div>
@@ -641,6 +1231,30 @@ function Roster({ isOwner, canSeeTeam }) {
             onSaved={() => { setEditing(null); refresh(); }}
           />
         </Modal>
+      )}
+
+      {adding && (
+        <AddStaffForm
+          onCancel={() => setAdding(false)}
+          onSaved={refresh}
+          customRoles={rosterRoles}
+        />
+      )}
+
+      {person && (
+        <AddStaffForm
+          member={person}
+          onCancel={() => setPerson(null)}
+          onSaved={refresh}
+          customRoles={rosterRoles}
+        />
+      )}
+
+      {documentsFor && (
+        <DocumentsModal
+          member={documentsFor}
+          onClose={() => setDocumentsFor(null)}
+        />
       )}
     </>
   );

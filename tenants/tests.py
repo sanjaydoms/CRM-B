@@ -751,7 +751,7 @@ class QCQueueIsolationTests(TransactionTestCase):
             qc_user = User.objects.create_user(
                 username=qc_email, email=qc_email, password='qcpass12345')
             Tailor.objects.create(name=f'Inspector {schema}', specialty='Bridal',
-                                  role='QC Master', status='Available', user=qc_user)
+                                  role='QC Staff', status='Available', user=qc_user)
             tailor = Tailor.objects.create(name='Stitcher', specialty='Bridal',
                                            role='Tailor', status='Available')
             customer = Customer.objects.create(

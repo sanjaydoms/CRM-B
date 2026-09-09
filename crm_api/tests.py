@@ -388,7 +388,7 @@ class BoutiqueCRMTests(TenantTestCase):
             order=order, stage_key='master_quality_check',
             stage_name='Master Quality Check', status='NOT_STARTED', sequence=7,
         )
-        qc = Tailor.objects.create(name="QC Lead", specialty="Inspection", role="QC Master",
+        qc = Tailor.objects.create(name="QC Lead", specialty="Inspection", role="QC Staff",
                                    email="qc@test.com")
         qc_user = User.objects.create_user(username="qc", email="qc@test.com", password="x")
         qc.user = qc_user
@@ -411,7 +411,7 @@ class BoutiqueCRMTests(TenantTestCase):
             stage_name='Master Quality Check', status='NOT_STARTED', sequence=7,
         )
         presser = Tailor.objects.create(name="Presser", specialty="Pressing",
-                                        role="Pressing Staff", email="press@test.com")
+                                        role="Packaging Staff", email="press@test.com")
         presser_user = User.objects.create_user(username="press", email="press@test.com", password="x")
         presser.user = presser_user
         presser.save()
@@ -473,15 +473,15 @@ class BoutiqueCRMTests(TenantTestCase):
         stage.refresh_from_db()
         self.assertEqual(stage.status, 'SKIPPED')
 
-    def test_finishing_and_pressing_specialists_can_advance_their_stages(self):
+    def test_finishing_and_pressing_are_advanced_by_their_permitted_roles(self):
         self.authenticate_client()
         customer = self._customer_with_order()
         order = Order.objects.get(customer=customer)
         from domains.orders.services import OrderService
 
         for key, name, role, username in [
-            ('finishing', 'Hemming & Finishing', 'Finishing Master', 'fin'),
-            ('pressing', 'Pressing', 'Pressing Staff', 'press'),
+            ('finishing', 'Hemming & Finishing', 'Master', 'fin'),
+            ('pressing', 'Pressing', 'Packaging Staff', 'press'),
         ]:
             OrderStage.objects.create(order=order, stage_key=key, stage_name=name, sequence=9)
             staff = Tailor.objects.create(name=f"{role} person", specialty=name,
@@ -564,7 +564,7 @@ class BoutiqueCRMTests(TenantTestCase):
         order = Order.objects.get(customer=customer)
         OrderStage.objects.create(order=order, stage_key='measurements_completed',
                                   stage_name='Measurements Completed', sequence=1)
-        mm = Tailor.objects.create(name="Meena", specialty="Measuring", role="Measurement Master")
+        mm = Tailor.objects.create(name="Meena", specialty="Measuring", role="Master")
 
         response = self.client.post(
             reverse('order-assign-stage', args=[order.id]),
@@ -573,7 +573,7 @@ class BoutiqueCRMTests(TenantTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()['assigned_to_name'], 'Meena')
-        self.assertEqual(response.json()['assigned_to_role'], 'Measurement Master')
+        self.assertEqual(response.json()['assigned_to_role'], 'Master')
 
     def test_stage_assignment_refuses_a_role_the_stage_does_not_permit(self):
         self.authenticate_client()
@@ -581,7 +581,7 @@ class BoutiqueCRMTests(TenantTestCase):
         order = Order.objects.get(customer=customer)
         OrderStage.objects.create(order=order, stage_key='measurements_completed',
                                   stage_name='Measurements Completed', sequence=1)
-        presser = Tailor.objects.create(name="Presser", specialty="Pressing", role="Pressing Staff")
+        presser = Tailor.objects.create(name="Presser", specialty="Pressing", role="Packaging Staff")
 
         response = self.client.post(
             reverse('order-assign-stage', args=[order.id]),
@@ -597,7 +597,7 @@ class BoutiqueCRMTests(TenantTestCase):
         order = Order.objects.get(customer=customer)
         stage = OrderStage.objects.create(order=order, stage_key='measurements_completed',
                                           stage_name='Measurements Completed', sequence=1)
-        planned = Tailor.objects.create(name="Meena", specialty="Measuring", role="Measurement Master")
+        planned = Tailor.objects.create(name="Meena", specialty="Measuring", role="Master")
         actual = Tailor.objects.create(name="Stand-in", specialty="Measuring", role="Master")
         settle_stages_before(order, 'measurements_completed')
 

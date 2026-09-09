@@ -3,7 +3,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from core.permissions import visible_orders
+from core.permissions import ModuleAccess, visible_orders
 from core.templates import SpecValidationError, validate_spec
 from crm_api.models import Order
 
@@ -30,7 +30,12 @@ def _full_template_queryset():
 
 class GarmentTemplateViewSet(viewsets.ReadOnlyModelViewSet):
 
-    permission_classes = [permissions.IsAuthenticated]
+    # IsAuthenticated alone is 'anyone signed in', which on a governed
+    # prefix means a Tailor reads the garment catalogue even where the
+    # owner has not given the role Garment Templates. ModuleAccess is the
+    # gate every other viewset inherits from its role class; this one has
+    # no role class, so it carries the gate itself.
+    permission_classes = [permissions.IsAuthenticated, ModuleAccess]
     lookup_field = 'key'
     serializer_class = GarmentTemplateSerializer
 

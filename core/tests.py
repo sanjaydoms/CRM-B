@@ -176,8 +176,12 @@ class ApiRoleBoundaryTests(TenantTestCase):
     def test_anonymous_callers_get_nothing(self):
         from rest_framework.test import APIClient
         anon = APIClient()
+        # 400 as well as 401/403: TenantHeaderMiddleware now refuses a request
+        # that names no tenant (TenantContextRequired) before authentication
+        # runs, so an anonymous caller with no header is turned away one layer
+        # earlier than before. Still nothing -- which is what this asserts.
         for path in ('/api/orders/', '/api/customers/', '/api/inventory/items/'):
-            self.assertIn(anon.get(path).status_code, (401, 403), path)
+            self.assertIn(anon.get(path).status_code, (400, 401, 403), path)
 
     def test_a_designer_keeps_the_studio_and_loses_everything_else(self):
         from rest_framework.authtoken.models import Token

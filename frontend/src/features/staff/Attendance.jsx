@@ -47,6 +47,40 @@ const mondayOf = (value) => {
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+/** Local yyyy-mm-dd -- never toISOString(), which shifts to UTC and can land a
+ *  day early in a timezone ahead of it. */
+const localISO = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const PERIODS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']];
+const PERIOD_LABEL = { day: 'Today', week: 'This week', month: 'This month' };
+
+/** First and last day of the current month -- the muster grid spans the whole
+ *  month, with future days shown blank. */
+const monthGridBounds = () => {
+  const now = new Date();
+  return {
+    since: localISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+    until: localISO(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+  };
+};
+
+/** [since, until] for the chosen period, inclusive, ending today -- future days
+ *  hold no attendance, so a period never reaches past today. */
+const periodBounds = (period) => {
+  const now = new Date();
+  const until = localISO(now);
+  if (period === 'week') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // back to Monday
+    return { since: localISO(d), until };
+  }
+  if (period === 'month') {
+    return { since: localISO(new Date(now.getFullYear(), now.getMonth(), 1)), until };
+  }
+  return { since: until, until };
+};
+
 function Banner({ text, tone = 'error' }) {
   const colours = tone === 'error'
     ? { bg: 'rgba(220,80,60,0.12)', border: 'rgba(220,80,60,0.35)', fg: '#c0392b' }
@@ -364,7 +398,8 @@ function RecordForm({ roster, onCancel, onSaved }) {
 }
 
 /** The floor, today: who is in, who has gone home, who never arrived. */
-function TodayOnTheFloor({ isOwner, roster, sessions, onCorrect, onRecord, loading }) {
+function TodayOnTheFloor({ isOwner, roster, sessions, onCorrect, onRecord, loading, period }) {
+  const ranged = period !== 'day';
   const byStaff = new Map();
   sessions.forEach((s) => {
     const list = byStaff.get(String(s.staff)) || [];
@@ -376,15 +411,18 @@ function TodayOnTheFloor({ isOwner, roster, sessions, onCorrect, onRecord, loadi
     const own = byStaff.get(String(person.id)) || [];
     const open = own.find((s) => s.is_open);
     const minutes = own.reduce((sum, s) => sum + Number(s.minutes || 0), 0);
+    const days = new Set(own.map((s) => s.date)).size;
     let status = 'Not in';
     if (open) status = 'Working';
     else if (own.length) status = 'Checked out';
-    return { person, own, open, minutes, status, latest: own[0] };
+    return { person, own, open, minutes, days, status, latest: own[0] };
   });
 
   const working = rows.filter((r) => r.status === 'Working').length;
   const done = rows.filter((r) => r.status === 'Checked out').length;
-  const absent = rows.filter((r) => r.status === 'Not in').length;
+  const absent = rows.filter((r) => r.own.length === 0).length;
+  const withHours = rows.filter((r) => r.own.length > 0).length;
+  const totalMinutes = rows.reduce((sum, r) => sum + r.minutes, 0);
 
   const tile = (label, value) => (
     <div style={{ ...panel, padding: '14px 16px', flex: '1 1 130px' }}>
@@ -400,10 +438,21 @@ function TodayOnTheFloor({ isOwner, roster, sessions, onCorrect, onRecord, loadi
   return (
     <>
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
-        {tile('Present today', working + done)}
-        {tile('Working now', working)}
-        {tile('Checked out', done)}
-        {tile('Not in', absent)}
+        {ranged ? (
+          <>
+            {tile('Working now', working)}
+            {tile('With hours', withHours)}
+            {tile('No hours', absent)}
+            {tile('Total hours', totalMinutes ? hoursText(totalMinutes) : '0h')}
+          </>
+        ) : (
+          <>
+            {tile('Present today', working + done)}
+            {tile('Working now', working)}
+            {tile('Checked out', done)}
+            {tile('Not in', absent)}
+          </>
+        )}
       </div>
 
       {isOwner && (
@@ -415,14 +464,14 @@ function TodayOnTheFloor({ isOwner, roster, sessions, onCorrect, onRecord, loadi
       )}
 
       {loading ? (
-        <div style={{ padding: '24px', color: 'var(--text-muted)' }}>Loading today&rsquo;s attendance…</div>
+        <div style={{ padding: '24px', color: 'var(--text-muted)' }}>Loading attendance…</div>
       ) : rows.length === 0 ? (
         <div style={{ ...panel, padding: '28px', textAlign: 'center', color: 'var(--text-secondary)' }}>
           No staff on the roster yet.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {rows.map(({ person, open, minutes, status, latest }) => (
+          {rows.map(({ person, open, minutes, days, own, status, latest }) => (
             <div key={person.id} style={{ ...panel, padding: '14px 16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between',
                             alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
@@ -433,7 +482,7 @@ function TodayOnTheFloor({ isOwner, roster, sessions, onCorrect, onRecord, loadi
                   </div>
                 </div>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: statusColour(status) }}>
-                  {status}
+                  {ranged ? (status === 'Working' ? 'Working now' : (own.length ? `${days} day${days === 1 ? '' : 's'}` : 'No hours')) : status}
                 </span>
               </div>
 
@@ -445,20 +494,39 @@ function TodayOnTheFloor({ isOwner, roster, sessions, onCorrect, onRecord, loadi
                   borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Check in</div>
-                  <div style={{ fontWeight: 600 }}>{clockText(latest?.check_in)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Check out</div>
-                  <div style={{ fontWeight: 600 }}>
-                    {open ? '—' : clockText(latest?.check_out)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Hours</div>
-                  <div style={{ fontWeight: 600 }}>{minutes ? hoursText(minutes) : '—'}</div>
-                </div>
+                {ranged ? (
+                  <>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Days</div>
+                      <div style={{ fontWeight: 600 }}>{days || '—'}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Sessions</div>
+                      <div style={{ fontWeight: 600 }}>{own.length || '—'}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total hours</div>
+                      <div style={{ fontWeight: 600 }}>{minutes ? hoursText(minutes) : '—'}</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Check in</div>
+                      <div style={{ fontWeight: 600 }}>{clockText(latest?.check_in)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Check out</div>
+                      <div style={{ fontWeight: 600 }}>
+                        {open ? '—' : clockText(latest?.check_out)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Hours</div>
+                      <div style={{ fontWeight: 600 }}>{minutes ? hoursText(minutes) : '—'}</div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {isOwner && latest && (
@@ -600,29 +668,200 @@ function Timesheet({ canSeeTeam, isOwner, roster, onCorrect }) {
   );
 }
 
+/* The monthly muster roll: staff down the side, every date across the top,
+ * one status letter per cell.
+ *
+ *   P  present   -- an attendance session exists that day (never editable here)
+ *   L  leave     -- owner-marked
+ *   WO weekly off -- owner-marked
+ *   A  absent    -- a past day with none of the above
+ *   (blank)      -- a future day, nothing to show yet
+ *
+ * The owner cycles a non-present cell A -> L -> WO -> A by clicking it; present
+ * cells are real attendance and cannot be overwritten from here.
+ */
+const STATUS_STYLE = {
+  P: { bg: 'rgba(46,196,182,0.18)', fg: '#1e8a5c' },
+  L: { bg: 'rgba(240,136,62,0.18)', fg: '#c0864b' },
+  WO: { bg: 'rgba(120,120,140,0.18)', fg: 'var(--text-secondary)' },
+  A: { bg: 'rgba(220,80,60,0.12)', fg: '#c0392b' },
+  '': { bg: 'transparent', fg: 'var(--text-muted)' },
+};
+
+const eachDate = (since, until) => {
+  const out = [];
+  const [ys, ms, ds] = since.split('-').map(Number);
+  const [yu, mu, du] = until.split('-').map(Number);
+  const cur = new Date(ys, ms - 1, ds);
+  const end = new Date(yu, mu - 1, du);
+  while (cur <= end) {
+    out.push({
+      iso: localISO(cur),
+      day: cur.getDate(),
+      weekend: cur.getDay() === 0 || cur.getDay() === 6,
+    });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+};
+
+function MusterGrid({ isOwner, roster, sessions, dayMarks, since, until, onChanged }) {
+  const today = localISO(new Date());
+  const dates = eachDate(since, until);
+
+  const presentByStaff = new Map();
+  sessions.forEach((s) => {
+    const set = presentByStaff.get(String(s.staff)) || new Set();
+    set.add(s.date);
+    presentByStaff.set(String(s.staff), set);
+  });
+
+  const markByKey = new Map(); // `${staff}|${date}` -> { id, kind }
+  dayMarks.forEach((m) => markByKey.set(`${m.staff}|${m.date}`, m));
+
+  const statusFor = (staffId, iso) => {
+    if (iso > today) return '';
+    if (presentByStaff.get(String(staffId))?.has(iso)) return 'P';
+    const mark = markByKey.get(`${staffId}|${iso}`);
+    if (mark) return mark.kind === 'LEAVE' ? 'L' : 'WO';
+    return 'A';
+  };
+
+  // A -> Leave -> Weekly off -> cleared. Present and future cells do nothing.
+  const cycle = async (staffId, iso, current, mark) => {
+    if (!isOwner || current === 'P' || iso > today) return;
+    try {
+      if (current === 'A') {
+        await api.createDayMark({ staff: staffId, date: iso, kind: 'LEAVE' });
+      } else if (current === 'L') {
+        await api.createDayMark({ staff: staffId, date: iso, kind: 'WEEKLY_OFF' });
+      } else if (current === 'WO' && mark) {
+        await api.deleteDayMark(mark.id);
+      }
+      onChanged();
+    } catch { /* a failed mark just leaves the cell as it was */ }
+  };
+
+  const th = {
+    position: 'sticky', top: 0, background: 'var(--surface-color, #fff)',
+    padding: '6px 4px', fontSize: '11px', color: 'var(--text-muted)',
+    fontWeight: 600, textAlign: 'center', zIndex: 1,
+  };
+  const nameCell = {
+    position: 'sticky', left: 0, background: 'var(--surface-color, #fff)',
+    padding: '8px 12px', fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap',
+    borderRight: '1px solid var(--border-color, rgba(255,255,255,0.12))', zIndex: 1,
+  };
+
+  const legend = [['P', 'Present'], ['L', 'Leave'], ['WO', 'Weekly off'], ['A', 'Absent']];
+
+  return (
+    <div style={{ ...panel, padding: '14px' }}>
+      <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '10px' }}>
+        {legend.map(([k, label]) => (
+          <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                 fontSize: '12px', color: 'var(--text-secondary)' }}>
+            <span style={{ width: '20px', height: '20px', borderRadius: '4px',
+                           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                           fontSize: '10px', fontWeight: 700,
+                           background: STATUS_STYLE[k].bg, color: STATUS_STYLE[k].fg }}>{k}</span>
+            {label}
+          </span>
+        ))}
+        {isOwner && (
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+            Tap a cell to mark leave or a weekly off.
+          </span>
+        )}
+      </div>
+
+      {roster.length === 0 ? (
+        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+          No staff on the roster yet.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ ...nameCell, ...th, textAlign: 'left' }}>Staff</th>
+                {dates.map((d) => (
+                  <th key={d.iso} style={{ ...th, color: d.weekend ? 'var(--text-secondary)' : 'var(--text-muted)' }}
+                      title={d.iso}>{d.day}</th>
+                ))}
+                <th style={{ ...th }}>P</th>
+              </tr>
+            </thead>
+            <tbody>
+              {roster.map((person) => {
+                const present = presentByStaff.get(String(person.id))?.size || 0;
+                return (
+                  <tr key={person.id}>
+                    <td style={nameCell}>
+                      {person.name}
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 400 }}>
+                        {person.role}
+                      </div>
+                    </td>
+                    {dates.map((d) => {
+                      const status = statusFor(person.id, d.iso);
+                      const mark = markByKey.get(`${person.id}|${d.iso}`);
+                      const clickable = isOwner && status !== 'P' && d.iso <= today;
+                      return (
+                        <td key={d.iso} style={{ padding: '2px', textAlign: 'center' }}>
+                          <button type="button" disabled={!clickable}
+                                  onClick={() => cycle(person.id, d.iso, status, mark)}
+                                  title={`${person.name} · ${d.iso}`}
+                                  style={{
+                                    width: '26px', height: '26px', borderRadius: '4px', border: 'none',
+                                    fontSize: '10px', fontWeight: 700,
+                                    cursor: clickable ? 'pointer' : 'default',
+                                    background: STATUS_STYLE[status].bg, color: STATUS_STYLE[status].fg,
+                                  }}>
+                            {status}
+                          </button>
+                        </td>
+                      );
+                    })}
+                    <td style={{ textAlign: 'center', fontWeight: 600, fontSize: '13px' }}>{present}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Attendance({ isOwner, canSeeTeam }) {
   const [roster, setRoster] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [dayMarks, setDayMarks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [correcting, setCorrecting] = useState(null);
   const [recording, setRecording] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [period, setPeriod] = useState('day');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [people, today] = await Promise.all([
+      const bounds = period === 'month' ? monthGridBounds() : periodBounds(period);
+      const [people, today, marks] = await Promise.all([
         canSeeTeam ? api.getTailors().catch(() => []) : Promise.resolve([]),
-        canSeeTeam
-          ? api.getAttendance({ date: todayISO() }).catch(() => [])
-          : Promise.resolve([]),
+        canSeeTeam ? api.getAttendance(bounds).catch(() => []) : Promise.resolve([]),
+        canSeeTeam && period === 'month'
+          ? api.getDayMarks(bounds).catch(() => []) : Promise.resolve([]),
       ]);
       setRoster(Array.isArray(people) ? people : []);
       setSessions(Array.isArray(today) ? today : []);
+      setDayMarks(Array.isArray(marks) ? marks : []);
     } finally {
       setLoading(false);
     }
-  }, [canSeeTeam]);
+  }, [canSeeTeam, period]);
 
   useEffect(() => {
     const t = setTimeout(load, 0);
@@ -637,18 +876,50 @@ export default function Attendance({ isOwner, canSeeTeam }) {
 
       {canSeeTeam && (
         <>
-          <h3 style={{ fontSize: '15px', fontWeight: 600, margin: '0 0 12px',
-                       display: 'flex', alignItems: 'center', gap: '7px' }}>
-            <Clock size={15} /> Today on the floor
-          </h3>
-          <TodayOnTheFloor
-            isOwner={isOwner}
-            roster={roster}
-            sessions={sessions}
-            loading={loading}
-            onCorrect={setCorrecting}
-            onRecord={() => setRecording(true)}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px',
+                        flexWrap: 'wrap', margin: '0 0 12px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0,
+                         display: 'flex', alignItems: 'center', gap: '7px' }}>
+              <Clock size={15} /> On the floor · {PERIOD_LABEL[period]}
+            </h3>
+            <div role="group" aria-label="Attendance period"
+                 style={{ display: 'inline-flex', borderRadius: '8px', overflow: 'hidden',
+                          border: '1px solid var(--border-color, rgba(255,255,255,0.12))' }}>
+              {PERIODS.map(([value, label]) => (
+                <button key={value} type="button" onClick={() => setPeriod(value)}
+                        aria-pressed={period === value}
+                        style={{
+                          padding: '6px 14px', fontSize: '13px', border: 'none', cursor: 'pointer',
+                          background: period === value ? 'var(--accent, #2ec4b6)' : 'transparent',
+                          color: period === value ? '#fff' : 'var(--text-secondary)',
+                          fontWeight: period === value ? 600 : 400,
+                        }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {period === 'month' ? (
+            <MusterGrid
+              isOwner={isOwner}
+              roster={roster}
+              sessions={sessions}
+              dayMarks={dayMarks}
+              since={monthGridBounds().since}
+              until={monthGridBounds().until}
+              onChanged={refresh}
+            />
+          ) : (
+            <TodayOnTheFloor
+              isOwner={isOwner}
+              roster={roster}
+              sessions={sessions}
+              loading={loading}
+              period={period}
+              onCorrect={setCorrecting}
+              onRecord={() => setRecording(true)}
+            />
+          )}
         </>
       )}
 

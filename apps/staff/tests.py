@@ -377,7 +377,7 @@ class PermissionMatrixTests(StaffProfileTestCase):
         self.qc_user = User.objects.create_user(
             username='qadir', email='qadir@staff.test', password='qadirpass12345')
         self.qc = Tailor.objects.create(
-            name='Qadir', specialty='Inspection', role='QC Master',
+            name='Qadir', specialty='Inspection', role='QC Staff',
             email='qadir@staff.test', user=self.qc_user)
 
         self.anita_terms = self.terms_for(self.anita)
@@ -403,7 +403,7 @@ class PermissionMatrixTests(StaffProfileTestCase):
 
     def test_owner_creates_and_edits(self):
         newcomer = Tailor.objects.create(
-            name='Nadia', specialty='Finishing', role='Finishing Master')
+            name='Nadia', specialty='Handwork', role='Karigar')
         created = self.client_for(self.owner).post(
             reverse('staff-profile-list'),
             {'staff': newcomer.id, 'hourly_rate': '111.00'}, format='json')
@@ -447,7 +447,7 @@ class PermissionMatrixTests(StaffProfileTestCase):
 
     def test_master_cannot_create_a_profile(self):
         newcomer = Tailor.objects.create(
-            name='Omar', specialty='Pressing', role='Pressing Staff')
+            name='Omar', specialty='Pressing', role='Packaging Staff')
         response = self.client_for(self.master_user).post(
             reverse('staff-profile-list'),
             {'staff': newcomer.id, 'hourly_rate': '100.00'}, format='json')
@@ -503,7 +503,7 @@ class PermissionMatrixTests(StaffProfileTestCase):
 
     # ---- Specialist ------------------------------------------------------
     def test_specialist_is_not_a_supervisor(self):
-        """A QC Master is a specialist, not a Master. The names are close."""
+        """A QC Staff is a specialist, not a Master. The names are close."""
         response = self.client_for(self.qc_user).get(reverse('staff-profile-list'))
         self.assertEqual(response.status_code, 200)
         # No profile of their own, and no right to anyone else's.
@@ -525,11 +525,15 @@ class PermissionMatrixTests(StaffProfileTestCase):
 
     # ---- Designer --------------------------------------------------------
     def test_a_design_only_account_gets_no_staff_records(self):
-        """Designers have no Tailor row, so they match no employment record.
+        """A designer is refused Staff Management, not handed an empty copy of it.
 
-        Left as an empty list rather than a refusal: the endpoint is not theirs
-        to be refused from, and returning nothing is the same answer the
-        queryset gives any account with no roster profile.
+        This asserted an empty 200 while the endpoint was open to anyone signed
+        in and the queryset did the narrowing. Module enforcement answers one
+        question earlier: ROLE_DEFAULTS gives a Designer design_studio,
+        garment_catalog and notifications, and `staff` is not among them, so the
+        request is refused before a queryset is built. Both answers keep a
+        designer away from the boutique's pay; the refusal says so, which is the
+        better of the two.
         """
         from apps.design_studio.models import Designer
         designer_user = User.objects.create_user(
@@ -537,8 +541,8 @@ class PermissionMatrixTests(StaffProfileTestCase):
         Designer.objects.create(name='Dia', email='dia@staff.test', user=designer_user)
 
         response = self.client_for(designer_user).get(reverse('staff-profile-list'))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 0)
+        self.assertEqual(response.status_code, 403)
+        # The refusal must still be a refusal, not a rate in an error body.
         self.assertNotIn('999.00', response.content.decode())
 
     def test_a_designer_cannot_write_employment_terms(self):
@@ -1605,9 +1609,9 @@ class EmploymentWindowKpiTests(PerformanceTestCase):
 
 class RoleKpiTests(PerformanceTestCase):
     def test_each_role_gets_its_own_headline_metrics(self):
-        self.assertNotEqual(performance.kpis_for_role('QC Master'),
+        self.assertNotEqual(performance.kpis_for_role('QC Staff'),
                             performance.kpis_for_role('Tailor'))
-        self.assertIn('quality.pass_rate', performance.kpis_for_role('QC Master'))
+        self.assertIn('quality.pass_rate', performance.kpis_for_role('QC Staff'))
         self.assertIn('quality.rework_rate', performance.kpis_for_role('Tailor'))
 
     def test_an_unknown_role_falls_back_rather_than_failing(self):
@@ -2035,11 +2039,14 @@ class PerformanceAccessTests(PerformanceTestCase):
             password='diapass12345')
         Designer.objects.create(name='Dia', email='dia@staff.test', user=user)
         client = self.client_for(user)
+        # Refused rather than answered with zeroes: a Designer has no `staff`
+        # module, so neither endpoint is theirs to read. See
+        # test_a_design_only_account_gets_no_staff_records.
         perf = client.get(reverse('staff-performance'),
                           {'start': '2026-09-01', 'end': '2026-09-30'})
-        self.assertEqual(perf.status_code, 200)
-        self.assertEqual(perf.data['staff_count'], 0)
-        self.assertEqual(client.get(reverse('staff-review-list')).data, [])
+        self.assertEqual(perf.status_code, 403)
+        self.assertEqual(
+            client.get(reverse('staff-review-list')).status_code, 403)
 
     def test_anonymous_gets_nothing(self):
         anonymous = APIClient()

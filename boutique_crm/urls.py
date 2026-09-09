@@ -20,6 +20,7 @@ urlpatterns = [
     path('api/catalog/', include('apps.catalog.urls')),
     path('api/staff/', include('apps.staff.urls')),
     path('api/payroll/', include('apps.payroll.urls')),
+    path('api/finance/', include('apps.finance.urls')),
     path('api/email/', include('apps.email_service.urls')),
 ]
 

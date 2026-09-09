@@ -27,6 +27,11 @@ class Designer(models.Model):
         help_text='Set when this designer also works on the production floor.',
     )
 
+    #: Same field as StaffProfile.phone and for the same reason: the staff
+    #: screen asks for a mobile number when anyone is added, and a designer
+    #: added there is not a Tailor, so it cannot live on the employment record.
+    phone = models.CharField(max_length=20, blank=True, default='')
+
     profile_image = models.CharField(max_length=500, blank=True, default='')
     specialisation = models.CharField(max_length=150, blank=True, default='')
     experience_years = models.DecimalField(max_digits=4, decimal_places=1, default=0)

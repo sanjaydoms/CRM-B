@@ -61,9 +61,42 @@ class ErrorEvent(models.Model):
     STATUSES = [('new', 'New'), ('acknowledged', 'Acknowledged'),
                 ('resolved', 'Resolved'), ('ignored', 'Ignored')]
 
+    #: How the product met this error, which is the only thing that tells an
+    #: operator what to do about it. The four are genuinely different events and
+    #: were previously indistinguishable because only the first was recorded:
+    #:
+    #:   crash    Nothing caught it. It became a 500 and somebody's request
+    #:            died. Always worth a person looking.
+    #:   handled  The code caught it and carried on -- an order email that did
+    #:            not send, a metric that could not be read. The customer may
+    #:            never have seen it, which is exactly why it needs surfacing:
+    #:            before this existed it lived only in the Render log stream.
+    #:   refusal  A platform control said no: suspension, a switched-off module,
+    #:            maintenance, a boutique whose schema is missing. Not a defect
+    #:            -- the system working as configured -- but the console had no
+    #:            way to see its own controls biting.
+    #:   client   A 4xx the API returned deliberately, mostly validation. Noise
+    #:            individually; a signal in aggregate, when one endpoint refuses
+    #:            the same boutique four hundred times.
+    #:   frontend A React crash reported by the browser. The server never saw
+    #:            it and never could.
+    KINDS = [('crash', 'Unhandled crash'), ('handled', 'Handled exception'),
+             ('refusal', 'Refused by a platform control'),
+             ('client', 'Client error'), ('frontend', 'Frontend crash')]
+
+    #: Defaults to 'crash' so every row written before this field existed keeps
+    #: the meaning it was written with. See core.exceptions._fingerprint for why
+    #: that default also keeps their fingerprints stable.
+    kind = models.CharField(max_length=10, choices=KINDS, default='crash', db_index=True)
+
     fingerprint = models.CharField(max_length=40, unique=True, db_index=True)
 
     exception_type = models.CharField(max_length=200, db_index=True)
+
+    #: Where the capture happened, when the path does not say it: the logger
+    #: name for a handled exception, the control that refused for a refusal.
+    #: Blank for a crash, whose traceback already answers this.
+    source = models.CharField(max_length=200, blank=True)
     message = models.TextField()
     traceback = models.TextField(blank=True)
 
@@ -92,10 +125,14 @@ class ErrorEvent(models.Model):
             models.Index(fields=['status', '-last_seen']),
             models.Index(fields=['severity', '-last_seen']),
             models.Index(fields=['boutique', '-last_seen']),
+            # Every feed built on this model filters by kind first -- the Error
+            # Center is kind='crash' and nothing else -- so this is the index
+            # that keeps the crash feed fast once refusals outnumber it.
+            models.Index(fields=['kind', '-last_seen']),
         ]
 
     def __str__(self):
-        return f'{self.exception_type} at {self.path} (x{self.count})'
+        return f'{self.get_kind_display()}: {self.exception_type} at {self.path} (x{self.count})'
 
 
 class FeatureFlag(models.Model):

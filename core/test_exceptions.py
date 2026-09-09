@@ -142,9 +142,48 @@ class ErrorCaptureTests(TransactionTestCase):
         self.assertEqual(sorted(ErrorEvent.objects.values_list('path', flat=True)),
                          ['/boom/', '/elsewhere/'])
 
-    def test_a_validation_error_records_nothing(self):
+    def test_a_validation_error_is_a_client_row_and_never_a_crash(self):
+        # This test used to assert that a handled 4xx recorded nothing at all,
+        # which was true and was the gap: 149 deliberate 4xx returns and 31
+        # raised DRF exceptions were invisible to the console. They are recorded
+        # now -- but as kind='client', so the Error Center, which asks for
+        # crashes, still shows nothing here.
         self.assertEqual(self.client.get('/refuse/').status_code, 400)
-        self.assertEqual(ErrorEvent.objects.count(), 0)
+
+        event = ErrorEvent.objects.get()
+        self.assertEqual(event.kind, 'client')
+        self.assertEqual(event.exception_type, 'ValidationError')
+        self.assertEqual(event.status_code, 400)
+        self.assertEqual(event.severity, 'low')
+        self.assertEqual(ErrorEvent.objects.filter(kind='crash').count(), 0)
+
+    def test_a_crash_and_a_handled_error_on_one_path_stay_separate_rows(self):
+        # The reason kind joins the fingerprint. Without it these two share a
+        # row and its kind flips on whichever fired last, so the crash feed
+        # gains and loses the bug at random.
+        self.crash('/boom/')
+        self.assertEqual(self.client.get('/refuse/').status_code, 400)
+        self.assertEqual(
+            sorted(ErrorEvent.objects.values_list('kind', flat=True)),
+            ['client', 'crash'])
+
+    def test_a_crash_fingerprint_did_not_change_when_kind_was_added(self):
+        # Existing rows must survive the deploy. If kind entered the formula for
+        # crashes too, every ErrorEvent already in the database would be
+        # orphaned: same bug, new fingerprint, new row, and the count, notes and
+        # resolution left behind on the old one.
+        import hashlib
+
+        from core.exceptions import _fingerprint
+
+        self.crash('/boom/')
+        stored = ErrorEvent.objects.get().fingerprint
+        legacy = hashlib.sha1(
+            f'ValueError|/boom/|{"core/test_exceptions.py:boom"}'.encode()).hexdigest()
+        self.assertEqual(stored, legacy)
+        self.assertEqual(
+            _fingerprint('ValueError', '/boom/', 'core/test_exceptions.py:boom', 'crash'),
+            legacy)
 
     def test_a_database_error_is_critical(self):
         self.crash('/db-boom/')

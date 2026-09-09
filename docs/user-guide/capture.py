@@ -147,7 +147,7 @@ def owner_ctas(page):
 STAFF = [
     ("Lakshmi Iyer", "lakshmi@demoboutique.test", "Bridal lehenga, aari work", "Master Tailor (generalist)"),
     ("Ravi Kumar", "ravi@demoboutique.test", "Blouse stitching, fall & pico", "Stitching Tailor"),
-    ("Sunita Rao", "sunita@demoboutique.test", "Final inspection", "QC Master"),
+    ("Sunita Rao", "sunita@demoboutique.test", "Final inspection", "QC Staff"),
 ]
 
 
@@ -932,7 +932,7 @@ def verify_gaps(page):
     page.click(".portal-menu-item:has-text('Manage Tailors')")
     page.wait_for_timeout(2000)
     body = page.inner_text("body")
-    print("staff roster mentions Sunita Rao (QC Master):", "Sunita Rao" in body)
+    print("staff roster mentions Sunita Rao (QC Staff):", "Sunita Rao" in body)
 
     page.click(".portal-menu-item:has-text('Manage Designs')")
     page.wait_for_timeout(2000)

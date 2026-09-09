@@ -186,7 +186,7 @@ export const api = {
     
     // Store token and tenant_id
     if (data.token) {
-      sessionEndedHandled = false;
+      sessionCheckInFlight = false;
       localStorage.setItem('token', data.token);
     }
     if (data.tenant_id) {
@@ -768,24 +768,42 @@ export const api = {
   },
 
   // Tailors CRUD
+  // FormData when a profile photo is attached (multipart), plain JSON otherwise.
+  // getHeaders(true) drops the Content-Type so the browser sets the multipart
+  // boundary itself.
   async createTailor(tailorData) {
+    const isForm = typeof FormData !== 'undefined' && tailorData instanceof FormData;
     const res = await guardedFetch(`${BASE_URL}/tailors/`, {
       method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(tailorData),
+      headers: getHeaders(isForm),
+      body: isForm ? tailorData : JSON.stringify(tailorData),
     });
     if (!res.ok) await failWith(res, 'Failed to create tailor');
     return res.json();
   },
 
   async updateTailor(id, tailorData) {
+    const isForm = typeof FormData !== 'undefined' && tailorData instanceof FormData;
     const res = await guardedFetch(`${BASE_URL}/tailors/${id}/`, {
       method: 'PATCH',
-      headers: getHeaders(),
-      body: JSON.stringify(tailorData),
+      headers: getHeaders(isForm),
+      body: isForm ? tailorData : JSON.stringify(tailorData),
     });
     if (!res.ok) await failWith(res, 'Failed to update tailor');
     return res.json();
+  },
+
+  // The signed-in user sets their own avatar. Returns the same user object
+  // /auth/me/ does, so the caller drops it straight into currentUser.
+  async updateMyPhoto(file) {
+    const body = new FormData();
+    body.append('profile_photo', file);
+    const res = await guardedFetch(`${BASE_URL}/auth/me/`, {
+      method: 'PATCH', headers: getHeaders(true), body,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || describeApiError(res, data));
+    return data;
   },
 
   async deleteTailor(id) {
@@ -1318,6 +1336,20 @@ export const api = {
     return data;
   },
 
+  // Owner-only, same permission class as createDesigner. PATCH so the staff
+  // screen can send just the fields its form owns without clearing a bio or a
+  // portfolio image it never showed.
+  async updateDesigner(id, payload) {
+    const res = await guardedFetch(`${BASE_URL}/design-studio/designers/${id}/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(describeApiError(res, data));
+    return data;
+  },
+
   // --- Garment templates ---------------------------------------------------
   // The order form is rendered from these, so a new garment or a changed option
   // list reaches the wizard without a frontend release.
@@ -1547,10 +1579,15 @@ const staffUrl = (path, params = {}) => {
 };
 
 const staffRequest = async (path, { method = 'GET', body } = {}, params) => {
+  // A document upload is the one write here that is not JSON. FormData has to
+  // carry its own multipart boundary, so the Content-Type header is left off
+  // and the body passed through untouched -- stringifying it would post the
+  // literal "[object FormData]".
+  const isMultipart = typeof FormData !== 'undefined' && body instanceof FormData;
   const res = await fetch(staffUrl(path, params), {
     method,
-    headers: getHeaders(),
-    ...(body ? { body: JSON.stringify(body) } : {}),
+    headers: getHeaders(isMultipart),
+    ...(body ? { body: isMultipart ? body : JSON.stringify(body) } : {}),
   });
   const raw = await res.text();
   let data = null;
@@ -1563,6 +1600,15 @@ const staffRequest = async (path, { method = 'GET', body } = {}, params) => {
 
 Object.assign(api, {
   getStaffProfiles: (params) => staffRequest('profiles/', {}, params),
+
+  // Identity and employment documents. Owner-only on the server for anyone
+  // else's row, so a Master calling this gets their own and nothing more.
+  getStaffDocuments: (params) => staffRequest('documents/', {}, params),
+  uploadStaffDocument: (formData) =>
+    staffRequest('documents/', { method: 'POST', body: formData }),
+  deleteStaffDocument: (id) =>
+    staffRequest(`documents/${id}/`, { method: 'DELETE' }),
+
   createStaffProfile: (payload) => staffRequest('profiles/', { method: 'POST', body: payload }),
   updateStaffProfile: (id, payload) =>
     staffRequest(`profiles/${id}/`, { method: 'PATCH', body: payload }),
@@ -1578,6 +1624,13 @@ Object.assign(api, {
   correctAttendance: (id, payload) =>
     staffRequest(`attendance/${id}/correct/`, { method: 'POST', body: payload }),
   getTimesheet: (params) => staffRequest('timesheet/', {}, params),
+
+  // Muster roll: leave and weekly-off marks. Owner-only on the server.
+  // createDayMark upserts on (staff, date) -- posting a day that already has a
+  // mark changes its kind, which is how the grid cycles a cell.
+  getDayMarks: (params) => staffRequest('day-marks/', {}, params),
+  createDayMark: (payload) => staffRequest('day-marks/', { method: 'POST', body: payload }),
+  deleteDayMark: (id) => staffRequest(`day-marks/${id}/`, { method: 'DELETE' }),
 
   // Performance. Operational only -- this endpoint has no access to a rate, a
   // payslip or a ledger, which is why a Master may read it.
@@ -1640,4 +1693,38 @@ Object.assign(api, {
   // Payout. No amount in the body, ever: the server pays the approved net.
   recordPayout: (recordId, payload) =>
     payrollRequest(`records/${recordId}/payout/`, { method: 'POST', body: payload }),
+});
+
+// --- Finance: manual costs and the P&L ------------------------------------
+// Its own base path and helper, like staff/payroll above. Multipart-aware for
+// the same reason the staff helper is: an expense can carry a receipt file.
+const financeUrl = (path, params = {}) => {
+  const url = new URL(`${BASE_URL}/finance/${path}`);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') url.searchParams.append(k, v);
+  });
+  return url.toString();
+};
+
+const financeRequest = async (path, { method = 'GET', body } = {}, params) => {
+  const isMultipart = typeof FormData !== 'undefined' && body instanceof FormData;
+  const res = await fetch(financeUrl(path, params), {
+    method,
+    headers: getHeaders(isMultipart),
+    ...(body ? { body: isMultipart ? body : JSON.stringify(body) } : {}),
+  });
+  const raw = await res.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { /* not JSON */ }
+  if (!res.ok) throw new Error(describeApiError(res, data));
+  return data;
+};
+
+Object.assign(api, {
+  getProfitLoss: (params) => financeRequest('profit-loss/', {}, params),
+  getExpenses: (params) => financeRequest('expenses/', {}, params),
+  // FormData when a receipt is attached, plain JSON otherwise -- the helper
+  // detects which and sets the header accordingly.
+  createExpense: (body) => financeRequest('expenses/', { method: 'POST', body }),
+  deleteExpense: (id) => financeRequest(`expenses/${id}/`, { method: 'DELETE' }),
 });

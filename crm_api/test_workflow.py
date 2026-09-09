@@ -1551,15 +1551,15 @@ class ReassignmentTests(WorkflowTestBase):
         self.assertIsNotNone(note)
         self.assertEqual(note.recipient_role, self.other.role)
 
-    def test_a_specialist_master_is_notified_under_their_own_role(self):
-        cutting = Tailor.objects.create(
-            name="Ravi Pattern", specialty="Cutting", role="Cutting Master",
+    def test_a_specialist_is_notified_under_their_own_role(self):
+        karigar = Tailor.objects.create(
+            name="Ravi Karigar", specialty="Handwork", role="Karigar",
             status="Available")
-        self._reassign_to(cutting)
+        self._reassign_to(karigar)
         from crm_api.models import Notification
         note = Notification.objects.filter(
             title__contains=self.order.order_id).order_by('-id').first()
-        self.assertEqual(note.recipient_role, 'Cutting Master')
+        self.assertEqual(note.recipient_role, 'Karigar')
 
     def test_a_plain_edit_does_not_touch_assignment(self):
         from crm_api.models import Notification
@@ -1692,7 +1692,7 @@ class ReversalTests(WorkflowTestBase):
             password="qcpass123", first_name="Quill",
         )
         Tailor.objects.create(
-            name="Quill", specialty="QC", role="QC Master",
+            name="Quill", specialty="QC", role="QC Staff",
             status="Available", user=qc_user,
         )
         order = self.make_order()

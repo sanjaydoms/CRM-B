@@ -398,7 +398,7 @@ class AssignmentRoleBoundaryTests(AssignmentTestCase):
         self.assertEqual(self._assign(self.lehenga_job, self.meera, client=tailor).status_code, 403)
 
     def test_a_qc_master_is_not_a_design_supervisor(self):
-        qc = self._staff_client("QC Master", "qc@assign.test")
+        qc = self._staff_client("QC Staff", "qc@assign.test")
         self.assertEqual(qc.get(reverse('design-assignment-list')).status_code, 403)
 
     def test_a_supervisor_submitting_on_behalf_is_recorded_as_themselves(self):

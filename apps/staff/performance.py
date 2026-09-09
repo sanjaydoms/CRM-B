@@ -282,7 +282,7 @@ def quality_metrics(staff, start, end):
     period = dict(created_at__date__gte=start, created_at__date__lte=end)
     # Two different facts, kept apart. `inspected` is how much checking this
     # person DID; the pass and rework rates are about work they were checked ON.
-    # Merged with an OR -- which this used to do -- a QC Master who inspects
+    # Merged with an OR -- which this used to do -- a QC Staff who inspects
     # four of somebody else's garments and rejects three reports a 75% rework
     # rate against their own name, for defects they found rather than made.
     #
@@ -422,8 +422,8 @@ def staff_metrics(staff, start, end, *, profile=None):
 
 
 #: What each role is actually measured on. Not one generic set pretending a
-#: presser and a designer do the same job: a QC Master's inspections mean
-#: something a Cutting Master's do not, and a set that fits everybody fits
+#: presser and a designer do the same job: a QC Staff's inspections mean
+#: something a Karigar's do not, and a set that fits everybody fits
 #: nobody. Roles absent here fall back to DEFAULT_KPIS.
 ROLE_KPIS = {
     'Tailor': ('attendance.worked_hours', 'productivity.completed',
@@ -436,20 +436,16 @@ ROLE_KPIS = {
     'Master': ('attendance.worked_hours', 'productivity.in_period',
                'productivity.completion_rate', 'timeliness.on_time_rate',
                'reliability.outstanding_assignments'),
-    'Cutting Master': ('attendance.worked_hours', 'productivity.completed',
-                       'timeliness.on_time_rate', 'quality.rework_rate'),
-    'Measurement Master': ('attendance.worked_hours', 'productivity.completed',
-                           'timeliness.on_time_rate'),
-    'Pattern Master': ('attendance.worked_hours', 'productivity.completed',
-                       'timeliness.on_time_rate', 'quality.rework_rate'),
     'Maggam Master': ('attendance.worked_hours', 'productivity.completed',
                       'productivity.completion_rate', 'quality.rework_rate'),
-    'Finishing Master': ('attendance.worked_hours', 'productivity.completed',
-                         'timeliness.on_time_rate', 'quality.rework_rate'),
-    'Pressing Staff': ('attendance.worked_hours', 'productivity.completed',
+    # Handwork, same shape as the Maggam Master above it: what matters is how
+    # much came off the frame and how much of it came back.
+    'Karigar': ('attendance.worked_hours', 'productivity.completed',
+                'productivity.completion_rate', 'quality.rework_rate'),
+    'Packaging Staff': ('attendance.worked_hours', 'productivity.completed',
                        'timeliness.on_time_rate'),
-    'QC Master': ('attendance.worked_hours', 'quality.inspected',
-                  'quality.pass_rate', 'timeliness.on_time_rate'),
+    'QC Staff': ('attendance.worked_hours', 'quality.inspected',
+                 'quality.pass_rate', 'timeliness.on_time_rate'),
 }
 
 DEFAULT_KPIS = ('attendance.worked_hours', 'productivity.completed',

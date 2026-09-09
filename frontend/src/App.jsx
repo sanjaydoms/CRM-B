@@ -6,7 +6,7 @@ import {
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu,
-  PenTool, Settings, RotateCw, Clock
+  PenTool, Settings, RotateCw, Clock, Wallet
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
@@ -30,6 +30,7 @@ const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary')
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
 const StaffPanel = lazy(() => import('./features/staff/StaffPanel'));
+const FinancePanel = lazy(() => import('./features/finance/FinancePanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 import { MobileHeader } from './components/ui/MobileHeader';
@@ -43,6 +44,46 @@ import { ResponsiveCard } from './components/ui/ResponsiveCard';
 import { ProgressiveAccordion } from './components/ui/ProgressiveAccordion';
 
 /** Placeholder shown while a lazily loaded screen arrives. */
+// Whole-rupee money for the dashboard, Indian digit grouping. Paise are
+// noise at a glance; the detail screens keep them.
+const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
+// One avatar for every user surface. Shows the person's uploaded photo when
+// they have one, otherwise their initial on a filled circle -- never the stock
+// stranger that used to be hardcoded here. Fills whatever circle wraps it.
+const UserAvatar = ({ user, size }) => {
+  const url = resolveMediaUrl(user?.profile_photo || '');
+  const initial = (user?.first_name || user?.name || user?.email || 'U').trim().charAt(0).toUpperCase();
+  const box = size ? { width: size, height: size } : { width: '100%', height: '100%' };
+  if (url) {
+    return <img src={url} alt="" style={{ ...box, borderRadius: '50%', objectFit: 'cover' }} />;
+  }
+  return (
+    <div style={{ ...box, borderRadius: '50%', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', background: '#0f291e', color: '#fff',
+                  fontWeight: 600, fontSize: size ? size * 0.42 : '1em' }}>
+      {initial}
+    </div>
+  );
+};
+
+// Live date + time for the dashboard header. Ticks once a minute -- seconds add
+// motion nobody reads and a re-render every second for no reason.
+const HeaderClock = () => {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
+  const date = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return (
+    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+      {date} · <b style={{ color: 'var(--text-primary)' }}>{time}</b>
+    </span>
+  );
+};
+
 const ScreenLoading = () => (
   <div style={{ padding: '48px', textAlign: 'center', color: '#8a8a8a' }}>Loading...</div>
 );
@@ -56,14 +97,13 @@ const SUPERVISOR_ROLES = ['Master'];
 
 // Everyone who works on garments. resolve_user_role returns the Tailor
 // profile's role verbatim, so a boutique that has split its floor produces
-// seven role strings beyond 'Tailor' and 'Master' -- and get_default_workflow
+// role strings beyond 'Tailor' and 'Master' -- and get_default_workflow
 // permits each of them on a specific stage. Comparing against the two literal
 // names stranded every specialist: routed to a tab their own nav does not
 // contain, and shown an order's money that the permission matrix says
 // production staff must not see.
 const PRODUCTION_ROLES = [
-  'Tailor', 'Master', 'Measurement Master', 'Pattern Master', 'Cutting Master',
-  'Maggam Master', 'Finishing Master', 'Pressing Staff', 'QC Master',
+  'Tailor', 'Master', 'Maggam Master', 'Karigar', 'Packaging Staff', 'QC Staff',
 ];
 const isProductionStaff = (role) => PRODUCTION_ROLES.includes(role);
 
@@ -124,13 +164,10 @@ const APPOINTMENT_TYPE_LABELS = {
 const STAFF_ROLES = [
   { value: 'Tailor', label: 'Stitching Tailor', hint: 'Stitches the garment.' },
   { value: 'Master', label: 'Master Tailor (generalist)', hint: 'Can work on every stage.' },
-  { value: 'Measurement Master', label: 'Measurement Master', hint: 'Takes and verifies client measurements.' },
-  { value: 'Pattern Master', label: 'Pattern Master', hint: 'Drafts the paper pattern.' },
-  { value: 'Cutting Master', label: 'Cutting Master', hint: 'Cuts fabric from the pattern.' },
   { value: 'Maggam Master', label: 'Maggam Master', hint: 'Runs embroidery before stitching.' },
-  { value: 'Finishing Master', label: 'Finishing Master', hint: 'Hemming and final shaping.' },
-  { value: 'Pressing Staff', label: 'Pressing Staff', hint: 'Presses the garment before dispatch.' },
-  { value: 'QC Master', label: 'QC Master', hint: 'Runs the quality inspection.' },
+  { value: 'Karigar', label: 'Karigar', hint: 'Handwork on the frame, alongside the Maggam Master.' },
+  { value: 'Packaging Staff', label: 'Packaging Staff', hint: 'Packs the garment before dispatch.' },
+  { value: 'QC Staff', label: 'QC Staff', hint: 'Runs the quality inspection.' },
 ];
 
 // Where a design came from. Mirrors DesignPreference.SOURCE_CHOICES.
@@ -855,6 +892,156 @@ function NetworkActivityBar() {
   );
 }
 
+/* ── NAVIGATION ─────────────────────────────────────────────────────────────
+   One table, three surfaces: the dashboard sidebar, the order-selector sidebar
+   and the phone bottom bar. They were three hand-kept lists and had already
+   drifted -- the selector sidebar never gained the Staff entry the dashboard
+   sidebar has, and the bottom bar had no Designer branch at all, so a designer
+   on a phone was offered "My Assignments", a tab their own sidebar does not
+   contain. Read from one place they cannot drift again. */
+
+/* The server module behind each tab, keyed by the dashboardTab VALUE rather
+   than by its label -- a renamed tab must not quietly lose its gate.
+
+   `null` means nothing on the server can switch it off: overview, orders,
+   customers, assignments, account and settings ride ALWAYS_ON or STRUCTURAL
+   prefixes (core/modules.py). Invoices and Analytics are computed in the
+   browser out of orders already fetched -- CLIENT_ONLY, no endpoint of their
+   own -- so there is no module key to invent for them and they stay visible
+   for everyone. */
+const NAV_MODULE = {
+  overview: null,
+  orders: null,
+  customers: null,
+  assignments: null,
+  invoices: null,
+  analytics: null,
+  account: null,
+  settings: null,
+  designs: 'design_studio',
+  designWork: 'design_studio',
+  fabrics: 'fabrics',
+  inventory: 'inventory',
+  staff: 'staff',
+  finance: 'finance',
+};
+
+/* Hiding a tab is a courtesy; the server is the control and refuses the call
+   either way. So a user object carrying no `modules` -- an older token, a
+   login cached before the field existed -- sees everything: a workspace that
+   blanks its own navigation because one field is absent is worse than one
+   offering a tab the server will turn down. */
+const hasModule = (user, key) =>
+  !key || !Array.isArray(user?.modules) || user.modules.includes(key);
+
+/* `tab in NAV_MODULE`, not a truthy lookup on it. A tab MISSING from the table
+   read exactly like one deliberately set to `null`, so a tab added later
+   without a NAV_MODULE row was silently visible to every role -- a Tailor
+   offered a screen nobody decided to give them, and no way to notice.
+   A dev-time warning rather than a second UNGATED set: the table above already
+   enumerates the deliberate ones as explicit nulls, and a parallel list is one
+   more thing to forget. Still fails open, for the reason in the paragraph
+   above -- the point is that the mistake now says so out loud. */
+const canSeeTab = (user, tab) => {
+  if (import.meta.env.DEV && !(tab in NAV_MODULE)) {
+    console.warn(`canSeeTab: no NAV_MODULE row for "${tab}" -- showing it to every role. Add a module key, or an explicit null if that is meant.`);
+  }
+  return hasModule(user, NAV_MODULE[tab]);
+};
+
+/* Grouped by what the owner is DOING, not by the order the screens were built
+   in. `phone` marks the few entries the bottom bar carries, `phoneLabel` the
+   shorter wording it uses where the sidebar's would wrap. */
+const navSectionsFor = (user, t) => {
+  const role = user?.role;
+  const sections =
+    (!role || role === 'Owner') ? [
+      { key: 'daily', label: t('nav.groups.daily', 'Daily'), items: [
+        { tab: 'overview', icon: Users, label: t('nav.dashboard'), phone: true },
+        { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
+        { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
+      ] },
+      { key: 'design', label: t('nav.groups.design', 'Design'), items: [
+        { tab: 'designs', icon: Sparkles, label: t('nav.manageDesigns') },
+        { tab: 'designWork', icon: PenTool, label: t('nav.designWork') },
+      ] },
+      // Fabrics used to sit apart from Inventory in one flat list of eleven,
+      // and the roster apart from the employment screen that extends it, so
+      // finding anything meant reading all eleven.
+      { key: 'stock', label: t('nav.groups.stock', 'Stock'), items: [
+        { tab: 'fabrics', icon: Compass, label: t('nav.manageFabrics') },
+        { tab: 'inventory', icon: Package, label: t('nav.inventory'), phone: true },
+      ] },
+      // Manage Tailors is WHO works here; Staff Management is their
+      // employment, time and pay. The pairing is the point of the group.
+      { key: 'people', label: t('nav.groups.people', 'People'), items: [
+        { tab: 'staff', icon: Landmark, label: t('nav.staffManagement') },
+      ] },
+      { key: 'business', label: t('nav.groups.business', 'Business'), items: [
+        { tab: 'finance', icon: Wallet, label: t('nav.finance', 'Cost & P&L') },
+        { tab: 'invoices', icon: FileText, label: t('nav.invoices') },
+        { tab: 'analytics', icon: BarChart2, label: t('nav.analytics') },
+      ] },
+    ] : role === 'Master' ? [
+      { key: 'master', items: [
+        { tab: 'assignments', icon: Scissors, label: t('nav.myAssignments'), phone: true },
+        { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
+        { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
+        // A Master supervises the floor, so they get the team roster. The
+        // screen hides every management control for them and the API strips
+        // colleagues' pay from the response -- see StaffSelfOrOwner.
+        { tab: 'staff', icon: Landmark, label: t('nav.staffManagement') },
+        { tab: 'designWork', icon: PenTool, label: t('nav.designWork') },
+      ] },
+    ] : role === 'Designer' ? [
+      { key: 'designer', items: [
+        { tab: 'designWork', icon: PenTool, label: t('nav.myWork'), phone: true },
+        { tab: 'designs', icon: Sparkles, label: t('nav.designStudio') },
+      ] },
+    ] : [
+      { key: 'production', items: [
+        { tab: 'assignments', icon: Scissors, label: t('nav.myAssignments'), phone: true },
+        // Production staff record their own hours here. Labelled for what it
+        // is to them -- the screen opens on Attendance and shows only their
+        // own record. Without this entry a tailor cannot check in at all.
+        { tab: 'staff', icon: Clock, label: t('nav.myAttendance') },
+      ] },
+    ];
+
+  // A rule rather than a heading: these are the way OUT of the workspace, not
+  // another room in it. Shared by every role, so a tailor with two entries
+  // gets the same separation as the owner with eleven. Account takes a slot on
+  // the bottom bar only for the roles whose own section cannot fill it.
+  const roomy = !role || role === 'Owner' || role === 'Master';
+  return [...sections, { key: 'session', divider: true, items: [
+    { tab: 'account', icon: User, label: t('nav.account'), phone: !roomy },
+    { tab: 'settings', icon: Settings, label: t('nav.settings') },
+  ] }];
+};
+
+/* Drop what this user cannot reach, then drop any group left with nothing
+   under it -- otherwise the sidebar grows headings over empty space. */
+const visibleNav = (user, t) => navSectionsFor(user, t)
+  .map((section) => ({ ...section, items: section.items.filter((i) => canSeeTab(user, i.tab)) }))
+  .filter((section) => section.items.length);
+
+/** The sidebar list. `onPick` differs by view: the order selector has to leave
+    itself for the dashboard before a tab means anything. */
+function PortalMenu({ sections, activeTab, onPick }) {
+  return sections.map((section) => (
+    <React.Fragment key={section.key}>
+      {section.divider && <div className="portal-menu-divider" />}
+      {section.label && <div className="portal-menu-group">{section.label}</div>}
+      {section.items.map(({ tab, icon: Icon, label }) => (
+        <a key={tab} className={`portal-menu-item ${activeTab === tab ? 'active' : ''}`} onClick={() => onPick(tab)}>
+          <Icon size={16} /> {label}
+        </a>
+      ))}
+    </React.Fragment>
+  ));
+}
+
+
 function App() {
   // The marketing site is static HTML at / and no longer a view in here -- see
   // frontend/index.html. This bundle is the workspace, served from /app, so it
@@ -868,10 +1055,23 @@ function App() {
   // swallow the link without ever showing the form.
   const [view, setView] = useState(
     () => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login');
-  const [dashboardTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs'
+  const [requestedTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs' -- resolved into dashboardTab below
   const [currentUser, setCurrentUser] = useState(null);
   const { t, language } = useLanguage();
   const currentUserName = currentUser?.first_name || currentUser?.name || currentUser?.email?.split('@')[0] || 'User';
+
+  // Every navigation surface reads this one list -- see NAV_MODULE above.
+  const navSections = visibleNav(currentUser, t);
+
+  // The tab actually shown, which is not always the tab that was asked for.
+  // The opening tab is picked from the role alone (checkAuthSession,
+  // handleLoginSubmit) and a restored session is where that goes stale: the
+  // owner may have closed that module for the role since, leaving a screen
+  // that 403s on every call it makes. Hiding the sidebar entry does not help
+  // on its own -- nothing stops a stale requestedTab from still pointing at
+  // it -- so resolve it here, where a hidden tab simply never renders.
+  const navTabs = navSections.flatMap((s) => s.items.map((i) => i.tab));
+  const dashboardTab = (!navTabs.length || navTabs.includes(requestedTab)) ? requestedTab : navTabs[0];
 
   
   // Login Form State
@@ -1030,24 +1230,12 @@ function App() {
   const [fabricPhotoBusy, setFabricPhotoBusy] = useState(false);
 
   // Tailors CRUD State
-  const [showTailorModal, setShowTailorModal] = useState(false);
-  const [editingTailor, setEditingTailor] = useState(null);
-  const [tailorSaving, setTailorSaving] = useState(false);
-  const [shareCredsTailor, setShareCredsTailor] = useState(null);
   // Recording a payment: which row is in flight, and what went wrong. Shown in
   // the Invoices header rather than through alert() -- a modal dialog over a
   // ledger the owner is reading down is the wrong shape for "that did not save".
   const [wizardError, setWizardError] = useState(null);
   const [savingPaymentId, setSavingPaymentId] = useState(null);
   const [paymentError, setPaymentError] = useState(null);
-  const [tailorForm, setTailorForm] = useState({
-    name: '',
-    email: '',
-    specialty: '',
-    rating: 5.0,
-    status: 'Available',
-    role: 'Tailor'
-  });
 
   // Designs CRUD State
   const [showDesignModal, setShowDesignModal] = useState(false);
@@ -1697,17 +1885,29 @@ function App() {
     });
 
     await load('orders', api.getOrders, setOrdersList);
-    await load('tailors', api.getTailors, setTailors);
+
+    // Dashboard, customers, orders and settings above and below ride ALWAYS_ON
+    // or STRUCTURAL prefixes and always answer. These do not: /api/tailors/,
+    // /api/scheduling/, /api/fabrics/, /api/boutique-designs/ and
+    // /api/notifications/ each sit behind a module, and this ran them
+    // unconditionally for every signed-in role -- so a Tailor, whose defaults
+    // carry none of the first four, took four 403s on every single boot and
+    // got four collections named in `loadErrors` as "could not load" for data
+    // they were never meant to have. Same list the nav gates on, so a fetch
+    // and its screen can no longer disagree about what this user has.
+    if (hasModule(user, 'tailors')) await load('tailors', api.getTailors, setTailors);
     // The panel this fills says Upcoming, so it asks for upcoming: past
     // bookings and cancelled ones are history, not the day ahead.
-    await load('appointments', () => api.getAppointments({ upcoming: 'true' }), setAppointments);
-    await load('fabrics', api.getFabrics, setFabrics);
-    await load('designs', api.getAllBoutiqueDesigns, setAllDesigns);
+    if (hasModule(user, 'scheduling')) await load('appointments', () => api.getAppointments({ upcoming: 'true' }), setAppointments);
+    if (hasModule(user, 'fabrics')) await load('fabrics', api.getFabrics, setFabrics);
+    if (hasModule(user, 'design_studio')) await load('designs', api.getAllBoutiqueDesigns, setAllDesigns);
     await load('settings', api.getBoutiqueSettings, (data) => {
       setBoutiqueSettings(data);
       setBoutiqueTimeZone(data?.timezone);
     });
-    await load('notifications', () => fetchNotifications(user), () => {});
+    // Gateable like the four above, and the bell is on every screen -- but a
+    // boutique that has switched notifications off has no bell to fill.
+    if (hasModule(user, 'notifications')) await load('notifications', () => fetchNotifications(user), () => {});
 
     if (!user?.role || user.role === 'Owner') {
       await load('customer messages', api.getQueuedCustomerMessages, setQueuedMessages);
@@ -1876,47 +2076,6 @@ function App() {
       alert("Could not cancel the appointment: " + err.message);
     } finally {
       setSavingAppointment(false);
-    }
-  };
-
-  const handleSaveTailor = async (e) => {
-    e.preventDefault();
-    if (tailorSaving) return;
-    setTailorSaving(true);
-    try {
-      const payload = {
-        ...tailorForm,
-        rating: parseFloat(tailorForm.rating) || 5.0
-      };
-      const saved = editingTailor
-        ? await api.updateTailor(editingTailor.id, payload)
-        : await api.createTailor(payload);
-      setShowTailorModal(false);
-      setEditingTailor(null);
-      setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
-      fetchDashboardAndConfig();
-      // The server generates this account's password and returns it on this one
-      // response, never again -- so if it is here, show it now. Opening the
-      // share panel straight away is the point: closing this without reading it
-      // means the only way to give them a password is a reset link.
-      if (saved && saved.bootstrap_password) {
-        setShareCredsTailor(saved);
-      }
-    } catch (err) {
-      alert("Failed to save tailor: " + err.message);
-    } finally {
-      setTailorSaving(false);
-    }
-  };
-
-  const handleDeleteTailor = async (id) => {
-    if (window.confirm("Are you sure you want to delete this tailor?")) {
-      try {
-        await api.deleteTailor(id);
-        fetchDashboardAndConfig();
-      } catch (err) {
-        alert("Failed to delete tailor: " + err.message);
-      }
     }
   };
 
@@ -2491,7 +2650,7 @@ function App() {
 
     // Work that has reached a stage this role performs, which nobody had to
     // hand over first. The three clauses above are all personal attachment: a
-    // QC Master is never order.tailor (the stitcher) or order.master (the
+    // QC Staff is never order.tailor (the stitcher) or order.master (the
     // supervisor), so before this the dashboard re-filtered the server's queue
     // straight back out and showed them nothing.
     //
@@ -2562,11 +2721,11 @@ function App() {
 
   // Who may actually be given the stitching.
   //
-  // These pickers filtered `t.role !== 'Master'`, which passes all SEVEN
-  // specialist roles -- Measurement, Pattern, Cutting, Maggam, Finishing,
-  // Pressing and QC Master -- while get_default_workflow restricts both
+  // These pickers filtered `t.role !== 'Master'`, which passes every
+  // specialist role -- Maggam, Karigar, Pressing and QC -- while
+  // get_default_workflow restricts both
   // stitching stages to ["Owner", "Tailor"]. So the owner could hand the
-  // stitching to the Finishing Master, the order was accepted, and that person
+  // stitching to the Maggam Master, the order was accepted, and that person
   // could see it and never advance it: transition_order_stage refuses their
   // role. The order sat until the owner worked out what had happened.
   //
@@ -2661,10 +2820,16 @@ function App() {
     { key: 'boutique', label: 'Create your boutique', done: true },
     { key: 'customer', label: 'Add your first customer', done: customersList.length > 0, go: () => setView('order-selector') },
     { key: 'order', label: 'Create your first order', done: ordersList.length > 0, go: () => setView('order-selector') },
-    { key: 'staff', label: 'Add your staff (tailors & designers)', done: tailors.length > 0, go: () => setDashboardTab('tailors') },
-    { key: 'fabrics', label: 'Set up your fabric library', done: fabrics.length > 0, go: () => setDashboardTab('fabrics') },
-    { key: 'production', label: 'Move an order through production', done: ordersList.some(o => o.order_status && o.order_status !== 'Received'), go: () => setDashboardTab('orders') },
-  ];
+    { key: 'staff', label: 'Add your staff (tailors & designers)', done: tailors.length > 0, tab: 'staff', go: () => setDashboardTab('staff') },
+    { key: 'fabrics', label: 'Set up your fabric library', done: fabrics.length > 0, tab: 'fabrics', go: () => setDashboardTab('fabrics') },
+    { key: 'production', label: 'Move an order through production', done: ordersList.some(o => o.order_status && o.order_status !== 'Received'), tab: 'orders', go: () => setDashboardTab('orders') },
+    // A step whose screen this boutique cannot open is not a step it can ever
+    // finish: `done` stays false forever, so the checklist never completes and
+    // never stops nagging, and the arrow does nothing when clicked -- the
+    // requested tab is gated, the derived dashboardTab keeps the old one, and
+    // the row just sits there. Drop the instruction rather than give an
+    // instruction that cannot be followed.
+  ].filter((step) => !step.tab || canSeeTab(currentUser, step.tab));
   const showOnboarding = !loading && !onboardingDismissed && onboardingSteps.some(step => !step.done);
   return (
     <div className="app-container">
@@ -3213,146 +3378,17 @@ function App() {
               <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             </div>
 
-            <div className="desktop-inbox-alert-btn" style={{ padding: '0 20px', marginBottom: '16px', marginTop: '16px' }}>
-              <button
-                disabled={markingNotificationsRead}
-                onClick={() => {
-                  setShowNotificationsDrawer(true);
-                  if (markingNotificationsRead) return;
-                  setMarkingNotificationsRead(true);
-                  api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
-                    .then(() => fetchNotifications())
-                    // Never let the bell take the app down: a refused or failed
-                    // mark-read is not worth losing the session over.
-                    .catch(() => {})
-                    .finally(() => setMarkingNotificationsRead(false));
-                }}
-                className="btn-secondary"
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px',
-                  position: 'relative',
-                  padding: '10px 16px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border-color)',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: 'var(--text-primary)',
-                  backgroundColor: 'rgba(0,0,0,0.02)'
-                }}
-              >
-                <Bell size={16} />
-                <span>{t('common.inboxAlerts', 'Inbox Alerts')}</span>
-                {notifications.filter(n => !n.is_read).length > 0 && (
-                  <span style={{
-                    backgroundColor: '#ff4d4d',
-                    color: '#fff',
-                    borderRadius: '10px',
-                    padding: '2px 8px',
-                    fontSize: '10px',
-                    fontWeight: 700
-                  }}>
-                    {notifications.filter(n => !n.is_read).length}
-                  </span>
-                )}
-              </button>
-            </div>
 
             <nav className="portal-menu">
-              {(!currentUser.role || currentUser.role === 'Owner') ? (
-                <>
-                  {/* Grouped by what the owner is DOING, not by the order the
-                      screens were built in. Eleven entries in one flat list meant
-                      fabrics sat apart from inventory, and the roster apart from
-                      the employment screen that extends it, so finding anything
-                      meant reading all eleven. The runs below follow a boutique's
-                      own shape: the daily loop first, then what goes into the
-                      work, then the people who do it, then the books. */}
-                  <div className="portal-menu-group">{t('nav.groups.daily', 'Daily')}</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.dashboard')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
-
-                  <div className="portal-menu-group">{t('nav.groups.design', 'Design')}</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.manageDesigns')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
-
-                  <div className="portal-menu-group">{t('nav.groups.stock', 'Stock')}</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> {t('nav.manageFabrics')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> {t('nav.inventory')}</a>
-
-                  {/* Manage Tailors is WHO works here; Staff Management is their
-                      employment, time and pay. They were already neighbours and
-                      stay that way -- the pairing is the point of the group. */}
-                  <div className="portal-menu-group">{t('nav.groups.people', 'People')}</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.manageTailors')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> {t('nav.staffManagement')}</a>
-
-                  <div className="portal-menu-group">{t('nav.groups.business', 'Business')}</div>
-                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> {t('nav.invoices')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> {t('nav.analytics')}</a>
-                </>
-              ) : currentUser.role === 'Master' ? (
-                <>
-                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
-                  {/* A Master supervises the floor, so they get the team roster.
-                      The screen hides every management control for them and the
-                      API strips colleagues' pay from the response -- see
-                      StaffSelfOrOwner. */}
-                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> {t('nav.staffManagement')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
-                </>
-              ) : currentUser.role === 'Designer' ? (
-                <>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.myWork')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.designStudio')}</a>
-                </>
-              ) : (
-                <>
-                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
-                  {/* Production staff record their own hours here. Labelled for
-                      what it is to them -- the screen behind it opens on
-                      Attendance and shows only their own record. Without this
-                      entry a tailor has no way to check in at all. */}
-                  <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Clock size={16} /> {t('nav.myAttendance')}</a>
-                </>
-              )}
-              {/* A rule rather than a heading: these two are the way OUT of the
-                  workspace, not another room in it. Shared by every role, so a
-                  tailor with two menu items gets the same separation as the
-                  owner with eleven. */}
-              <div className="portal-menu-divider" />
-              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> {t('nav.account')}</a>
-              <a className={`portal-menu-item ${dashboardTab === 'settings' ? 'active' : ''}`} onClick={() => { setDashboardTab('settings'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Settings size={16} /> {t('nav.settings')}</a>
+              <PortalMenu
+                sections={navSections}
+                activeTab={dashboardTab}
+                onPick={(tab) => { setDashboardTab(tab); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}
+              />
               <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
             </nav>
 
 
-            <div className="portal-sidebar-footer">
-              {/* Opened wa.me/919876543210 -- an invented number belonging to
-                  a real stranger, offered to boutique staff as their "style
-                  concierge". Rendered only when the boutique has given its own
-                  number, and pointed at that. */}
-              {boutiqueSettings?.phone && (
-                <div className="portal-sidebar-help">
-                  <h4 style={{ fontSize: '12px', fontWeight: 700 }}>Need Help?</h4>
-                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Message your boutique directly.</p>
-                  <button
-                    className="whatsapp-btn"
-                    style={{ width: '100%', padding: '6px', fontSize: '11px' }}
-                    onClick={() => window.open(`https://wa.me/${String(boutiqueSettings.phone).replace(/\D/g, '')}`)}
-                  >
-                    <MessageSquare size={12} />
-                    Chat Now
-                  </button>
-                </div>
-              )}
-            </div>
           </aside>
 
           {/* Main Content Area */}
@@ -3749,6 +3785,7 @@ function App() {
                         {t('dashboard.welcomeBackUser', `Welcome back, ${currentUserName}! 👋`, { name: currentUserName })}
                       </h1>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('dashboard.subtitle')}</p>
+                      <div style={{ marginTop: '6px' }}><HeaderClock /></div>
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -3767,9 +3804,38 @@ function App() {
                       <Sparkles size={16} />
                       {t('dashboard.newOrder')}
                     </button>
+                    {/* Notification alerts, moved out of the sidebar to sit with
+                        the profile on the top right. Opens the same drawer and
+                        marks unread on open, exactly as the sidebar button did. */}
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={markingNotificationsRead}
+                      title={t('common.inboxAlerts', 'Inbox Alerts')}
+                      aria-label={t('common.inboxAlerts', 'Inbox Alerts')}
+                      onClick={() => {
+                        setShowNotificationsDrawer(true);
+                        if (markingNotificationsRead) return;
+                        setMarkingNotificationsRead(true);
+                        api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
+                          .then(() => fetchNotifications())
+                          .catch(() => {})
+                          .finally(() => setMarkingNotificationsRead(false));
+                      }}
+                      style={{ position: 'relative', display: 'flex', alignItems: 'center',
+                               gap: '6px', padding: '8px 12px', fontSize: '13px' }}
+                    >
+                      <Bell size={16} />
+                      {notifications.filter(n => !n.is_read).length > 0 && (
+                        <span style={{ backgroundColor: '#ff4d4d', color: '#fff', borderRadius: '10px',
+                                       padding: '1px 7px', fontSize: '10px', fontWeight: 700 }}>
+                          {notifications.filter(n => !n.is_read).length}
+                        </span>
+                      )}
+                    </button>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
                       <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
@@ -3829,88 +3895,223 @@ function App() {
                   </section>
                 )}
 
-                {/* Quick Action Grid */}
-                <section className="quick-action-button-grid">
-                  <div className="quick-action-item" onClick={() => setView('order-selector')}>
-                    <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
-                    <h4>{t('dashboard.newOrder')}</h4>
-                    <p>{t('dashboard.startCustomOrder', 'Start custom order')}</p>
-                  </div>
-                  <div className="quick-action-item" onClick={() => setDashboardTab('tailors')}>
-                    <div className="quick-action-icon-box"><Scissors size={18} /></div>
-                    <h4>{t('dashboard.manageStaff', 'Manage Staff')}</h4>
-                    <p>{t('dashboard.tailorsStatus', 'Tailors & status')}</p>
-                  </div>
-                  <div className="quick-action-item" onClick={() => setDashboardTab('designs')}>
-                    <div className="quick-action-icon-box"><Heart size={18} /></div>
-                    <h4>{t('dashboard.designCatalog', 'Design Catalog')}</h4>
-                    <p>{t('dashboard.styleCollections', 'Style collections')}</p>
-                  </div>
-                  <div className="quick-action-item" onClick={() => setDashboardTab('fabrics')}>
-                    <div className="quick-action-icon-box"><Compass size={18} /></div>
-                    <h4>{t('dashboard.fabricLibrary', 'Fabric Library')}</h4>
-                    <p>{t('dashboard.exploreFabrics', 'Explore fabrics')}</p>
-                  </div>
-                  <div className="quick-action-item" onClick={() => { setEditingAppointment(null); setAppointmentForm(blankAppointmentForm); setShowAppointmentModal(true); }}>
-                    <div className="quick-action-icon-box"><Calendar size={18} /></div>
-                    <h4>{t('dashboard.bookAppointment', 'Book Appointment')}</h4>
-                    <p>{t('dashboard.consultStylist', 'Consult with stylist')}</p>
-                  </div>
-                </section>
-
-                {/* Row Layout: Orders & Progress Tracker */}
-                <div className="dashboard-row-layout">
-                  {/* Active Orders List */}
-                  <div className="orders-list-panel">
-                    <div className="panel-header-row">
-                      <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{t('dashboard.myOrders', 'My Orders')}</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAllOrders', 'VIEW ALL ORDERS →')}</a>
+                {/* ── At-a-glance command centre ───────────────────────────
+                    Everything a boutique owner needs to read in one look:
+                    money, the order pipeline, what needs acting on, and what
+                    is happening today. All figures come from /api/dashboard/
+                    (dashboardData); empty states are written for a quiet day
+                    rather than left blank. */}
+                {(() => {
+                  const s = dashboardData?.stats || {};
+                  const today = dashboardData?.today || {};
+                  const att = dashboardData?.attention || {};
+                  const kpi = (label, value, sub, opts = {}) => (
+                    <div className="content-card" style={{ padding: '16px 18px',
+                         border: '1px solid var(--border-color)', cursor: opts.onClick ? 'pointer' : 'default' }}
+                         onClick={opts.onClick}>
+                      <div style={{ fontSize: '11px', letterSpacing: '0.07em', textTransform: 'uppercase',
+                                    color: 'var(--text-muted)' }}>{label}</div>
+                      <div style={{ fontSize: '24px', fontWeight: 600, marginTop: '6px',
+                                    color: opts.tone || 'inherit' }}>{value}</div>
+                      {sub != null && (
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{sub}</div>
+                      )}
                     </div>
+                  );
+                  return (
+                    <section style={{ display: 'grid', gap: '12px', marginBottom: '16px',
+                                      gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
+                      {kpi(t('dashboard.revenueMonth', 'Revenue this month'), inr(s.revenue_month),
+                           `${inr(s.revenue_total)} all time`, { tone: '#1e8a5c' })}
+                      {kpi(t('dashboard.toCollect', 'To collect'), inr(s.outstanding),
+                           Number(s.outstanding) > 0 ? 'across active orders' : 'all settled',
+                           { tone: Number(s.outstanding) > 0 ? '#c0864b' : 'inherit',
+                             onClick: () => setDashboardTab('orders') })}
+                      {kpi(t('dashboard.activeOrders', 'Active orders'), s.active_orders ?? 0,
+                           `${s.due_soon ?? 0} due this week${s.overdue ? ` · ${s.overdue} overdue` : ''}`,
+                           { tone: s.overdue ? '#c0392b' : 'inherit',
+                             onClick: () => setDashboardTab('orders') })}
+                      {kpi(t('dashboard.customers', 'Customers'), s.total_customers ?? 0,
+                           `${s.total_orders ?? 0} orders total`,
+                           { onClick: () => setDashboardTab('customers') })}
+                    </section>
+                  );
+                })()}
 
-
-                    {loading ? (
-                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                        Loading active orders...
+                {/* Production pipeline: where every order currently sits. */}
+                {(() => {
+                  const dist = dashboardData?.stats?.status_distribution || {};
+                  const entries = Object.entries(dist).sort((a, b) => b[1] - a[1]);
+                  const toneFor = (st) =>
+                    st === 'Delivered' ? '#1e8a5c'
+                      : st === 'Cancelled' ? 'var(--text-muted)'
+                      : '#0f291e';
+                  return (
+                    <section className="content-card" style={{ padding: '16px 18px',
+                             border: '1px solid var(--border-color)', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
+                        {t('dashboard.pipeline', 'Production pipeline')}
                       </div>
-                    ) : !dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
-                      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                        No active custom orders. Click "New Custom Order" to begin!
+                      {entries.length === 0 ? (
+                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          No orders yet. Create the first one to see it move through the floor.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          {entries.map(([st, count]) => (
+                            <div key={st} style={{ flex: '1 1 120px', minWidth: '110px',
+                                 border: '1px solid var(--border-color)', borderRadius: '10px', padding: '12px 14px' }}>
+                              <div style={{ fontSize: '22px', fontWeight: 700, color: toneFor(st) }}>{count}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{st}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })()}
+
+                {/* Two columns: what needs acting on, and what is happening today. */}
+                <div className="dashboard-row-layout" style={{ marginBottom: '16px' }}>
+                  {/* Needs attention */}
+                  <div className="content-card" style={{ padding: '16px 18px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
+                      {t('dashboard.needsAttention', 'Needs attention')}
+                    </div>
+                    {(() => {
+                      const att = dashboardData?.attention || {};
+                      const due = att.due || [];
+                      const unpaid = att.unpaid || [];
+                      const nothing = !due.length && !unpaid.length && !att.low_stock && !att.pending_designs;
+                      if (nothing) {
+                        return <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          Nothing needs you right now — no overdue orders, balances or low stock.
+                        </div>;
+                      }
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {due.map((o) => (
+                            <div key={`due-${o.id}`} onClick={() => setDashboardTab('orders')}
+                                 style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
+                                          padding: '8px 10px', borderRadius: '8px', cursor: 'pointer',
+                                          background: o.overdue ? 'rgba(220,80,60,0.10)' : 'rgba(240,136,62,0.10)' }}>
+                              <span style={{ fontSize: '13px' }}>{o.order_id} · {o.customer || 'Customer'}</span>
+                              <span style={{ fontSize: '12px', fontWeight: 600,
+                                             color: o.overdue ? '#c0392b' : '#c0864b' }}>
+                                {o.overdue ? 'Overdue' : 'Due'} {o.due ? new Date(o.due).toLocaleDateString([], { day: 'numeric', month: 'short' }) : ''}
+                              </span>
+                            </div>
+                          ))}
+                          {unpaid.map((o) => (
+                            <div key={`bal-${o.id}`} onClick={() => setDashboardTab('orders')}
+                                 style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
+                                          padding: '8px 10px', borderRadius: '8px', cursor: 'pointer',
+                                          background: 'var(--bg-color, rgba(0,0,0,0.02))' }}>
+                              <span style={{ fontSize: '13px' }}>{o.order_id} · {o.customer || 'Customer'}</span>
+                              <span style={{ fontSize: '12px', fontWeight: 600, color: '#c0864b' }}>{inr(o.balance)} due</span>
+                            </div>
+                          ))}
+                          {att.low_stock > 0 && (
+                            <div onClick={() => setDashboardTab('inventory')}
+                                 style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px',
+                                          borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
+                                          background: 'var(--bg-color, rgba(0,0,0,0.02))' }}>
+                              <span>Low stock</span>
+                              <span style={{ fontWeight: 600, color: '#c0864b' }}>{att.low_stock} item{att.low_stock === 1 ? '' : 's'}</span>
+                            </div>
+                          )}
+                          {att.pending_designs > 0 && (
+                            <div onClick={() => setDashboardTab('designWork')}
+                                 style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px',
+                                          borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
+                                          background: 'var(--bg-color, rgba(0,0,0,0.02))' }}>
+                              <span>Designs awaiting review</span>
+                              <span style={{ fontWeight: 600 }}>{att.pending_designs}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Today */}
+                  <div className="content-card" style={{ padding: '16px 18px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
+                      {t('dashboard.today', 'Today')}
+                    </div>
+                    {(() => {
+                      const today = dashboardData?.today || {};
+                      const appts = today.appointments || [];
+                      return (
+                        <>
+                          <div style={{ display: 'flex', gap: '10px', marginBottom: appts.length ? '14px' : '0' }}>
+                            <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: '10px',
+                                          padding: '10px 12px', cursor: 'pointer' }}
+                                 onClick={() => setDashboardTab('staff')}>
+                              <div style={{ fontSize: '20px', fontWeight: 700, color: '#1e8a5c' }}>{today.staff_working ?? 0}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>on the floor now</div>
+                            </div>
+                            <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: '10px',
+                                          padding: '10px 12px' }}>
+                              <div style={{ fontSize: '20px', fontWeight: 700 }}>{today.staff_present ?? 0}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>present today</div>
+                            </div>
+                          </div>
+                          {appts.length === 0 ? (
+                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                              No appointments booked for today.
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {appts.map((a) => (
+                                <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
+                                     fontSize: '13px', paddingBottom: '6px',
+                                     borderBottom: '1px solid var(--border-color)' }}>
+                                  <span><b>{a.time}</b> · {a.customer || 'Customer'}</span>
+                                  <span style={{ color: 'var(--text-secondary)' }}>{a.type}{a.with ? ` · ${a.with}` : ''}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Recent orders + quick actions. */}
+                <div className="dashboard-row-layout">
+                  <div className="orders-list-panel">
+                    <div className="panel-header-row" style={{ marginBottom: '10px' }}>
+                      <h3 style={{ fontSize: '15px', fontWeight: 600 }}>{t('dashboard.recentOrders', 'Recent orders')}</h3>
+                      <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                              onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAll', 'View all')}</button>
+                    </div>
+                    {!dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
+                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No orders yet.
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {dashboardData.recent_orders.map(order => (
-                          <div 
-                            key={order.id} 
-                            className={`order-row-card ${selectedDashboardOrder?.id === order.id ? 'active-border' : ''}`}
-                            onClick={() => setSelectedDashboardOrder(order)}
-                            style={{
-                              borderColor: selectedDashboardOrder?.id === order.id ? 'var(--text-primary)' : 'var(--border-color)'
-                            }}
-                          >
-                            <div className="order-row-thumbnail">
-                              <img 
-                                src="https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=100" 
-                                alt="Garment Thumbnail" 
-                              />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {dashboardData.recent_orders.map((order) => (
+                          <div key={order.id || order.order_id}
+                               onClick={() => setDashboardTab('orders')}
+                               style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
+                                        alignItems: 'center', padding: '10px 12px', borderRadius: '8px',
+                                        border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: '13px' }}>{order.order_id}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                {order.customer_name || order.customer || 'Customer'}
+                              </div>
                             </div>
-                            <div className="order-row-desc">
-                              <div className="order-row-id">{t('dashboard.orderId', 'Order ID:')} {order.order_id}</div>
-                              <div className="order-row-name">{order.customer_name} • {order.order_status_display || t(`status.${order.order_status}`, order.order_status)}</div>
-                              <div className="order-row-fabric">{t('ordersPage.stitchingTailor', 'Tailor')}: {order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
-                            </div>
-                            <div className="order-row-status-box">
-                              {/* Show the status the order is actually in. This
-                                  used to be a two-way test -- 'Confirmed', or
-                                  else the words "In Progress" -- so a dress that
-                                  had been finished, shipped and handed over
-                                  still read "In Progress" on the owner's
-                                  dashboard, directly beside the word Delivered.
-                                  Green for the settled states, amber while the
-                                  garment is still moving. */}
-                              <span className={`order-row-badge ${['Confirmed', 'Shipped', 'Delivered'].includes(order.order_status) ? 'confirmed' : 'in_progress'}`}>
-                                {order.order_status_display || t(`status.${order.order_status}`, order.order_status || 'In Progress')}
-                              </span>
-                              <span className="order-row-date">{t('ordersPage.estDelivery', 'Est.')} {new Date(order.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: 600, fontSize: '13px' }}>
+                                {order.total_amount != null ? inr(order.total_amount) : ''}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                {order.order_status || order.status || ''}
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -3918,359 +4119,37 @@ function App() {
                     )}
                   </div>
 
-                  {/* Order Live Tracker Sidebar */}
-                  <div className="order-detail-progress-card">
-                    <div className="panel-header-row">
-                      <h3 style={{ fontSize: '15px', fontWeight: 600 }}>{t('dashboard.orderProgress', 'Order Progress')}</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAll', 'VIEW ALL')}</a>
+                  <div className="content-card" style={{ padding: '16px 18px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
+                      {t('dashboard.quickActions', 'Quick actions')}
                     </div>
-
-                    {selectedDashboardOrder ? (
-                      <>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div style={{ fontSize: '13px', fontWeight: 600 }}>{selectedDashboardOrder.customer_name}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('dashboard.orderId', 'Order ID:')} {selectedDashboardOrder.order_id}</div>
-                        </div>
-
-                        <div style={{ marginTop: '12px', marginBottom: '16px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                            <span>{t('dashboard.productionProgress', 'PRODUCTION PROGRESS')}</span>
-                            <span>{(() => {
-                              const stages = selectedDashboardOrder.stages || [];
-                              const completed = stages.filter(s => s.status === 'COMPLETED').length;
-                              const pct = stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
-                              return `${pct}% (${completed}/${stages.length} ${t('dashboard.stages', 'Stages')})`;
-                            })()}</span>
-                          </div>
-                          <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
-                            <div style={{
-                              height: '100%',
-                              width: `${(() => {
-                                const stages = selectedDashboardOrder.stages || [];
-                                const completed = stages.filter(s => s.status === 'COMPLETED').length;
-                                return stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
-                              })()}%`,
-                              background: 'linear-gradient(90deg, #d4af37, #b07c40)',
-                              transition: 'width 0.3s ease'
-                            }}></div>
-                          </div>
-                        </div>
-
-                        <div className="order-progress-steps-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                          {(() => {
-                            const stages = selectedDashboardOrder.stages || [];
-                            return stages.map((stage, idx) => {
-                              const isCompleted = stage.status === 'COMPLETED';
-                              const isInProgress = stage.status === 'IN_PROGRESS';
-                              const isPaused = stage.status === 'PAUSED';
-                              const isSkipped = stage.status === 'SKIPPED';
-                              
-                              let statusColor = '#555'; // NOT_STARTED
-                              let statusText = 'Not Started';
-                              if (isCompleted) { statusColor = '#10b981'; statusText = 'Completed'; }
-                              else if (isInProgress) { statusColor = '#3b82f6'; statusText = 'In Progress'; }
-                              else if (isPaused) { statusColor = '#f59e0b'; statusText = 'Paused'; }
-                              else if (isSkipped) { statusColor = '#9ca3af'; statusText = 'Skipped'; }
-                              
-                              return (
-                                <div 
-                                  key={stage.id || stage.stage_key} 
-                                  className={`progress-step-item ${isCompleted ? 'completed' : isInProgress ? 'active' : ''}`}
-                                  style={{
-                                    cursor: 'pointer',
-                                    padding: '10px 12px',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-                                    background: isInProgress ? 'rgba(59, 130, 246, 0.05)' : 'rgba(255,255,255,0.01)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    margin: 0
-                                  }}
-                                  onClick={() => {
-                                    setActiveReviewStage(stage.stage_name);
-                                    setActiveReviewOrder(selectedDashboardOrder);
-                                    setSelectedStageObj(stage);
-                                    setStageReviewComments(stage.comments || '');
-                                    setStageReviewImage(null);
-                                  }}
-                                >
-                                  <div className="progress-step-dot" style={{ backgroundColor: statusColor, width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 }}></div>
-                                  <div className="progress-step-info" style={{ flex: 1, marginLeft: '12px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <span className="progress-step-title" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{stage.stage_name}</span>
-                                      <span style={{
-                                        fontSize: '8px',
-                                        padding: '1px 5px',
-                                        borderRadius: '3px',
-                                        backgroundColor: `${statusColor}1c`,
-                                        color: statusColor,
-                                        fontWeight: 700
-                                      }}>{statusText.toUpperCase()}</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
-                                      <span>{stage.performed_by_name ? `By: ${stage.performed_by_name}` : ''}</span>
-                                      <span>
-                                        {stage.completed_at ? new Date(stage.completed_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}) :
-                                         stage.started_at ? `Started: ${new Date(stage.started_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}` : ''}
-                                      </span>
-                                    </div>
-
-                                    {/* Who should do this stage, ahead of the work starting.
-                                        Only staff whose role the stage permits are offered. */}
-                                    {!isCompleted && currentUser.role === 'Owner' && (
-                                      <div
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}
-                                        onClick={e => e.stopPropagation()}
-                                      >
-                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>{t('dashboard.assign', 'Assign:')}</span>
-                                        <select
-                                          className="form-control"
-                                          style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
-                                          value={stage.assigned_to || ''}
-                                          disabled={assigningStageKey === stage.stage_key}
-                                          onChange={e => handleAssignStage(
-                                            selectedDashboardOrder.id, stage.stage_key, e.target.value
-                                          )}
-                                        >
-                                          <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
-                                          {eligibleStaffForStage(stage.stage_key).map(t => (
-                                            <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-
-                        {/* Delivery Information */}
-                        <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '12px' }}>
-                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>{t('ordersPage.deliveryMethodLabel', 'Delivery Method:')} {selectedDashboardOrder.delivery_method_display || t(`deliveryMethod.${selectedDashboardOrder.delivery_method}`, selectedDashboardOrder.delivery_method)}</div>
-                          {selectedDashboardOrder.delivery_method === 'Courier' && (
-                            <div style={{ color: 'var(--text-secondary)' }}>
-                              <strong>Carrier:</strong> {selectedDashboardOrder.courier_service || 'TBD'}<br />
-                              <strong>Tracking:</strong> {selectedDashboardOrder.tracking_number || 'TBD'}<br />
-                              {selectedDashboardOrder.delivery_address && (
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-line' }}><strong>Address:</strong> {selectedDashboardOrder.delivery_address}</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Tailor Stitching Completion details */}
-                        {(selectedDashboardOrder.tailor_comments || selectedDashboardOrder.completed_garment_image) && (
-                          <div style={{
-                            marginTop: '12px',
-                            background: 'rgba(212,175,55,0.02)',
-                            border: '1px solid rgba(212,175,55,0.15)',
-                            borderRadius: '8px',
-                            padding: '12px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px',
-                            fontSize: '12px'
-                          }}>
-                            <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <Scissors size={12} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                              <span>{t('dashboard.tailorNotes', 'Tailor Completion Notes')}</span>
-                            </div>
-                            {selectedDashboardOrder.tailor_comments && (
-                              <p style={{ color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
-                                "{selectedDashboardOrder.tailor_comments}"
-                              </p>
-                            )}
-                            {selectedDashboardOrder.completed_garment_image && (
-                              <div style={{ marginTop: '2px' }}>
-                                <a href={selectedDashboardOrder.completed_garment_image} target="_blank" rel="noreferrer">
-                                  <img 
-                                    src={selectedDashboardOrder.completed_garment_image} 
-                                    alt="Completed Garment" 
-                                    style={{
-                                      width: '80px',
-                                      height: '80px',
-                                      objectFit: 'cover',
-                                      borderRadius: '4px',
-                                      border: '1px solid var(--border-color)'
-                                    }} 
-                                  />
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '12px', fontWeight: 600 }}>{t('ordersPage.updateStatus', 'Update Status:')}</span>
-                            <select
-                              value={selectedDashboardOrder.order_status}
-                              disabled={updatingOrderStatusId === selectedDashboardOrder.id}
-                              onChange={async (e) => {
-                                if (updatingOrderStatusId) return;
-                                const newStatus = e.target.value;
-                                setUpdatingOrderStatusId(selectedDashboardOrder.id);
-                                try {
-                                  await api.updateOrderStatus(selectedDashboardOrder.id, newStatus);
-                                  setSelectedDashboardOrder(prev => ({ ...prev, order_status: newStatus }));
-                                  fetchDashboardAndConfig();
-                                } catch (err) {
-                                  alert("Failed to update status: " + err.message);
-                                } finally {
-                                  setUpdatingOrderStatusId(null);
-                                }
-                              }}
-                              style={{
-                                background: 'rgba(255,255,255,0.05)',
-                                color: 'var(--text-primary)',
-                                border: '1px solid rgba(255,255,255,0.15)',
-                                borderRadius: '6px',
-                                padding: '4px 8px',
-                                fontSize: '12px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
-                                <option key={status} value={status} style={{ background: '#222', color: '#fff' }}>{t(`status.${status}`, status)}</option>
-                              ))}
-                            </select>
-                          </div>
-                          
-                          {selectedDashboardOrder.order_status !== 'Delivered' && (
-                            <button
-                              className="btn-primary"
-                              style={{ fontSize: '12px', padding: '8px 12px', justifyContent: 'center', width: '100%' }}
-                              disabled={updatingOrderStatusId === selectedDashboardOrder.id}
-                              onClick={async () => {
-                                if (updatingOrderStatusId) return;
-                                const stages = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
-                                const currentIndex = stages.indexOf(selectedDashboardOrder.order_status);
-                                if (currentIndex !== -1 && currentIndex < stages.length - 1) {
-                                  const nextStatus = stages[currentIndex + 1];
-                                  setUpdatingOrderStatusId(selectedDashboardOrder.id);
-                                  try {
-                                    await api.updateOrderStatus(selectedDashboardOrder.id, nextStatus);
-                                    setSelectedDashboardOrder(prev => ({ ...prev, order_status: nextStatus }));
-                                    fetchDashboardAndConfig();
-                                  } catch (err) {
-                                    alert("Failed to update status: " + err.message);
-                                  } finally {
-                                    setUpdatingOrderStatusId(null);
-                                  }
-                                }
-                              }}
-                            >
-                              {updatingOrderStatusId === selectedDashboardOrder.id
-                                ? t('common.updating', 'Updating…')
-                                : t('dashboard.advanceStage', 'Advance to Next Stage')}
-                            </button>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        {t('dashboard.selectOrderHint', 'Select an order on the left to see progress details.')}
+                    <section className="quick-action-button-grid">
+                      <div className="quick-action-item" onClick={() => setView('order-selector')}>
+                        <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
+                        <h4>{t('dashboard.newOrder')}</h4>
                       </div>
-                    )}
+                      <div className="quick-action-item" onClick={() => setDashboardTab('staff')}>
+                        <div className="quick-action-icon-box"><Scissors size={18} /></div>
+                        <h4>{t('dashboard.manageStaff', 'Manage Staff')}</h4>
+                      </div>
+                      <div className="quick-action-item" onClick={() => setDashboardTab('designs')}>
+                        <div className="quick-action-icon-box"><Heart size={18} /></div>
+                        <h4>{t('dashboard.designCatalog', 'Design Catalog')}</h4>
+                      </div>
+                      <div className="quick-action-item" onClick={() => setDashboardTab('fabrics')}>
+                        <div className="quick-action-icon-box"><Compass size={18} /></div>
+                        <h4>{t('dashboard.fabricLibrary', 'Fabric Library')}</h4>
+                      </div>
+                      <div className="quick-action-item" onClick={() => { setEditingAppointment(null); setAppointmentForm(blankAppointmentForm); setShowAppointmentModal(true); }}>
+                        <div className="quick-action-icon-box"><Calendar size={18} /></div>
+                        <h4>{t('dashboard.bookAppointment', 'Book Appointment')}</h4>
+                      </div>
+                      <div className="quick-action-item" onClick={() => setDashboardTab('finance')}>
+                        <div className="quick-action-icon-box"><Wallet size={18} /></div>
+                        <h4>{t('dashboard.costPnl', 'Cost & P&L')}</h4>
+                      </div>
+                    </section>
                   </div>
-                </div>
-
-                {/* Upcoming Appointments & Style Inspiration Row */}
-                <div className="dashboard-row-layout">
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-                                  gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                      <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>
-                        {showAllAppointments
-                          ? t('dashboard.allAppointments', 'All Appointments')
-                          : t('dashboard.upcomingAppointments', 'Upcoming Appointments')}
-                      </h3>
-                      {/* Cancelled and finished appointments leave the panel,
-                          so without this the owner could never open one again. */}
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ fontSize: '11px', padding: '4px 10px' }}
-                        onClick={async () => {
-                          const next = !showAllAppointments;
-                          setShowAllAppointments(next);
-                          setAppointments(await api.getAppointments(next ? {} : { upcoming: 'true' }));
-                        }}
-                      >
-                        {showAllAppointments
-                          ? t('dashboard.showUpcomingOnly', 'Upcoming only')
-                          : t('dashboard.showAllAppointments', 'Show all')}
-                      </button>
-                    </div>
-                    {/* Real appointments. These were two literal cards naming
-                        "Anya (Stylist)" and "Rohit (Master Tailor)" on fixed
-                        dates -- shown to every boutique including one created
-                        a minute ago, whose owner has no such staff and no such
-                        bookings. apps/scheduling has always been able to
-                        answer this; nothing had ever asked it. An empty panel
-                        is better than an invented one. */}
-                    <div className="appointments-section-panel">
-                      {appointments.length === 0 ? (
-                        <div style={{ padding: '16px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                          {t('dashboard.noAppointments', 'No appointments booked.')}
-                        </div>
-                      ) : appointments.slice(0, 5).map(appt => {
-                        const when = new Date(appt.scheduled_time);
-                        return (
-                          <div
-                            className="appt-card"
-                            key={appt.id}
-                            role="button"
-                            tabIndex={0}
-                            title={t('dashboard.openAppointment', 'Open this appointment')}
-                            style={{ cursor: 'pointer',
-                                     opacity: appt.status === 'CANCELLED' ? 0.55 : 1 }}
-                            onClick={() => openAppointment(appt)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openAppointment(appt); }}
-                          >
-                            <div className="appt-date-box">
-                              <span className="appt-day">{when.toLocaleDateString(undefined, { day: '2-digit' })}</span>
-                              <span className="appt-month">{when.toLocaleDateString(undefined, { month: 'short' })}</span>
-                            </div>
-                            <div className="appt-info">
-                              <span className="appt-title">
-                                {APPOINTMENT_TYPE_LABELS[appt.appointment_type] || t('dashboard.appointment', 'Appointment')}
-                              </span>
-                              <span className="appt-sub">
-                                {appt.customer_detail
-                                  ? `${appt.customer_detail.first_name} ${appt.customer_detail.last_name}`
-                                  : t('ordersPage.client', 'Client')}
-                                {appt.assigned_staff_detail ? t('dashboard.withStaff', ' · with {name}', { name: appt.assigned_staff_detail.name }) : ''}
-                              </span>
-                              <span className="appt-time">
-                                {when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                                {appt.status && appt.status !== 'SCHEDULED'
-                                  ? ` · ${APPOINTMENT_STATUS_LABELS[appt.status] || appt.status}`
-                                  : ''}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {appointments.length > 5 && (
-                        <div style={{ padding: '10px 16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {t('dashboard.moreAppointments', '+{count} more booked',
-                             { count: appointments.length - 5 })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* "Style Inspiration" was three hardcoded Unsplash
-                      portraits of strangers with no behaviour and no
-                      relationship to this boutique's work -- stock photography
-                      presented on the owner's own dashboard as if it were
-                      theirs. Deleted rather than repointed at real designs: the
-                      Design Catalogue quick-action above already goes there,
-                      and a second silent route to the same screen is not worth
-                      a panel. */}
                 </div>
               </>
             )}
@@ -4285,6 +4164,12 @@ function App() {
             {dashboardTab === 'staff' && (
               <Suspense fallback={<ScreenLoading />}>
                 <StaffPanel currentUser={currentUser} />
+              </Suspense>
+            )}
+
+            {dashboardTab === 'finance' && (
+              <Suspense fallback={<ScreenLoading />}>
+                <FinancePanel />
               </Suspense>
             )}
 
@@ -4311,7 +4196,7 @@ function App() {
                     </button>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
                       <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
@@ -4407,259 +4292,6 @@ function App() {
             )}
 
             {/* 3. MANAGE TAILORS TAB */}
-            {dashboardTab === 'tailors' && (
-              <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        {t('tailorsPage.title')}
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('tailorsPage.subtitle')}</p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button className="btn-primary" onClick={() => {
-                      setEditingTailor(null);
-                      setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
-                      setShowTailorModal(true);
-                    }}>
-                      <Plus size={16} />
-                      {t('tailorsPage.addNewTailor')}
-                    </button>
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
-                      </div>
-                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
-                    </div>
-                  </div>
-                </header>
-
-
-                <div className="tailor-manager-content" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                  {/* Two separate panels for Master and Stitching staff */}
-                  <div className="responsive-profile-grid" style={{ gap: '24px' }}>
-                    
-                    {/* Master Tailors Column */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                        <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.masterTailorsCategory', 'Master Tailors (Cutting & Supervision)')}</h3>
-                      </div>
-                      
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {tailors.filter(t => t.role === 'Master').length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('tailorsPage.noMasterTailors', 'No Master Tailors registered yet.')}</p>
-                        ) : (
-                          tailors.filter(t => t.role === 'Master').map(tailor => (
-                            <div key={tailor.id} style={{
-                              background: 'rgba(0,0,0,0.015)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: '8px',
-                              padding: '16px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center'
-                            }}>
-                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden' }}>
-                                  <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailor.name)}`} alt="Avatar" style={{ width: '100%', height: '100%' }} />
-                                </div>
-                                <div>
-                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailor.name}</div>
-                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailor.specialty}</div>
-                                </div>
-                              </div>
-                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                  {tailor.status === 'Available' ? t('tailorsPage.available', 'Available') : t('tailorsPage.busy', 'Busy')}
-                                </span>
-                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
-                                  if (!tailor.email) {
-                                    alert("Please edit this tailor's profile to add their email address first.");
-                                    return;
-                                  }
-                                  setShareCredsTailor(tailor);
-                                }}>
-                                  <Lock size={12} /> {t('tailorsPage.shareBtn', 'Share')}
-                                </button>
-                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
-                                  setEditingTailor(tailor);
-                                  setTailorForm({
-                                    name: tailor.name,
-                                    email: tailor.email || '',
-                                    specialty: tailor.specialty,
-                                    rating: tailor.rating.toString(),
-                                    status: tailor.status,
-                                    role: tailor.role || 'Tailor'
-                                  });
-                                  setShowTailorModal(true);
-                                }}>{t('tailorsPage.editBtn', 'Edit')}</button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Stitching Tailors Column */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                        <Scissors size={20} />
-                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.stitchingTailorsCategory', 'Stitching Tailors (Assembly & Detailing)')}</h3>
-                      </div>
-                      
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {stitchingStaff().length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('tailorsPage.noStitchingTailors', 'No Stitching Tailors registered yet.')}</p>
-                        ) : (
-                          stitchingStaff().map(tailor => (
-                            <div key={tailor.id} style={{
-                              background: 'rgba(0,0,0,0.015)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: '8px',
-                              padding: '16px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center'
-                            }}>
-                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden' }}>
-                                  <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailor.name)}`} alt="Avatar" style={{ width: '100%', height: '100%' }} />
-                                </div>
-                                <div>
-                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailor.name}</div>
-                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailor.specialty}</div>
-                                </div>
-                              </div>
-                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                  {tailor.status === 'Available' ? t('tailorsPage.available', 'Available') : t('tailorsPage.busy', 'Busy')}
-                                </span>
-                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
-                                  if (!tailor.email) {
-                                    alert("Please edit this tailor's profile to add their email address first.");
-                                    return;
-                                  }
-                                  setShareCredsTailor(tailor);
-                                }}>
-                                  <Lock size={12} /> {t('tailorsPage.shareBtn', 'Share')}
-                                </button>
-                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
-                                  setEditingTailor(tailor);
-                                  setTailorForm({
-                                    name: tailor.name,
-                                    email: tailor.email || '',
-                                    specialty: tailor.specialty,
-                                    rating: tailor.rating.toString(),
-                                    status: tailor.status,
-                                    role: tailor.role || 'Tailor'
-                                  });
-                                  setShowTailorModal(true);
-                                }}>{t('tailorsPage.editBtn', 'Edit')}</button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                  </div>
-
-                  {/* Boutique Workflow Supervision Table */}
-                  <div style={{
-                    background: 'var(--surface-color)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '12px',
-                    padding: '24px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                      <Sparkles size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('tailorsPage.workflowSupervisionTitle', 'Workflow Assignment & Supervision Control')}</h3>
-                    </div>
-                    
-                    <div style={{ overflowX: 'auto' }}>
-                      <table className="portal-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr style={{ textAlign: 'left', borderBottom: '1.5px solid var(--border-color)' }}>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.colOrderClient', 'Order / Client')}</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('common.status', 'Status')}</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.supervisingMaster', 'Supervising Master')}</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>{t('tailorsPage.stitchingTailor', 'Stitching Tailor')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ordersList.filter(o => ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped'].includes(o.order_status)).length === 0 ? (
-                            <tr>
-                              <td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                                {t('tailorsPage.noActiveOrdersInCreation', 'No active orders in creation phase.')}
-                              </td>
-                            </tr>
-                          ) : (
-                            ordersList.filter(o => ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped'].includes(o.order_status)).map(order => (
-                              <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                <td style={{ padding: '16px', fontSize: '14px' }}>
-                                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{order.order_id}</div>
-                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{order.customer_name}</div>
-                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>
-                                    {order.delivery_method} {order.delivery_method === 'Courier' && `(${order.courier_service || 'TBD'})`}
-                                  </div>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                  <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                    {t(`status.${order.order_status}`, order.order_status)}
-                                  </span>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                  <select
-                                    className="form-control"
-                                    style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
-                                    value={order.master || ''}
-                                    disabled={assigningWorkflowOrderId === order.id}
-                                    onChange={(e) => handleAssignWorkflow(order.id, { master: e.target.value || null })}
-                                  >
-                                    <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
-                                    {tailors.filter(t => t.role === 'Master').map(m => (
-                                      <option key={m.id} value={m.id}>{m.name}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                  <select
-                                    className="form-control"
-                                    style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
-                                    value={order.tailor || ''}
-                                    disabled={assigningWorkflowOrderId === order.id}
-                                    onChange={(e) => handleAssignWorkflow(order.id, { tailor: e.target.value || null })}
-                                  >
-                                    <option value="">{t('ordersPage.unassigned', 'Unassigned')}</option>
-                                    {stitchingStaff().map(s => (
-                                      <option key={s.id} value={s.id}>{s.name}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                </div>
-              </>
-            )}
 
             {/* 4b. DESIGN WORK TAB -- assign, submit, review. One component for
                  both ends of the loop; see features/designStudio/DesignWork. */}
@@ -4721,7 +4353,7 @@ function App() {
                     )}
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
                       <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
@@ -5186,7 +4818,7 @@ function App() {
                     </div>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
                       <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
@@ -6041,7 +5673,7 @@ function App() {
                   <div className="portal-header-right">
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
                       <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
@@ -6339,7 +5971,7 @@ function App() {
                     <div className="portal-header-right">
                       <div className="user-profile-widget">
                         <div className="user-avatar-circle">
-                          <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                          <UserAvatar user={currentUser} />
                         </div>
                         <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                       </div>
@@ -6597,7 +6229,7 @@ function App() {
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
                       <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
@@ -6615,10 +6247,29 @@ function App() {
                       overflow: 'hidden',
                       border: '3px solid var(--accent-text, #b07c40)'
                     }}>
-                      <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200" alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <UserAvatar user={currentUser} />
                     </div>
                     <div>
                       <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{currentUser.first_name} {currentUser.last_name}</h3>
+                      {/* Editable by any signed-in user -- the photo is stored
+                          per-user (UserAvatar), so the owner can set theirs too. */}
+                      {currentUser && (
+                        <label style={{ display: 'inline-block', marginTop: '6px', cursor: 'pointer',
+                                        fontSize: '12px', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>
+                          Change photo
+                          <input type="file" accept="image/*" style={{ display: 'none' }}
+                                 onChange={async (e) => {
+                                   const f = e.target.files?.[0];
+                                   if (!f) return;
+                                   try {
+                                     const updated = await api.updateMyPhoto(f);
+                                     setCurrentUser(updated);
+                                   } catch (err) {
+                                     alert(err.message || 'Could not update your photo.');
+                                   }
+                                 }} />
+                        </label>
+                      )}
                       {/* The signed-in role, not a hardcoded claim. This said
                           "Boutique Owner" to every account -- tailors, masters
                           and designers included -- on the one screen whose job
@@ -7079,185 +6730,7 @@ function App() {
             </div>
           )}
 
-          {/* Tailors CRUD Modal Overlay */}
-          {showTailorModal && (
-            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
-                <div className="search-modal-header">
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingTailor ? t('tailorsPage.editTailorTitle', 'Edit Tailor Details') : t('tailorsPage.addTailorTitle', 'Add New Tailor Profile')}
-                  </h3>
-                  <button className="close-btn" onClick={() => setShowTailorModal(false)}><X size={20} /></button>
-                </div>
-                
-                <form onSubmit={handleSaveTailor} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.tailorName', 'Tailor Name')}</label>
-                    <input 
-                      type="text" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. Master Shabbir" 
-                      value={tailorForm.name}
-                      onChange={e => setTailorForm({...tailorForm, name: e.target.value})}
-                    />
-                  </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.emailAddressLogin', 'Email Address (for login)')}</label>
-                    <input 
-                      type="email" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. shabbir@boutique.com" 
-                      value={tailorForm.email || ''}
-                      onChange={e => setTailorForm({...tailorForm, email: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.specialty', 'Specialty')}</label>
-                    <input 
-                      type="text" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. Lehenga Specialist, Gowns" 
-                      value={tailorForm.specialty}
-                      onChange={e => setTailorForm({...tailorForm, specialty: e.target.value})}
-                    />
-                  </div>
-
-                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.ratingLabel', 'Rating (1.0 — 5.0)')}</label>
-                      <input 
-                        type="number" 
-                        required 
-                        min="1"
-                        max="5"
-                        step="0.1"
-                        className="form-control" 
-                        placeholder="5.0" 
-                        value={tailorForm.rating}
-                        onChange={e => setTailorForm({...tailorForm, rating: e.target.value})}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('common.status', 'Status')}</label>
-                      <select 
-                        className="form-control"
-                        value={tailorForm.status}
-                        onChange={e => setTailorForm({...tailorForm, status: e.target.value})}
-                      >
-                        <option value="Available">{t('tailorsPage.available', 'Available')}</option>
-                        <option value="Busy">{t('tailorsPage.busy', 'Busy')}</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('tailorsPage.staffRole', 'Staff Role')}</label>
-                    <select 
-                      className="form-control"
-                      value={tailorForm.role}
-                      onChange={e => setTailorForm({...tailorForm, role: e.target.value})}
-                    >
-                      {STAFF_ROLES.map(r => (
-                        <option key={r.value} value={r.value}>{r.label}</option>
-                      ))}
-                    </select>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                      {STAFF_ROLES.find(r => r.value === tailorForm.role)?.hint || ''}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>{t('common.cancel', 'Cancel')}</button>
-                    <button type="submit" className="btn-primary" disabled={tailorSaving}>
-                      {tailorSaving ? t('common.saving', 'Saving…') : t('tailorsPage.saveTailorBtn', 'Save Tailor')}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* Share Tailor Credentials Modal Overlay */}
-          {shareCredsTailor && (
-            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
-                <div className="search-modal-header">
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {t('tailorsPage.shareCredentialsTitle', 'Share Login Credentials')}
-                  </h3>
-                  <button className="close-btn" onClick={() => setShareCredsTailor(null)}><X size={20} /></button>
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    {t('tailorsPage.shareCredentialsHelp', 'Provide these credentials so they can log in to view and manage their assignments.')}
-                  </p>
-
-                  <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.loginPortalUrl', 'Login Portal URL')}</span>
-                      <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{window.location.origin}</div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.usernameEmail', 'Username / Email')}</span>
-                      <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{shareCredsTailor.email}</div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('tailorsPage.temporaryPassword', 'Temporary Password')}</span>
-                      {shareCredsTailor.bootstrap_password ? (
-                        <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', fontFamily: 'ui-monospace, monospace', letterSpacing: '.5px' }}>{shareCredsTailor.bootstrap_password}</div>
-                      ) : (
-                        <div style={{ fontSize: '13px', marginTop: '2px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                          Shown only once, when the account was created. Ask {shareCredsTailor.name} to use
-                          <strong> Forgot password?</strong> on the sign-in screen to set a new one.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShareCredsTailor(null)}>{t('common.cancel', 'Close')}</button>
-                    
-                    {/* Copy to Clipboard */}
-                    <button 
-                      type="button" 
-                      className="btn-secondary" 
-                      onClick={() => {
-                        const txt = shareCredsTailor.bootstrap_password
-                          ? `Atelier Staff Login Credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: ${shareCredsTailor.bootstrap_password}`
-                          : `Atelier Staff Login:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nUse "Forgot password?" on the sign-in screen to set your password.`;
-                        navigator.clipboard.writeText(txt);
-                        alert("Credentials copied to clipboard!");
-                      }}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <Copy size={14} /> {t('tailorsPage.copyBtn', 'Copy')}
-                    </button>
-
-                    {/* Share via WhatsApp */}
-                    <button 
-                      type="button" 
-                      className="btn-primary" 
-                      onClick={() => {
-                        const msg = encodeURIComponent(shareCredsTailor.bootstrap_password
-                          ? `Hello ${shareCredsTailor.name},\nHere are your Atelier login credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: ${shareCredsTailor.bootstrap_password}\n\nPlease log in to view your supervised/stitch tasks.`
-                          : `Hello ${shareCredsTailor.name},\nYour Atelier login is ready:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\n\nUse "Forgot password?" on the sign-in screen to set your password, then log in to view your tasks.`);
-                        window.open(`https://wa.me/?text=${msg}`);
-                      }}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <MessageSquare size={14} /> {t('tailorsPage.shareWhatsappBtn', 'Share WhatsApp')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Designs CRUD Modal Overlay */}
           {showDesignModal && (
@@ -7387,26 +6860,13 @@ function App() {
               written into: its tabs drive dashboardTab, which only the dashboard
               renders, so from anywhere else every tab was inert. */}
           <BottomNavigation
-            tabs={
-              (!currentUser.role || currentUser.role === 'Owner') ? [
-                { key: 'overview', label: t('nav.dashboard'), icon: Users },
-                { key: 'orders', label: t('nav.orders', 'Orders'), icon: ShoppingBag },
-                { key: 'customers', label: t('nav.customers'), icon: Users },
-                { key: 'inventory', label: t('nav.inventory'), icon: Package },
-                { key: 'more', label: t('nav.menu', 'Menu'), icon: Menu }
-              ] : currentUser.role === 'Master' ? [
-                { key: 'assignments', label: t('nav.myAssignments'), icon: Scissors },
-                { key: 'orders', label: t('nav.orders', 'Orders'), icon: ShoppingBag },
-                { key: 'customers', label: t('nav.customers'), icon: Users },
-                { key: 'more', label: t('nav.menu', 'Menu'), icon: Menu }
-              ] : [
-                { key: 'assignments', label: t('nav.myAssignments'), icon: Scissors },
-                { key: 'account', label: t('nav.account'), icon: User },
-                { key: 'more', label: t('nav.menu', 'Menu'), icon: Menu }
-              ]
-            }
+            tabs={[
+              ...navSections.flatMap((s) => s.items).filter((i) => i.phone)
+                .map((i) => ({ key: i.tab, label: i.phoneLabel || i.label, icon: i.icon })),
+              { key: 'more', label: t('nav.menu', 'Menu'), icon: Menu }
+            ]}
             activeTab={dashboardTab}
-            onChangeTab={(t) => { setDashboardTab(t); setSelectedDirectoryCustomer(null); }}
+            onChangeTab={(tab) => { setDashboardTab(tab); setSelectedDirectoryCustomer(null); }}
             onOpenMore={() => setMobileNavOpen(true)}
           />
         </div>
@@ -7447,36 +6907,11 @@ function App() {
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             
             <nav className="portal-menu">
-              {(!currentUser.role || currentUser.role === 'Owner') ? (
-                <>
-                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.dashboard')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> {t('nav.invoices')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> {t('nav.analytics')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> {t('nav.manageFabrics')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> {t('nav.inventory')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.manageTailors')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.manageDesigns')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
-                </>
-              ) : currentUser.role === 'Master' ? (
-                <>
-                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork')}</a>
-                </>
-              ) : currentUser.role === 'Designer' ? (
-                <>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.myWork')}</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.designStudio')}</a>
-                </>
-              ) : (
-                <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments')}</a>
-              )}
-              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> {t('nav.account')}</a>
-              <a className={`portal-menu-item ${dashboardTab === 'settings' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('settings'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Settings size={16} /> {t('nav.settings')}</a>
+              <PortalMenu
+                sections={navSections}
+                activeTab={dashboardTab}
+                onPick={(tab) => { setView('dashboard'); setDashboardTab(tab); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}
+              />
               <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
             </nav>
           </aside>
@@ -8200,7 +7635,16 @@ function App() {
                               updateGarmentSource(job.key, fieldKey, source)}
                             onBroughtChange={(fieldKey, entry) =>
                               updateGarmentBrought(job.key, fieldKey, entry)}
-                            onGoToInventory={() => { setView('dashboard'); setDashboardTab('inventory'); }}
+                            /* null when Inventory is gated off: TemplateForm
+                               already drops its whole "Set up inventory"
+                               banner when this is missing, which is what we
+                               want -- offering the button navigated to a tab
+                               the sidebar no longer has, so it left the wizard
+                               for the dashboard and then sat on whatever tab
+                               was already showing. */
+                            onGoToInventory={canSeeTab(currentUser, 'inventory')
+                              ? () => { setView('dashboard'); setDashboardTab('inventory'); }
+                              : null}
                           />
                         </div>
                       );
@@ -8513,10 +7957,28 @@ function App() {
                           boutique workflow, not a fallback. */}
                       {fabrics.filter(f => f.is_available !== false).length === 0 && (
                         <div style={{ padding: '24px', border: '1px dashed var(--border-color)', borderRadius: '10px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                          <div style={{ fontWeight: 600 }}>Your fabric library is empty</div>
+                          {/* Two empty states, not one. An empty library is a
+                              job the owner can go and do; a library the
+                              platform has switched off is not, and the grid
+                              looks identically empty either way. Offering "Save
+                              & add fabrics" in the second case saved the draft,
+                              left the wizard, and landed on whatever tab was
+                              already showing -- the Fabrics tab it asked for is
+                              gone from the nav, so the derived dashboardTab
+                              refuses it. Say so instead, and leave the one
+                              route that still works. */}
+                          <div style={{ fontWeight: 600 }}>
+                            {canSeeTab(currentUser, 'fabrics') ? 'Your fabric library is empty' : 'Fabric library unavailable'}
+                          </div>
                           <div style={{ color: 'var(--text-secondary)', fontSize: '13px', maxWidth: '46ch', lineHeight: 1.5 }}>
-                            Add the rolls you stock to pick from them here — or switch to
-                            <strong> Customer's Own Fabric</strong> above if the client is bringing their own.
+                            {canSeeTab(currentUser, 'fabrics') ? (<>
+                              Add the rolls you stock to pick from them here — or switch to
+                              <strong> Customer's Own Fabric</strong> above if the client is bringing their own.
+                            </>) : (<>
+                              The fabric library is switched off for this boutique, so there is
+                              nothing to pick from. Switch to
+                              <strong> Customer's Own Fabric</strong> above to carry on with this order.
+                            </>)}
                           </div>
                           {/* Save first, then go. This button is the product's
                               own advice to a boutique with no fabric library --
@@ -8525,6 +7987,7 @@ function App() {
                               this component's state. The draft is on the server
                               before we navigate, so the work is waiting when
                               they come back. */}
+                          {canSeeTab(currentUser, 'fabrics') && (
                           <button type="button" className="btn-secondary" disabled={draftSaveState === 'saving'} onClick={async () => {
                             try {
                               await persistDraft({ step: 4 });
@@ -8538,6 +8001,7 @@ function App() {
                           }}>
                             {draftSaveState === 'saving' ? 'Saving…' : <>Save &amp; add fabrics</>}
                           </button>
+                          )}
                         </div>
                       )}
 
@@ -8642,11 +8106,7 @@ function App() {
                           <button 
                             className="btn-primary" 
                             style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                            onClick={() => {
-                              setEditingTailor(null);
-                              setTailorForm({ name: '', email: '', specialty: 'Ethnic & Bridal Cutting', rating: 5.0, status: 'Available', role: 'Master' });
-                              setShowTailorModal(true);
-                            }}
+                            onClick={() => setDashboardTab('staff')}
                           >
                             <Plus size={14} /> {t('wizard.addMasterTailorBtn', 'Add Master Tailor')}
                           </button>
@@ -8699,11 +8159,7 @@ function App() {
                           <button 
                             className="btn-primary" 
                             style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                            onClick={() => {
-                              setEditingTailor(null);
-                              setTailorForm({ name: '', email: '', specialty: 'Assembly & Detailing', rating: 5.0, status: 'Available', role: 'Tailor' });
-                              setShowTailorModal(true);
-                            }}
+                            onClick={() => setDashboardTab('staff')}
                           >
                             <Plus size={14} /> {t('wizard.addStitchingTailorBtn', 'Add Stitching Tailor')}
                           </button>
@@ -10675,7 +10131,7 @@ function App() {
                 )}
                 {selectedStageObj && selectedStageObj.stage_key === 'master_quality_check'
                   && selectedStageObj.status !== 'COMPLETED'
-                  && ['Owner', 'Master', 'QC Master'].includes(currentUser?.role) && (
+                  && ['Owner', 'Master', 'QC Staff'].includes(currentUser?.role) && (
                   <button
                     className="btn-secondary"
                     style={{ fontSize: '12px', padding: '8px', color: '#b91c1c', borderColor: '#b91c1c' }}

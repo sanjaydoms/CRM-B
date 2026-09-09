@@ -63,7 +63,7 @@ class AuthorizationTestCase(TenantTestCase):
         self.specialist_user = User.objects.create_user(
             username='arjun', email='arjun@authz.test', password='arjunpw12345')
         self.specialist = Tailor.objects.create(
-            name='Arjun', specialty='Quality', role='QC Master',
+            name='Arjun', specialty='Quality', role='QC Staff',
             email='arjun@authz.test', user=self.specialist_user)
 
         for staff in (self.tailor, self.master, self.specialist):
@@ -113,7 +113,7 @@ class RoleResolutionTests(AuthorizationTestCase):
     def test_staff_resolve_to_the_role_on_their_profile(self):
         self.assertEqual(resolve_user_role(self.tailor_user), 'Tailor')
         self.assertEqual(resolve_user_role(self.master_user), 'Master')
-        self.assertEqual(resolve_user_role(self.specialist_user), 'QC Master')
+        self.assertEqual(resolve_user_role(self.specialist_user), 'QC Staff')
 
     def test_an_account_no_profile_claims_resolves_to_nothing(self):
         """The Phase 8 invariant. A missing profile is not proof of ownership."""
@@ -251,7 +251,7 @@ class RoleTransitionTests(AuthorizationTestCase):
             1, 'a demoted account must lose the floor on the very next request')
 
     def test_no_role_change_grants_the_financial_surface(self):
-        for role in ('Master', 'Tailor', 'QC Master', 'Pressing Staff', 'Designer'):
+        for role in ('Master', 'Tailor', 'QC Staff', 'Packaging Staff', 'Designer'):
             self.tailor.role = role
             self.tailor.save(update_fields=['role'])
             api = self.client_for(self.tailor_user)

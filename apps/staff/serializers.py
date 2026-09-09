@@ -3,8 +3,12 @@ from rest_framework import serializers
 from crm_api.models import Tailor
 
 from core.roles import OWNER, resolve_user_role
+from core.validators import validate_mobile
 
-from .models import AttendanceSession, StaffPerformanceReview, StaffProfile
+from .models import (
+    AttendanceSession, DayMark, StaffDocument, StaffPerformanceReview,
+    StaffProfile,
+)
 
 #: What only the owner may read on somebody ELSE's row.
 #:
@@ -52,6 +56,9 @@ class StaffProfileSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_phone(self, value):
+        return validate_mobile(value)
 
     def to_representation(self, instance):
         """Strip another person's terms before they leave the building.
@@ -240,3 +247,92 @@ class StaffPerformanceReviewSerializer(serializers.ModelSerializer):
         review.overall_rating = review.computed_overall()
         review.save(update_fields=['overall_rating'])
         return review
+
+
+#: What a staff document may be. Images because the number is photographed on a
+#: phone at the counter; PDF because a signed contract arrives as one.
+DOCUMENT_CONTENT_TYPES = ('image/', 'application/pdf')
+DOCUMENT_MAX_BYTES = 10 * 1024 * 1024
+
+
+class StaffDocumentSerializer(serializers.ModelSerializer):
+    """An identity or employment document, owner-read only.
+
+    `number` holds the full identifier at the boutique's instruction, so this
+    serializer is the boundary that keeps it off every other screen: it is
+    reachable only through StaffDocumentViewSet, whose queryset is the owner's
+    rows plus the caller's own. Nothing here is a passenger on the roster
+    payload, and no view logs the value.
+    """
+
+    #: Whichever table the person is in. A method field rather than
+    #: source='staff.name' because a designer's document has no `staff` at all,
+    #: and that spelling would render null for every one of them.
+    staff_name = serializers.SerializerMethodField()
+    kind_display = serializers.CharField(source='get_kind_display',
+                                         read_only=True)
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffDocument
+        fields = [
+            'id', 'staff', 'designer', 'staff_name', 'kind', 'kind_display',
+            'number', 'label', 'file', 'file_url', 'uploaded_at',
+        ]
+        read_only_fields = ['id', 'uploaded_at']
+        extra_kwargs = {'file': {'write_only': True}}
+
+    def get_staff_name(self, instance):
+        holder = instance.holder
+        return holder.name if holder else ''
+
+    def validate(self, attrs):
+        """Exactly one holder, refused here as well as by the constraint.
+
+        The database check is the guarantee; this is what turns it into a 400
+        with a sentence in it instead of a 500 with an IntegrityError.
+        """
+        staff = attrs.get('staff', getattr(self.instance, 'staff', None))
+        designer = attrs.get('designer', getattr(self.instance, 'designer', None))
+        if bool(staff) == bool(designer):
+            raise serializers.ValidationError(
+                'A document belongs to exactly one person: send either staff '
+                'or designer, not both and not neither.')
+        return attrs
+
+    def get_file_url(self, instance):
+        if not instance.file:
+            return ''
+        request = self.context.get('request')
+        url = instance.file.url
+        return request.build_absolute_uri(url) if request is not None else url
+
+    def validate_file(self, value):
+        """A phone camera roll is not a trusted source -- same rule as fabrics.
+
+        Checked here rather than in the view so it holds for every write, and
+        the message names the file because an owner uploading four documents
+        needs to know which one was refused.
+        """
+        content_type = getattr(value, 'content_type', '') or ''
+        if not content_type.startswith(DOCUMENT_CONTENT_TYPES):
+            raise serializers.ValidationError(
+                f"{value.name} is not an image or a PDF.")
+        if value.size > DOCUMENT_MAX_BYTES:
+            raise serializers.ValidationError(
+                f"{value.name} is larger than 10MB.")
+        return value
+
+
+class DayMarkSerializer(serializers.ModelSerializer):
+    staff_name = serializers.CharField(source='staff.name', read_only=True)
+    kind_display = serializers.CharField(source='get_kind_display', read_only=True)
+
+    class Meta:
+        model = DayMark
+        fields = ['id', 'staff', 'staff_name', 'date', 'kind', 'kind_display', 'note']
+        read_only_fields = ['id']
+        # Drop the UniqueTogetherValidator DRF auto-builds from the model's
+        # (staff, date) constraint: DayMarkViewSet.create upserts on that pair
+        # on purpose, so a repeat post must reach the view, not 400 here.
+        validators = []

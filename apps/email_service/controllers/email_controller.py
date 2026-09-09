@@ -3,6 +3,8 @@ from typing import Any, Dict
 
 from rest_framework import status, views
 from rest_framework.permissions import IsAuthenticated
+
+from core.permissions import ModuleAccess
 from rest_framework.response import Response
 
 from apps.email_service.services import EmailService, EmailJobService
@@ -143,7 +145,7 @@ class EmailController:
 
 class SendEmailAPIView(views.APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleAccess]
 
     def post(self, request):
         return EmailController.send_email_action(request.data)
@@ -151,7 +153,7 @@ class SendEmailAPIView(views.APIView):
 
 class SendBulkEmailAPIView(views.APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleAccess]
 
     def post(self, request):
         return EmailController.send_bulk_email_action(request.data)
@@ -159,7 +161,7 @@ class SendBulkEmailAPIView(views.APIView):
 
 class QueueEmailAPIView(views.APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleAccess]
 
     def post(self, request):
         return EmailController.enqueue_email_action(request.data)
@@ -167,7 +169,15 @@ class QueueEmailAPIView(views.APIView):
 
 class EmailJobStatusAPIView(views.APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ModuleAccess]
+
+    # ponytail: this is the boutique's gate, not the job's. EmailJobService
+    # keys jobs as `email_job:<uuid4>` in one platform-wide Redis namespace
+    # with no schema in the key, so an entitled caller who learns another
+    # boutique's job id reads its subject and recipient list. The module gate
+    # narrows who can ask; it cannot make the answer tenant-scoped. Namespace
+    # the key by connection.schema_name in email_job_service.py -- not this
+    # file -- when job status is exposed to anything beyond the owner.
 
     def get(self, request, job_id: str):
         return EmailController.get_job_status_action(job_id)

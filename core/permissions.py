@@ -1,21 +1,157 @@
 
 from rest_framework import permissions
 
+from .modules import MODULES, module_for_path, role_allows
 from .roles import DESIGNER, OWNER, resolve_user_role
 
 SUPERVISOR_ROLES = frozenset({'Master'})
 
 
-class RolePermission(permissions.BasePermission):
+def _role_modules(request):
+    """The owner's role -> module map for this boutique, read ONCE per request.
+
+    Cached on the request because a single view can carry several permission
+    classes and DRF instantiates and calls each one; without the cache a
+    request pays one BoutiqueSettings query per class, per call, and
+    has_object_permission paths pay it again. The cost is one indexed
+    single-row query on the first governed check of a request and nothing
+    after that.
+
+    NOT cached beyond the request: the owner edits this map from a screen in
+    the product, and a stale allow is an access-control bug rather than a slow
+    page. Entitlement is not cached here at all -- see _module_permits, which
+    no longer reads it, and tenants/middleware.py, which reads it fresh per
+    request.
+
+    Nothing here may raise. A permission class that throws is a 500 on every
+    request it guards, so the three ways this lookup legitimately finds
+    nothing -- no BoutiqueSettings row yet (a fresh boutique), no tenant schema
+    at all (management commands, the public schema), a null or malformed
+    column -- all resolve to {}: no explicit decisions recorded, so
+    ROLE_DEFAULTS decides.
+    """
+    cached = getattr(request, '_role_modules', None)
+    if cached is None:
+        from crm_api.models import BoutiqueSettings
+        try:
+            # id=1 is the singleton row, the same one BoutiqueSettingsViewSet
+            # get_or_creates and queue_order_ids reads.
+            cached = BoutiqueSettings.objects.values_list(
+                'role_modules', flat=True).filter(id=1).first()
+        except Exception:
+            cached = None
+        if not isinstance(cached, dict):
+            cached = {}
+        request._role_modules = cached
+    return cached
+
+
+class ModuleAccess(permissions.BasePermission):
+    """The module gate, and the base of every permission class in this codebase.
+
+    Two layers decide whether a request may touch a module at all:
+
+        effective(user) = ENTITLED(boutique) AND ALLOWED(role)
+
+    Entitlement is the platform's (BoutiqueTenant.enabled_modules) and is
+    enforced in TenantHeaderMiddleware. Distribution is the owner's
+    (BoutiqueSettings.role_modules) and cannot be enforced there: the
+    middleware runs before DRF authenticates, so request.user is AnonymousUser
+    and the role is unknowable. Hence a permission class.
+
+    WHY THIS IS THE BASE CLASS AND NOT A MIXIN OVER has_permission. About
+    twenty-one views declare permission_classes explicitly, which replaces
+    DEFAULT_PERMISSION_CLASSES outright -- adding the gate to the default alone
+    would enforce nothing on payroll, staff, inventory or the design studio
+    while looking like it did. The obvious fix, a mixin whose has_permission
+    calls super(), does not work either: every class below defines its own
+    has_permission, so Python finds the subclass method first and the mixin
+    never runs. Verified, not assumed -- DesignLibraryPermission is the proof,
+    it returns True outright for `create` without reaching super() at all.
+
+    So has_permission is FINAL and lives here; the role rule each subclass used
+    to put in has_permission now lives in has_role_permission, which this
+    method calls after the gate. A subclass cannot skip the gate without
+    deliberately re-defining has_permission, and core/test_module_enforcement.py
+    fails if one ever does.
+
+    It also works standalone: BasePermission's contract is "return True unless
+    you object", so `permission_classes = [IsAuthenticated, ModuleAccess]` is
+    the whole fix for a view that had no role class of its own.
+    """
+
+    def has_permission(self, request, view):
+        key = module_for_path(request.path)
+        # None means NOT GOVERNED, never "unknown, so deny": /api/auth/,
+        # /api/dashboard/ and every prefix nobody has assigned a module to
+        # resolve to None, and denying on it would switch off the product.
+        if key is not None and not self._module_permits(request, key):
+            return False
+        return self.has_role_permission(request, view)
+
+    def has_role_permission(self, request, view):
+        """What this permission class actually decides. Override this one."""
+        return True
+
+    def _module_permits(self, request, key):
+        """LAYER 2 ONLY. Entitlement is the middleware's and is not re-checked.
+
+        It used to be re-checked here, off connection.tenant.enabled_modules,
+        under a comment asserting that copy could not lag the console. It can,
+        and that assertion is how this shipped. connection.tenant is the object
+        tenants/middleware.py caches per process for 300 seconds, and
+        clear_tenant_cache() clears the cache of the ONE worker that served the
+        console write -- so for up to five minutes after the platform re-enabled
+        a module, every other worker went on 403-ing the boutique owner with the
+        entitlement wording, which sends them to support, where support looks at
+        the console and sees the module enabled.
+
+        Deleted rather than re-read from the row, because the re-check was
+        redundant: nothing reaches DRF on a governed path without the
+        middleware's own check, which IS fresh (_control_state() selects
+        is_active/enabled_modules per request, not off the cached object).
+        Traced rather than assumed, for every entry path:
+
+          * TenantHeaderMiddleware.process_request runs on every request and
+            refuses a governed path before any view sees it.
+          * The only way past that check is `tenant is None`, and the same
+            method then 400s every /api/ path except /api/auth/ and
+            /api/superadmin/ -- both ALWAYS_ON, so module_for_path returns None
+            for them and there is nothing to enforce.
+          * /track/ is the one governed prefix outside /api/, and it is a plain
+            Django view: crm_api/tracking_views.py resolves its own tenant from
+            the signed token and reads is_enabled off the registry row itself.
+            No permission class is involved.
+
+        A second read here would buy nothing and cost a query per request.
+        """
+        # self.message is what DRF puts in the 403 body, and permission
+        # instances are built per request (get_permissions() constructs them),
+        # so writing to it here cannot leak one caller's refusal into another's.
+        label = MODULES.get(key, (key,))[0]
+
+        # Distribution. An unknown role gets the least-privileged
+        # real role's defaults inside role_allows, never "everything".
+        role = resolve_user_role(request.user)
+        if role_allows(_role_modules(request), role, key):
+            return True
+        whose = f"the {role} role" if role else "your role"
+        self.message = (f"The {label} module is not part of {whose}'s access "
+                        f"at this boutique. Only the owner can change that, "
+                        f"in Boutique Settings.")
+        return False
+
+
+class RolePermission(ModuleAccess):
 
     message = "Your role does not permit this."
 
     STAFF_ORDER_ACTIONS = frozenset({
         'transition_stage', 'submit_completion', 'submit_stage_review',
         'update_status',
-        # Reversals reach the view for every staff member so the QC Master can
+        # Reversals reach the view for every staff member so the QC Staff can
         # fail a check; the precise role gates (Owner/Master for reopen,
-        # +QC Master for fail-qc) live in the services, where a refusal also
+        # +QC Staff for fail-qc) live in the services, where a refusal also
         # explains itself.
         'reopen_stage', 'fail_qc',
     })
@@ -29,7 +165,7 @@ class RolePermission(permissions.BasePermission):
         'master_verification',
     })
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         role = resolve_user_role(request.user)
         if role is None:
             return False
@@ -45,11 +181,11 @@ class RolePermission(permissions.BasePermission):
         return action in self.SUPERVISOR_ORDER_ACTIONS and role in SUPERVISOR_ROLES
 
 
-class OwnNotifications(permissions.BasePermission):
+class OwnNotifications(ModuleAccess):
 
     message = "Sign in to see your notifications."
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         if resolve_user_role(request.user) is None:
             return False
         if getattr(view, 'action', None) == 'create':
@@ -57,15 +193,15 @@ class OwnNotifications(permissions.BasePermission):
         return True
 
 
-class OwnerOnly(permissions.BasePermission):
+class OwnerOnly(ModuleAccess):
 
     message = "Only the boutique owner can see this."
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         return resolve_user_role(request.user) == OWNER
 
 
-class StaffSelfOrOwner(permissions.BasePermission):
+class StaffSelfOrOwner(ModuleAccess):
     """Employment records: the owner writes them, a staff member reads their own.
 
     Deliberately NOT RolePermission, which is the default for business
@@ -115,7 +251,7 @@ class StaffSelfOrOwner(permissions.BasePermission):
     #: still checks the review is theirs and is finalised.
     SELF_SERVICE_ACTIONS = frozenset({'check_in', 'check_out', 'acknowledge'})
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         role = resolve_user_role(request.user)
         if role is None:
             return False
@@ -129,7 +265,7 @@ class StaffSelfOrOwner(permissions.BasePermission):
         return request.method in permissions.SAFE_METHODS
 
 
-class OwnerOrOwnFinancialRecord(permissions.BasePermission):
+class OwnerOrOwnFinancialRecord(ModuleAccess):
     """Financial records: the owner does everything, a staff member reads their own.
 
     For payslips and advances only. Everything that MOVES money -- generating,
@@ -148,7 +284,7 @@ class OwnerOrOwnFinancialRecord(permissions.BasePermission):
 
     message = "Only the boutique owner can manage payroll."
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         role = resolve_user_role(request.user)
         if role is None:
             return False

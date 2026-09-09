@@ -17,7 +17,7 @@
 import {
   Activity, AlertTriangle, Building2, FileWarning, Gauge, HeartPulse,
   KeyRound, LayoutDashboard, Mail, Plug, PackageSearch, ScrollText, Settings,
-  ShoppingBag, Sparkles, Users, Wrench,
+  ShieldAlert, ShoppingBag, Sparkles, Users, Wrench,
 } from 'lucide-react';
 
 export const NAV = [
@@ -74,6 +74,13 @@ export const NAV = [
     group: 'Reliability',
     items: [
       { key: 'errors', label: 'Error Center', icon: FileWarning, badge: 'errors' },
+      // Sits directly under the Error Center because the pair only makes sense
+      // together: that screen is what nothing caught, this one is everything
+      // the product handled -- swallowed exceptions, refusals by our own
+      // controls, deliberate 4xx and browser crashes. Kept apart rather than
+      // merged because mixing them buries fifty crashes under fifty thousand
+      // validation errors, which is the whole reason ErrorEvent grew a `kind`.
+      { key: 'handling', label: 'Error Handling', icon: ShieldAlert },
       { key: 'jobs', label: 'Jobs & Queues', icon: Gauge, absent: true },
       { key: 'api', label: 'API Monitoring', icon: AlertTriangle, absent: true },
     ],

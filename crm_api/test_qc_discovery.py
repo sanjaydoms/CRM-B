@@ -29,9 +29,9 @@ class QCDiscoveryTestBase(TenantTestCase):
             username="owner@qc.test", email="owner@qc.test", password="ownerpass123")
         self.master, self.master_client = self._staff("Rohit Mehra", "Master", "master@qc.test")
         self.tailor, self.tailor_client = self._staff("Anya Sharma", "Tailor", "tailor@qc.test")
-        self.qc, self.qc_client = self._staff("Anand Rao", "QC Master", "qc@qc.test")
+        self.qc, self.qc_client = self._staff("Anand Rao", "QC Staff", "qc@qc.test")
         self.presser, self.presser_client = self._staff(
-            "Vimala Devi", "Pressing Staff", "press@qc.test")
+            "Vimala Devi", "Packaging Staff", "press@qc.test")
 
     def _staff(self, name, role, email):
         user = User.objects.create_user(username=email, email=email, password="staffpass123")
@@ -79,8 +79,8 @@ class RoleStageDeclarationTests(QCDiscoveryTestBase):
 
     def test_the_queue_is_built_from_the_same_roles_list_the_engine_enforces(self):
         config = BoutiqueSettings.objects.get(id=1).workflow_config
-        self.assertEqual(stages_for_role(config, 'QC Master'), ['master_quality_check'])
-        self.assertEqual(stages_for_role(config, 'Pressing Staff'), ['pressing'])
+        self.assertEqual(stages_for_role(config, 'QC Staff'), ['master_quality_check'])
+        self.assertEqual(stages_for_role(config, 'Packaging Staff'), ['pressing'])
         self.assertEqual(stages_for_role(config, 'Designer'), [])
 
     def test_a_renamed_role_moves_visibility_with_it(self):
@@ -92,7 +92,7 @@ class RoleStageDeclarationTests(QCDiscoveryTestBase):
 
         order = self.reach(self.make_order(), 'master_quality_check')
         self.assertNotIn(order.order_id, self.visible_ids(self.qc.user),
-                         'QC Master no longer performs the stage, so it leaves their queue')
+                         'QC Staff no longer performs the stage, so it leaves their queue')
 
 
 class QCQueueTests(QCDiscoveryTestBase):
@@ -207,23 +207,23 @@ class QueueNotificationTests(QCDiscoveryTestBase):
         OrderService.transition_order_stage(
             order=order, stage_key='pressing', new_status='COMPLETED', user=self.owner)
 
-        qc_notes = Notification.objects.filter(recipient_role='QC Master')
+        qc_notes = Notification.objects.filter(recipient_role='QC Staff')
         self.assertEqual(qc_notes.count(), 1, 'exactly one, addressed to the role')
         self.assertIn(order.order_id, qc_notes.get().message)
 
     def test_the_notification_is_addressed_to_the_role_not_a_person(self):
-        self._staff("Second Inspector", "QC Master", "qc2@qc.test")
+        self._staff("Second Inspector", "QC Staff", "qc2@qc.test")
         order = self.reach(self.make_order(), 'pressing')
         Notification.objects.all().delete()
 
         OrderService.transition_order_stage(
             order=order, stage_key='pressing', new_status='COMPLETED', user=self.owner)
 
-        note = Notification.objects.get(recipient_role='QC Master')
+        note = Notification.objects.get(recipient_role='QC Staff')
         self.assertEqual(note.recipient_email or '', '')
 
     def test_both_qc_masters_can_read_it(self):
-        second, second_client = self._staff("Second Inspector", "QC Master", "qc2@qc.test")
+        second, second_client = self._staff("Second Inspector", "QC Staff", "qc2@qc.test")
         order = self.reach(self.make_order(), 'pressing')
         OrderService.transition_order_stage(
             order=order, stage_key='pressing', new_status='COMPLETED', user=self.owner)
@@ -239,20 +239,20 @@ class QueueNotificationTests(QCDiscoveryTestBase):
         Notification.objects.all().delete()
         OrderService.transition_order_stage(
             order=order, stage_key='pressing', new_status='IN_PROGRESS', user=self.owner)
-        self.assertFalse(Notification.objects.filter(recipient_role='QC Master').exists())
+        self.assertFalse(Notification.objects.filter(recipient_role='QC Staff').exists())
 
     def test_no_notification_for_a_role_nobody_holds(self):
-        Tailor.objects.filter(role='QC Master').delete()
+        Tailor.objects.filter(role='QC Staff').delete()
         order = self.reach(self.make_order(), 'pressing')
         Notification.objects.all().delete()
         OrderService.transition_order_stage(
             order=order, stage_key='pressing', new_status='COMPLETED', user=self.owner)
-        self.assertFalse(Notification.objects.filter(recipient_role='QC Master').exists())
+        self.assertFalse(Notification.objects.filter(recipient_role='QC Staff').exists())
 
     def test_the_notification_names_the_stage_that_is_waiting(self):
         order = self.reach(self.make_order(), 'pressing')
         Notification.objects.all().delete()
         OrderService.transition_order_stage(
             order=order, stage_key='pressing', new_status='COMPLETED', user=self.owner)
-        note = Notification.objects.get(recipient_role='QC Master')
+        note = Notification.objects.get(recipient_role='QC Staff')
         self.assertIn('Master Quality Check', note.title)
