@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext.jsx';
 import LanguageSelector from './LanguageSelector.jsx';
+import { InvoiceTemplateSelector } from './invoice/InvoiceTemplateSelector.jsx';
 import { Globe, Settings, ShieldCheck, CheckCircle2, Building, User, Clock, Info, MessageSquare, RotateCw, RefreshCw } from 'lucide-react';
 import { api } from '../services/api.js';
 
@@ -304,6 +305,9 @@ export const SettingsPage = ({
           </div>
         </div>
       </div>
+
+      {/* Invoice Template Selection Section */}
+      <InvoiceTemplateSelector currentUser={currentUser} />
     </div>
   );
 };

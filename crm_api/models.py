@@ -282,6 +282,17 @@ class Order(models.Model):
     special_instructions = models.TextField(blank=True, default='')
     current_stage_key = models.CharField(max_length=100, default="created", db_index=True)
     production_status = models.CharField(max_length=50, default="NOT_STARTED", db_index=True) # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
+    invoice_template = models.CharField(max_length=50, default="classic", blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and (not self.invoice_template or self.invoice_template == 'classic'):
+            try:
+                settings_obj = BoutiqueSettings.objects.first()
+                if settings_obj and settings_obj.invoice_template:
+                    self.invoice_template = settings_obj.invoice_template
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Order {self.order_id} - {self.customer.first_name} {self.customer.last_name}"
@@ -436,6 +447,7 @@ class BoutiqueSettings(models.Model):
     workflow_config = models.JSONField(default=get_default_workflow, blank=True)
     design_approval_required = models.BooleanField(default=False)
     customer_messaging_enabled = models.BooleanField(default=True)
+    invoice_template = models.CharField(max_length=50, default="classic", blank=True)
 
     def __str__(self):
         return self.name
