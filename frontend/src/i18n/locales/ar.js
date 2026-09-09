@@ -25,6 +25,7 @@ const ar = {
     dashboard: "لوحة التحكم",
     manageOrders: "إدارة الطلبات",
     customers: "العملاء",
+    alterations: "التعديلات",
     invoices: "الفواتير",
     analytics: "التحليلات",
     manageFabrics: "إدارة الأقمشة",

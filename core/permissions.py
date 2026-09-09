@@ -45,6 +45,38 @@ class RolePermission(permissions.BasePermission):
         return action in self.SUPERVISOR_ORDER_ACTIONS and role in SUPERVISOR_ROLES
 
 
+class AlterationPermission(permissions.BasePermission):
+    """Who may reach the post-delivery alteration endpoints at all.
+
+    Deliberately NOT RolePermission. That class grants every non-Owner staff
+    member every unsafe method whose action name it recognises, and its two
+    action allow-lists are the order book's, not this feature's. Alterations
+    carry their own money and their own stock consumption, so the fine gate --
+    which role may make which transition, and whether a bench worker is the
+    one the garment is actually assigned to -- lives in
+    domains/alterations/workflow.py, next to the state machine it belongs to,
+    where a refusal can also explain itself.
+
+    What this class settles is the coarse question: is the caller a member of
+    this boutique's staff at all.
+
+    A None role is denied, not waved through. resolve_user_role returns None
+    for an authenticated account that no Tailor or Designer profile claims --
+    exactly where a removed staff member's un-revoked token lands -- and that
+    account must not be able to take a garment in, quote it, or take payment
+    for it. Designers are denied for the same reason RolePermission denies
+    them: they never handle orders or money.
+    """
+
+    message = "Your role does not permit this."
+
+    def has_permission(self, request, view):
+        role = resolve_user_role(request.user)
+        if role is None or role == DESIGNER:
+            return False
+        return True
+
+
 class OwnNotifications(permissions.BasePermission):
 
     message = "Sign in to see your notifications."

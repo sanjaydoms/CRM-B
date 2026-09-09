@@ -28,6 +28,7 @@ const ml = {
     dashboard: "ഡാഷ്‌ബോർഡ്",
     manageOrders: "ഓർഡർ മാനേജ്‌മെന്റ്",
     customers: "ഉപഭോക്താക്കൾ",
+    alterations: "മാറ്റങ്ങൾ",
     invoices: "ഇൻവോയ്‌സുകൾ",
     analytics: "അനലിറ്റിക്സ്",
     manageFabrics: "തുണിത്തരങ്ങളുടെ മാനേജ്‌മെന്റ്",

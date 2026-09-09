@@ -32,6 +32,7 @@ const de = {
     dashboard: "Dashboard",
     manageOrders: "Bestellverwaltung",
     customers: "Kunden",
+    alterations: "Änderungen",
     invoices: "Rechnungen",
     analytics: "Analysen",
     manageFabrics: "Stoffverwaltung",

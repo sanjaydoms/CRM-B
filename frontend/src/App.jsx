@@ -30,8 +30,11 @@ const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary')
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
 const StaffPanel = lazy(() => import('./features/staff/StaffPanel'));
+const AlterationsPanel = lazy(() => import('./features/alterations/AlterationsPanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
+import OrderAlterations from './features/alterations/OrderAlterations';
+import AlterationList from './features/alterations/AlterationList';
 import { MobileHeader } from './components/ui/MobileHeader';
 import { useLanguage } from './i18n/LanguageContext.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
@@ -1389,6 +1392,15 @@ function App() {
   const [updatingOrderStatusId, setUpdatingOrderStatusId] = useState(null);
   const [expandedDna, setExpandedDna] = useState({});
   const [selectedDirectoryCustomer, setSelectedDirectoryCustomer] = useState(null);
+  // Which alteration the Alterations tab should open on. Set when somebody
+  // follows one from an order card or a customer's file, cleared once the tab
+  // has been entered so going back to the tab shows the register again.
+  const [openAlterationId, setOpenAlterationId] = useState(null);
+  const openAlteration = (id) => {
+    setOpenAlterationId(id);
+    setSelectedDirectoryCustomer(null);
+    setDashboardTab('alterations');
+  };
   const [directoryDetailLoading, setDirectoryDetailLoading] = useState(false);
   // Which order in the customer profile is expanded to show its production
   // progress. Opening a client's order used to throw them into the new-order
@@ -3158,6 +3170,7 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.dashboard', 'Dashboard')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders', 'Manage Orders')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers', 'Customers')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'alterations' ? 'active' : ''}`} onClick={() => { setDashboardTab('alterations'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.alterations', 'Alterations')}</a>
 
                   <div className="portal-menu-group">{t('nav.groupDesign', 'Design')}</div>
                   <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> {t('nav.manageDesigns', 'Manage Designs')}</a>
@@ -3180,6 +3193,7 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.myAssignments', 'My Assignments')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders', 'Manage Orders')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers', 'Customers')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'alterations' ? 'active' : ''}`} onClick={() => { setDashboardTab('alterations'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.alterations', 'Alterations')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'staff' ? 'active' : ''}`} onClick={() => { setDashboardTab('staff'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Landmark size={16} /> {t('nav.staffManagement', 'Staff Management')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> {t('nav.designWork', 'Design Work')}</a>
                 </>
@@ -3604,6 +3618,17 @@ function App() {
                       )}
                     </div>
                   </div>
+                </div>
+
+                {/* The tailor's alteration queue. A list of its own, not rows
+                    smuggled into the order registry: an alteration is a
+                    separate job against a delivered order. */}
+                <div style={{ marginTop: '20px' }}>
+                  <AlterationList
+                    title="My Alterations"
+                    params={{ assigned_to_me: '1', open: '1' }}
+                    onOpenAlteration={openAlteration}
+                  />
                 </div>
               </>
             )}
@@ -4110,6 +4135,20 @@ function App() {
             {dashboardTab === 'staff' && (
               <Suspense fallback={<ScreenLoading />}>
                 <StaffPanel currentUser={currentUser} />
+              </Suspense>
+            )}
+
+            {/* Post-delivery alterations. Its own screen, deliberately not a
+                second copy of the order registry: an alteration is a separate
+                job that merely points at the order it came from. */}
+            {dashboardTab === 'alterations' && (
+              <Suspense fallback={<ScreenLoading />}>
+                <AlterationsPanel
+                  currentUser={currentUser}
+                  initialAlterationId={openAlterationId}
+                  onBackToList={() => setOpenAlterationId(null)}
+                  key={openAlterationId || 'list'}
+                />
               </Suspense>
             )}
 
@@ -4853,6 +4892,16 @@ function App() {
                             </h4>
                             <MaterialsChecklist orderId={order.id} role={currentUser.role} />
                           </div>
+
+                          {/* Post-delivery alterations. Shown only once the
+                              order is Delivered -- before that a fitting
+                              problem is production's to fix, not a new job. */}
+                          <OrderAlterations
+                            order={order}
+                            customerId={order.customer}
+                            currentUser={currentUser}
+                            onOpenAlteration={openAlteration}
+                          />
 
                           {/* Master Verification Checklist in Orders Tab */}
                           {currentUser.role === 'Master' && (
@@ -5673,6 +5722,17 @@ function App() {
                                       <Copy size={12} />
                                       Reorder Style
                                     </button>
+
+                                    {/* What has come back on this order, and
+                                        the way to take a garment in, right
+                                        where the customer is standing. */}
+                                    <OrderAlterations
+                                      order={order}
+                                      customerId={selectedDirectoryCustomer.id}
+                                      currentUser={currentUser}
+                                      onOpenAlteration={openAlteration}
+                                      compact
+                                    />
                                   </div>
                                 )}
                               </div>
@@ -5681,6 +5741,16 @@ function App() {
                         </div>
                       )}
                     </div>
+
+                    {/* Everything this customer has ever brought back, across
+                        every order. Sits beside the order history rather than
+                        inside it: an alteration is its own job, and the
+                        counter wants to see them together. */}
+                    <AlterationList
+                      title="Alteration History"
+                      params={{ customer: selectedDirectoryCustomer.id }}
+                      onOpenAlteration={openAlteration}
+                    />
 
                   </div>
 
@@ -7236,6 +7306,7 @@ function App() {
                   <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.dashboard')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> {t('nav.manageOrders')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> {t('nav.customers')}</a>
+                  <a className={`portal-menu-item ${dashboardTab === 'alterations' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('alterations'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> {t('nav.alterations', 'Alterations')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> {t('nav.invoices')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> {t('nav.analytics')}</a>
                   <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setView('dashboard'); setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> {t('nav.manageFabrics')}</a>

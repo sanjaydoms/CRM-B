@@ -24,6 +24,7 @@ const mr = {
     dashboard: "डॅशबोर्ड",
     manageOrders: "ऑर्डर व्यवस्थापन",
     customers: "ग्राहक",
+    alterations: "फेरबदल",
     invoices: "इनव्हॉइस",
     analytics: "विश्लेषण (Analytics)",
     manageFabrics: "कापड व्यवस्थापन",

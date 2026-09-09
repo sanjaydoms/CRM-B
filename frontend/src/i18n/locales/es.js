@@ -31,6 +31,7 @@ const es = {
     dashboard: "Panel de control",
     manageOrders: "Gestión de pedidos",
     customers: "Clientes",
+    alterations: "Arreglos",
     invoices: "Facturas",
     analytics: "Analítica",
     manageFabrics: "Gestión de telas",

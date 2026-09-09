@@ -29,6 +29,7 @@ const ta = {
     dashboard: "டாஷ்போர்டு",
     manageOrders: "ஆர்டர் மேலாண்மை",
     customers: "வாடிக்கையாளர்கள்",
+    alterations: "மாற்றங்கள்",
     invoices: "இன்வாய்ஸ்கள்",
     analytics: "பகுப்பாய்வு (Analytics)",
     manageFabrics: "துணி மேலாண்மை",

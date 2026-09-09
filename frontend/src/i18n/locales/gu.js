@@ -27,6 +27,7 @@ const gu = {
     dashboard: "ડેશબોર્ડ",
     manageOrders: "ઓર્ડર સંચાલન",
     customers: "ગ્રાહકો",
+    alterations: "ફેરફારો",
     invoices: "ઇનવોઇસ",
     analytics: "એનાલિટિક્સ",
     manageFabrics: "કાપડ સંચાલન",

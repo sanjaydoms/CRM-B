@@ -30,6 +30,7 @@ const kn = {
     dashboard: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್",
     manageOrders: "ಆರ್ಡರ್ ನಿರ್ವಹಣೆ",
     customers: "ಗ್ರಾಹಕರು",
+    alterations: "ಬದಲಾವಣೆಗಳು",
     invoices: "ಇನ್‌ವಾಯ್ಸ್‌ಗಳು",
     analytics: "ವಿಶ್ಲೇಷಣೆ (Analytics)",
     manageFabrics: "ಬಟ್ಟೆ ನಿರ್ವಹಣೆ",

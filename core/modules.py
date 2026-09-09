@@ -63,6 +63,16 @@ MODULES = {
         ('/api/payroll/',),
         'Weekly staff payroll: hours, rates and approved gross earnings.',
     ),
+    # Post-delivery alterations. Its own switch rather than part of `orders`:
+    # a boutique that does not take garments back after delivery can turn the
+    # whole workflow off, and doing so leaves the order book, production and
+    # every delivered order's history entirely untouched -- which is the point
+    # of keeping alterations a parallel process in the first place.
+    'alterations': (
+        'Alterations',
+        ('/api/alterations/',),
+        'Post-delivery alteration requests: intake, workflow, charges and materials.',
+    ),
     'notifications': (
         'Notifications',
         ('/api/notifications/',),

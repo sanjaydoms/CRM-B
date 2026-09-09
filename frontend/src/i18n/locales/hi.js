@@ -22,6 +22,7 @@ const hi = {
     dashboard: "डैशबोर्ड",
     manageOrders: "ऑर्डर प्रबंधित करें",
     customers: "ग्राहक",
+    alterations: "फेरबदल",
     invoices: "इनवॉइस",
     analytics: "एनालिटिक्स",
     manageFabrics: "फैब्रिक प्रबंधित करें",

@@ -24,6 +24,7 @@ const te = {
     dashboard: "డాష్‌బోర్డ్",
     manageOrders: "ఆర్డర్‌ల నిర్వహణ",
     customers: "వినియోగదారులు",
+    alterations: "మార్పులు",
     invoices: "ఇన్‌వాయిస్‌లు",
     analytics: "అనలిటిక్స్",
     manageFabrics: "ఫ్యాబ్రిక్‌ల నిర్వహణ",

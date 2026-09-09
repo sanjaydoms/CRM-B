@@ -21,6 +21,7 @@ urlpatterns = [
     path('api/staff/', include('apps.staff.urls')),
     path('api/payroll/', include('apps.payroll.urls')),
     path('api/email/', include('apps.email_service.urls')),
+    path('api/alterations/', include('apps.alterations.urls')),
 ]
 
 urlpatterns += [

@@ -22,6 +22,7 @@ const en = {
     dashboard: "Dashboard",
     manageOrders: "Manage Orders",
     customers: "Customers",
+    alterations: "Alterations",
     invoices: "Invoices",
     analytics: "Analytics",
     manageFabrics: "Manage Fabrics",
