@@ -134,7 +134,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                 Invoice Template Selection
               </h2>
               <p style={{ margin: '2px 0 0 0', fontSize: '0.825rem', color: 'var(--text-secondary, #64748b)' }}>
-                Choose default template layout for invoices
+                choose template which one you want before generating invoice
               </p>
             </div>
           </div>
