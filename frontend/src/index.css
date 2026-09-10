@@ -4630,3 +4630,29 @@ table.data-table tbody tr:hover {
 .at-check-pill input { accent-color: var(--primary-color); width: 16px; height: 16px; margin: 0; }
 .at-thumb { width: 44px; height: 56px; border-radius: 8px; overflow: hidden; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
 .at-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ===== collapsible sidebar: icons only, labels as flyouts (desktop) ===== */
+.portal-sidebar-brand { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-right: 12px; }
+.portal-sidebar-mark { display: none; font-family: var(--font-serif); font-size: 24px; font-weight: 700; color: var(--text-primary); line-height: 1; }
+.portal-nav-toggle { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-secondary); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; margin-top: 2px; }
+.portal-nav-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.portal-menu-item { position: relative; }
+.portal-flyout { position: fixed; transform: translateY(-50%); background: var(--primary-color); color: var(--text-on-dark); font-size: var(--text-xs); font-weight: 600; padding: 6px 10px; border-radius: 8px; white-space: nowrap; box-shadow: var(--shadow-md); z-index: 1200; pointer-events: none; }
+.portal-flyout::before { content: ''; position: absolute; left: -5px; top: 50%; transform: translateY(-50%); border: 5px solid transparent; border-right-color: var(--primary-color); border-left: 0; }
+.portal-layout { transition: grid-template-columns .2s ease; }
+@media (min-width: 1025px) {
+  .portal-layout.nav-collapsed { grid-template-columns: 76px 1fr; }
+  .nav-collapsed .portal-sidebar-logo, .nav-collapsed .portal-sidebar-logo-sub { display: none; }
+  .nav-collapsed .portal-sidebar-brand { flex-direction: column; align-items: center; padding: 0 0 24px; gap: 12px; }
+  .nav-collapsed .portal-sidebar-mark { display: block; }
+  .nav-collapsed .portal-menu { padding: 0 12px; }
+  .nav-collapsed .portal-menu-item { justify-content: center; padding: 12px 0; gap: 0; }
+  .nav-collapsed .portal-menu-label { display: none; }
+  .nav-collapsed .portal-menu-group { font-size: 0; height: 1px; background: var(--border-color); padding: 0; margin: 10px 8px 6px; opacity: 1; }
+  .nav-collapsed .portal-menu-divider { margin: 6px 8px; }
+  .nav-collapsed .portal-sidebar-footer, .nav-collapsed .portal-sidebar-help { display: none; }
+}
+@media (max-width: 1024px) {
+  .portal-nav-toggle { display: none; }
+  .portal-sidebar-mark { display: none !important; }
+}

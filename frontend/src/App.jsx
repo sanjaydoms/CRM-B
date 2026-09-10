@@ -10,7 +10,8 @@ import {
   Shirt, TrendingUp, AlertCircle, CalendarDays, LayoutGrid, List, Receipt, Banknote,
   Truck, PackageCheck, CheckCircle2, Boxes, Crown, ShoppingCart, Coins, ClipboardList,
   Type, Tag, Layers, Palette, IndianRupee, Link as LinkIcon, Image as ImageIcon, Save,
-  Play, Pause, SkipForward, RefreshCw, Ruler, Target, Leaf, Building2, Globe, Camera, Store
+  Play, Pause, SkipForward, RefreshCw, Ruler, Target, Leaf, Building2, Globe, Camera, Store,
+  PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
@@ -1114,15 +1115,47 @@ const visibleNav = (user, t) => navSectionsFor(user, t)
 
 /** The sidebar list. `onPick` differs by view: the order selector has to leave
     itself for the dashboard before a tab means anything. */
-function PortalMenu({ sections, activeTab, onPick }) {
+/** One entry in the sidebar. Collapsed, it is the icon alone and the label
+ *  follows the pointer as a flyout -- position: fixed, because both the
+ *  sidebar and the scrolling nav clip anything that pokes out of them. */
+function NavItem({ icon: Icon, label, active, onClick, collapsed }) {
+  const [flyout, setFlyout] = useState(null);
+  const show = (e) => {
+    if (!collapsed) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    setFlyout({ top: r.top + r.height / 2, left: r.right + 10 });
+  };
+  const hide = () => setFlyout(null);
+  return (
+    <a
+      className={`portal-menu-item${active ? ' active' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-label={collapsed ? label : undefined}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      <Icon size={16} />
+      <span className="portal-menu-label">{label}</span>
+      {collapsed && flyout && (
+        <span className="portal-flyout" role="tooltip" style={{ top: flyout.top, left: flyout.left }}>{label}</span>
+      )}
+    </a>
+  );
+}
+
+function PortalMenu({ sections, activeTab, onPick, collapsed = false }) {
   return sections.map((section) => (
     <React.Fragment key={section.key}>
       {section.divider && <div className="portal-menu-divider" />}
       {section.label && <div className="portal-menu-group">{section.label}</div>}
-      {section.items.map(({ tab, icon: Icon, label }) => (
-        <a key={tab} className={`portal-menu-item ${activeTab === tab ? 'active' : ''}`} onClick={() => onPick(tab)}>
-          <Icon size={16} /> {label}
-        </a>
+      {section.items.map(({ tab, icon, label }) => (
+        <NavItem key={tab} icon={icon} label={label} active={activeTab === tab}
+                 collapsed={collapsed} onClick={() => onPick(tab)} />
       ))}
     </React.Fragment>
   ));
@@ -1143,6 +1176,15 @@ function App() {
   const [view, setView] = useState(
     () => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login');
   const [requestedTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs' -- resolved into dashboardTab below
+  // Sidebar width is the reader's choice, remembered per device. Desktop
+  // only: below 1024px the sidebar is the drawer and always shows labels.
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try { return localStorage.getItem('nav_collapsed') === '1'; } catch { return false; }
+  });
+  const toggleNav = () => setNavCollapsed((c) => {
+    try { localStorage.setItem('nav_collapsed', c ? '0' : '1'); } catch { /* per-device convenience only */ }
+    return !c;
+  });
   const [currentUser, setCurrentUser] = useState(null);
   const { t, language } = useLanguage();
   const currentUserName = currentUser?.first_name || currentUser?.name || currentUser?.email?.split('@')[0] || 'User';
@@ -3407,7 +3449,7 @@ function App() {
 
       {/* 4. BOUTIQUE PORTAL MAIN WORKSPACE (Image 4) */}
       {view === 'dashboard' && currentUser && (
-        <div className="portal-layout">
+        <div className={`portal-layout${navCollapsed ? ' nav-collapsed' : ''}`}>
           <MobileHeader
             title={t(
               dashboardTab === 'overview' ? 'nav.dashboard' :
@@ -3485,8 +3527,19 @@ function App() {
           {/* Sidebar */}
           <aside className={`portal-sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
             <div className="portal-sidebar-header-desktop">
-              <div className="portal-sidebar-logo">SCALEEZY</div>
-              <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
+              <div className="portal-sidebar-brand">
+                <div>
+                  <div className="portal-sidebar-logo">SCALEEZY</div>
+                  <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
+                </div>
+                <div className="portal-sidebar-mark" aria-hidden="true">S</div>
+                <button type="button" className="portal-nav-toggle" onClick={toggleNav}
+                        aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+                        aria-expanded={!navCollapsed}
+                        title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}>
+                  {navCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+                </button>
+              </div>
             </div>
 
 
@@ -3494,9 +3547,11 @@ function App() {
               <PortalMenu
                 sections={navSections}
                 activeTab={dashboardTab}
+                collapsed={navCollapsed && !mobileNavOpen}
                 onPick={(tab) => { setDashboardTab(tab); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}
               />
-              <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
+              <NavItem icon={LogOut} label={t('nav.logout')} collapsed={navCollapsed && !mobileNavOpen}
+                       onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }} />
             </nav>
 
 
@@ -6254,7 +6309,7 @@ function App() {
 
       {/* 5. ORDER TYPE SELECTOR (Image 5) */}
       {view === 'order-selector' && (
-        <div className="portal-layout">
+        <div className={`portal-layout${navCollapsed ? ' nav-collapsed' : ''}`}>
           {/* Below 1024px .portal-sidebar is an off-canvas drawer. Without a way
               to open it -- and without the overlay to shut it again -- this
               screen had no navigation at all on a phone: the sidebar sat parked
@@ -6283,16 +6338,29 @@ function App() {
 
           {/* Reuse Sidebar for Portal Continuity */}
           <aside className={`portal-sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
-            <div className="portal-sidebar-logo">SCALEEZY</div>
-            <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
+            <div className="portal-sidebar-brand">
+              <div>
+                <div className="portal-sidebar-logo">SCALEEZY</div>
+                <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
+              </div>
+              <div className="portal-sidebar-mark" aria-hidden="true">S</div>
+              <button type="button" className="portal-nav-toggle" onClick={toggleNav}
+                      aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+                      aria-expanded={!navCollapsed}
+                      title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}>
+                {navCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+              </button>
+            </div>
             
             <nav className="portal-menu">
               <PortalMenu
                 sections={navSections}
                 activeTab={dashboardTab}
+                collapsed={navCollapsed && !mobileNavOpen}
                 onPick={(tab) => { setView('dashboard'); setDashboardTab(tab); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}
               />
-              <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
+              <NavItem icon={LogOut} label={t('nav.logout')} collapsed={navCollapsed && !mobileNavOpen}
+                       onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }} />
             </nav>
           </aside>
 
