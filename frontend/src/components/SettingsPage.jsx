@@ -218,10 +218,10 @@ export const SettingsPage = ({
                 </div>
                 <div>
                   <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
-                    WhatsApp Settings
+                    {t('settingsPage.whatsappTitle', 'WhatsApp Settings')}
                   </h2>
                   <p style={{ margin: '2px 0 0 0', fontSize: '0.825rem', color: 'var(--text-secondary, #64748b)' }}>
-                    Link boutique WhatsApp account
+                    {t('settingsPage.whatsappSubtitle', 'Link boutique WhatsApp account')}
                   </p>
                 </div>
               </div>
@@ -234,7 +234,7 @@ export const SettingsPage = ({
                   disabled={resetting}
                 >
                   <RefreshCw size={13} className={resetting ? 'spin' : ''} />
-                  <span>{resetting ? 'Resetting...' : 'Reset Session'}</span>
+                  <span>{resetting ? t('settingsPage.resetting', 'Resetting...') : t('settingsPage.resetSession', 'Reset Session')}</span>
                 </button>
               </div>
             </div>
@@ -244,32 +244,32 @@ export const SettingsPage = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                   <MessageSquare size={18} color="#16A34A" />
                   <span style={{ fontWeight: 600, fontSize: '14px', color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    WhatsApp Connected <CheckCircle2 size={16} color="#16A34A" />
+                    {t('settingsPage.connectedTitle', 'WhatsApp Connected')} <CheckCircle2 size={16} color="#16A34A" />
                   </span>
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary, #475569)', lineHeight: 1.4 }}>
-                  Automated customer notifications and stage update messages are active.
+                  {t('settingsPage.connectedDesc', 'Automated customer notifications and stage update messages are active.')}
                 </div>
                 <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: '11px', fontWeight: 600, padding: '4px 10px', background: '#DCFCE7', color: '#15803D', borderRadius: '20px' }}>
-                    Connected
+                    {t('settingsPage.connectedBadge', 'Connected')}
                   </span>
                   <button
                     type="button"
                     style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
                     onClick={handleReset}
                   >
-                    Disconnect & Re-pair
+                    {t('settingsPage.disconnectRepair', 'Disconnect & Re-pair')}
                   </button>
                 </div>
               </div>
             ) : whatsappStatus.qrCode ? (
               <div style={{ padding: '16px', border: '1px solid #25D366', borderRadius: '12px', background: '#FAFFFA', marginTop: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#25D366', fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
-                  <MessageSquare size={14} /> Link Device
+                  <MessageSquare size={14} /> {t('settingsPage.linkDevice', 'Link Device')}
                 </div>
                 <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                  Scan with WhatsApp on your mobile phone (Settings &gt; Linked Devices):
+                  {t('settingsPage.scanQrInstruction', 'Scan with WhatsApp on your mobile phone (Settings > Linked Devices):')}
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px', background: '#ffffff', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
                   <img
@@ -278,17 +278,17 @@ export const SettingsPage = ({
                     style={{ width: '180px', height: '180px', objectFit: 'contain', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '6px', background: '#fff' }}
                   />
                   <div style={{ marginTop: '10px', fontSize: '12px', color: '#16A34A', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <RotateCw size={14} className="spin" /> Waiting for QR scan...
+                    <RotateCw size={14} className="spin" /> {t('settingsPage.waitingQrScan', 'Waiting for QR scan...')}
                   </div>
                 </div>
               </div>
             ) : (
               <div style={{ padding: '16px', border: '1px dashed #25D366', borderRadius: '12px', background: '#FAFFFA', marginTop: '12px' }}>
                 <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                  Link WhatsApp Account
+                  {t('settingsPage.linkWhatsAppAccount', 'Link WhatsApp Account')}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                  Click below to generate WhatsApp QR code for scanning.
+                  {t('settingsPage.linkWhatsAppDesc', 'Click below to generate WhatsApp QR code for scanning.')}
                 </div>
                 <button
                   type="button"
@@ -298,7 +298,7 @@ export const SettingsPage = ({
                   disabled={resetting}
                 >
                   <RotateCw size={14} className={resetting ? 'spin' : ''} />
-                  <span>{resetting ? 'Generating QR Code...' : 'Generate WhatsApp QR Code'}</span>
+                  <span>{resetting ? t('settingsPage.generatingQrCode', 'Generating QR Code...') : t('settingsPage.generateQrCode', 'Generate WhatsApp QR Code')}</span>
                 </button>
               </div>
             )}

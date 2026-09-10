@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { InvoiceRenderer, normalizeInvoiceData } from './InvoiceTemplates';
 import { Check, Sparkles, AlertCircle, Loader2, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
 
 const TEMPLATE_OPTIONS = [
   {
@@ -25,6 +26,7 @@ const TEMPLATE_OPTIONS = [
 ];
 
 export const InvoiceTemplateSelector = ({ currentUser }) => {
+  const { t } = useLanguage();
   const isOwner = !currentUser?.role || currentUser?.role === 'Owner';
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
   const [availableTemplates, setAvailableTemplates] = useState(TEMPLATE_OPTIONS);
@@ -36,6 +38,35 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
   
   // State for wide popup modal
   const [previewModalTemplate, setPreviewModalTemplate] = useState(null);
+
+  // Helper function to get translated template details
+  const getTemplateDetails = (tplId) => {
+    switch (tplId) {
+      case 'classic':
+        return {
+          id: 'classic',
+          name: t('settingsPage.classicName', 'Classic Template'),
+          tagline: t('settingsPage.classicTagline', 'Traditional & Formal'),
+          description: t('settingsPage.classicDesc', 'Clean, timeless layout with structured lines and prominent boutique header.')
+        };
+      case 'modern':
+        return {
+          id: 'modern',
+          name: t('settingsPage.modernName', 'Modern Template'),
+          tagline: t('settingsPage.modernTagline', 'Sleek & Contemporary'),
+          description: t('settingsPage.modernDesc', 'Dark accent header banner, crisp modern typography, and colored status badges.')
+        };
+      case 'elegant':
+        return {
+          id: 'elegant',
+          name: t('settingsPage.elegantName', 'Elegant Template'),
+          tagline: t('settingsPage.elegantTagline', 'Luxury & Haute Couture'),
+          description: t('settingsPage.elegantDesc', 'Refined serif typography, warm golden accents, and luxury sign-off footer.')
+        };
+      default:
+        return TEMPLATE_OPTIONS.find(t => t.id === tplId) || TEMPLATE_OPTIONS[0];
+    }
+  };
 
   // Sample data for rendering previews
   const previewData = normalizeInvoiceData(null, null, currentUser);
@@ -61,7 +92,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
       .catch((err) => {
         if (isMounted) {
           console.error("Failed to load invoice template setting:", err);
-          setError(err.message || "Failed to load template settings.");
+          setError(err.message || t('settingsPage.failedToLoadTemplate', 'Failed to load template settings.'));
         }
       })
       .finally(() => {
@@ -69,7 +100,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
       });
 
     return () => { isMounted = false; };
-  }, [isOwner]);
+  }, [isOwner, t]);
 
   const handleSelectTemplate = async (templateId) => {
     if (saving) return;
@@ -81,13 +112,13 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
       const res = await api.updateInvoiceTemplate(templateId);
       if (res?.template) {
         setSelectedTemplate(res.template);
-        setSuccessMsg(`Invoice template updated to "${TEMPLATE_OPTIONS.find(t => t.id === templateId)?.name || templateId}".`);
+        setSuccessMsg(`Invoice template updated to "${getTemplateDetails(templateId).name}".`);
         setTimeout(() => setSuccessMsg(''), 4000);
         setPreviewModalTemplate(null);
       }
     } catch (err) {
       console.error("Failed to save template selection:", err);
-      setError(err.message || "Failed to update invoice template.");
+      setError(err.message || t('settingsPage.failedToUpdateTemplate', 'Failed to update invoice template.'));
     } finally {
       setSaving(false);
     }
@@ -106,6 +137,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
   }
 
   const currentTemplate = availableTemplates[currentIndex] || availableTemplates[0];
+  const currentTplDetails = getTemplateDetails(currentTemplate.id);
   const isSelected = selectedTemplate === currentTemplate.id;
 
   return (
@@ -131,16 +163,16 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary, #0f172a)' }}>
-                Invoice Template Selection
+                {t('settingsPage.invoiceTemplateTitle', 'Invoice Template Selection')}
               </h2>
               <p style={{ margin: '2px 0 0 0', fontSize: '0.825rem', color: 'var(--text-secondary, #64748b)' }}>
-                choose template which one you want before generating invoice
+                {t('settingsPage.invoiceTemplateSubtitle', 'choose template which one you want before generating invoice')}
               </p>
             </div>
           </div>
           {saving && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              <Loader2 className="spin" size={14} /> Saving...
+              <Loader2 className="spin" size={14} /> {t('settingsPage.saving', 'Saving...')}
             </div>
           )}
         </div>
@@ -162,7 +194,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
             <Loader2 className="spin" size={22} style={{ margin: '0 auto 8px auto' }} />
-            <p style={{ margin: 0, fontSize: '12px' }}>Loading template settings...</p>
+            <p style={{ margin: 0, fontSize: '12px' }}>{t('settingsPage.loadingTemplates', 'Loading template settings...')}</p>
           </div>
         ) : (
           <div style={{ position: 'relative', marginTop: '12px' }}>
@@ -182,10 +214,10 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', paddingRight: '40px' }}>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: 700, margin: '0 0 2px 0', color: 'var(--text-primary, #0f172a)' }}>
-                    {currentTemplate.name}
+                    {currentTplDetails.name}
                   </h3>
                   <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--primary-color, #2563eb)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    {currentTemplate.tagline}
+                    {currentTplDetails.tagline}
                   </span>
                 </div>
                 {isSelected ? (
@@ -200,17 +232,17 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                     alignItems: 'center',
                     gap: '4px'
                   }}>
-                    <Check size={12} /> Active Default
+                    <Check size={12} /> {t('settingsPage.activeDefault', 'Active Default')}
                   </span>
                 ) : (
                   <span style={{ fontSize: '11px', color: '#64748b', backgroundColor: '#f1f5f9', padding: '3px 8px', borderRadius: '8px', fontWeight: 600 }}>
-                    {currentIndex + 1} of {availableTemplates.length}
+                    {currentIndex + 1} {t('settingsPage.of', 'of')} {availableTemplates.length}
                   </span>
                 )}
               </div>
 
               <p style={{ fontSize: '12px', color: 'var(--text-secondary, #64748b)', margin: '0 0 12px 0', lineHeight: 1.4 }}>
-                {currentTemplate.description}
+                {currentTplDetails.description}
               </p>
 
               {/* Scaled Invoice Frame */}
@@ -252,7 +284,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                   gap: '4px',
                   pointerEvents: 'none'
                 }}>
-                  <Eye size={12} /> Click to Zoom Wide
+                  <Eye size={12} /> {t('settingsPage.clickToZoomWide', 'Click to Zoom Wide')}
                 </div>
               </div>
 
@@ -279,14 +311,14 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                 >
                   {saving ? (
                     <>
-                      <Loader2 className="spin" size={14} /> Saving...
+                      <Loader2 className="spin" size={14} /> {t('settingsPage.saving', 'Saving...')}
                     </>
                   ) : isSelected ? (
                     <>
-                      <Check size={14} /> Active Template
+                      <Check size={14} /> {t('settingsPage.activeTemplate', 'Active Template')}
                     </>
                   ) : (
-                    'Select Template'
+                    t('settingsPage.selectTemplate', 'Select Template')
                   )}
                 </button>
 
@@ -296,7 +328,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                   style={{ fontSize: '13px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '8px' }}
                   onClick={() => setPreviewModalTemplate(currentTemplate)}
                 >
-                  <Eye size={14} /> Preview Wide
+                  <Eye size={14} /> {t('settingsPage.previewWide', 'Preview Wide')}
                 </button>
               </div>
             </div>
@@ -324,7 +356,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                 zIndex: 10,
                 transition: 'all 0.2s ease'
               }}
-              title="View Next Template"
+              title={t('settingsPage.viewNextTemplate', 'View Next Template')}
             >
               <ChevronRight size={22} />
             </button>
@@ -352,7 +384,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                 zIndex: 10,
                 transition: 'all 0.2s ease'
               }}
-              title="View Previous Template"
+              title={t('settingsPage.viewPrevTemplate', 'View Previous Template')}
             >
               <ChevronLeft size={22} />
             </button>
@@ -397,14 +429,14 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
               }}>
                 <div>
                   <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {previewModalTemplate.name}
+                    {getTemplateDetails(previewModalTemplate.id).name}
                     {selectedTemplate === previewModalTemplate.id && (
                       <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: '#2563eb', color: '#fff', padding: '2px 8px', borderRadius: '12px' }}>
-                        Currently Selected
+                        {t('settingsPage.currentlySelected', 'Currently Selected')}
                       </span>
                     )}
                   </h3>
-                  <span style={{ fontSize: '12px', color: '#64748b' }}>{previewModalTemplate.tagline}</span>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>{getTemplateDetails(previewModalTemplate.id).tagline}</span>
                 </div>
               </div>
 
@@ -428,7 +460,7 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                   onClick={() => setPreviewModalTemplate(null)}
                   style={{ fontSize: '13px', padding: '8px 16px' }}
                 >
-                  Close Preview
+                  {t('settingsPage.closePreview', 'Close Preview')}
                 </button>
                 <button
                   type="button"
@@ -447,15 +479,15 @@ export const InvoiceTemplateSelector = ({ currentUser }) => {
                 >
                   {saving ? (
                     <>
-                      <Loader2 className="spin" size={16} /> Applying...
+                      <Loader2 className="spin" size={16} /> {t('settingsPage.applying', 'Applying...')}
                     </>
                   ) : selectedTemplate === previewModalTemplate.id ? (
                     <>
-                      <Check size={16} /> Active Template
+                      <Check size={16} /> {t('settingsPage.activeTemplate', 'Active Template')}
                     </>
                   ) : (
                     <>
-                      <Check size={16} /> Select & Apply Template
+                      <Check size={16} /> {t('settingsPage.selectAndApplyTemplate', 'Select & Apply Template')}
                     </>
                   )}
                 </button>
