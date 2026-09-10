@@ -1339,6 +1339,32 @@ def _part_items_from_draft(design):
             # design_studio 0017 is what keeps that to one per part.
             'is_selected': True,
         })
+
+    # The references the customer brought for a part: their own photographs and
+    # links, several per part, because describing one pallu takes three
+    # pictures as often as it takes one.
+    #
+    # Only the FIRST of them is selected, and only where the boutique's
+    # catalogue has not already answered that part. That is not a preference:
+    # design_studio 0017 makes (board, garment_job, part) unique among selected
+    # rows, so marking them all would be an IntegrityError at Confirm and the
+    # whole order would fail to book. The rest ride along unselected, which is
+    # what a reference is -- something the workroom looks at, not the decision.
+    for part, refs in (design.get('part_refs') or {}).items():
+        already_chosen = bool((design.get('parts') or {}).get(part))
+        for position, ref in enumerate(refs or []):
+            if not ref:
+                continue
+            items.append({
+                'source': ref.get('source') or 'upload',
+                'source_ref': str(ref.get('design_id') or ''),
+                'title': ref.get('design_title') or ref.get('part_label')
+                         or part.replace('_', ' '),
+                'image_url': ref.get('image_url') or '',
+                'source_url': ref.get('source_url') or '',
+                'part': part,
+                'is_selected': position == 0 and not already_chosen,
+            })
     return items
 
 

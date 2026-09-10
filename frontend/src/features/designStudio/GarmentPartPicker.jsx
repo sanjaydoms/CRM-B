@@ -312,7 +312,8 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
  *                   because it is the same garment, the same parts and the same
  *                   {part: reference} slot -- only the catalogue half is off. */
 export default function GarmentPartPicker({ garmentKey, garmentName, selection = {}, onChange,
-                                            ownOnly = false }) {
+                                            ownOnly = false, references = {},
+                                            onReferencesChange }) {
   const [designs, setDesigns] = useState(null);
   const [template, setTemplate] = useState(null);
   const [error, setError] = useState(null);
@@ -427,16 +428,28 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   // suit, sherwani -- simply never take this branch.
   const overallTab = Boolean(openPart && openPart.startsWith('overall'));
 
-  // A reference the customer brought for this part, rather than one off the
-  // boutique's catalogue. It lives in the same {part: image} slot a catalogue
-  // photograph does -- so the draft, the summary at the foot of the screen and
-  // the board item written at Confirm all carry it without knowing the
-  // difference. `source` is the one thing that tells them apart, and it is the
-  // field DesignBoardItem already has.
-  const ownPick = selection[openPart]?.source?.startsWith('customer_')
-    ? selection[openPart] : null;
+  // Everything the customer has handed over for THIS part -- a list, because
+  // describing a pallu takes three photographs and a link as often as it takes
+  // one, and deciding which single one of those counts is the boutique's job
+  // rather than something this form should force at the moment they are given.
+  //
+  // Kept apart from `selection`, which stays exactly what it was: the one
+  // chosen photograph per part that the summary, the modal and the board item
+  // at Confirm all read.
+  const ownRefs = (openPart && references[openPart]) || [];
 
-  const setOwnReference = (image) => onChange?.({ ...selection, [openPart]: image });
+  const putRefs = (list) => onReferencesChange?.({ ...references, [openPart]: list });
+
+  const addRefs = (added) => putRefs([...ownRefs, ...added]);
+
+  const removeRef = (id) => {
+    const left = ownRefs.filter(r => r.id !== id);
+    // The part's key goes with its last reference rather than sitting there as
+    // an empty list nobody put anything in.
+    const next = { ...references };
+    if (left.length) next[openPart] = left; else delete next[openPart];
+    onReferencesChange?.(next);
+  };
 
   const addReferenceLink = () => {
     const typed = linkDraft.trim();
@@ -445,35 +458,46 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     // path to resolveMediaUrl, which would hang it off the media host and show
     // a broken card. What the customer meant is a site.
     const url = /^https?:\/\//i.test(typed) ? typed : `https://${typed}`;
-    setOwnReference({
+    if (ownRefs.some(r => r.source_url === url)) { setLinkDraft(''); return; }
+    addRefs([{
       id: `link:${url}`, part: openPart, part_label: openPartLabel,
       image_url: url, source_url: url, source: 'customer_link',
-      design_title: 'Your reference link',
-    });
+      design_title: url.replace(/^https?:\/\//i, '').slice(0, 60),
+    }]);
     setLinkDraft('');
-    setAddingLink(false);
+    // The box stays open: a customer with one link usually has another.
   };
 
   const uploadReference = async (e) => {
-    const file = e.target.files?.[0];
+    const files = [...(e.target.files || [])];
     e.target.value = '';        // so re-picking the same file fires change again
-    if (!file) return;
+    if (!files.length) return;
     setUploading(true);
     setUploadError(null);
     try {
-      const { image_url } = await api.uploadReferenceImage(file);
-      setOwnReference({
-        id: `upload:${image_url}`, part: openPart, part_label: openPartLabel,
-        image_url, source: 'customer_upload', design_title: file.name,
-      });
+      // One request per file, all in flight together. Promise.all rather than a
+      // loop with await, so picking eight photographs is one wait and not eight.
+      const stored = await Promise.all(files.map(async (file) => {
+        const { image_url } = await api.uploadReferenceImage(file);
+        return {
+          id: `upload:${image_url}`, part: openPart, part_label: openPartLabel,
+          image_url, source: 'customer_upload', design_title: file.name,
+        };
+      }));
+      addRefs(stored);
     } catch (err) {
-      setUploadError(err.message);
+      // Whatever did upload is lost with the batch. Said plainly rather than
+      // leaving the customer to wonder which of the eight landed.
+      setUploadError(`${err.message} — please add those pictures again.`);
     } finally {
       setUploading(false);
     }
   };
 
   const chosenCount = Object.values(selection).filter(Boolean).length;
+  const referencedParts = Object.values(references).filter(list => list?.length).length;
+  const referenceCount = Object.values(references)
+    .reduce((n, list) => n + (list?.length || 0), 0);
 
   // Clicking the chosen photograph again clears that part, so a customer can
   // undo without having to pick a different one instead.
@@ -512,11 +536,14 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
                     flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
         <div className="card-title" style={{ margin: 0 }}>{garmentName}</div>
         <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
-          {chosenCount > 0
+          {ownOnly
+            ? (referenceCount > 0
+                ? `${referenceCount} reference${referenceCount === 1 ? '' : 's'} across ${referencedParts} part${referencedParts === 1 ? '' : 's'}`
+                : 'Add your own photos or links for each part')
+            : chosenCount > 0
             ? `${chosenCount} part${chosenCount === 1 ? '' : 's'} chosen — parts may come from different designs`
-            : (ownOnly ? 'Add your own picture or link for each part'
-                       : (openPart ? 'Click a photograph to choose this part'
-                                   : 'Open a design to choose its parts'))}
+            : (openPart ? 'Click a photograph to choose this part'
+                        : 'Open a design to choose its parts')}
         </span>
       </div>
 
@@ -547,21 +574,24 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           <button type="button" className="btn-secondary" disabled={uploading}
                   style={{ padding: '5px 11px', fontSize: '11.5px' }}
                   onClick={() => ownFileRef.current?.click()}>
-            <Upload size={12} /> {uploading ? 'Uploading…' : `Upload ${openPartLabel} reference`}
+            <Upload size={12} /> {uploading ? 'Uploading…' : `Upload ${openPartLabel} photos`}
           </button>
           <button type="button" className="btn-secondary"
                   style={{ padding: '5px 11px', fontSize: '11.5px' }}
                   onClick={() => setAddingLink(v => !v)}>
             <LinkIcon size={12} /> Add reference link
           </button>
-          <input ref={ownFileRef} type="file" accept="image/*" hidden onChange={uploadReference} />
+          {/* multiple, because a customer describing one part sends several
+              pictures of it. Each becomes its own reference for this part. */}
+          <input ref={ownFileRef} type="file" accept="image/*" multiple hidden
+                 onChange={uploadReference} />
 
           {addingLink && (
             <>
               <input className="form-control" value={linkDraft} autoFocus
                      onChange={(e) => setLinkDraft(e.target.value)}
                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addReferenceLink(); } }}
-                     placeholder={`Link to a ${openPartLabel.toLowerCase()} you like`}
+                     placeholder={`Link to a ${openPartLabel.toLowerCase()} you like — add as many as you want`}
                      style={{ flex: '1 1 240px', maxWidth: '340px', padding: '5px 9px', fontSize: '11.5px' }} />
               <button type="button" className="btn-primary" disabled={!linkDraft.trim()}
                       style={{ padding: '5px 11px', fontSize: '11.5px' }}
@@ -579,34 +609,44 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         </div>
       )}
 
-      {!loading && ownOnly && openPart && ownPick && (
+      {!loading && ownOnly && openPart && ownRefs.length > 0 && (
         <div style={{ display: 'grid', gap: '14px', marginBottom: '16px',
                       gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
-          <PickCard
-            src={ownPick.image_url}
-            alt={openPartLabel}
-            height="150px"
-            picked
-            onClick={() => {
-              // Clicking it again gives the part back to the catalogue, the
-              // same way clicking a chosen photograph clears it.
-              const next = { ...selection };
-              delete next[openPart];
-              onChange?.(next);
-            }}
-            onView={() => window.open(ownPick.source_url || resolveMediaUrl(ownPick.image_url, FALLBACK),
-                                      '_blank', 'noopener')}
-          >
-            <div style={{ padding: '8px 10px' }}>
-              <div style={{ fontSize: '12.5px', fontWeight: 600, overflow: 'hidden',
-                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {ownPick.design_title}
-              </div>
-              <div style={{ fontSize: '10px', color: '#107c41', fontWeight: 700 }}>
-                Your own reference · chosen
-              </div>
+          {ownRefs.map((ref) => (
+            <div key={ref.id} style={{ position: 'relative' }}>
+              <PickCard
+                src={ref.image_url}
+                alt={openPartLabel}
+                height="150px"
+                picked
+                // The card itself opens it; removing is the × in the corner, so
+                // a mis-click looks rather than deletes.
+                onClick={() => window.open(
+                  ref.source_url || resolveMediaUrl(ref.image_url, FALLBACK), '_blank', 'noopener')}
+              >
+                <div style={{ padding: '8px 10px' }}>
+                  <div style={{ fontSize: '12.5px', fontWeight: 600, overflow: 'hidden',
+                                textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {ref.design_title}
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                    {ref.source === 'customer_link' ? 'Your link' : 'Your photo'}
+                  </div>
+                </div>
+              </PickCard>
+              <button
+                type="button"
+                title="Remove this reference"
+                onClick={() => removeRef(ref.id)}
+                style={{ position: 'absolute', top: '6px', right: '6px', width: '20px',
+                         height: '20px', borderRadius: '50%', border: 'none', cursor: 'pointer',
+                         background: 'rgba(0,0,0,0.62)', color: '#fff', padding: 0,
+                         display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={11} />
+              </button>
             </div>
-          </PickCard>
+          ))}
         </div>
       )}
 
@@ -618,9 +658,9 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         </div>
       )}
 
-      {!loading && ownOnly && openPart && !ownPick && (
+      {!loading && ownOnly && openPart && ownRefs.length === 0 && (
         <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '4px 0 18px' }}>
-          No {openPartLabel.toLowerCase()} reference yet — upload a picture or add a link above.
+          No {openPartLabel.toLowerCase()} references yet — add as many photos and links as you like.
         </div>
       )}
 

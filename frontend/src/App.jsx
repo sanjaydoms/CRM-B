@@ -2840,6 +2840,28 @@ function App() {
       : job));
   };
 
+  /** The customer's own references for one dress: {part_key: [reference, ...]}.
+   *
+   *  A list per part, not one: a customer describing the pallu they want sends
+   *  three photographs of it and a Pinterest link, and picking which single one
+   *  of those "counts" is the boutique's job, not something the form should
+   *  force at the moment they are handing them over.
+   *
+   *  Kept beside `parts` on the same garment's `design` rather than inside it,
+   *  so everything that already reads `parts` -- the summary, the modal, the
+   *  board item written at Confirm -- keeps reading exactly one chosen
+   *  photograph per part and is untouched by this.
+   */
+  const partReferences = React.useMemo(
+    () => Object.fromEntries(garmentJobs.map(job => [job.key, job.design?.part_refs || {}])),
+    [garmentJobs]);
+
+  const handlePartReferences = (garmentKey, next) => {
+    setGarmentJobs(prev => prev.map(job => job.key === garmentKey
+      ? { ...job, design: { ...(job.design || {}), part_refs: next } }
+      : job));
+  };
+
   /** The stage this order is actually sitting on: the first one nobody has
    *  finished with, in the workflow's own declared order. */
   const liveStage = (order) => {
@@ -7271,8 +7293,8 @@ function App() {
                               ownOnly
                               garmentKey={job.template?.key || job.key}
                               garmentName={job.template?.name || job.key}
-                              selection={partSelection[job.key] || {}}
-                              onChange={(next) => handlePartSelection(job.key, next)}
+                              references={partReferences[job.key] || {}}
+                              onReferencesChange={(next) => handlePartReferences(job.key, next)}
                             />
                           ))}
                         </Suspense>

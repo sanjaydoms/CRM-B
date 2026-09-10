@@ -70,9 +70,58 @@ class ReferenceUploadTests(TenantTestCase):
         self.assertEqual(by_part['border_design']['source_url'], 'http://pin/x')
         self.assertTrue(all(item['is_selected'] for item in items))
 
+    def test_many_references_per_part_all_reach_the_order(self):
+        """Several photographs and links for one part, and one for another."""
+        items = _part_items_from_draft({'part_refs': {
+            'pallu_design': [
+                {'image_url': 'http://m/p1.jpg', 'source': 'customer_upload',
+                 'design_title': 'p1.jpg', 'part_label': 'Pallu Design'},
+                {'image_url': 'http://m/p2.jpg', 'source': 'customer_upload',
+                 'design_title': 'p2.jpg', 'part_label': 'Pallu Design'},
+                {'image_url': 'http://pin/a', 'source_url': 'http://pin/a',
+                 'source': 'customer_link', 'design_title': 'pin/a'},
+            ],
+            'border_design': [
+                {'image_url': 'http://m/b1.jpg', 'source': 'customer_upload',
+                 'design_title': 'b1.jpg'},
+            ],
+        }})
+
+        pallu = [i for i in items if i['part'] == 'pallu_design']
+        self.assertEqual(len(pallu), 3)
+        self.assertEqual([i['image_url'] for i in pallu],
+                         ['http://m/p1.jpg', 'http://m/p2.jpg', 'http://pin/a'])
+        self.assertEqual(pallu[2]['source_url'], 'http://pin/a')
+        # One selected per part, so the 0017 uniqueness constraint holds.
+        self.assertEqual([i['is_selected'] for i in pallu], [True, False, False])
+        self.assertEqual([i['is_selected'] for i in items if i['part'] == 'border_design'],
+                         [True])
+
+    def test_a_catalogue_pick_keeps_the_selection_for_its_part(self):
+        """The customer's own references must not fight the chosen photograph.
+
+        Two selected rows for one (board, garment_job, part) is an
+        IntegrityError at Confirm, which would fail the whole order.
+        """
+        items = _part_items_from_draft({
+            'parts': {'pallu_design': {'design_id': 'd1', 'image_url': 'http://m/lib.jpg'}},
+            'part_refs': {'pallu_design': [
+                {'image_url': 'http://m/mine1.jpg', 'source': 'customer_upload'},
+                {'image_url': 'http://m/mine2.jpg', 'source': 'customer_upload'},
+            ]},
+        })
+        selected = [i for i in items if i['is_selected']]
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]['source'], 'library')
+        self.assertEqual(len(items), 3)
+
     def test_a_draft_written_before_parts_had_a_source_still_confirms(self):
         items = _part_items_from_draft({'parts': {
             'overall': {'design_id': 'z', 'image_url': 'http://m/z.jpg'}}})
         self.assertEqual(items[0]['source'], 'library')
         self.assertEqual(items[0]['source_url'], '')
         self.assertEqual(items[0]['part'], 'overall')
+
+    def test_a_draft_with_no_references_at_all_is_unchanged(self):
+        self.assertEqual(_part_items_from_draft({}), [])
+        self.assertEqual(_part_items_from_draft({'part_refs': {'pallu_design': []}}), [])
