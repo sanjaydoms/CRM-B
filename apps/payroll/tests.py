@@ -658,22 +658,19 @@ class PayrollAccessTests(PayrollTestCase):
             self.assertEqual(owner.get(url).status_code, 200, url)
 
     def _refused_or_empty(self, client, who):
-        """The Phase 6 matrix (brief section 35).
+        """Payroll is owner-only under module enforcement.
 
-        Periods are Owner-only and answer 403. Records answer for the caller's
-        OWN rows only: a list is 200 and empty for someone with none, and a
-        colleague's detail is a scoped 404. In every case no wage figure may
-        appear in the body.
+        The `payroll` module is withheld from every non-owner role by default
+        (core/modules.py), and the gate runs before the viewset's own
+        OwnerOrOwnFinancialRecord check -- so a staff member no longer reaches
+        even their own payslip here. Every endpoint answers 403, and no wage
+        figure appears in the body. An owner who wants to publish payslips
+        turns the module on for the role.
         """
-        period_list, period_detail, record_list, record_detail = self._urls()
-        self.assertEqual(client.get(period_list).status_code, 403, who)
-        self.assertEqual(client.get(period_detail).status_code, 403, who)
-        listing = client.get(record_list)
-        self.assertEqual(listing.status_code, 200, who)
-        self.assertEqual(listing.data, [], who)
-        self.assertEqual(client.get(record_detail).status_code, 404, who)
         for url in self._urls():
-            body = client.get(url).content.decode()
+            response = client.get(url)
+            self.assertEqual(response.status_code, 403, f'{who} {url}')
+            body = response.content.decode()
             self.assertNotIn('800.00', body, who)
             self.assertNotIn('100.00', body, who)
 
@@ -692,15 +689,10 @@ class PayrollAccessTests(PayrollTestCase):
         self.assertEqual(self.period.status, 'DRAFT')
 
     def test_a_tailor_is_refused_every_payroll_endpoint(self):
-        """Anita OWNS the fixture record, so her list holds exactly her row."""
+        """The payroll module is withheld from the floor: every endpoint 403."""
         tailor = self.client_for(self.anita_user)
-        period_list, period_detail, record_list, record_detail = self._urls()
-        self.assertEqual(tailor.get(period_list).status_code, 403)
-        self.assertEqual(tailor.get(period_detail).status_code, 403)
-        listing = tailor.get(record_list)
-        self.assertEqual(listing.status_code, 200)
-        self.assertEqual([r['staff_name_snapshot'] for r in listing.data], ['Anita'])
-        self.assertEqual(tailor.get(record_detail).status_code, 200)
+        for url in self._urls():
+            self.assertEqual(tailor.get(url).status_code, 403, url)
 
     def test_a_tailor_cannot_generate_payroll(self):
         response = self.client_for(self.anita_user).post(
@@ -737,7 +729,8 @@ class PayrollAccessTests(PayrollTestCase):
             body = master.get(url).content.decode()
             self.assertNotIn('800.00', body)
             self.assertNotIn('100.00', body)
-        # Anita's own record is hers to read; nothing of anyone else's.
+        # Anita is refused payroll entirely now, so nothing -- hers or a
+        # colleague's -- leaves in the body.
         anita = self.client_for(self.anita_user)
         body = anita.get(self._urls()[2]).content.decode()
         self.assertNotIn('Balan', body)
@@ -2422,32 +2415,38 @@ class Phase6AccessTests(AdvanceTestCase):
         Tailor.objects.create(name='Mira', specialty='Supervision', role='Master',
                               email='mira@payroll.test', user=self.master_user)
 
-    def test_a_staff_member_reads_their_own_payslip(self):
+    def test_a_staff_member_is_refused_payroll_by_default(self):
+        # Was self-service ("reads their own payslip"). Module enforcement
+        # withholds `payroll` from the floor, and the gate runs before the
+        # viewset's own-record check, so a staff member no longer reaches even
+        # their own payslip unless the owner turns the module on for the role.
         response = self.client_for(self.anita_user).get(reverse('payroll-record-list'))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['staff_name_snapshot'], 'Anita')
-        self.assertEqual(response.data[0]['net_payable'], '2750.00')
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn('2750.00', response.content.decode())
 
     def test_a_staff_member_cannot_read_a_colleagues_payslip(self):
+        # Refused at the module gate now (403) rather than scoped to a 404 --
+        # either way a colleague's figures never leave the database.
         response = self.client_for(self.anita_user).get(
             reverse('payroll-record-detail', args=[self.rec_b.id]))
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 403)
         self.assertNotIn('Balan', response.content.decode())
 
-    def test_the_staff_filter_is_not_honoured_for_staff(self):
+    def test_staff_are_refused_the_record_list_whatever_they_filter(self):
+        # A staff member cannot reach the record list at all now, so a crafted
+        # ?staff= filter has nothing to leak.
         response = self.client_for(self.anita_user).get(
             reverse('payroll-record-list'), {'staff': self.balan.id})
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['staff_name_snapshot'], 'Anita')
+        self.assertEqual(response.status_code, 403)
 
-    def test_a_staff_member_reads_only_their_own_advances(self):
+    def test_a_staff_member_is_refused_advances_by_default(self):
+        # Advances ride the same `payroll` module, so the floor is refused them
+        # too -- both the list and a colleague's detail answer 403.
         response = self.client_for(self.anita_user).get(reverse('payroll-advance-list'))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual([a['staff_name_snapshot'] for a in response.data], ['Anita'])
+        self.assertEqual(response.status_code, 403)
         detail = self.client_for(self.anita_user).get(
             reverse('payroll-advance-detail', args=[self.adv_b.id]))
-        self.assertEqual(detail.status_code, 404)
+        self.assertEqual(detail.status_code, 403)
 
     def test_a_staff_member_cannot_issue_cancel_or_pay(self):
         anita = self.client_for(self.anita_user)
@@ -2465,12 +2464,10 @@ class Phase6AccessTests(AdvanceTestCase):
         self.assertEqual(Payout.objects.count(), 0)
 
     def test_a_master_sees_no_payroll_and_no_advances(self):
+        # A Master has no `payroll` module either: every payroll endpoint 403.
         master = self.client_for(self.master_user)
-        for url in (reverse('payroll-record-list'), reverse('payroll-advance-list')):
-            response = master.get(url)
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.data, [], url)
-        for url in (reverse('payroll-period-list'), reverse('payroll-deposit-list')):
+        for url in (reverse('payroll-record-list'), reverse('payroll-advance-list'),
+                    reverse('payroll-period-list'), reverse('payroll-deposit-list')):
             self.assertEqual(master.get(url).status_code, 403, url)
 
     def test_a_master_cannot_pay_or_issue(self):

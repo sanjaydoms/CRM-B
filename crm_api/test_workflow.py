@@ -1281,7 +1281,10 @@ class CrossRouterScopingTests(WorkflowTestBase):
 
         response = self._client_for(self.tailor_user).get('/api/scheduling/appointments/')
 
-        self.assertEqual(response.status_code, 200)
+        # A plain tailor has no `scheduling` module, so the gate refuses the
+        # appointment book outright -- a stronger guarantee than scoping, and
+        # the stranger's details never leave the database.
+        self.assertEqual(response.status_code, 403)
         payload = str(response.data)
         self.assertNotIn('Secret Lane', payload)
         self.assertNotIn('stranger@client.test', payload)
@@ -1289,15 +1292,16 @@ class CrossRouterScopingTests(WorkflowTestBase):
     def test_production_tasks_are_scoped_to_the_callers_own_orders(self):
         response = self._client_for(self.tailor_user).get('/api/production/tasks/')
 
-        self.assertEqual(response.status_code, 200)
-        order_ids = {t['order'] for t in response.data}
-        self.assertNotIn(self.not_mine.id, order_ids)
+        # The floor's assignments come from the (structural) order book, not
+        # this endpoint; `production_api` is a supervisor module, so a tailor is
+        # refused here rather than served a scoped list.
+        self.assertEqual(response.status_code, 403)
 
     def test_the_activity_log_is_not_open_to_the_whole_floor(self):
         response = self._client_for(self.tailor_user).get('/api/activities/activities/')
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 0)
+        # `activities` is documented Owner-and-Master-only; a tailor is refused.
+        self.assertEqual(response.status_code, 403)
 
     def test_supplier_trading_terms_are_owner_only(self):
         response = self._client_for(self.tailor_user).get('/api/inventory/suppliers/')
@@ -1307,8 +1311,9 @@ class CrossRouterScopingTests(WorkflowTestBase):
     def test_a_colleagues_login_address_is_not_on_the_staff_list(self):
         response = self._client_for(self.tailor_user).get('/api/tailors/')
 
-        self.assertEqual(response.status_code, 200)
-        self.assertNotIn('email', response.data[0])
+        # `tailors` (the roster) is a supervisor module: a plain tailor is
+        # refused, while the owner reads it in full (login address included).
+        self.assertEqual(response.status_code, 403)
         owner_view = self._client_for(self.owner).get('/api/tailors/')
         self.assertIn('email', owner_view.data[0])
 

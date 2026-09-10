@@ -168,6 +168,14 @@ CLIENT_ONLY = {
 }
 
 ALWAYS_ON = (
+    # The material-gathering checklist is production data scoped to an order,
+    # not procurement -- it sits under /api/inventory/ only because that is
+    # where the material models live. RolePermission already governs it (safe
+    # reads for the floor, gather/line_photo for supervisors), but the
+    # `inventory` module gate on the prefix would refuse a Master, who has no
+    # inventory module, the very checklist that is theirs to tick. Exempt it so
+    # role -- not the procurement switch -- decides.
+    '/api/inventory/material-plans/',
     '/api/auth/',
     '/api/boutique-settings/',
     # A browser reporting that it crashed must never be refused by a module

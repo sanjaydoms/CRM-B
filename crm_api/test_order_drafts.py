@@ -94,10 +94,13 @@ class DraftSurvivalTests(DraftTestBase):
         created = api.post(reverse('order-draft-list'),
                            {'payload': self.WIZARD}, format='json')
         intruder = self.client_for(self.other)
-        self.assertEqual(len(intruder.get(reverse('order-draft-list')).data), 0)
+        # A tailor has no `order_drafts` module -- the wizard is the owner's, so
+        # the gate refuses the intruder outright. They never reach the queryset,
+        # which is a stronger separation than the per-author scoping below.
+        self.assertEqual(intruder.get(reverse('order-draft-list')).status_code, 403)
         self.assertEqual(
             intruder.get(reverse('order-draft-detail',
-                                 args=[created.data['id']])).status_code, 404)
+                                 args=[created.data['id']])).status_code, 403)
 
     def test_abandoning_a_draft_removes_it_and_leaves_the_client_alone(self):
         customer = Customer.objects.create(

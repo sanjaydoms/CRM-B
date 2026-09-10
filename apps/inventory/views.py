@@ -580,9 +580,18 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = OrderMaterialPlanSerializer
 
     def get_queryset(self):
+        # Scoped to the orders the caller may see, the same way the order book
+        # is. Without this the module exemption that lets the floor reach their
+        # own gathering checklist would also let them list every order's plan.
+        from core.permissions import visible_orders
+        from core.roles import OWNER, resolve_user_role
+        from crm_api.models import Order
         queryset = (OrderMaterialPlan.objects
                     .select_related('order', 'bom')
                     .prefetch_related('lines__item'))
+        if resolve_user_role(self.request.user) != OWNER:
+            visible = visible_orders(Order.objects.all(), self.request.user)
+            queryset = queryset.filter(order__in=visible)
         params = self.request.query_params
         if order := params.get('order'):
             try:
