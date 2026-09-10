@@ -8,7 +8,7 @@ from core.validators import validate_mobile
 from apps.design_studio.models import DesignAsset
 from .models import (
     Customer, CustomerMessage, GarmentImage, Measurement, DesignPreference,
-    FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign,
+    FabricSelection, Tailor, Order, BoutiqueFabric, FabricPlacement, BoutiqueDesign,
     Notification, OrderStageHistory, BoutiqueSettings, MeasurementHistory,
     OrderStage, OrderActivity, whatsapp_number
 )
@@ -166,10 +166,91 @@ class TailorSerializer(serializers.ModelSerializer):
             data['bootstrap_password'] = bootstrap
         return data
 
+class FabricPlacementSerializer(serializers.ModelSerializer):
+    path = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = FabricPlacement
+        fields = ['id', 'garment', 'section', 'slot', 'path', 'image_urls']
+        read_only_fields = ['id', 'path']
+
+    def validate(self, data):
+        from crm_api.fabric_taxonomy import TaxonomyError, validate_placement
+        try:
+            garment, section, slot = validate_placement(
+                data.get('garment', ''), data.get('section', ''), data.get('slot', ''))
+        except TaxonomyError as exc:
+            raise serializers.ValidationError(str(exc))
+        images = data.get('image_urls') or []
+        if not isinstance(images, list):
+            raise serializers.ValidationError({'image_urls': 'Expected a list of URLs.'})
+        return {'garment': garment, 'section': section, 'slot': slot,
+                'image_urls': [str(u) for u in images if u]}
+
+
 class BoutiqueFabricSerializer(serializers.ModelSerializer):
+    placements = FabricPlacementSerializer(many=True, required=False)
+    kind_label = serializers.SerializerMethodField()
+    variant_label = serializers.SerializerMethodField()
+    is_accessory = serializers.SerializerMethodField()
+
     class Meta:
         model = BoutiqueFabric
         fields = '__all__'
+
+    def get_kind_label(self, obj):
+        from crm_api.fabric_taxonomy import kind_label
+        return kind_label(obj.kind)
+
+    def get_variant_label(self, obj):
+        from crm_api.fabric_taxonomy import variant_label
+        return variant_label(obj.kind, obj.variant)
+
+    def get_is_accessory(self, obj):
+        from crm_api.fabric_taxonomy import is_accessory
+        return is_accessory(obj.kind)
+
+    def _write_placements(self, fabric, rows):
+        # Replace, not merge: the form sends the whole set it means to keep.
+        # Absent from the payload is handled by the callers, which never pass
+        # rows in that case, so an ordinary edit cannot clear them.
+        wanted = {}
+        for row in rows:
+            wanted[(row['garment'], row['section'], row['slot'])] = row.get('image_urls') or []
+
+        current = {(p.garment, p.section, p.slot): p for p in fabric.placements.all()}
+        stale = [p.id for key, p in current.items() if key not in wanted]
+        if stale:
+            fabric.placements.filter(id__in=stale).delete()
+
+        fresh, touched = [], []
+        for (garment, section, slot), images in wanted.items():
+            existing = current.get((garment, section, slot))
+            if existing is None:
+                fresh.append(FabricPlacement(
+                    fabric=fabric, garment=garment, section=section, slot=slot,
+                    image_urls=images))
+            elif existing.image_urls != images:
+                existing.image_urls = images
+                touched.append(existing)
+        if fresh:
+            FabricPlacement.objects.bulk_create(fresh)
+        if touched:
+            FabricPlacement.objects.bulk_update(touched, ['image_urls'])
+
+    def create(self, validated_data):
+        rows = validated_data.pop('placements', [])
+        fabric = super().create(validated_data)
+        if rows:
+            self._write_placements(fabric, rows)
+        return fabric
+
+    def update(self, instance, validated_data):
+        rows = validated_data.pop('placements', None)
+        fabric = super().update(instance, validated_data)
+        if rows is not None:
+            self._write_placements(fabric, rows)
+        return fabric
 
     def validate_color_hex(self, value):
         if value and not re.fullmatch(r'#[0-9a-fA-F]{6}', value):
@@ -184,6 +265,15 @@ class BoutiqueFabricSerializer(serializers.ModelSerializer):
         urls = data.get('image_urls')
         if urls and not data.get('image_url'):
             data['image_url'] = urls[0]
+
+        from crm_api.fabric_taxonomy import TaxonomyError, validate_kind
+        if any(f in data for f in ('kind', 'variant')) or self.instance is None:
+            kind = data.get('kind', getattr(self.instance, 'kind', '') or '')
+            variant = data.get('variant', getattr(self.instance, 'variant', '') or '')
+            try:
+                data['kind'], data['variant'] = validate_kind(kind, variant)
+            except TaxonomyError as exc:
+                raise serializers.ValidationError({'kind': str(exc)})
         return data
 
 class BoutiqueDesignSerializer(serializers.ModelSerializer):

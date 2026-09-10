@@ -390,8 +390,50 @@ class TailorViewSet(viewsets.ModelViewSet):
         return candidate
 
 class BoutiqueFabricViewSet(viewsets.ModelViewSet):
-    queryset = BoutiqueFabric.objects.all()
+    queryset = BoutiqueFabric.objects.prefetch_related('placements').all()
     serializer_class = BoutiqueFabricSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+
+        if kind := params.get('kind'):
+            queryset = queryset.filter(kind=kind)
+        if variant := params.get('variant'):
+            queryset = queryset.filter(variant=variant)
+
+        placement = {f'placements__{f}': params[f]
+                     for f in ('garment', 'section', 'slot') if params.get(f)}
+        if placement:
+            queryset = queryset.filter(**placement)
+
+        if params.get('accessory') in ('1', 'true', 'True'):
+            from crm_api.fabric_taxonomy import ACCESSORY_KINDS
+            queryset = queryset.filter(kind__in=ACCESSORY_KINDS)
+        if params.get('uncategorised') in ('1', 'true', 'True'):
+            queryset = queryset.filter(kind='', placements__isnull=True)
+
+        return queryset.distinct()
+
+    def get_serializer(self, *args, **kwargs):
+        # A saree is catalogued a part at a time -- body, border, tassel -- and
+        # each part is its own purchase with its own price. Posting the list
+        # validates every row before any is written, so the counter never ends
+        # up with three of five saved.
+        if isinstance(kwargs.get('data'), list):
+            kwargs['many'] = True
+        return super().get_serializer(*args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        if isinstance(request.data, list):
+            with transaction.atomic():
+                return super().create(request, *args, **kwargs)
+        return super().create(request, *args, **kwargs)
+
+    @action(detail=False, methods=['GET'], url_path='taxonomy')
+    def taxonomy(self, request):
+        from crm_api.fabric_taxonomy import tree
+        return Response(tree())
 
     # A fabric that does not exist yet has no id to hang an upload on, so the
     # shots go up first and the form saves the URLs it gets back. Same storage

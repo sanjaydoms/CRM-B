@@ -4552,6 +4552,8 @@ table.data-table tbody tr:hover {
 .at-form-section { border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); background: var(--surface-color); display: flex; flex-direction: column; gap: var(--space-4); }
 .at-form-section-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .at-form-section-aside { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.at-form-subsection { border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--space-4); background: var(--surface-2); display: flex; flex-direction: column; gap: var(--space-4); }
+.at-subsection-title { font-size: var(--text-sm); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-secondary); }
 .at-check-card { display: flex; align-items: flex-start; gap: var(--space-3); cursor: pointer; }
 .at-check-card input { width: 22px; height: 22px; accent-color: var(--primary-color); margin: 2px 0 0; flex-shrink: 0; }
 .at-check-card-title { font-size: var(--text-base); font-weight: 600; color: var(--text-primary); }
