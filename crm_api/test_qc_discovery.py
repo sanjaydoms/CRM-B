@@ -209,7 +209,7 @@ class QueueNotificationTests(QCDiscoveryTestBase):
 
         qc_notes = Notification.objects.filter(recipient_role='QC Staff')
         self.assertEqual(qc_notes.count(), 1, 'exactly one, addressed to the role')
-        self.assertIn(order.order_id, qc_notes.get().message)
+        self.assertIn(order.reference, qc_notes.get().message)
 
     def test_the_notification_is_addressed_to_the_role_not_a_person(self):
         self._staff("Second Inspector", "QC Staff", "qc2@qc.test")
@@ -232,7 +232,7 @@ class QueueNotificationTests(QCDiscoveryTestBase):
             response = client.get(reverse('notification-list'))
             self.assertEqual(response.status_code, 200)
             rows = response.data['results'] if isinstance(response.data, dict) else response.data
-            self.assertTrue(any(order.order_id in r['message'] for r in rows))
+            self.assertTrue(any(order.reference in r["message"] for r in rows))
 
     def test_starting_a_stage_announces_nothing(self):
         order = self.reach(self.make_order(), 'pressing')

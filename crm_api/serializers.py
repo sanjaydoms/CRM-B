@@ -320,11 +320,12 @@ class OrderSerializer(serializers.ModelSerializer):
     garment_label = serializers.SerializerMethodField()
     order_status_display = serializers.SerializerMethodField()
     delivery_method_display = serializers.SerializerMethodField()
+    order_reference = serializers.CharField(source='reference', read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type', 'customer_measurements',
+            'id', 'order_id', 'order_number', 'order_reference', 'customer', 'customer_name', 'customer_garment_type', 'customer_measurements',
             'garments', 'garment_label',
             'customer_mobile', 'customer_email', 'customer_address', 'customer_type', 'customer_occasion',
             'customer_neckline_style', 'customer_sleeve_style', 'customer_back_style',
@@ -614,11 +615,12 @@ class OrderSummarySerializer(serializers.ModelSerializer):
     garments = serializers.SerializerMethodField()
     garment_label = serializers.SerializerMethodField()
     stages = OrderStageSerializer(many=True, read_only=True)
+    order_reference = serializers.CharField(source='reference', read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type',
+            'id', 'order_id', 'order_number', 'order_reference', 'customer', 'customer_name', 'customer_garment_type',
             'garments', 'garment_label',
             'tailor', 'tailor_name', 'master', 'master_name',
             'payment_status', 'order_status', 'total_amount', 'advance_paid', 'amount_paid',

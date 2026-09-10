@@ -4,15 +4,18 @@ import { api } from '../../services/api';
 import { isVisible } from '../../services/templates';
 
 /**
- * Read-only recap of every dress on the order, for the review step.
+ * Read-only recap of every dress on an order.
  *
- * The review used to print `customerForm.garment_type` and the handful of legacy
- * style dropdowns, so none of the per-dress answers -- the measurements, the
- * neck, the materials -- reached the confirmation screen. Staff were asked to
- * approve an order without being shown what they had entered.
+ * Used by the wizard's review step and by the production stage panel, so the
+ * person approving the order and the person cutting it read the same page.
+ *
+ * Built up in three layers, so each reads at a glance:
+ *   atom      Detail       one label over one value
+ *   molecule  SectionGroup the template's own section (Measurements, Style...)
+ *   organism  GarmentCard  one dress: name, count, its sections
  *
  * Values are rendered through the template metadata rather than raw: an option
- * shows its label, not `fall_pico`.
+ * shows its label, not `fall_pico`; a measurement carries its unit.
  */
 
 const formatKey = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -80,28 +83,54 @@ function displayValue(field, value, inventoryNames) {
   return field.unit ? `${text} ${field.unit}` : text;
 }
 
-export default function GarmentSummary({ jobs, onEdit }) {
+/** atom: a label over its value. */
+function Detail({ label, value }) {
+  return (
+    <div className="garment-detail">
+      <span className="garment-detail-label">{label}</span>
+      <span className="garment-detail-value">{value}</span>
+    </div>
+  );
+}
+
+/** molecule: one template section and the answers it received. */
+function SectionGroup({ title, entries }) {
+  return (
+    <div className="garment-section">
+      <div className="ui-eyebrow garment-section-title">{title}</div>
+      <div className="garment-section-grid">
+        {entries.map(({ field, text }) => (
+          <Detail key={field.key} label={field.label || formatKey(field.key)} value={text} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function GarmentSummary({ jobs, onEdit, inventoryNames: providedNames }) {
   const needsInventory = useMemo(
     () =>
-      jobs.some((job) =>
+      !providedNames
+      && jobs.some((job) =>
         job.template.sections.some((s) =>
           s.fields.some((f) => f.field_type === 'inventory_ref' && job.values[f.key])
         )
       ),
-    [jobs]
+    [jobs, providedNames]
   );
-  const inventoryNames = useInventoryNames(needsInventory);
+  const fetchedNames = useInventoryNames(needsInventory);
+  const inventoryNames = providedNames || fetchedNames;
 
   if (!jobs.length) {
     return (
-      <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
         No garment was added to this order.
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       {jobs.map((job) => {
         // Only what was actually answered, and only fields that still apply --
         // an answer left behind by a since-hidden field must not resurface here.
@@ -117,27 +146,20 @@ export default function GarmentSummary({ jobs, onEdit }) {
 
         const total = sections.reduce((n, s) => n + s.answered.length, 0);
 
+        /* organism: one dress. */
         return (
-          <div
-            key={job.key}
-            style={{
-              border: '1px solid var(--border-color)',
-              borderRadius: '8px',
-              padding: '16px',
-              backgroundColor: '#fcfdfd',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ fontSize: '14px', fontWeight: 700 }}>{job.template.name}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  {total} detail{total === 1 ? '' : 's'} recorded
+          <div key={job.key} className="ui-card garment-card">
+            <div className="garment-card-head">
+              <span className="garment-card-name">{job.template.name}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <span className="ui-badge ui-badge--neutral">
+                  {total} detail{total === 1 ? '' : 's'}
                 </span>
                 {onEdit && (
                   <button
                     type="button"
                     className="btn-secondary"
-                    style={{ padding: '4px 10px', fontSize: '11px' }}
+                    style={{ padding: '4px 10px', fontSize: 'var(--text-2xs)' }}
                     onClick={onEdit}
                   >
                     Edit
@@ -147,37 +169,7 @@ export default function GarmentSummary({ jobs, onEdit }) {
             </div>
 
             {sections.map((section) => (
-              <div key={section.key} style={{ marginBottom: '12px' }}>
-                <span
-                  style={{
-                    fontSize: '9px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    color: 'var(--text-secondary)',
-                    fontWeight: 700,
-                    display: 'block',
-                    marginBottom: '6px',
-                  }}
-                >
-                  {section.title}
-                </span>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                    gap: '10px',
-                  }}
-                >
-                  {section.answered.map(({ field, text }) => (
-                    <div key={field.key}>
-                      <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block' }}>
-                        {field.label || formatKey(field.key)}
-                      </span>
-                      <span style={{ fontSize: '11.5px', fontWeight: 600, wordBreak: 'break-word' }}>{text}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <SectionGroup key={section.key} title={section.title} entries={section.answered} />
             ))}
           </div>
         );

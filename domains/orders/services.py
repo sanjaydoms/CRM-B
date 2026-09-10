@@ -18,6 +18,21 @@ def _generate_order_id():
     return f"T2B-{today}-{secrets.token_hex(4)}"
 
 
+def _next_order_number():
+    """#1, #2, #3... per boutique.
+
+    Serialised on the BoutiqueSettings singleton, which the create path already
+    reads inside the same transaction, so two counters placing orders at once
+    cannot draw the same number. Schema-per-tenant makes the count per boutique
+    without any tenant column.
+    """
+    # ponytail: row lock on the settings singleton; a Postgres sequence if
+    # order creation ever becomes a hot path.
+    BoutiqueSettings.objects.select_for_update().get_or_create(id=1)
+    highest = Order.objects.aggregate(n=models.Max('order_number'))['n'] or 0
+    return highest + 1
+
+
 _SETTLED_ORDER_STATUSES = ('Shipped', 'Delivered')
 
 
@@ -158,6 +173,7 @@ class OrderService:
         total_amount = float(total_dec)
 
         order_id = _generate_order_id()
+        order_number = _next_order_number()
         requested_delivery = data.get('estimated_delivery')
         if isinstance(requested_delivery, str):
             try:
@@ -183,6 +199,7 @@ class OrderService:
 
         order = Order.objects.create(
             order_id=order_id,
+            order_number=order_number,
             customer=customer,
             tailor=tailor,
             master=master,
@@ -264,7 +281,7 @@ class OrderService:
             order=order,
             event_type='ORDER_CREATED',
             user=creator_user,
-            metadata={"message": f"Order {order.order_id} created with initial production tasks."}
+            metadata={"message": f"Order {order.reference} created with initial production tasks."}
         )
 
         UniversalActivity.objects.create(
@@ -274,7 +291,7 @@ class OrderService:
             entity_type="Order",
             entity_id=order.order_id,
             action="ORDER_CREATED",
-            title=f"New Order {order.order_id}",
+            title=f"New Order {order.reference}",
             description=(f"Order created for client {customer.first_name} "
                          f"{customer.last_name} (Total: {format_money(order.total_amount)})"),
             new_value={"order_id": order.order_id, "total_amount": float(order.total_amount)}

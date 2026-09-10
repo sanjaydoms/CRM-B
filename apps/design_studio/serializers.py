@@ -116,7 +116,7 @@ class DesignBoardSerializer(serializers.ModelSerializer):
     items = DesignBoardItemSerializer(many=True, read_only=True)
     selected = serializers.SerializerMethodField()
     customer_name = serializers.SerializerMethodField()
-    order_id_display = serializers.CharField(source='order.order_id', read_only=True, default='')
+    order_id_display = serializers.CharField(source='order.reference', read_only=True, default='')
 
     class Meta:
         model = DesignBoard
@@ -136,7 +136,7 @@ class TailorBriefSerializer(serializers.ModelSerializer):
 
 
     customer_name = serializers.SerializerMethodField()
-    order_id_display = serializers.CharField(source='order.order_id', read_only=True, default='')
+    order_id_display = serializers.CharField(source='order.reference', read_only=True, default='')
     design = serializers.SerializerMethodField()
 
     class Meta:
@@ -213,13 +213,14 @@ class DesignAssignmentSerializer(_AssignmentDesignMixin, serializers.ModelSerial
     designer_name = serializers.CharField(source='designer.name', read_only=True)
     garment_name = serializers.CharField(source='garment_job.template.name', read_only=True)
     order_id = serializers.CharField(source='garment_job.order.order_id', read_only=True)
+    order_reference = serializers.CharField(source='garment_job.order.reference', read_only=True)
     customer_name = serializers.SerializerMethodField()
     design_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = DesignAssignment
         fields = [
-            'id', 'garment_job', 'garment_name', 'order_id', 'customer_name',
+            'id', 'garment_job', 'garment_name', 'order_id', 'order_reference', 'customer_name',
             'designer', 'designer_name', 'status', 'brief', 'due_date',
             'design', 'design_detail', 'submission_note', 'review_note',
             'assigned_at', 'submitted_at', 'reviewed_at', 'updated_at',
@@ -242,6 +243,7 @@ class DesignerAssignmentSerializer(_AssignmentDesignMixin, serializers.ModelSeri
     designer_name = serializers.CharField(source='designer.name', read_only=True)
     garment_name = serializers.CharField(source='garment_job.template.name', read_only=True)
     order_ref = serializers.CharField(source='garment_job.order.order_id', read_only=True)
+    order_reference = serializers.CharField(source='garment_job.order.reference', read_only=True)
     spec = serializers.JSONField(source='garment_job.spec', read_only=True)
     measurements = serializers.JSONField(source='garment_job.measurements', read_only=True)
     design_detail = serializers.SerializerMethodField()
@@ -249,7 +251,7 @@ class DesignerAssignmentSerializer(_AssignmentDesignMixin, serializers.ModelSeri
     class Meta:
         model = DesignAssignment
         fields = [
-            'id', 'garment_job', 'garment_name', 'order_ref', 'spec', 'measurements',
+            'id', 'garment_job', 'garment_name', 'order_ref', 'order_reference', 'spec', 'measurements',
             'designer', 'designer_name', 'status', 'brief', 'due_date',
             'design', 'design_detail', 'submission_note', 'review_note',
             'assigned_at', 'submitted_at', 'reviewed_at',

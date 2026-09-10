@@ -788,8 +788,8 @@ class DesignBoardViewSet(viewsets.ModelViewSet):
             services.save_to_order(board, order)
         except ValueError as error:
             return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
-        _log(request, board, "DESIGN_SAVED_TO_ORDER", f"Design saved to {order.order_id}",
-             f"The approved design is now attached to order {order.order_id}.")
+        _log(request, board, "DESIGN_SAVED_TO_ORDER", f"Design saved to {order.reference}",
+             f"The approved design is now attached to order {order.reference}.")
         return Response(self.get_serializer(board).data)
 
 
@@ -846,7 +846,7 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
             existing.save()
             _log(request, existing, "DESIGN_REASSIGNED",
                  f"Design work reassigned: {job.template.name}",
-                 f"{job.template.name} on {job.order.order_id} moved from "
+                 f"{job.template.name} on {job.order.reference} moved from "
                  f"{previous.name} to {designer.name}.",
                  {"garment_job": str(job.id), "from": previous.name, "to": designer.name},
                  entity_type="DesignAssignment")
@@ -856,7 +856,7 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
             assigned_by=request.user if request.user.is_authenticated else None)
         _log(request, assignment, "DESIGN_ASSIGNED",
              f"Design work assigned: {job.template.name}",
-             f"{job.template.name} on {job.order.order_id} assigned to {designer.name}.",
+             f"{job.template.name} on {job.order.reference} assigned to {designer.name}.",
              {"garment_job": str(job.id), "designer": designer.name,
               "due_date": str(assignment.due_date or '')},
              entity_type="DesignAssignment")
@@ -903,7 +903,7 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
         _log(request, assignment, "DESIGN_SUBMITTED",
              f"Design submitted: {job.template.name}",
              f"{assignment.designer.name} submitted \"{design.title}\" for "
-             f"{job.template.name} on {job.order.order_id}.",
+             f"{job.template.name} on {job.order.reference}.",
              {"garment_job": str(job.id), "design": str(design.id), "title": design.title},
              entity_type="DesignAssignment")
         return Response(self.get_serializer(assignment).data)
@@ -934,7 +934,7 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
              "DESIGN_APPROVED" if approved else "DESIGN_CHANGES_REQUESTED",
              f"Design {'approved' if approved else 'sent back'}: {job.template.name}",
              f"{assignment.design.title} for {job.template.name} on "
-             f"{job.order.order_id} was "
+             f"{job.order.reference} was "
              f"{'approved' if approved else 'returned for changes'}.",
              {"garment_job": str(job.id), "design": str(assignment.design_id),
               "note": assignment.review_note},

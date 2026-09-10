@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Order {{ order.order_id }} &middot; {{ boutique.name }}</title>
+<title>Order {{ order.reference }} &middot; {{ boutique.name }}</title>
 <style>
   /* Self-contained: this page is opened on a phone, often on a slow
      connection, by someone who will look at it once. Nothing to fetch. */
@@ -82,7 +82,7 @@
     {% if boutique.logo %}<img src="{{ boutique.logo.url }}" alt="">{% endif %}
     <div>
       <h1>{{ boutique.name }}</h1>
-      <p>Order {{ order.order_id }}</p>
+      <p>Order {{ order.reference }}</p>
     </div>
   </div>
 </header>

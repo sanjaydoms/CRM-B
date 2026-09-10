@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDownCircle, BarChart3, BookOpen, ClipboardList, History, MapPin, Package, Plus, Scissors, Search, Truck, X } from 'lucide-react';
 import { api } from '../../services/api';
+import { orderRef } from '../../services/format';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import { PageHeader, StatCard } from '../../components/ui/Atelier';
 import LanguageSelector from '../../components/LanguageSelector.jsx';
 import CatalogBrowser from './CatalogBrowser';
 import LocationsTab from './LocationsTab';
@@ -58,16 +60,6 @@ const errorBox = {
   padding: '10px 12px',
   borderRadius: 'var(--radius-md)',
 };
-
-function Stat({ label, value, tone, hint }) {
-  return (
-    <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)', flex: '1 1 170px' }}>
-      <div className="ui-eyebrow">{label}</div>
-      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: tone || 'var(--text-primary)' }}>{value}</div>
-      {hint && <div className="ui-stat-sub">{hint}</div>}
-    </div>
-  );
-}
 
 function Modal({ title, onClose, children, width = '520px' }) {
   return (
@@ -172,31 +164,27 @@ export default function InventoryPanel({ currentUser }) {
 
   return (
     <>
-      <header className="portal-header">
-        <div className="portal-header-left">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>{t('inventoryPage.title')}</h1>
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-              {t('inventoryPage.subtitle')}
-            </p>
-          </div>
-        </div>
-        <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {isOwner && (
-            <button type="button" className="btn-primary" onClick={() => setEditingItem({})}>
-              <Plus size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-              {t('inventoryPage.newItem')}
-            </button>
-          )}
-        </div>
-      </header>
+      <PageHeader
+        title={t('inventoryPage.title')}
+        subtitle={t('inventoryPage.subtitle')}
+        actions={isOwner && (
+          <button type="button" className="btn-primary" style={{ padding: '10px 18px' }} onClick={() => setEditingItem({})}>
+            <Plus size={16} />
+            {t('inventoryPage.newItem')}
+          </button>
+        )}
+      />
 
       {summary && (
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
-          <Stat label={t('inventoryPage.stockValue')} value={money(summary.inventory_value)} hint={`${summary.item_count} ${t('inventoryPage.itemsTracked', 'items tracked')}`} />
-          <Stat label={t('inventoryPage.outOfStock')} value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? 'var(--danger-color)' : undefined} />
-          <Stat label={t('inventoryPage.reorderDue')} value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? 'var(--warning-color)' : undefined} />
-          <Stat label={t('inventoryPage.deadStock')} value={summary.dead_stock_count} hint={t('inventoryPage.noMovement90Days', 'No movement in 90 days')} />
+        <div className="at-stat-grid">
+          <StatCard icon={Package} tone="green" label={t('inventoryPage.stockValue')} value={money(summary.inventory_value)}
+                    sub={`${summary.item_count} ${t('inventoryPage.itemsTracked', 'items tracked')}`} />
+          <StatCard icon={AlertTriangle} tone="amber" label={t('inventoryPage.outOfStock')} value={summary.out_of_stock_count}
+                    sub="Items need restocking" onClick={() => { setTab('items'); setReorderOnly(true); }} />
+          <StatCard icon={ArrowDownCircle} tone="blue" label={t('inventoryPage.reorderDue')} value={summary.needs_reorder_count}
+                    sub="Items to reorder" onClick={() => { setTab('items'); setReorderOnly(true); }} />
+          <StatCard icon={History} tone="rose" label={t('inventoryPage.deadStock')} value={summary.dead_stock_count}
+                    sub={t('inventoryPage.noMovement90Days', 'No movement in 90 days')} onClick={() => setTab('reports')} />
         </div>
       )}
 
@@ -554,7 +542,7 @@ function MovementModal({ item, onClose, onDone }) {
             <select className="form-control" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
               <option value="">Not tied to an order</option>
               {orders.map((o) => (
-                <option key={o.id} value={o.id}>{o.order_id} · {o.customer_name}</option>
+                <option key={o.id} value={o.id}>{orderRef(o)} · {o.customer_name}</option>
               ))}
             </select>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>

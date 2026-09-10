@@ -1552,7 +1552,7 @@ class ReassignmentTests(WorkflowTestBase):
         self._reassign_to(self.other)
         self.assertGreater(Notification.objects.count(), before)
         note = Notification.objects.filter(
-            title__contains=self.order.order_id).order_by('-id').first()
+            title__contains=self.order.reference).order_by('-id').first()
         self.assertIsNotNone(note)
         self.assertEqual(note.recipient_role, self.other.role)
 
@@ -1563,7 +1563,7 @@ class ReassignmentTests(WorkflowTestBase):
         self._reassign_to(karigar)
         from crm_api.models import Notification
         note = Notification.objects.filter(
-            title__contains=self.order.order_id).order_by('-id').first()
+            title__contains=self.order.reference).order_by('-id').first()
         self.assertEqual(note.recipient_role, 'Karigar')
 
     def test_a_plain_edit_does_not_touch_assignment(self):

@@ -109,7 +109,7 @@ class TrackingPageTests(TrackingTestBase):
 
         self.assertEqual(response.status_code, 200)
         body = response.content.decode()
-        self.assertIn(self.order.order_id, body)
+        self.assertIn(self.order.reference, body)
         self.assertIn("Meera Couture", body)
         self.assertIn("Anita", body)
         self.assertIn("Created", body)
@@ -305,7 +305,7 @@ class ManualSendTests(TrackingTestBase):
 
         self.assertTrue(url.startswith('https://wa.me/919000000002?text='))
         self.assertIn(quote('/track/'), url)
-        self.assertIn(quote(self.order.order_id), url)
+        self.assertIn(quote(self.order.reference), url)
 
     def test_a_customer_with_no_number_yields_no_link_rather_than_a_broken_one(self):
         message = self.queued()

@@ -99,13 +99,15 @@ def _customer_hits(tenant, term, limit):
 
 
 def _order_hits(tenant, term, limit):
+    digits = term.lstrip('#')
+    by_number = Q(order_number=int(digits)) if digits.isdigit() else Q()
     return [
-        _hit('order', o.order_id, o.order_id,
+        _hit('order', o.order_id, o.reference,
              f'{o.customer.first_name} {o.customer.last_name} - '
              f'{o.order_status}',
              tenant.schema_name, tenant.name)
         for o in Order.objects.select_related('customer').filter(
-            Q(order_id__icontains=term) | Q(tracking_number__icontains=term)
+            by_number | Q(order_id__icontains=term) | Q(tracking_number__icontains=term)
             | Q(customer__first_name__icontains=term)
             | Q(customer__last_name__icontains=term)
             | Q(customer__mobile_number__icontains=term)

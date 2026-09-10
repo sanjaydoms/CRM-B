@@ -15,9 +15,15 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Plus, Clock, Wallet, TrendingUp, Users, FileText, Trash2 } from 'lucide-react';
+import {
+  Plus, Clock, Wallet, TrendingUp, Users, FileText, Trash2, Phone, Calendar, Briefcase, UserCheck,
+  User, UserPlus, Smartphone, Mail, Sparkles, Scissors, Shield, Coins, MapPin, Hash, Tag, FilePlus, Upload, Eye, IndianRupee,
+} from 'lucide-react';
 
 import { api } from '../../services/api';
+import {
+  AvatarInitials, PageHeader, SearchBox, StatCard, FormModal, Field, Dropzone, InfoNote, FormSection, IconTile,
+} from '../../components/ui/Atelier';
 import { ASSIGNABLE_ROLES, DOCUMENT_KINDS } from '../../constants/roles';
 import Attendance from './Attendance';
 import Payroll from './Payroll';
@@ -89,36 +95,11 @@ const tenDigits = (e) => {
   return d.replace(/^0+/, '').slice(0, 10);
 };
 
-function Modal({ title, onClose, children, width = '560px' }) {
+function Modal({ title, subtitle, icon, tone = 'green', onClose, children, width = '560px', footer }) {
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1200,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--surface-color)', borderRadius: 'var(--radius-xl)', width: '100%',
-          maxWidth: width, maxHeight: '88vh', overflowY: 'auto', padding: 'var(--space-6)',
-          border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)',
-        }}
-      >
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginBottom: 'var(--space-5)',
-        }}>
-          <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)',
-                       fontWeight: 500, margin: 0, color: 'var(--text-primary)' }}>{title}</h3>
-          <button type="button" className="close-btn" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <FormModal icon={icon} tone={tone} title={title} subtitle={subtitle} onClose={onClose} width={width} footer={footer}>
+      {children}
+    </FormModal>
   );
 }
 
@@ -195,89 +176,71 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
     }
   };
 
-  const field = { display: 'flex', flexDirection: 'column', gap: '5px' };
-  const label = { fontSize: '12px', color: 'var(--text-secondary)' };
-
   return (
-    <form onSubmit={submit}>
+    <form onSubmit={submit} className="at-stack">
       {error && <div style={errorBox}>{error}</div>}
 
-      {/* mobile-stack-grid: the app sets grid columns inline, which no
-          stylesheet rule can beat, so the shared !important rule keys off this
-          class to stack these pairs on a phone. */}
-      <div
-        className="mobile-stack-grid"
-        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}
-      >
-        <div style={field}>
-          <label style={label} htmlFor="sp-type">Employment type</label>
+      <div className="at-form-grid">
+        <Field label="Employment type" required icon={Briefcase} htmlFor="sp-type">
           <select id="sp-type" value={form.employment_type} onChange={set('employment_type')}>
             {EMPLOYMENT_TYPES.map(([value, text]) => (
               <option key={value} value={value}>{text}</option>
             ))}
           </select>
-        </div>
-        <div style={field}>
-          <label style={label} htmlFor="sp-rate">Hourly rate (₹)</label>
+        </Field>
+        <Field label="Hourly rate (₹)" required icon={IndianRupee} htmlFor="sp-rate"
+               hint={`Set the hourly rate for ${member.name}.`}>
           <input id="sp-rate" type="number" min="0" step="0.01"
                  value={form.hourly_rate} onChange={set('hourly_rate')} placeholder="0.00" />
-        </div>
+        </Field>
 
-        <div style={field}>
-          <label style={label} htmlFor="sp-joined">Joined on</label>
+        <Field label="Joined on" required icon={Calendar} htmlFor="sp-joined">
           <input id="sp-joined" type="date" value={form.joined_at} onChange={set('joined_at')} />
-        </div>
-        <div style={field}>
-          <label style={label} htmlFor="sp-exit">Left on</label>
+        </Field>
+        <Field label="Left on" icon={Calendar} htmlFor="sp-exit" hint="Leave blank if currently active.">
           <input id="sp-exit" type="date" value={form.exit_date} onChange={set('exit_date')} />
-        </div>
+        </Field>
 
-        <div style={field}>
-          <label style={label} htmlFor="sp-hours">Expected hours a week</label>
+        <Field label="Expected hours a week" icon={Clock} htmlFor="sp-hours" hint="Planned working hours per week.">
           <input id="sp-hours" type="number" min="0" step="0.5"
                  value={form.weekly_hours} onChange={set('weekly_hours')} placeholder="48" />
-        </div>
-        <div style={field}>
-          <label style={label} htmlFor="sp-phone">Phone</label>
-          <input id="sp-phone" value={form.phone} inputMode="numeric"
+        </Field>
+        <Field label="Phone" icon={Phone} htmlFor="sp-phone">
+          <input id="sp-phone" value={form.phone} inputMode="numeric" placeholder="Enter phone number"
                  onChange={(e) => setForm((f) => ({ ...f, phone: tenDigits(e) }))} />
-        </div>
+        </Field>
 
-        <div style={field}>
-          <label style={label} htmlFor="sp-dep-total">Security deposit (₹)</label>
+        <Field label="Security deposit (₹)" icon={Shield} htmlFor="sp-dep-total">
           <input id="sp-dep-total" type="number" min="0" step="0.01"
                  value={form.deposit_total} onChange={set('deposit_total')} placeholder="0.00" />
-        </div>
-        <div style={field}>
-          <label style={label} htmlFor="sp-dep-weekly">Weekly deduction (₹)</label>
+        </Field>
+        <Field label="Weekly deduction (₹)" icon={Coins} htmlFor="sp-dep-weekly">
           <input id="sp-dep-weekly" type="number" min="0" step="0.01"
                  value={form.deposit_weekly} onChange={set('deposit_weekly')} placeholder="0.00" />
-        </div>
+        </Field>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '14px' }}>
-        <label style={label} htmlFor="sp-emergency">Emergency contact</label>
-        <input id="sp-emergency" value={form.emergency_contact}
+      <Field label="Emergency contact" icon={User} htmlFor="sp-emergency">
+        <input id="sp-emergency" value={form.emergency_contact} placeholder="Name and phone number"
                onChange={set('emergency_contact')} />
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '14px' }}>
-        <label style={label} htmlFor="sp-address">Address</label>
-        <textarea id="sp-address" rows={2} value={form.address} onChange={set('address')} />
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '14px' }}>
-        <label style={label} htmlFor="sp-notes">Notes</label>
-        <textarea id="sp-notes" rows={2} value={form.notes} onChange={set('notes')} />
-      </div>
+      </Field>
+      <Field label="Address" icon={MapPin} htmlFor="sp-address">
+        <textarea id="sp-address" rows={2} value={form.address} onChange={set('address')} placeholder="Enter full address" />
+      </Field>
+      <Field label="Notes" icon={FileText} htmlFor="sp-notes">
+        <textarea id="sp-notes" rows={2} value={form.notes} onChange={set('notes')} placeholder="Add any additional notes…" />
+      </Field>
 
-      <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '14px' }}>
-        The weekly deduction is recovered from payroll once that is switched on, and never
+      <InfoNote tone="amber" icon={Shield}>
+        <strong>Note:</strong> The weekly deduction is recovered from payroll once that is switched on, and never
         takes more than the deposit still outstanding or that week's earnings.
-      </p>
+      </InfoNote>
 
-      <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '18px' }}>
+      <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: 'var(--space-3)',
+                    borderTop: '1px solid var(--border-color)' }}>
         <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
         <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Saving…' : terms ? 'Save changes' : 'Create profile'}
+          <UserPlus size={16} /> {saving ? 'Saving…' : terms ? 'Save changes' : 'Create profile'}
         </button>
       </div>
     </form>
@@ -494,44 +457,73 @@ function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
     );
   }
 
+  const roleHint = editing
+    ? 'A person cannot be moved between the production floor and the Design Studio -- they are different records.'
+    : roleChoice === '__custom__'
+      ? 'A custom role gets the same access as floor staff -- attendance and their own assignments.'
+      : ASSIGNABLE_ROLES.find((r) => r.value === roleChoice)?.hint;
+
   return (
-    <Modal title={editing ? `Edit ${member.name}` : 'Add staff'} onClose={onCancel}>
-      <form onSubmit={submit}>
+    <Modal
+      icon={UserPlus}
+      title={editing ? `Edit ${member.name}` : 'Add staff'}
+      subtitle={editing ? 'Update this team member’s details.' : 'Add a new team member to your atelier.'}
+      onClose={onCancel}
+      width="640px"
+      footer={(
+        <>
+          <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+          <button type="submit" form="add-staff-form" className="btn-primary" disabled={busy}>
+            <UserPlus size={16} /> {busy ? 'Saving…' : (editing ? 'Save changes' : 'Add staff')}
+          </button>
+        </>
+      )}
+    >
+      <form id="add-staff-form" onSubmit={submit} className="at-stack">
         {error && (
           <div style={errorBox}>{error}</div>
         )}
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Name</span>
+        <Field label="Name" icon={User}>
           <input className="form-input" value={form.name} onChange={set('name')}
                  placeholder="Full name" autoFocus />
-        </label>
+        </Field>
         {form.role !== 'Designer' && (
-          <label style={{ display: 'block', marginBottom: '10px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Profile photo</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-              <div style={{ width: 48, height: 48, borderRadius: '50%', overflow: 'hidden',
-                            background: '#eee', flexShrink: 0 }}>
-                {(photo || member?.profile_photo) && (
-                  <img src={photo ? URL.createObjectURL(photo) : member.profile_photo}
-                       alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                )}
+          <div className="at-field">
+            <span className="at-field-label">Profile photo</span>
+            <div className="at-form-section" style={{ flexDirection: 'row', alignItems: 'center', gap: 'var(--space-4)', background: 'var(--surface-2)' }}>
+              <div style={{ width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+                            background: 'var(--surface-inset)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            color: 'var(--text-muted)' }}>
+                {(photo || member?.profile_photo)
+                  ? <img src={photo ? URL.createObjectURL(photo) : member.profile_photo} alt=""
+                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <User size={26} />}
               </div>
-              <input type="file" accept="image/*"
-                     onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+              <div style={{ minWidth: 0, flex: 1, borderLeft: '1px solid var(--border-color)', paddingLeft: 'var(--space-4)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn-secondary at-btn-sm"
+                          onClick={() => document.getElementById('add-staff-photo').click()}>
+                    <Upload size={14} /> Choose file
+                  </button>
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                    {photo ? photo.name : 'No file chosen'}
+                  </span>
+                  <input id="add-staff-photo" type="file" accept="image/*" hidden
+                         onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+                </div>
+                <div className="at-field-hint" style={{ marginTop: '6px' }}>
+                  Shows on their login. They can change it themselves from My Account.
+                </div>
+              </div>
             </div>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Shows on their login. They can change it themselves from My Account.
-            </span>
-          </label>
+          </div>
         )}
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Mobile number</span>
+        <Field label="Mobile number" icon={Smartphone}>
           <input className="form-input" value={form.phone} inputMode="numeric"
                  onChange={(e) => setForm({ ...form, phone: tenDigits(e) })}
                  placeholder="10-digit mobile" />
-        </label>
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Role</span>
+        </Field>
+        <Field label="Role" icon={Scissors} hint={roleHint}>
           <select className="form-input" value={roleChoice} disabled={editing}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -546,51 +538,31 @@ function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
             ))}
             <option value="__custom__">Other (add a custom role)…</option>
           </select>
-          {roleChoice === '__custom__' && (
-            <input className="form-input" style={{ marginTop: '8px' }} value={customRole}
+        </Field>
+        {roleChoice === '__custom__' && (
+          <Field label="Custom role" icon={Tag}>
+            <input className="form-input" value={customRole}
                    placeholder="e.g. Janitor, Cleaner, Helper"
                    onChange={(e) => { setCustomRole(e.target.value); setForm({ ...form, role: e.target.value }); }} />
-          )}
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            {editing
-              ? 'A person cannot be moved between the production floor and the Design Studio -- they are different records.'
-              : roleChoice === '__custom__'
-                ? 'A custom role gets the same access as floor staff -- attendance and their own assignments.'
-                : ASSIGNABLE_ROLES.find((r) => r.value === roleChoice)?.hint}
-          </span>
-        </label>
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            Email for their login
-          </span>
+          </Field>
+        )}
+        <Field label="Email for their login" icon={Mail}
+               hint="Give an address and a password is generated and shown once.">
           <input className="form-input" type="email" value={form.email} onChange={set('email')}
                  placeholder="Leave blank for no login" />
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            Give an address and a password is generated and shown once.
-          </span>
-        </label>
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            {form.role === 'Designer' ? 'Specialisation (optional)' : 'Specialty (optional)'}
-          </span>
+        </Field>
+        <Field label={form.role === 'Designer' ? 'Specialisation' : 'Specialty'} optional icon={Sparkles}>
           <input className="form-input" value={form.specialty} onChange={set('specialty')}
                  placeholder="Bridal blouses, lehenga…" />
-        </label>
+        </Field>
         {editing && form.role !== 'Designer' && (
-          <label style={{ display: 'block', marginBottom: '10px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Status</span>
+          <Field label="Status" icon={UserCheck}>
             <select className="form-input" value={form.status} onChange={set('status')}>
               <option value="Available">Available</option>
               <option value="Busy">Busy</option>
             </select>
-          </label>
+          </Field>
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-          <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="btn-primary" disabled={busy}>
-            {busy ? 'Saving…' : (editing ? 'Save changes' : 'Add staff')}
-          </button>
-        </div>
       </form>
     </Modal>
   );
@@ -647,7 +619,6 @@ function DocumentsModal({ member, onClose }) {
       await api.uploadStaffDocument(body);
       setForm({ kind: 'AADHAAR', number: '', label: '' });
       setFile(null);
-      e.target.reset();
       await refresh();
     } catch (err) {
       setError(err.message || 'Could not upload that document.');
@@ -667,41 +638,54 @@ function DocumentsModal({ member, onClose }) {
   };
 
   return (
-    <Modal title={`Documents — ${member.name}`} onClose={onClose} width="620px">
+    <Modal
+      icon={FileText}
+      title={`Documents — ${member.name}`}
+      subtitle="Manage identification, contracts, and other important documents."
+      onClose={onClose}
+      width="900px"
+      footer={(
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" form="staff-document-form" className="btn-primary" disabled={busy}>
+            {busy ? 'Uploading…' : <><Plus size={16} /> Upload Document</>}
+          </button>
+        </>
+      )}
+    >
       {error && (
         <div style={errorBox}>{error}</div>
       )}
 
       {loading ? (
-        <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading…</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Loading…</div>
       ) : docs.length === 0 ? (
-        <div style={{ ...panel, padding: '18px', textAlign: 'center',
-                      color: 'var(--text-secondary)', fontSize: '13px' }}>
-          No documents held for {member.name} yet.
+        <div className="at-drop at-drop--compact" style={{ minHeight: '150px' }}>
+          <span className="at-modal-icon at-tile at-tile--neutral" style={{ width: 56, height: 56 }}><FileText size={22} /></span>
+          <div className="at-drop-title" style={{ marginTop: '6px' }}>No documents held for {member.name} yet.</div>
+          <div className="at-drop-sub">Add documents below to keep their records organized.</div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="at-form-section" style={{ gap: 0, padding: 'var(--space-2) var(--space-4)' }}>
           {docs.map((doc) => (
-            <div key={doc.id} style={{
-              ...panel, padding: '10px 12px', display: 'flex',
-              alignItems: 'center', justifyContent: 'space-between', gap: '10px',
-            }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: '13px' }}>
+            <div key={doc.id} className="at-row">
+              <IconTile icon={FileText} tone="green" size={38} iconSize={17} />
+              <div className="at-row-main">
+                <div className="at-row-title">
                   {doc.kind_display}{doc.label ? ` · ${doc.label}` : ''}
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <div className="at-row-sub">
                   {doc.number || 'No number recorded'}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 {doc.file_url && (
-                  <a className="btn-secondary" href={doc.file_url}
-                     target="_blank" rel="noreferrer"
-                     style={{ textDecoration: 'none', fontSize: '12px' }}>View</a>
+                  <a className="btn-secondary at-btn-sm" href={doc.file_url}
+                     target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                    <Eye size={14} /> View
+                  </a>
                 )}
-                <button type="button" className="btn-secondary" onClick={() => remove(doc)}
-                        style={{ color: '#b91c1c', borderColor: '#b91c1c' }}
+                <button type="button" className="btn-secondary at-btn-sm at-btn-danger" onClick={() => remove(doc)}
                         aria-label={`Remove ${doc.kind_display}`}>
                   <Trash2 size={14} />
                 </button>
@@ -711,49 +695,57 @@ function DocumentsModal({ member, onClose }) {
         </div>
       )}
 
-      <form onSubmit={upload} style={{
-        marginTop: '16px', paddingTop: '14px',
-        borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-      }}>
-        <div className="ui-eyebrow" style={{ marginBottom: '10px' }}>
-          Add a document
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          <label>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Type</span>
-            <select className="form-input" value={form.kind}
-                    onChange={(e) => setForm({ ...form, kind: e.target.value })}>
-              {DOCUMENT_KINDS.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Number</span>
-            <input className="form-input" value={form.number}
-                   onChange={(e) => setForm({ ...form, number: e.target.value })}
-                   placeholder="Optional" />
-          </label>
-        </div>
-        <label style={{ display: 'block', marginTop: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Label</span>
-          <input className="form-input" value={form.label}
-                 onChange={(e) => setForm({ ...form, label: e.target.value })}
-                 placeholder="Aadhaar (front), 2026 contract…" />
-        </label>
-        <label style={{ display: 'block', marginTop: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            File (image or PDF, up to 10MB)
-          </span>
-          <input className="form-input" type="file" accept="image/*,application/pdf"
-                 onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        </label>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '14px' }}>
-          <button type="submit" className="btn-primary" disabled={busy}>
-            {busy ? 'Uploading…' : <><Plus size={14} /> Upload</>}
-          </button>
-        </div>
-      </form>
+      <FormSection icon={FilePlus} tone="green" title="Add a Document"
+                   subtitle={`Upload and categorize a document for ${member.name}.`}>
+        <form id="staff-document-form" onSubmit={upload} className="at-stack">
+          <div className="at-form-grid">
+            <Field label="Document Type" required icon={FileText}>
+              <select className="form-input" value={form.kind}
+                      onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+                {DOCUMENT_KINDS.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Document Number" optional icon={Hash}>
+              <input className="form-input" value={form.number}
+                     onChange={(e) => setForm({ ...form, number: e.target.value })}
+                     placeholder="Enter document number" />
+            </Field>
+          </div>
+          <Field label="Label / Description" optional icon={Tag}>
+            <input className="form-input" value={form.label}
+                   onChange={(e) => setForm({ ...form, label: e.target.value })}
+                   placeholder="e.g. Aadhaar (front), 2026 contract…" />
+          </Field>
+          <div className="at-field">
+            <span className="at-field-label">Upload File <span className="at-field-req">*</span></span>
+            <div className="at-side-by-side">
+              {file ? (
+                <div className="at-form-section" style={{ flexDirection: 'row', alignItems: 'center', gap: 'var(--space-3)' }}>
+                  <IconTile icon={FileText} tone="green" size={40} iconSize={18} />
+                  <div className="at-row-main">
+                    <div className="at-row-title">{file.name}</div>
+                    <div className="at-row-sub">{Math.round(file.size / 1024)} KB</div>
+                  </div>
+                  <button type="button" className="btn-secondary at-btn-sm" onClick={() => setFile(null)}>Remove</button>
+                </div>
+              ) : (
+                <Dropzone
+                  accept="image/*,application/pdf"
+                  title="Drag & drop a file here" subtitle="or choose from your device"
+                  chooseLabel="Choose File" hint="Supported formats: JPG, PNG, PDF (Max 10MB)"
+                  onFiles={(files) => setFile(files[0] || null)}
+                />
+              )}
+              <InfoNote tone="green" icon={Shield} title="Keep records safe"
+                        items={['Government IDs (Aadhaar, PAN, etc.)', 'Contracts & agreements', 'Certificates & other documents']}>
+                Upload clear and legible documents to maintain accurate employee records.
+              </InfoNote>
+            </div>
+          </div>
+        </form>
+      </FormSection>
     </Modal>
   );
 }
@@ -912,27 +904,17 @@ function Roster({ isOwner, canSeeTeam }) {
       )}
 
       {canSeeTeam && (() => {
-        const tile = (label, value, sub, tone) => (
-          <div className="ui-card" style={{ flex: '1 1 150px', padding: 'var(--space-4) var(--space-5)' }}>
-            <div className="ui-eyebrow">{label}</div>
-            <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: tone }}>
-              {value}
-            </div>
-            {sub != null && <div className="ui-stat-sub">{sub}</div>}
-          </div>
-        );
         return (
-          <>
-            <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Team overview</div>
-            <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-5)' }}>
-              {tile('Total staff', analytics.total)}
-              {tile('Available now', analytics.available,
-                    analytics.busy ? `${analytics.busy} busy` : null, 'var(--success-color)')}
-              {tile('On the floor today', analytics.presentToday,
-                    analytics.workingNow ? `${analytics.workingNow} in now` : null)}
-              {tile('Employment set up', withTerms, `of ${roster.length}`)}
-            </div>
-          </>
+          <div className="at-stat-grid" style={{ marginBottom: 'var(--space-5)' }}>
+            <StatCard icon={Users} tone="green" label="Total staff" value={analytics.total}
+                      sub={`${roster.length} on the roster`} />
+            <StatCard icon={UserCheck} tone="amber" label="Available now" value={analytics.available}
+                      sub={analytics.busy ? `${analytics.busy} busy` : 'nobody busy'} />
+            <StatCard icon={Clock} tone="blue" label="On the floor today" value={analytics.presentToday}
+                      sub={analytics.workingNow ? `${analytics.workingNow} in now` : 'from attendance'} />
+            <StatCard icon={Briefcase} tone="violet" label="Employment set up" value={withTerms}
+                      sub={`of ${roster.length}`} />
+          </div>
         );
       })()}
 
@@ -985,15 +967,10 @@ function Roster({ isOwner, canSeeTeam }) {
           display: 'flex', gap: 'var(--space-3)', alignItems: 'center',
           flexWrap: 'wrap', marginBottom: 'var(--space-4)',
         }}>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search staff by name or role"
-            style={{ flex: '1 1 240px', maxWidth: '340px' }}
-          />
+          <SearchBox value={search} onChange={setSearch} placeholder="Search staff by name, role, or phone…" />
           {isOwner && (
-            <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
-              <Plus size={16} /> Add staff
+            <button type="button" className="btn-primary" style={{ marginLeft: 'auto', padding: '10px 18px' }} onClick={() => setAdding(true)}>
+              <Plus size={16} /> Add Staff Member
             </button>
           )}
         </div>
@@ -1010,45 +987,64 @@ function Roster({ isOwner, canSeeTeam }) {
         // reads correctly at 320px without a horizontal scroller.
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {rows.map(({ member, terms: t }) => (
-            <div key={member.id} className="ui-card" style={{ padding: 'var(--space-4)' }}>
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                gap: 'var(--space-3)', flexWrap: 'wrap',
-              }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                    {isOwner ? (
-                      <button
-                        type="button"
-                        onClick={() => setPerson(member)}
-                        title="Edit name, role and specialty"
-                        style={{
-                          fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-md)',
-                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                          color: 'var(--text-primary)', textAlign: 'left',
-                        }}
-                      >{member.name}</button>
-                    ) : (
-                      <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-md)',
-                                    color: 'var(--text-primary)' }}>{member.name}</div>
+            <div key={member.id} className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)' }}>
+              <div className="at-staff" style={{ padding: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0 }}>
+                  <AvatarInitials name={member.name} size={44} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                      {isOwner ? (
+                        <button
+                          type="button"
+                          onClick={() => setPerson(member)}
+                          title="Edit name, role and specialty"
+                          style={{
+                            fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-md)',
+                            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                            color: 'var(--text-primary)', textAlign: 'left', fontFamily: 'inherit',
+                          }}
+                        >{member.name}</button>
+                      ) : (
+                        <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-md)',
+                                      color: 'var(--text-primary)' }}>{member.name}</div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      {member.role}
+                      {member.isDesigner && ` · ${member.design_count ?? 0} design(s)${member.has_login ? '' : ' · no login yet'}`}
+                    </div>
+                    {member.phone && (
+                      <div className="at-contact"><span><Phone size={12} /> {member.phone}</span></div>
                     )}
-                    {t && <span className="ui-badge ui-badge--neutral">{employmentLabel(t.employment_type)}</span>}
-                  </div>
-                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    {member.role}
                   </div>
                 </div>
+
+                <div>
+                  {member.status ? (
+                    <span className={`ui-badge ui-badge--${member.status === 'Available' ? 'success' : member.status === 'Busy' ? 'warning' : 'neutral'}`}>
+                      ● {member.status}
+                    </span>
+                  ) : member.isDesigner ? (
+                    <span className="ui-badge ui-badge--neutral">Designer</span>
+                  ) : null}
+                </div>
+
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Calendar size={12} /> Joined {t?.joined_at
+                      ? new Date(t.joined_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+                      : '—'}
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Briefcase size={12} /> {t ? employmentLabel(t.employment_type) : 'Not set'}
+                  </span>
+                </div>
+
                 {isOwner && (
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    {member.phone && (
-                      <a href={`tel:${member.phone}`} className="btn-secondary"
-                         style={{ textDecoration: 'none', fontSize: '12px' }}>
-                        {member.phone}
-                      </a>
-                    )}
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                     <button
                       type="button"
-                      className="btn-secondary"
+                      className="btn-secondary at-btn-sm"
                       onClick={() => setDocumentsFor(member)}
                       title="Identity and employment documents"
                     >
@@ -1057,7 +1053,7 @@ function Roster({ isOwner, canSeeTeam }) {
                     {!member.isDesigner && (
                       <button
                         type="button"
-                        className={t ? 'btn-secondary' : 'btn-primary'}
+                        className={`${t ? 'btn-secondary' : 'btn-primary'} at-btn-sm`}
                         onClick={() => setEditing({ member, terms: t })}
                       >
                         {t ? 'Edit' : <><Plus size={14} /> Set up</>}
@@ -1066,13 +1062,6 @@ function Roster({ isOwner, canSeeTeam }) {
                   </div>
                 )}
               </div>
-
-              {member.isDesigner && (
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                  Design Studio · {member.design_count ?? 0} design(s)
-                  {member.has_login ? '' : ' · no login yet'}
-                </div>
-              )}
 
               {t && showsPay(t) && (
                 <div
@@ -1220,6 +1209,9 @@ function Roster({ isOwner, canSeeTeam }) {
           title={editing.terms
             ? `Employment details — ${editing.member.name}`
             : `Set up ${editing.member.name}`}
+          icon={User}
+          subtitle={`Add employment and contact details for ${editing.member.name}.`}
+          width="720px"
           onClose={() => setEditing(null)}
         >
           <TermsForm
@@ -1280,21 +1272,12 @@ export default function StaffPanel({ currentUser }) {
 
   return (
     <>
-      <header className="portal-header">
-        <div className="portal-header-left">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
-                         fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
-              {canSeeTeam ? 'Staff Management' : 'My Attendance'}
-            </h1>
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-              {canSeeTeam
-                ? 'Employment terms, attendance, payroll and performance for your team.'
-                : 'Check in and out, and see the hours recorded for you.'}
-            </p>
-          </div>
-        </div>
-      </header>
+      <PageHeader
+        title={canSeeTeam ? 'Staff Management' : 'My Attendance'}
+        subtitle={canSeeTeam
+          ? 'Manage your team, track attendance, payroll and performance.'
+          : 'Check in and out, and see the hours recorded for you.'}
+      />
 
       {/* Tab strip, not pill buttons: these switch a view, and an underline on
           the active one reads as navigation rather than four call-to-actions. */}

@@ -36,13 +36,13 @@ def _content(order):
     total = format_money(order.total_amount or 0)
     link = tracking_url(order)
 
-    subject = f"Order Confirmed: {order.order_id} - {boutique}"
+    subject = f"Order Confirmed: {order.reference} - {boutique}"
 
     body = (
         f"Dear {customer.first_name},\n\n"
         f"Thank you for your order with {boutique}. We have received it and work is "
         f"about to begin.\n\n"
-        f"Order number: {order.order_id}\n"
+        f"Order number: {order.reference}\n"
         f"{plural}: {garment_label(order)}\n"
         f"Expected delivery: {due}\n"
         f"Total: {total}\n\n"
@@ -64,7 +64,7 @@ def _content(order):
   </p>
   <div style="border:1px solid #e2e2e2;border-radius:8px;padding:16px;margin:18px 0;
               font-size:14px">
-    <div style="margin-bottom:8px"><strong>Order number</strong><br>{order.order_id}</div>
+    <div style="margin-bottom:8px"><strong>Order number</strong><br>{order.reference}</div>
     <div style="margin-bottom:8px"><strong>{plural}</strong><br>{garment_label(order)}</div>
     <div style="margin-bottom:8px"><strong>Expected delivery</strong><br>{due}</div>
     <div><strong>Total</strong><br>{total}</div>

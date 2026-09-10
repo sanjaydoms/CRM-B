@@ -455,8 +455,8 @@ class OrderViewSet(viewsets.ModelViewSet):
 
                 if order.tailor:
                     Notification.objects.create(
-                        title=f"New Stitching Task: {order.order_id}",
-                        message=(f"Order {order.order_id} has been reassigned to "
+                        title=f"New Stitching Task: {order.reference}",
+                        message=(f"Order {order.reference} has been reassigned to "
                                  f"you for stitching."),
                         recipient_role=order.tailor.role,
                         recipient_email=(order.tailor.user.email
@@ -465,8 +465,8 @@ class OrderViewSet(viewsets.ModelViewSet):
 
             if old_master_id != order.master_id and order.master:
                 Notification.objects.create(
-                    title=f"New Assignment: {order.order_id}",
-                    message=(f"Order {order.order_id} has been reassigned to you "
+                    title=f"New Assignment: {order.reference}",
+                    message=(f"Order {order.reference} has been reassigned to you "
                              f"as Supervising Master."),
                     recipient_role=order.master.role,
                     recipient_email=(order.master.user.email
@@ -651,7 +651,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 order,
                 'garment_ready',
                 f"Dear {order.customer.first_name}, your outfit for order "
-                f"{order.order_id} is ready! You can see photographs of the "
+                f"{order.reference} is ready! You can see photographs of the "
                 f"finished garment here: {tracking_url(order)}",
             )
 
@@ -797,8 +797,8 @@ class OrderViewSet(viewsets.ModelViewSet):
         Notification.objects.create(
             recipient_role=tailor.role,
             recipient_email=tailor.email or (tailor.user.email if tailor.user_id else ''),
-            title=f"New assignment on {order.order_id}",
-            message=f"You have been assigned {stage.stage_name} on order {order.order_id}.",
+            title=f"New assignment on {order.reference}",
+            message=f"You have been assigned {stage.stage_name} on order {order.reference}.",
         )
         OrderActivity.objects.create(
             order=order,
@@ -1049,7 +1049,7 @@ class DashboardView(views.APIView):
         unpaid = (live.annotate(_balance=balance).filter(_balance__gt=0)
                   .select_related('customer').order_by('-_balance')[:5])
         out['unpaid'] = [{
-            'id': o.id, 'order_id': o.order_id,
+            'id': o.id, 'order_id': o.order_id, 'reference': o.reference,
             'customer': f"{o.customer.first_name} {o.customer.last_name}".strip()
                         if o.customer else '',
             'balance': float(o._balance or 0),
@@ -1060,7 +1060,7 @@ class DashboardView(views.APIView):
                        | Q(estimated_delivery__lte=today + timedelta(days=7)))
                .select_related('customer').order_by('estimated_delivery')[:5])
         out['due'] = [{
-            'id': o.id, 'order_id': o.order_id,
+            'id': o.id, 'order_id': o.order_id, 'reference': o.reference,
             'customer': f"{o.customer.first_name} {o.customer.last_name}".strip()
                         if o.customer else '',
             'due': o.estimated_delivery.isoformat() if o.estimated_delivery else None,

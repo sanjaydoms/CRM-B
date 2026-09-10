@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 
 import { api } from '../../services/api';
+import { orderRef } from '../../services/format';
 import { resolveMediaUrl } from '../../services/media';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
 
@@ -73,7 +74,7 @@ function AssignPanel({ orders, designers, onAssigned, onError }) {
   const garmentOptions = (orders || []).flatMap(order =>
     (order.garment_jobs || []).map(job => ({
       id: job.id,
-      label: `${order.order_id} · ${job.template_name || 'Custom garment'}`,
+      label: `${orderRef(order)} · ${job.template_name || 'Custom garment'}`,
     })));
 
   const submit = async (event) => {
@@ -225,7 +226,7 @@ function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError 
         <div>
           <h4 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-primary)' }}>{assignment.garment_name}</h4>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-            {assignment.order_id || assignment.order_ref}
+            {assignment.order_reference || assignment.order_id || assignment.order_ref}
             {isSupervisor && assignment.customer_name ? ` · ${assignment.customer_name}` : ''}
             {isSupervisor ? ` · ${assignment.designer_name}` : ''}
             {assignment.due_date ? ` · due ${formatDate(assignment.due_date)}` : ''}

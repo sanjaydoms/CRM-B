@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, Clock, Edit2, Eye, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronRight, Clock, Edit2, Eye, Image as ImageIcon, LayoutGrid, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 import DesignUpload from './DesignUpload';
+import { IconTile, SectionCard, StatCard } from '../../components/ui/Atelier';
 
 /**
  * The boutique's design library.
@@ -377,45 +378,48 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   }
 
   if (openCategory === null) {
+    const named = categories.filter((c) => c.key);
+    const uncategorised = categories.find((c) => !c.key);
     return (
-      <div className="content-card">
-        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span>Boutique Designs</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 400 }}>
-              {total} design{total === 1 ? '' : 's'} in the library
-            </span>
-            {canReview && pendingCount > 0 && (
-              <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--warning-color)', borderColor: 'var(--warning-color)' }}
-                      onClick={() => { setFilters({}); setOpenCategory(PENDING_QUEUE); }}>
-                <Clock size={13} /> {pendingCount} awaiting review
+      <div className="at-stack">
+        <div className="at-stat-grid">
+          <StatCard icon={ImageIcon} tone="green" label="Total Designs" value={total}
+                    sub={`${total === 1 ? 'design' : 'designs'} in the library`} />
+          <StatCard icon={LayoutGrid} tone="amber" label="Categories" value={named.length} sub="garment types" />
+          <StatCard icon={ImageIcon} tone="violet" label="Uncategorised" value={uncategorised?.count ?? 0}
+                    sub={uncategorised?.count ? 'not yet filed under a garment' : 'everything is filed'}
+                    onClick={uncategorised ? () => { setFilters({}); setOpenCategory(uncategorised); } : undefined} />
+          {canReview && (
+            <StatCard icon={Clock} tone={pendingCount > 0 ? 'rose' : 'blue'} label="Awaiting review" value={pendingCount}
+                      sub={pendingCount > 0 ? 'designs waiting on you' : 'all reviewed'}
+                      onClick={pendingCount > 0 ? () => { setFilters({}); setOpenCategory(PENDING_QUEUE); } : undefined} />
+          )}
+        </div>
+
+        <SectionCard
+          icon={LayoutGrid} tone="green" title="Design Categories"
+          subtitle="Organise the library by garment"
+          action={() => setUploading(true)} actionLabel="Upload design"
+        >
+          <div className="at-cat-grid">
+            {categories.map((category) => (
+              <button
+                key={category.key || 'uncategorised'}
+                type="button"
+                className="at-cat"
+                onClick={() => { setFilters({}); setOpenCategory(category); }}
+                style={{ opacity: category.count === 0 ? 0.6 : 1 }}
+              >
+                <IconTile icon={ImageIcon} tone={category.key ? (category.count ? 'green' : 'neutral') : 'amber'} size={44} iconSize={20} />
+                <span style={{ minWidth: 0 }}>
+                  <span className="at-cat-name" style={{ display: 'block' }}>{category.name}</span>
+                  <span className="at-cat-count">{category.count} design{category.count === 1 ? '' : 's'}</span>
+                </span>
+                <ChevronRight size={18} className="at-cat-chevron" />
               </button>
-            )}
-            <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }}
-                    onClick={() => setUploading(true)}>
-              <Plus size={13} /> Upload design
-            </button>
-          </span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))', gap: '12px' }}>
-          {categories.map((category) => (
-            <button
-              key={category.key || 'uncategorised'}
-              type="button"
-              onClick={() => { setFilters({}); setOpenCategory(category); }}
-              style={{
-                textAlign: 'left', padding: '16px', borderRadius: '8px', cursor: 'pointer',
-                border: '1px solid var(--border-color)', background: 'var(--surface-color)',
-                opacity: category.count === 0 ? 0.55 : 1,
-              }}
-            >
-              <div style={{ fontSize: '14px', fontWeight: 600 }}>{category.name}</div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-text, #b07c40)' }}>
-                {category.count}
-              </div>
-            </button>
-          ))}
-        </div>
+            ))}
+          </div>
+        </SectionCard>
 
         {uploading && (
           <DesignUpload

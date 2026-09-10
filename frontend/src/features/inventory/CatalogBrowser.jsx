@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Package, Plus, Search } from 'lucide-react';
+import { Check, ChevronRight, Package, Plus, Search } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import { IconTile } from '../../components/ui/Atelier';
 
 /**
  * The published catalogue: 732 materials across 49 sections.
@@ -125,23 +126,29 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
 
       {!openSection && !search.trim() && (
         <div>
-          {[['MAGGAM', t('inventoryPage.maggamSection', 'Maggam · Aari · Zardosi')], ['APPAREL', t('inventoryPage.apparelSection', 'Apparel ecosystem')]].map(([doc, label]) => (
-            <div key={doc} style={{ marginBottom: '24px' }}>
-              <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                {label}
-              </div>
-              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))', gap: '10px' }}>
+          <div style={{ marginBottom: 'var(--space-4)' }}>
+            <div className="at-section-title">Material Categories</div>
+            <div className="at-section-sub">Browse and manage all inventory categories</div>
+          </div>
+          {[['MAGGAM', t('inventoryPage.maggamSection', 'Maggam · Aari · Zardosi'), 'amber'], ['APPAREL', t('inventoryPage.apparelSection', 'Apparel ecosystem'), 'green']].map(([doc, label, tone]) => (
+            <div key={doc} style={{ marginBottom: 'var(--space-6)' }}>
+              <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>{label}</div>
+              <div className="at-cat-grid">
                 {byDoc[doc].map((section) => (
                   <button
                     key={section.id}
                     type="button"
+                    className="at-cat"
                     onClick={() => setOpenSection(section)}
-                    style={{ ...panel, padding: '14px 16px', textAlign: 'left', cursor: 'pointer', color: 'inherit' }}
                   >
-                    <div style={{ fontSize: '13.5px', fontWeight: 600 }}>{section.full_name}</div>
-                    <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      {section.item_count} {t('inventoryPage.tableItem', 'material')}
-                    </div>
+                    <IconTile icon={Package} tone={tone} size={44} iconSize={20} />
+                    <span style={{ minWidth: 0 }}>
+                      <span className="at-cat-name" style={{ display: 'block' }}>{section.full_name}</span>
+                      <span className="at-cat-count">
+                        {section.item_count} {t('inventoryPage.tableItem', 'material')}{section.item_count === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                    <ChevronRight size={18} className="at-cat-chevron" />
                   </button>
                 ))}
               </div>

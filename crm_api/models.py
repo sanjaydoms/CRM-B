@@ -297,6 +297,11 @@ class UserAvatar(models.Model):
 
 class Order(models.Model):
     order_id = models.CharField(max_length=50, unique=True, db_index=True) # e.g. T2B-240529-7856
+    # The number the customer sees: #1, #2, #3 per boutique, minted in
+    # OrderService.create_order_for_customer. order_id stays the internal key
+    # every lookup, token and cross-app reference uses; this column is display
+    # only. Nullable so a row written outside the service still saves.
+    order_number = models.PositiveIntegerField(unique=True, null=True, blank=True, db_index=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='orders')
     tailor = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
     master = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True, related_name='supervised_orders')
@@ -332,8 +337,13 @@ class Order(models.Model):
     current_stage_key = models.CharField(max_length=100, default="created", db_index=True)
     production_status = models.CharField(max_length=50, default="NOT_STARTED", db_index=True) # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
 
+    @property
+    def reference(self):
+        """What to print for this order wherever a customer might read it."""
+        return f"#{self.order_number}" if self.order_number else self.order_id
+
     def __str__(self):
-        return f"Order {self.order_id} - {self.customer.first_name} {self.customer.last_name}"
+        return f"Order {self.reference} - {self.customer.first_name} {self.customer.last_name}"
 
 class OrderStage(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='stages')

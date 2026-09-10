@@ -6,13 +6,17 @@ import {
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu,
-  PenTool, Settings, RotateCw, Clock, Wallet
+  PenTool, Settings, RotateCw, Clock, Wallet,
+  Shirt, TrendingUp, AlertCircle, CalendarDays, LayoutGrid, List, Receipt, Banknote,
+  Truck, PackageCheck, CheckCircle2, Boxes, Crown, ShoppingCart, Coins, ClipboardList,
+  Type, Tag, Layers, Palette, IndianRupee, Link as LinkIcon, Image as ImageIcon, Save,
+  Play, Pause, SkipForward, RefreshCw
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
 import {
   formatMoney, formatDate as fmtDate, formatDateTime as fmtDateTime,
-  formatTime as fmtTime, setBoutiqueTimeZone,
+  formatTime as fmtTime, setBoutiqueTimeZone, orderRef,
 } from './services/format';
 // The inventory panel and the design studio are whole screens behind their own
 // tabs, and together they are a sixth of the bundle. Loading them eagerly made
@@ -33,7 +37,13 @@ const StaffPanel = lazy(() => import('./features/staff/StaffPanel'));
 const FinancePanel = lazy(() => import('./features/finance/FinancePanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
+import OrderGarmentBrief from './features/catalog/OrderGarmentBrief';
+import OrderKanban from './features/orders/OrderKanban';
 import { MobileHeader } from './components/ui/MobileHeader';
+import {
+  PageHeader, StatCard, SectionCard, Chips, AvatarInitials, ProgressBar, SearchBox, Segmented, IconTile,
+  FormModal, Field, Dropzone, PhotoTile, AddMoreTile, InfoNote, FormSection,
+} from './components/ui/Atelier';
 import { useLanguage } from './i18n/LanguageContext.jsx';
 import LanguageSelector from './components/LanguageSelector.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
@@ -338,16 +348,6 @@ const getColorCircleStyle = (colorName) => {
 const humaniseSpecKey = (key) => {
   const words = String(key).replace(/_/g, ' ').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
-};
-
-// A stored spec value as a person reads it. Stored values are the template's own
-// option keys -- 'a_line', 'hr2', 'hand_made' -- and booleans, both of which
-// reached the shop floor raw.
-const humaniseSpecValue = (value) => {
-  if (value === true) return 'Yes';
-  if (value === false) return 'No';
-  if (Array.isArray(value)) return value.map(humaniseSpecValue).join(', ');
-  return humaniseSpecKey(value);
 };
 
 // Every garment on an order, for screens that only need to name them.
@@ -1756,6 +1756,27 @@ function App() {
   const [customerTypeFilter, setCustomerTypeFilter] = useState('All');
   const [ordersSearch, setOrdersSearch] = useState('');
   const [ordersFilterTab, setOrdersFilterTab] = useState('All');
+  const [ordersView, setOrdersView] = useState('kanban');
+
+  // One predicate for the order registry, whichever way it is drawn: the list
+  // and the board show the same orders under the same filter and search.
+  const orderMatchesFilters = (order) => {
+    if (ordersFilterTab === 'Active') {
+      if (['Shipped', 'Delivered'].includes(order.order_status)) return false;
+    } else if (ordersFilterTab === 'Shipped') {
+      if (order.order_status !== 'Shipped') return false;
+    } else if (ordersFilterTab === 'Delivered') {
+      if (order.order_status !== 'Delivered') return false;
+    }
+    if (ordersSearch.trim()) {
+      const query = ordersSearch.toLowerCase();
+      const matchesId = order.order_id.toLowerCase().includes(query)
+        || orderRef(order).toLowerCase().includes(query);
+      const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
+      return matchesId || matchesClient;
+    }
+    return true;
+  };
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
@@ -3544,7 +3565,7 @@ function App() {
                             {/* Order Header */}
                             <div className="assignment-card-header">
                               <div>
-                                <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</span>
+                                <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>Order ID: {orderRef(order)}</span>
                                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                                   Client: {order.customer_name} | Est. Delivery: {order.estimated_delivery ? fmtDate(order.estimated_delivery) : 'TBD'}
                                 </div>
@@ -3872,71 +3893,65 @@ function App() {
 
             {dashboardTab === 'overview' && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
-                                   fontWeight: 'var(--weight-medium)', color: 'var(--text-primary)',
-                                   lineHeight: 'var(--leading-tight)' }}>
-                        {t('dashboard.welcomeBackUser', `Welcome back, ${currentUserName}! 👋`, { name: currentUserName })}
-                      </h1>
-                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>{t('dashboard.subtitle')}</p>
-                      <div style={{ marginTop: 'var(--space-2)' }}><HeaderClock /></div>
-                    </div>
-                  </div>
-                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button 
-                      type="button"
-                      className="btn-secondary" 
-                      disabled={loading}
-                      onClick={() => fetchDashboardAndConfig()}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', fontSize: '13px' }}
-                      title="Refresh Dashboard Data"
-                    >
-                      {!loading && <RotateCw size={15} />}
-                      <span>{loading ? t('common.loading', 'Loading...') : t('common.refresh', 'Refresh')}</span>
-                    </button>
-                    <button className="btn-primary" onClick={() => setView('order-selector')}>
-                      <Sparkles size={16} />
-                      {t('dashboard.newOrder')}
-                    </button>
-                    {/* Notification alerts, moved out of the sidebar to sit with
-                        the profile on the top right. Opens the same drawer and
-                        marks unread on open, exactly as the sidebar button did. */}
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      disabled={markingNotificationsRead}
-                      title={t('common.inboxAlerts', 'Inbox Alerts')}
-                      aria-label={t('common.inboxAlerts', 'Inbox Alerts')}
-                      onClick={() => {
-                        setShowNotificationsDrawer(true);
-                        if (markingNotificationsRead) return;
-                        setMarkingNotificationsRead(true);
-                        api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
-                          .then(() => fetchNotifications())
-                          .catch(() => {})
-                          .finally(() => setMarkingNotificationsRead(false));
-                      }}
-                      style={{ position: 'relative', display: 'flex', alignItems: 'center',
-                               gap: '6px', padding: '8px 12px', fontSize: '13px' }}
-                    >
-                      <Bell size={16} />
-                      {notifications.filter(n => !n.is_read).length > 0 && (
-                        <span style={{ backgroundColor: '#ff4d4d', color: '#fff', borderRadius: '10px',
-                                       padding: '1px 7px', fontSize: '10px', fontWeight: 700 }}>
-                          {notifications.filter(n => !n.is_read).length}
-                        </span>
-                      )}
-                    </button>
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <UserAvatar user={currentUser} />
+                <PageHeader
+                  title={t('dashboard.welcomeBackUser', `Welcome back, ${currentUserName}! 👋`, { name: currentUserName })}
+                  subtitle={t('dashboard.subtitle')}
+                  meta={<HeaderClock />}
+                  aside={(
+                    <>
+                      <button
+                        type="button"
+                        className="btn-secondary at-btn-sm"
+                        disabled={markingNotificationsRead}
+                        title={t('common.inboxAlerts', 'Inbox Alerts')}
+                        aria-label={t('common.inboxAlerts', 'Inbox Alerts')}
+                        onClick={() => {
+                          setShowNotificationsDrawer(true);
+                          if (markingNotificationsRead) return;
+                          setMarkingNotificationsRead(true);
+                          api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
+                            .then(() => fetchNotifications())
+                            .catch(() => {})
+                            .finally(() => setMarkingNotificationsRead(false));
+                        }}
+                        style={{ position: 'relative', borderRadius: '999px' }}
+                      >
+                        <Bell size={16} />
+                        {notifications.filter(n => !n.is_read).length > 0 && (
+                          <span style={{ backgroundColor: 'var(--danger-color)', color: '#fff', borderRadius: '10px',
+                                         padding: '1px 7px', fontSize: '10px', fontWeight: 700 }}>
+                            {notifications.filter(n => !n.is_read).length}
+                          </span>
+                        )}
+                      </button>
+                      <div className="user-profile-widget">
+                        <div className="user-avatar-circle">
+                          <UserAvatar user={currentUser} />
+                        </div>
+                        <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                       </div>
-                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
-                    </div>
-                  </div>
-                </header>
+                    </>
+                  )}
+                  actions={(
+                    <>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={loading}
+                        onClick={() => fetchDashboardAndConfig()}
+                        style={{ padding: '10px 16px', fontSize: '13px' }}
+                        title="Refresh Dashboard Data"
+                      >
+                        {!loading && <RotateCw size={15} />}
+                        <span>{loading ? t('common.loading', 'Loading...') : t('common.refresh', 'Refresh')}</span>
+                      </button>
+                      <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={() => setView('order-selector')}>
+                        <Plus size={16} />
+                        {t('dashboard.newOrder')}
+                      </button>
+                    </>
+                  )}
+                />
 
                 {showOnboarding && (
                   <section className="content-card" style={{ padding: '20px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
@@ -3991,84 +4006,77 @@ function App() {
                   </section>
                 )}
 
-                {/* ── Command centre (refresh) ─────────────────────────────
-                    Hierarchy by design: the money reads first (revenue is the
-                    hero), then what needs acting on, then today, then detail.
-                    All figures from /api/dashboard/ (dashboardData). */}
+                {/* The money reads first, then what needs acting on, then today,
+                    then detail. All figures from /api/dashboard/ (dashboardData). */}
                 {(() => {
                   const s = dashboardData?.stats || {};
                   const outstanding = Number(s.outstanding) || 0;
                   const overdue = Number(s.overdue) || 0;
-                  const kpi = (label, value, sub, opts = {}) => (
-                    <div className={`ui-card${opts.onClick ? ' ui-card--tap' : ''}`}
-                         onClick={opts.onClick}
-                         style={{ padding: 'var(--space-4) var(--space-5)' }}>
-                      <div className="ui-eyebrow">{label}</div>
-                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)',
-                           fontSize: 'var(--text-xl)', color: opts.tone || 'var(--text-primary)' }}>{value}</div>
-                      {sub != null && <div className="ui-stat-sub">{sub}</div>}
-                    </div>
-                  );
                   return (
-                    <section className="dashboard-kpi-band"
-                             style={{ display: 'grid', gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
-                      <div className="ui-card" style={{ background: 'var(--primary-color)', border: 'none',
-                           display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <div className="ui-eyebrow" style={{ color: 'rgba(244,241,234,0.72)' }}>Revenue · this month</div>
-                        <div className="ui-stat-value ui-stat-value--hero"
-                             style={{ color: 'var(--text-on-dark)', marginTop: 'var(--space-2)' }}>{inr(s.revenue_month)}</div>
-                        <div className="ui-stat-sub" style={{ color: 'rgba(244,241,234,0.78)' }}>{inr(s.revenue_total)} all time</div>
-                      </div>
-                      {kpi('To collect', inr(outstanding),
-                           outstanding > 0 ? 'across active orders' : 'all settled',
-                           { tone: outstanding > 0 ? 'var(--accent-text)' : 'var(--text-primary)',
-                             onClick: () => setDashboardTab('orders') })}
-                      {kpi('Active orders', s.active_orders ?? 0,
-                           `${s.due_soon ?? 0} due this week${overdue ? ` · ${overdue} overdue` : ''}`,
-                           { tone: overdue ? 'var(--danger-color)' : 'var(--text-primary)',
-                             onClick: () => setDashboardTab('orders') })}
-                      {kpi('Customers', s.total_customers ?? 0,
-                           `${s.total_orders ?? 0} orders total`,
-                           { onClick: () => setDashboardTab('customers') })}
+                    <section className="at-stat-grid" style={{ marginBottom: 'var(--space-5)' }}>
+                      <StatCard icon={TrendingUp} tone="green" label="Revenue this month"
+                                value={inr(s.revenue_month)} sub={`${inr(s.revenue_total)} all time`} />
+                      <StatCard icon={Wallet} tone="amber" label="To collect" value={inr(outstanding)}
+                                sub={outstanding > 0 ? 'across active orders' : 'all settled'}
+                                onClick={() => setDashboardTab('orders')} />
+                      <StatCard icon={ClipboardList} tone="violet" label="Active orders" value={s.active_orders ?? 0}
+                                sub={`${s.due_soon ?? 0} due this week${overdue ? ` · ${overdue} overdue` : ''}`}
+                                onClick={() => setDashboardTab('orders')} />
+                      <StatCard icon={Users} tone="blue" label="Customers" value={s.total_customers ?? 0}
+                                sub={`${s.total_orders ?? 0} orders total`}
+                                onClick={() => setDashboardTab('customers')} />
                     </section>
                   );
                 })()}
 
-                {/* Production pipeline */}
+                {/* Production pipeline: one tile per customer-facing status,
+                    in the order an order moves through them. */}
                 {(() => {
                   const dist = dashboardData?.stats?.status_distribution || {};
-                  const entries = Object.entries(dist).sort((a, b) => b[1] - a[1]);
-                  const toneFor = (st) =>
-                    st === 'Delivered' ? 'var(--success-color)'
-                      : st === 'Cancelled' ? 'var(--text-muted)'
-                      : 'var(--primary-color)';
+                  const ORDER = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation',
+                                 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
+                  const LOOK = {
+                    'Received': ['amber', Clock], 'Confirmed': ['amber', CheckCircle2],
+                    'Stylist Review': ['violet', PenTool], 'Design & Creation': ['rose', Scissors],
+                    'Quality Check': ['blue', ShieldCheck], 'Ready for Dispatch': ['violet', PackageCheck],
+                    'Shipped': ['neutral', Truck], 'Delivered': ['green', CheckCircle2],
+                  };
+                  const rank = (st) => (ORDER.indexOf(st) === -1 ? 99 : ORDER.indexOf(st));
+                  const entries = Object.entries(dist).sort((a, b) => rank(a[0]) - rank(b[0]));
+                  const jump = (st) => {
+                    setOrdersFilterTab(st === 'Shipped' || st === 'Delivered' ? st : 'Active');
+                    setDashboardTab('orders');
+                  };
                   return (
-                    <section className="ui-card" style={{ marginBottom: 'var(--space-5)' }}>
-                      <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Production pipeline</div>
+                    <SectionCard icon={Boxes} tone="green" title="Production Pipeline"
+                                 action={() => setDashboardTab('orders')} actionLabel="View All Orders"
+                                 style={{ marginBottom: 'var(--space-5)' }}>
                       {entries.length === 0 ? (
                         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                           No orders yet. Create the first one to see it move through the floor.
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                          {entries.map(([st, count]) => (
-                            <div key={st} style={{ flex: '1 1 120px', minWidth: '110px',
-                                 border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
-                                 padding: 'var(--space-3) var(--space-4)', background: 'var(--surface-2)' }}>
-                              <div className="ui-stat-value" style={{ fontSize: 'var(--text-xl)', color: toneFor(st) }}>{count}</div>
-                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>{st}</div>
-                            </div>
-                          ))}
+                        <div className="at-pipeline">
+                          {entries.map(([st, count]) => {
+                            const [tone, Icon] = LOOK[st] || ['neutral', Package];
+                            return (
+                              <button key={st} type="button" className={`at-pipeline-tile at-stat--${tone}`} onClick={() => jump(st)}>
+                                <IconTile icon={Icon} tone={tone} size={34} iconSize={16} />
+                                <span className="at-pipeline-value">{count}</span>
+                                <span className="at-pipeline-label">{t(`status.${st}`, st)}</span>
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
-                    </section>
+                    </SectionCard>
                   );
                 })()}
 
                 {/* Needs attention | Today */}
-                <div className="dashboard-row-layout" style={{ marginBottom: 'var(--space-5)' }}>
-                  <div className="ui-card">
-                    <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Needs attention</div>
+                <div className="at-grid-2" style={{ marginBottom: 'var(--space-5)' }}>
+                  <SectionCard icon={AlertCircle} tone="rose" title="Needs Attention"
+                               action={() => setDashboardTab('orders')} actionLabel="View All">
                     {(() => {
                       const att = dashboardData?.attention || {};
                       const due = att.due || [];
@@ -4078,70 +4086,64 @@ function App() {
                           Nothing needs you right now — no overdue orders, balances or low stock.
                         </div>;
                       }
+                      const row = (key, onClick, ref, label, badge) => (
+                        <div key={key} className="at-row at-row--tap" onClick={onClick}>
+                          {ref && <span className="at-row-title" style={{ minWidth: '44px' }}>{ref}</span>}
+                          <span className="at-row-main" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>{label}</span>
+                          {badge}
+                          <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                        </div>
+                      );
                       return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-                          {due.map((o) => (
-                            <div key={`due-${o.id}`} className="ui-row ui-row--tap" onClick={() => setDashboardTab('orders')}>
-                              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-                                {o.order_id} · {o.customer || 'Customer'}</span>
-                              <span className={`ui-badge ui-badge--${o.overdue ? 'danger' : 'warning'}`}>
-                                {o.overdue ? 'Overdue' : 'Due'} {o.due ? new Date(o.due).toLocaleDateString([], { day: 'numeric', month: 'short' }) : ''}
-                              </span>
-                            </div>
-                          ))}
-                          {unpaid.map((o) => (
-                            <div key={`bal-${o.id}`} className="ui-row ui-row--tap" onClick={() => setDashboardTab('orders')}>
-                              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-                                {o.order_id} · {o.customer || 'Customer'}</span>
-                              <span className="ui-badge ui-badge--warning">{inr(o.balance)} due</span>
-                            </div>
-                          ))}
-                          {att.low_stock > 0 && (
-                            <div className="ui-row ui-row--tap" onClick={() => setDashboardTab('inventory')}>
-                              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>Low stock</span>
-                              <span className="ui-badge ui-badge--warning">{att.low_stock} item{att.low_stock === 1 ? '' : 's'}</span>
-                            </div>
-                          )}
-                          {att.pending_designs > 0 && (
-                            <div className="ui-row ui-row--tap" onClick={() => setDashboardTab('designWork')}>
-                              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>Designs awaiting review</span>
-                              <span className="ui-badge ui-badge--info">{att.pending_designs}</span>
-                            </div>
-                          )}
+                        <div>
+                          {due.map((o) => row(`due-${o.id}`, () => setDashboardTab('orders'), orderRef(o), o.customer || 'Customer',
+                            <span className={`ui-badge ui-badge--${o.overdue ? 'danger' : 'warning'}`}>
+                              {o.overdue ? 'Overdue' : 'Due'} {o.due ? new Date(o.due).toLocaleDateString([], { day: 'numeric', month: 'short' }) : ''}
+                            </span>))}
+                          {unpaid.map((o) => row(`bal-${o.id}`, () => setDashboardTab('orders'), orderRef(o), o.customer || 'Customer',
+                            <span className="ui-badge ui-badge--warning">{inr(o.balance)} due</span>))}
+                          {att.low_stock > 0 && row('stock', () => setDashboardTab('inventory'), null, 'Low stock',
+                            <span className="ui-badge ui-badge--warning">{att.low_stock} item{att.low_stock === 1 ? '' : 's'}</span>)}
+                          {att.pending_designs > 0 && row('designs', () => setDashboardTab('designWork'), null, 'Designs awaiting review',
+                            <span className="ui-badge ui-badge--info">{att.pending_designs}</span>)}
                         </div>
                       );
                     })()}
-                  </div>
+                  </SectionCard>
 
-                  <div className="ui-card">
-                    <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Today</div>
+                  <SectionCard icon={CalendarDays} tone="green" title="Today">
                     {(() => {
                       const today = dashboardData?.today || {};
                       const appts = today.appointments || [];
                       return (
                         <>
-                          <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: appts.length ? 'var(--space-4)' : 0 }}>
-                            <div className="ui-row--tap" onClick={() => setDashboardTab('staff')}
-                                 style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
-                                          padding: 'var(--space-3) var(--space-4)', background: 'var(--surface-2)' }}>
-                              <div className="ui-stat-value" style={{ fontSize: 'var(--text-xl)', color: 'var(--success-color)' }}>{today.staff_working ?? 0}</div>
-                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>on the floor now</div>
-                            </div>
-                            <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
-                                          padding: 'var(--space-3) var(--space-4)', background: 'var(--surface-2)' }}>
-                              <div className="ui-stat-value" style={{ fontSize: 'var(--text-xl)' }}>{today.staff_present ?? 0}</div>
-                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>present today</div>
+                          <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+                            <button type="button" className="at-pipeline-tile at-stat--green" style={{ flex: 1 }}
+                                    onClick={() => setDashboardTab('staff')}>
+                              <span className="at-pipeline-value" style={{ color: 'var(--tone-green-fg)' }}>{today.staff_working ?? 0}</span>
+                              <span className="at-pipeline-label">on the floor now</span>
+                            </button>
+                            <div className="at-pipeline-tile at-stat--neutral" style={{ flex: 1, cursor: 'default' }}>
+                              <span className="at-pipeline-value">{today.staff_present ?? 0}</span>
+                              <span className="at-pipeline-label">present today</span>
                             </div>
                           </div>
                           {appts.length === 0 ? (
-                            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                              No appointments booked for today.
+                            <div style={{ textAlign: 'center', padding: 'var(--space-2) 0' }}>
+                              <IconTile icon={Calendar} tone="neutral" size={40} iconSize={18} />
+                              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 'var(--space-2) 0 var(--space-3)' }}>
+                                No appointments booked for today.
+                              </div>
+                              <button type="button" className="btn-primary at-btn-sm" style={{ margin: '0 auto' }}
+                                      onClick={() => { setEditingAppointment(null); setAppointmentForm(blankAppointmentForm); setShowAppointmentModal(true); }}>
+                                <Plus size={14} /> {t('dashboard.bookAppointment', 'Book Appointment')}
+                              </button>
                             </div>
                           ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                            <div>
                               {appts.map((a) => (
-                                <div key={a.id} className="ui-row" style={{ borderBottom: '1px solid var(--border-color)', borderRadius: 0 }}>
-                                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                                <div key={a.id} className="at-row">
+                                  <span className="at-row-main" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
                                     <b>{a.time}</b> · {a.customer || 'Customer'}</span>
                                   <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{a.type}{a.with ? ` · ${a.with}` : ''}</span>
                                 </div>
@@ -4151,46 +4153,39 @@ function App() {
                         </>
                       );
                     })()}
-                  </div>
+                  </SectionCard>
                 </div>
 
                 {/* Recent orders | Quick actions */}
-                <div className="dashboard-row-layout">
-                  <div className="ui-card">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
-                      <div className="ui-eyebrow">Recent orders</div>
-                      <button type="button" className="btn-secondary" style={{ fontSize: 'var(--text-xs)', padding: '6px 12px' }}
-                              onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAll', 'View all')}</button>
-                    </div>
+                <div className="at-grid-2">
+                  <SectionCard icon={ShoppingBag} tone="blue" title="Recent Orders"
+                               action={() => setDashboardTab('orders')} actionLabel={t('dashboard.viewAll', 'View all')}>
                     {!dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
                       <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
                         No orders yet.
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                      <div>
                         {dashboardData.recent_orders.map((order) => (
-                          <div key={order.id || order.order_id} className="ui-row ui-row--tap"
+                          <div key={order.id || order.order_id} className="at-row at-row--tap"
                                onClick={() => setDashboardTab('orders')}>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>{order.order_id}</div>
-                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                                {order.customer_name || order.customer || 'Customer'}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-                                {order.total_amount != null ? inr(order.total_amount) : ''}</div>
-                              <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)' }}>
-                                {order.order_status || order.status || ''}</div>
-                            </div>
+                            <span className="at-row-title" style={{ minWidth: '44px' }}>{orderRef(order)}</span>
+                            <span className="at-row-main">
+                              <span className="at-row-title" style={{ fontWeight: 500 }}>{order.customer_name || order.customer || 'Customer'}</span>
+                              <span className="at-row-sub">{order.garment_label || ''}</span>
+                            </span>
+                            <span style={{ textAlign: 'right' }}>
+                              <div className="at-row-title at-num">{order.total_amount != null ? inr(order.total_amount) : ''}</div>
+                              <div className="at-row-sub">{t(`status.${order.order_status}`, order.order_status || order.status || '')}</div>
+                            </span>
                           </div>
                         ))}
                       </div>
                     )}
-                  </div>
+                  </SectionCard>
 
-                  <div className="ui-card">
-                    <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Quick actions</div>
-                    <section className="quick-action-button-grid">
+                  <SectionCard icon={Sparkles} tone="amber" title="Quick Actions">
+                    <section className="quick-action-button-grid" style={{ marginBottom: 0 }}>
                       <div className="quick-action-item" onClick={() => setView('order-selector')}>
                         <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
                         <h4>{t('dashboard.newOrder')}</h4>
@@ -4216,7 +4211,7 @@ function App() {
                         <h4>{t('dashboard.costPnl', 'Cost & P&L')}</h4>
                       </div>
                     </section>
-                  </div>
+                  </SectionCard>
                 </div>
               </>
             )}
@@ -4403,18 +4398,19 @@ function App() {
             {/* 4. MANAGE DESIGNS TAB */}
             {dashboardTab === 'designs' && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
-                        {t('designsPage.title')}
-                      </h1>
-                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('designsPage.subtitle')}</p>
+                <PageHeader
+                  title={t('designsPage.title')}
+                  subtitle={t('designsPage.subtitle')}
+                  aside={(
+                    <div className="user-profile-widget">
+                      <div className="user-avatar-circle">
+                        <UserAvatar user={currentUser} />
+                      </div>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
-                  </div>
-                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    {(!currentUser?.role || currentUser.role === 'Owner') && (
-                      <button className="btn-primary" onClick={() => {
+                  )}
+                  actions={(!currentUser?.role || currentUser.role === 'Owner') && (
+                      <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={() => {
                         setEditingDesign(null);
                         setDesignForm({
                           name: '',
@@ -4431,18 +4427,10 @@ function App() {
                         <Plus size={16} />
                         {t('designsPage.addNewDesign')}
                       </button>
-                    )}
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <UserAvatar user={currentUser} />
-                      </div>
-                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
-                    </div>
-                  </div>
-                </header>
+                  )}
+                />
 
-
-                <div className="design-manager-content" style={{ marginTop: '24px' }}>
+                <div className="design-manager-content">
                   {/* Dashboard first: stats before images, so opening the module
                       answers "how is the library doing" rather than dropping
                       straight into a grid. */}
@@ -4493,63 +4481,63 @@ function App() {
             {/* Manage Orders Tab */}
             {dashboardTab === 'orders' && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
-                                   fontWeight: 'var(--weight-medium)', color: 'var(--text-primary)',
-                                   lineHeight: 'var(--leading-tight)' }}>
-                        {t('ordersPage.title')}
-                      </h1>
-                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
-                        {t('ordersPage.subtitle')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                    {(!currentUser?.role || currentUser.role === 'Owner') && (
-                      <button className="btn-primary" onClick={handleStartNewCustomer}>
-                        <Plus size={16} /> {t('ordersPage.newOrder')}
-                      </button>
-                    )}
-                  </div>
-                </header>
+                <PageHeader
+                  title={t('ordersPage.title')}
+                  subtitle={t('ordersPage.subtitle')}
+                  aside={<SearchBox value={ordersSearch} onChange={setOrdersSearch} placeholder={t('ordersPage.searchPlaceholder')} />}
+                  actions={(!currentUser?.role || currentUser.role === 'Owner') && (
+                    <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={handleStartNewCustomer}>
+                      <Plus size={16} /> {t('ordersPage.newOrder')}
+                    </button>
+                  )}
+                />
 
-                <div className="orders-registry-content" style={{ marginTop: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                  {/* Filters & search */}
-                  <div className="ui-card" style={{ display: 'flex', flexWrap: 'wrap',
-                       justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-4)',
-                       padding: 'var(--space-3) var(--space-4)' }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-                      {[
-                        { key: 'All', label: t('ordersPage.filterAll') },
-                        { key: 'Active', label: t('ordersPage.filterActive') },
-                        { key: 'Shipped', label: t('ordersPage.filterShipped') },
-                        { key: 'Delivered', label: t('ordersPage.filterDelivered') }
-                      ].map(({ key: statusTab, label }) => (
-                        <button
-                          key={statusTab}
-                          onClick={() => setOrdersFilterTab(statusTab)}
-                          className={ordersFilterTab === statusTab ? 'btn-primary' : 'btn-secondary'}
-                          style={{ padding: '6px 16px', fontSize: 'var(--text-sm)' }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="search-bar-container" style={{ width: '100%', maxWidth: '300px', margin: 0 }}>
-                      <Search className="search-icon" size={16} />
-                      <input
-                        type="text"
-                        placeholder={t('ordersPage.searchPlaceholder')}
-                        className="search-input"
-                        value={ordersSearch}
-                        onChange={(e) => setOrdersSearch(e.target.value)}
-                      />
-                    </div>
-                  </div>
+                {(() => {
+                  const total = ordersList.length;
+                  const shipped = ordersList.filter(o => o.order_status === 'Shipped').length;
+                  const delivered = ordersList.filter(o => o.order_status === 'Delivered').length;
+                  const active = total - shipped - delivered;
+                  return (
+                    <>
+                      <section className="at-stat-grid">
+                        <StatCard icon={ShoppingCart} tone="green" label="Total Orders" value={total} sub="all time"
+                                  onClick={() => setOrdersFilterTab('All')} />
+                        <StatCard icon={Clock} tone="amber" label="Active Orders" value={active} sub="in progress"
+                                  onClick={() => setOrdersFilterTab('Active')} />
+                        <StatCard icon={Truck} tone="blue" label="Shipped" value={shipped} sub="on their way"
+                                  onClick={() => setOrdersFilterTab('Shipped')} />
+                        <StatCard icon={CheckCircle2} tone="green" label="Delivered" value={delivered} sub="handed over"
+                                  onClick={() => setOrdersFilterTab('Delivered')} />
+                      </section>
+                      <div className="at-toolbar">
+                        <Chips value={ordersFilterTab} onChange={setOrdersFilterTab} options={[
+                          { key: 'All', label: t('ordersPage.filterAll'), count: total },
+                          { key: 'Active', label: t('ordersPage.filterActive'), count: active },
+                          { key: 'Shipped', label: t('ordersPage.filterShipped'), count: shipped },
+                          { key: 'Delivered', label: t('ordersPage.filterDelivered'), count: delivered },
+                        ]} />
+                        <div className="at-toolbar-right">
+                          {/* List / Board: two drawings of the same filtered orders. */}
+                          <Segmented ariaLabel="Orders view" value={ordersView} onChange={setOrdersView} options={[
+                            { key: 'kanban', label: 'Board', icon: LayoutGrid },
+                            { key: 'list', label: 'List', icon: List },
+                          ]} />
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
 
-                  {/* Orders list */}
+                <div className="orders-registry-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                  {ordersView === 'kanban' ? (
+                    <OrderKanban
+                      orders={ordersList.filter(orderMatchesFilters)}
+                      workflow={boutiqueSettings?.workflow_config}
+                      onOpen={(order, stage) => openStageReview(order, stage)}
+                      onChanged={fetchDashboardAndConfig}
+                    />
+                  ) : (
+                  /* Orders list */
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
                     {(() => {
                       const statusTone = (st) =>
@@ -4557,22 +4545,7 @@ function App() {
                           : st === 'Cancelled' ? 'neutral'
                           : (st === 'Shipped' || st === 'Ready for Dispatch') ? 'info'
                           : 'warning';
-                      const filtered = ordersList.filter(order => {
-                        if (ordersFilterTab === 'Active') {
-                          if (['Shipped', 'Delivered'].includes(order.order_status)) return false;
-                        } else if (ordersFilterTab === 'Shipped') {
-                          if (order.order_status !== 'Shipped') return false;
-                        } else if (ordersFilterTab === 'Delivered') {
-                          if (order.order_status !== 'Delivered') return false;
-                        }
-                        if (ordersSearch.trim()) {
-                          const query = ordersSearch.toLowerCase();
-                          const matchesId = order.order_id.toLowerCase().includes(query);
-                          const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
-                          return matchesId || matchesClient;
-                        }
-                        return true;
-                      });
+                      const filtered = ordersList.filter(orderMatchesFilters);
 
                       if (filtered.length === 0) {
                         return (
@@ -4598,7 +4571,7 @@ function App() {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
                             <div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: 'var(--weight-bold)', fontSize: 'var(--text-lg)', color: 'var(--text-primary)', fontFamily: 'var(--font-serif)' }}>{order.order_id}</span>
+                                <span style={{ fontWeight: 'var(--weight-bold)', fontSize: 'var(--text-lg)', color: 'var(--text-primary)', fontFamily: 'var(--font-serif)' }}>{orderRef(order)}</span>
                                 <span className={`ui-badge ui-badge--${statusTone(order.order_status)}`}>
                                   {order.order_status_display || t(`status.${order.order_status}`, order.order_status)}
                                 </span>
@@ -4778,6 +4751,7 @@ function App() {
                       ));
                     })()}
                   </div>
+                  )}
                 </div>
               </>
             )}
@@ -4785,68 +4759,63 @@ function App() {
             {/* 5. CUSTOMERS TAB */}
             {dashboardTab === 'customers' && !selectedDirectoryCustomer && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
-                                   fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
-                        {t('customersPage.title')}
-                      </h1>
-                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('customersPage.subtitle')}</p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div className="search-input-wrapper" style={{ margin: 0 }}>
-                      <Search size={18} />
-                      <input
-                        type="text"
-                        placeholder={t('customersPage.searchPlaceholder')}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="form-control"
-                        style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)' }}
-                      />
-                    </div>
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <UserAvatar user={currentUser} />
+                <PageHeader
+                  title={t('customersPage.title')}
+                  subtitle={t('customersPage.subtitle')}
+                  aside={(
+                    <>
+                      <SearchBox value={searchQuery} onChange={setSearchQuery} placeholder={t('customersPage.searchPlaceholder')} />
+                      <div className="user-profile-widget">
+                        <div className="user-avatar-circle">
+                          <UserAvatar user={currentUser} />
+                        </div>
+                        <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                       </div>
-                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
-                    </div>
-                  </div>
-                </header>
-
-                {/* Customer Type Filters */}
-                <div style={{ display: 'flex', gap: '12px', marginTop: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                  {[
-                    { key: 'All', label: t('customersPage.filterAll') },
-                    { key: 'Women', label: t('customersPage.filterWomen') },
-                    { key: 'Men', label: t('customersPage.filterMen') },
-                    { key: 'Kids', label: t('customersPage.filterKids') }
-                  ].map(({ key: type, label }) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setCustomerTypeFilter(type)}
-                      style={{
-                        padding: '8px 16px',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        borderRadius: '6px',
-                        border: '1px solid',
-                        borderColor: customerTypeFilter === type ? 'var(--accent-text, #b07c40)' : 'var(--border-color)',
-                        background: customerTypeFilter === type ? 'var(--accent-color, #fcf6ee)' : 'transparent',
-                        color: customerTypeFilter === type ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      {label}
+                    </>
+                  )}
+                  actions={(!currentUser?.role || currentUser.role === 'Owner') && (
+                    <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={handleStartNewCustomer}>
+                      <Plus size={16} /> Add Customer
                     </button>
-                  ))}
-                </div>
+                  )}
+                />
 
-                <div className="customers-list-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {(() => {
+                  const now = new Date();
+                  const thisMonth = customersList.filter(c => {
+                    const d = new Date(c.created_at);
+                    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+                  }).length;
+                  const vip = customersList.filter(c => c.segment === 'VIP').length;
+                  const withOrders = customersList.filter(c => (c.order_count ?? c.orders?.length ?? 0) > 0).length;
+                  const typeCount = (type) => type === 'All'
+                    ? customersList.length
+                    : customersList.filter(c => (c.customer_type || '').toLowerCase() === type.toLowerCase()).length;
+                  return (
+                    <>
+                      <section className="at-stat-grid">
+                        <StatCard icon={Users} tone="green" label="Total Customers" value={customersList.length}
+                                  sub={`${withOrders} have ordered`} />
+                        <StatCard icon={Crown} tone="amber" label="VIP Customers" value={vip} sub="by spend and orders" />
+                        <StatCard icon={CalendarDays} tone="violet" label="New This Month" value={thisMonth} sub="registered" />
+                        <StatCard icon={ShoppingBag} tone="blue" label="With Orders" value={withOrders} sub="at least one order" />
+                      </section>
+                      <div className="at-toolbar">
+                        <Chips value={customerTypeFilter} onChange={setCustomerTypeFilter} options={[
+                          { key: 'All', label: t('customersPage.filterAll'), count: typeCount('All') },
+                          { key: 'Women', label: t('customersPage.filterWomen'), count: typeCount('Women') },
+                          { key: 'Men', label: t('customersPage.filterMen'), count: typeCount('Men') },
+                          { key: 'Kids', label: t('customersPage.filterKids'), count: typeCount('Kids') },
+                        ]} />
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                          Showing {directoryCustomers.length} of {customersList.length}
+                        </span>
+                      </div>
+                    </>
+                  );
+                })()}
+
+                <div className="customers-list-container at-stack">
                   {loading && customersList.length === 0 ? (
                     <div className="ui-card" style={{ padding: '48px', textAlign: 'center' }}>
                       <span style={{ color: 'var(--text-muted)' }}>{t('common.loading')}</span>
@@ -4873,124 +4842,106 @@ function App() {
                       )}
                     </div>
                   ) : (
-
-                    directoryCustomers.map(cust => (
-                      <div key={cust.id} className="customer-detail-card responsive-customer-card ui-card" style={{
-                        padding: '24px'
-                      }}>
-                        {/* Profile Info */}
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          style={{ display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer' }}
-                          onClick={() => openDirectoryCustomer(cust)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDirectoryCustomer(cust); } }}
-                        >
-                          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                            <div className="user-avatar-circle" style={{ width: '56px', height: '56px' }}>
-                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cust.first_name)}`} alt="Profile" />
-                            </div>
-                            <div>
-                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                 <h4 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>{cust.first_name} {cust.last_name}</h4>
-                                 <SegmentBadge segment={cust.segment} />
-                               </div>
-                               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 'var(--tracking-eyebrow)' }}>{cust.customer_type}</span>
-                             </div>
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                            <div>📞 {formatMobile(cust.mobile_number)}</div>
-                            {cust.email_address && <div>✉️ {cust.email_address}</div>}
-                            {cust.address && <div>📍 {cust.address}, {cust.city_region}</div>}
-                            <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)', marginTop: '4px' }}>{t('customersPage.registered')} {fmtDate(cust.created_at)}</div>
-                          </div>
-                        </div>
-
-                        {/* Measurements */}
-                        <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '24px' }}>
-                          <h5 className="ui-eyebrow" style={{ marginBottom: '12px' }}>{t('customersPage.bodyMeasurements')}</h5>
-                          {cust.measurements ? (
-                            <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                              {(() => {
-                                const parts = cust.measurements.additional_measurements?.stitch_parts || [];
-                                const visible = getVisibleMeasurementFields(parts);
-                                return (
-                                  <>
-                                    {visible.includes('bust') && <div>Bust: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.bust || '—'} in</span></div>}
-                                    {visible.includes('waist') && <div>Waist: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.waist || '—'} in</span></div>}
-                                    {visible.includes('hips') && <div>Hips: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.hips || '—'} in</span></div>}
-                                    {visible.includes('shoulder') && <div>Shoulder: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.shoulder || '—'} in</span></div>}
-                                    {visible.includes('arm_length') && <div>Arm: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.arm_length || '—'} in</span></div>}
-                                    {visible.includes('neck') && <div>Neck: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.neck || '—'} in</span></div>}
-                                    {visible.includes('length') && <div>Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.length || '—'} in</span></div>}
-                                  </>
-                                );
-                              })()}
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>No size measurements logged yet.</span>
-                          )}
-                        </div>
-
-                        {/* Preferences */}
-                        <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '24px' }}>
-                          <h5 className="ui-eyebrow" style={{ marginBottom: '12px' }}>{t('customersPage.bespokeProfile')}</h5>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: 'var(--text-xs)' }}>
-                            <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>{t('customersPage.garment')} {cust.garment_type}{cust.measurements?.additional_measurements?.stitch_parts?.length > 0 ? ` (${cust.measurements.additional_measurements.stitch_parts.join(', ')})` : ''}</span>
-                            {cust.neckline_style && <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>Neck: {cust.neckline_style}</span>}
-                            {cust.sleeve_style && <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>Sleeve: {cust.sleeve_style}</span>}
-                            {cust.silhouette && <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>Silhouette: {cust.silhouette}</span>}
-                            {cust.occasion && <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>{t('customersPage.occasion')} {cust.occasion}</span>}
-                          </div>
-                          {cust.custom_requirements && (
-                            <div style={{ marginTop: '12px' }}>
-                              <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>Special Requests:</span>
-                              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', margin: '2px 0 0 0', lineHeight: 1.4 }}>{cust.custom_requirements}</p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Style DNA Expand Button */}
-                        <div style={{ gridColumn: 'span 3', borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Sparkles size={16} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI Customer Intelligence has analyzed {cust.order_count ?? cust.orders?.length ?? 0} order(s) and preferences.</span>
-                          </div>
-                          <button 
-                            onClick={() => setExpandedDna(prev => ({ ...prev, [cust.id]: !prev[cust.id] }))}
-                            style={{
-                              padding: '8px 16px',
-                              fontSize: '12px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              border: '1px solid var(--accent-text, #b07c40)',
-                              color: 'var(--accent-text, #b07c40)',
-                              background: expandedDna[cust.id] ? 'var(--accent-color, #fcf6ee)' : 'transparent',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              fontWeight: '600',
-                              transition: 'all 0.2s ease'
-                            }}
+                    directoryCustomers.map(cust => {
+                      const m = cust.measurements;
+                      const parts = m?.additional_measurements?.stitch_parts || [];
+                      const visible = m ? getVisibleMeasurementFields(parts) : [];
+                      const FIELDS = [['bust', 'Bust'], ['waist', 'Waist'], ['hips', 'Hips'], ['shoulder', 'Shoulder'],
+                                      ['arm_length', 'Arm'], ['neck', 'Neck'], ['length', 'Length']];
+                      const shown = FIELDS.filter(([k]) => visible.includes(k)).slice(0, 4);
+                      const tags = [
+                        `${cust.garment_type || ''}${parts.length ? ` (${parts.join(', ')})` : ''}`.trim(),
+                        cust.neckline_style && `Neck: ${cust.neckline_style}`,
+                        cust.sleeve_style && `Sleeve: ${cust.sleeve_style}`,
+                        cust.silhouette && `Silhouette: ${cust.silhouette}`,
+                        cust.occasion && `${t('customersPage.occasion')} ${cust.occasion}`,
+                      ].filter(Boolean);
+                      const open = () => openDirectoryCustomer(cust);
+                      const orders = cust.order_count ?? cust.orders?.length ?? 0;
+                      return (
+                        <div key={cust.id} className="ui-card" style={{ padding: 0 }}>
+                          <div
+                            className="at-customer"
+                            role="button"
+                            tabIndex={0}
+                            onClick={open}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
                           >
-                            <Sparkles size={14} />
-                            {expandedDna[cust.id] ? t('common.cancel') : t('customersPage.viewStyleDna')}
-                          </button>
-
-                        </div>
-
-                        {/* Expandable Style DNA Section */}
-                        {expandedDna[cust.id] && (
-                          <div style={{ gridColumn: 'span 3', marginTop: '12px',
-                                        display: 'flex', justifyContent: 'center' }}>
-                            <div style={{ width: '100%', maxWidth: '550px' }}>
-                              <StyleProfileCard customer={cust} />
+                            <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', minWidth: 0 }}>
+                              <AvatarInitials name={`${cust.first_name} ${cust.last_name}`} size={48} />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                    {cust.first_name} {cust.last_name}
+                                  </span>
+                                  <SegmentBadge segment={cust.segment} />
+                                </div>
+                                <div className="ui-eyebrow" style={{ color: 'var(--accent-text)', marginTop: '2px' }}>{cust.customer_type}</div>
+                                <div className="at-contact">
+                                  <span><Phone size={12} /> {formatMobile(cust.mobile_number)}</span>
+                                  {cust.email_address && <span><Mail size={12} /> {cust.email_address}</span>}
+                                  {(cust.city_region || cust.address) && <span><MapPin size={12} /> {cust.city_region || cust.address}</span>}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
 
-                    ))
+                            <div className="at-customer-cell">
+                              <div className="ui-eyebrow">{t('customersPage.bodyMeasurements')}</div>
+                              {m && shown.length > 0 ? (
+                                <div className="at-measure-grid">
+                                  {shown.map(([k, label]) => (
+                                    <div key={k}>
+                                      <div className="at-measure-label">{label}</div>
+                                      <div className="at-measure-value">{m[k] || '—'}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>No size measurements logged yet.</span>
+                              )}
+                            </div>
+
+                            <div className="at-customer-cell">
+                              <div className="ui-eyebrow">{t('customersPage.bespokeProfile')}</div>
+                              <div className="at-tags">
+                                {tags.map(tag => <span key={tag} className="at-tag">{tag}</span>)}
+                              </div>
+                              {cust.custom_requirements && (
+                                <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.4 }}>
+                                  {cust.custom_requirements}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="at-customer-cell">
+                              <div className="ui-eyebrow">Orders</div>
+                              <div style={{ fontSize: 'var(--text-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{orders}</div>
+                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                                {inr(cust.total_spend)} spent · {t('customersPage.registered')} {fmtDate(cust.created_at)}
+                              </div>
+                              <button
+                                type="button"
+                                className="at-link"
+                                style={{ marginTop: '6px', fontSize: 'var(--text-xs)', color: 'var(--accent-text)' }}
+                                onClick={(e) => { e.stopPropagation(); setExpandedDna(prev => ({ ...prev, [cust.id]: !prev[cust.id] })); }}
+                              >
+                                <Sparkles size={12} /> {expandedDna[cust.id] ? t('common.cancel') : t('customersPage.viewStyleDna')}
+                              </button>
+                            </div>
+
+                            <ChevronRight className="at-customer-chevron" size={18} style={{ color: 'var(--text-muted)' }} />
+                          </div>
+
+                          {expandedDna[cust.id] && (
+                            <div style={{ borderTop: '1px solid var(--border-color)', padding: 'var(--space-4) var(--space-5)', display: 'flex', justifyContent: 'center' }}>
+                              <div style={{ width: '100%', maxWidth: '550px' }}>
+                                <StyleProfileCard customer={cust} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </>
@@ -5227,7 +5178,7 @@ function App() {
                                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', gap: '12px' }}
                               >
                                 <div>
-                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</div>
+                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>Order ID: {orderRef(order)}</div>
                                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                                     Date: {fmtDate(order.order_date)} | Tailor: {order.tailor_name || 'Not assigned'}
                                   </div>
@@ -5429,241 +5380,192 @@ function App() {
             
             {/* 6. INVOICES TAB */}
 
-            {dashboardTab === 'invoices' && (
+            {dashboardTab === 'invoices' && (() => {
+              // Collected is what has actually been received, and outstanding
+              // is the same (total - paid) expression the Balance Due cell in
+              // every row below uses, so the header agrees with its own table.
+              const paidTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
+              const pendingTotal = ordersList.reduce((sum, o) => sum + Math.max(0, parseFloat(o.total_amount || 0) - parseFloat(o.amount_paid || 0)), 0);
+              const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+              const paidCount = ordersList.filter(o => o.payment_status === 'Paid').length;
+              const pendingCount = ordersList.length - paidCount;
+              const filtered = ordersList.filter(order => {
+                if (invoiceFilter === 'Paid' && order.payment_status !== 'Paid') return false;
+                if (invoiceFilter === 'Pending' && order.payment_status === 'Paid') return false;
+                if (invoiceSearch.trim()) {
+                  const query = invoiceSearch.toLowerCase();
+                  const matchesId = order.order_id.toLowerCase().includes(query)
+                    || orderRef(order).toLowerCase().includes(query);
+                  const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
+                  return matchesId || matchesClient;
+                }
+                return true;
+              });
+              const statusTone = (st) => st === 'Paid' ? 'success' : st === 'Partially Paid' ? 'warning' : 'danger';
+              return (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
-                        {t('invoicesPage.title', 'Invoices & Billing')}
-                      </h1>
-                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('invoicesPage.subtitle', 'Manage invoices, verify billing payments, and print receipts.')}</p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right">
+                <PageHeader
+                  title={t('invoicesPage.title', 'Invoices & Billing')}
+                  subtitle={t('invoicesPage.subtitle', 'Manage invoices, verify billing payments, and print receipts.')}
+                  aside={(
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
                         <UserAvatar user={currentUser} />
                       </div>
                       <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
-                  </div>
-                </header>
+                  )}
+                />
 
-                {/* Finance Overview widgets */}
-                {(() => {
-                  // Collected is what has actually been received, and
-                  // outstanding is the same (total - paid) expression the
-                  // Balance Due cell in every row below uses. These two used to
-                  // count the FULL total_amount of each order -- collected
-                  // counted a part-paid order at zero, outstanding counted it
-                  // in full -- so the header disagreed with its own table in
-                  // both directions on the same screen.
-                  const paidTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
-                  const pendingTotal = ordersList.reduce((sum, o) => sum + Math.max(0, parseFloat(o.total_amount || 0) - parseFloat(o.amount_paid || 0)), 0);
-                  const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
-                  
-                  return (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-3)', marginTop: 'var(--space-6)' }}>
-                      <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)' }}>
-                        <div className="ui-eyebrow">{t('invoicesPage.totalCollectedRevenue', 'Total Collected Revenue')}</div>
-                        <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--success-color)' }}>{formatMoney(paidTotal)}</div>
-                      </div>
-                      <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)' }}>
-                        <div className="ui-eyebrow">{t('invoicesPage.outstandingBalance', 'Outstanding Balance')}</div>
-                        <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--warning-color)' }}>{formatMoney(pendingTotal)}</div>
-                      </div>
-                      <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)' }}>
-                        <div className="ui-eyebrow">{t('invoicesPage.totalInvoicedVolume', 'Total Invoiced Volume')}</div>
-                        <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)' }}>{formatMoney(grandTotal)}</div>
-                      </div>
-                    </div>
-                  );
-                })()}
+                <section className="at-stat-grid">
+                  <StatCard icon={Banknote} tone="green" label={t('invoicesPage.totalCollectedRevenue', 'Total Collected Revenue')}
+                            value={formatMoney(paidTotal)} sub={`${paidCount} settled in full`} />
+                  <StatCard icon={Wallet} tone="amber" label={t('invoicesPage.outstandingBalance', 'Outstanding Balance')}
+                            value={formatMoney(pendingTotal)} sub={`across ${pendingCount} invoice${pendingCount === 1 ? '' : 's'}`} />
+                  <StatCard icon={Receipt} tone="blue" label={t('invoicesPage.totalInvoicedVolume', 'Total Invoiced Volume')}
+                            value={formatMoney(grandTotal)} sub={`${ordersList.length} invoice${ordersList.length === 1 ? '' : 's'}`} />
+                </section>
 
-                {/* Filters & Search */}
-                <div style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '16px',
-                  background: 'var(--surface-color)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-lg)',
-                  padding: '16px',
-                  marginTop: '24px'
-                }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {['All', 'Paid', 'Pending'].map(option => (
-                      <button 
-                        key={option}
-                        onClick={() => setInvoiceFilter(option)}
-                        className={invoiceFilter === option ? 'btn-primary' : 'btn-secondary'}
-                        style={{ padding: '6px 16px', fontSize: '13px' }}
-                      >
-                        {option === 'All' ? t('common.all', 'All') : option === 'Paid' ? t('invoicesPage.paid', 'Paid') : t('invoicesPage.pending', 'Pending')}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="search-bar-container" style={{ width: '100%', maxWidth: '300px', margin: 0 }}>
-                    <Search className="search-icon" size={16} />
-                    <input 
-                      type="text" 
-                      placeholder={t('invoicesPage.searchPlaceholder', 'Search Invoice ID or Client...')}
-                      className="search-input"
-                      value={invoiceSearch}
-                      onChange={(e) => setInvoiceSearch(e.target.value)}
-                    />
+                <div className="at-toolbar">
+                  <Chips value={invoiceFilter} onChange={setInvoiceFilter} options={[
+                    { key: 'All', label: t('common.all', 'All'), count: ordersList.length },
+                    { key: 'Paid', label: t('invoicesPage.paid', 'Paid'), count: paidCount },
+                    { key: 'Pending', label: t('invoicesPage.pending', 'Pending'), count: pendingCount },
+                  ]} />
+                  <div className="at-toolbar-right">
+                    <SearchBox value={invoiceSearch} onChange={setInvoiceSearch}
+                               placeholder={t('invoicesPage.searchPlaceholder', 'Search Invoice ID or Client...')} />
                   </div>
                 </div>
 
                 {paymentError && (
-                  <div role="alert" style={{ marginTop: '16px', background: 'var(--danger-bg)', border: '1px solid var(--danger-color)', color: 'var(--danger-color)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                  <div role="alert" style={{ marginBottom: '16px', background: 'var(--danger-bg)', border: '1px solid var(--danger-color)', color: 'var(--danger-color)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{paymentError}</span>
                     <button type="button" onClick={() => setPaymentError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700 }}>Dismiss</button>
                   </div>
                 )}
 
-                <div className="invoices-content" style={{ marginTop: '24px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--surface-color)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <div className="invoices-content at-table-wrap">
+                  <table className="at-table">
                     <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--surface-2)' }}>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.invoiceId', 'Invoice ID')}</th>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.billingClient', 'Billing Client')}</th>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('common.date', 'Date')}</th>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.totalPrice', 'Total Price')}</th>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.advancePaid', 'Advance Paid')}</th>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.totalPaid', 'Total Paid')}</th>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.balanceDue', 'Balance Due')}</th>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('common.status', 'Payment Status')}</th>
-                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('common.actions', 'Action')}</th>
+                      <tr>
+                        <th>{t('invoicesPage.invoiceId', 'Invoice ID')}</th>
+                        <th>{t('invoicesPage.billingClient', 'Billing Client')}</th>
+                        <th>{t('common.date', 'Date')}</th>
+                        <th>{t('invoicesPage.totalPrice', 'Total Price')}</th>
+                        <th>{t('invoicesPage.advancePaid', 'Advance Paid')}</th>
+                        <th>{t('invoicesPage.totalPaid', 'Total Paid')}</th>
+                        <th>{t('invoicesPage.balanceDue', 'Balance Due')}</th>
+                        <th>{t('common.status', 'Payment Status')}</th>
+                        <th>{t('common.actions', 'Action')}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(() => {
-                        const filtered = ordersList.filter(order => {
-                          if (invoiceFilter === 'Paid' && order.payment_status !== 'Paid') return false;
-                          if (invoiceFilter === 'Pending' && order.payment_status === 'Paid') return false;
-
-                          if (invoiceSearch.trim()) {
-                            const query = invoiceSearch.toLowerCase();
-                            const matchesId = order.order_id.toLowerCase().includes(query);
-                            const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
-                            return matchesId || matchesClient;
-                          }
-                          return true;
-                        });
-
-                        if (filtered.length === 0) {
-                          return (
-                            <tr>
-                              <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                {ordersList.length === 0
-                                  ? t('invoicesPage.emptyState', 'Invoices appear here once you have created an order.')
-                                  : t('invoicesPage.noMatchingInvoices', 'No invoices matching the criteria.')}
-                              </td>
-                            </tr>
-                          );
-                        }
-
-                        return filtered.map(order => (
-                          <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: 'var(--text-base)' }}>
-                            <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 600 }}>{order.order_id}</td>
-                            <td style={{ padding: '16px' }}>{order.customer_name}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{fmtDate(order.order_date)}</td>
-                            <td style={{ padding: '16px', fontWeight: 600 }}>{formatMoney(order.total_amount)}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatMoney(order.advance_paid)}</td>
-                            {/* Editable, because until now there was no screen
-                                anywhere that could record a part payment. The
-                                only control was the status dropdown beside it,
-                                and picking "Partially Paid" sent no amount, so
-                                _reconcile_payment re-derived the label from the
-                                unchanged number and it snapped straight back to
-                                Pending. A customer paying an instalment at the
-                                counter could not be recorded at all: only zero
-                                and paid-in-full were expressible, which made
-                                the ledger, the tracking page's balance and the
-                                Analytics totals wrong for every part-paid
-                                order. The backend already accepted amount_paid
-                                and derives the label, clamps to the total and
-                                caps the advance -- only the input was missing. */}
-                            <td style={{ padding: '16px', color: 'var(--success-color)', fontWeight: 600 }}>
-                              <span style={{ marginRight: '2px' }}>₹</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                max={order.total_amount}
-                                defaultValue={parseFloat(order.amount_paid || 0)}
-                                disabled={savingPaymentId === order.id}
-                                aria-label={`Amount paid for invoice ${order.order_id}`}
-                                onBlur={async (e) => {
-                                  const next = parseFloat(e.target.value);
-                                  const current = parseFloat(order.amount_paid || 0);
-                                  // Blur fires on every tab-through; only write
-                                  // when the number actually moved.
-                                  if (isNaN(next) || next === current) {
-                                    e.target.value = current;
-                                    return;
-                                  }
-                                  setSavingPaymentId(order.id);
-                                  try {
-                                    await api.updateOrder(order.id, { amount_paid: next });
-                                    await fetchDashboardAndConfig();
-                                  } catch (err) {
-                                    e.target.value = current;
-                                    setPaymentError(`Could not record that payment for ${order.order_id} — ${err.message}`);
-                                  } finally {
-                                    setSavingPaymentId(null);
-                                  }
-                                }}
-                                onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-                                style={{ width: '110px', padding: '4px 6px', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--success-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', background: 'transparent' }}
-                              />
+                      {filtered.length === 0 ? (
+                        <tr>
+                          <td colSpan="9" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            {ordersList.length === 0
+                              ? t('invoicesPage.emptyState', 'Invoices appear here once you have created an order.')
+                              : t('invoicesPage.noMatchingInvoices', 'No invoices matching the criteria.')}
+                          </td>
+                        </tr>
+                      ) : filtered.map(order => {
+                        const total = Number(order.total_amount) || 0;
+                        const paid = Number(order.amount_paid || 0);
+                        const balance = Math.max(0, total - paid);
+                        const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
+                        return (
+                          <tr key={order.id}>
+                            <td style={{ fontWeight: 700 }}>{orderRef(order)}</td>
+                            <td>
+                              <span className="at-cell-person">
+                                <AvatarInitials name={order.customer_name} size={32} />
+                                <span style={{ fontWeight: 500 }}>{order.customer_name}</span>
+                              </span>
                             </td>
-                            <td style={{ padding: '16px', color: (Number(order.total_amount) - Number(order.amount_paid || 0)) > 0 ? 'var(--danger-color)' : 'var(--text-secondary)', fontWeight: 600 }}>{formatMoney(Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)))}</td>
-                            <td style={{ padding: '16px' }}>
-                              <select
-                                value={order.payment_status}
-                                disabled={savingPaymentId === order.id}
-                                aria-label={`Payment status for invoice ${order.order_id}`}
-                                onChange={async (e) => {
-                                  setSavingPaymentId(order.id);
-                                  try {
-                                    await api.updateOrder(order.id, { payment_status: e.target.value });
-                                    fetchDashboardAndConfig();
-                                  } catch (err) {
-                                    e.target.value = order.payment_status;
-                                    setPaymentError(`Could not update ${order.order_id} — ${err.message}`);
-                                  } finally {
-                                    setSavingPaymentId(null);
-                                  }
-                                }}
-                                className="form-control"
-                                style={{ padding: '4px 8px', fontSize: '12px', width: '130px', margin: 0 }}
-                              >
-                                {/* "Partially Paid" is not offered here on
-                                    purpose: it is a *derived* label, not a
-                                    thing to choose. Selecting it sent no
-                                    amount, so the server recomputed the same
-                                    label from the same number and the control
-                                    snapped back -- a dropdown that visibly
-                                    refused its own option. It still appears as
-                                    the current value when the amount beside it
-                                    puts the order there. Pending and Paid stay
-                                    because both are unambiguous shortcuts:
-                                    nothing received, and settled in full. */}
-                                <option value="Pending">{t('invoicesPage.pending', 'Pending')}</option>
-                                {order.payment_status === 'Partially Paid' && (
-                                  <option value="Partially Paid">{t('invoicesPage.partiallyPaid', 'Partially Paid')}</option>
-                                )}
-                                <option value="Paid">{t('invoicesPage.paid', 'Paid')}</option>
-                              </select>
+                            <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(order.order_date)}</td>
+                            <td className="at-num" style={{ fontWeight: 600 }}>{formatMoney(order.total_amount)}</td>
+                            <td className="at-num" style={{ color: 'var(--text-secondary)' }}>{formatMoney(order.advance_paid)}</td>
+                            {/* Editable: the one place a part payment is recorded. The
+                                backend derives the label, clamps to the total and caps
+                                the advance -- only the input lives here. */}
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--success-color)', fontWeight: 600 }}>
+                                <span>₹</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  max={order.total_amount}
+                                  defaultValue={parseFloat(order.amount_paid || 0)}
+                                  disabled={savingPaymentId === order.id}
+                                  aria-label={`Amount paid for invoice ${orderRef(order)}`}
+                                  onBlur={async (e) => {
+                                    const next = parseFloat(e.target.value);
+                                    const current = parseFloat(order.amount_paid || 0);
+                                    // Blur fires on every tab-through; only write
+                                    // when the number actually moved.
+                                    if (isNaN(next) || next === current) {
+                                      e.target.value = current;
+                                      return;
+                                    }
+                                    setSavingPaymentId(order.id);
+                                    try {
+                                      await api.updateOrder(order.id, { amount_paid: next });
+                                      await fetchDashboardAndConfig();
+                                    } catch (err) {
+                                      e.target.value = current;
+                                      setPaymentError(`Could not record that payment for ${orderRef(order)} — ${err.message}`);
+                                    } finally {
+                                      setSavingPaymentId(null);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                                  style={{ width: '100px', padding: '4px 6px', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--success-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', background: 'transparent' }}
+                                />
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', minWidth: '120px' }}>
+                                <span style={{ flex: 1 }}><ProgressBar pct={pct} tone="green" /></span>
+                                <span className="at-num" style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-secondary)' }}>{pct}%</span>
+                              </div>
                             </td>
-                            <td style={{ padding: '16px' }}>
-                              <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
+                            <td className="at-num" style={{ color: balance > 0 ? 'var(--danger-color)' : 'var(--text-secondary)', fontWeight: 600 }}>
+                              {formatMoney(balance)}
+                            </td>
+                            <td>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                <span className={`ui-badge ui-badge--${statusTone(order.payment_status)}`}>{order.payment_status}</span>
+                                <select
+                                  value={order.payment_status}
+                                  disabled={savingPaymentId === order.id}
+                                  aria-label={`Payment status for invoice ${orderRef(order)}`}
+                                  onChange={async (e) => {
+                                    setSavingPaymentId(order.id);
+                                    try {
+                                      await api.updateOrder(order.id, { payment_status: e.target.value });
+                                      fetchDashboardAndConfig();
+                                    } catch (err) {
+                                      e.target.value = order.payment_status;
+                                      setPaymentError(`Could not update ${orderRef(order)} — ${err.message}`);
+                                    } finally {
+                                      setSavingPaymentId(null);
+                                    }
+                                  }}
+                                  className="form-control"
+                                  style={{ padding: '4px 8px', fontSize: '12px', width: '110px', margin: 0 }}
+                                >
+                                  {/* "Partially Paid" is a *derived* label, not a thing to
+                                      choose; it appears only as the current value. */}
+                                  <option value="Pending">{t('invoicesPage.pending', 'Pending')}</option>
+                                  {order.payment_status === 'Partially Paid' && (
+                                    <option value="Partially Paid">{t('invoicesPage.partiallyPaid', 'Partially Paid')}</option>
+                                  )}
+                                  <option value="Paid">{t('invoicesPage.paid', 'Paid')}</option>
+                                </select>
+                              </span>
+                            </td>
+                            <td>
+                              <button className="btn-secondary at-btn-sm" onClick={() => {
                                 setConfirmedOrder(order);
                                 setShowInvoiceModal(true);
                               }}>
@@ -5671,36 +5573,28 @@ function App() {
                               </button>
                             </td>
                           </tr>
-                        ));
-                      })()}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </>
-            )}
+              );
+            })()}
 
             {/* 7. ANALYTICS TAB */}
             {dashboardTab === 'analytics' && (() => {
               // Same definition as the Invoices header and the Balance Due
               // cells: collected is money received, not the face value of
-              // orders that happen to be labelled Paid. Counting a part-paid
-              // order as zero collected and its full value as outstanding was
-              // wrong in both directions at once.
+              // orders that happen to be labelled Paid.
               const paidRevenue = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
               const totalBilling = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
               const pendingBill = Math.max(0, totalBilling - paidRevenue);
               const aov = ordersList.length > 0 ? (totalBilling / ordersList.length) : 0;
 
-              // Counted per garment ordered, not per customer.
-              //
-              // These three panels read Customer.garment_type, neckline_style and
-              // sleeve_style -- one value per person, set by whichever dress was
-              // entered last. So a customer who ordered a blouse and a lehenga
-              // counted once, and the neckline and sleeve panels were permanently
-              // empty because the order wizard writes those onto the garment job
-              // and never onto the customer. Read the garment jobs, and take the
-              // percentage against the number of garments rather than the number
-              // of clients.
+              // Counted per garment ordered, not per customer: the order wizard
+              // writes neckline and sleeve onto the garment job, never onto the
+              // customer, and a blouse-and-lehenga order is two garments.
               const garmentDist = {};
               const necklineDist = {};
               const sleeveDist = {};
@@ -5728,226 +5622,151 @@ function App() {
               const busyTailors = tailors.filter(t => t.status === 'Busy').length;
               const avgTailorRating = tailors.length > 0 ? (tailors.reduce((sum, t) => sum + parseFloat(t.rating), 0) / tailors.length) : 5.0;
 
+              const segments = (() => {
+                const total = customersList.length || 1;
+                const rows = [
+                  { name: t('analyticsPage.hvcCustomer', 'HVC (High Value Customer)'), count: customersList.filter(c => c.segment === 'HVC').length, color: '#6b4fd6' },
+                  { name: t('analyticsPage.vipCustomer', 'VIP (Very Important Customer)'), count: customersList.filter(c => c.segment === 'VIP').length, color: '#d4af37' },
+                  { name: t('analyticsPage.generalCustomers', 'General Customers'), count: customersList.filter(c => c.segment === 'General').length, color: '#9ca3af' },
+                ].map(r => ({ ...r, pct: Math.round((r.count / total) * 100) }));
+                let acc = 0;
+                const stops = rows.map(r => { const from = acc; acc += (r.count / total) * 100; return `${r.color} ${from}% ${acc}%`; });
+                return { rows, gradient: `conic-gradient(${stops.join(', ')}${acc < 100 ? `, var(--surface-inset) ${acc}% 100%` : ''})` };
+              })();
+
+              const bar = (label, count, total, tone) => {
+                const pct = Math.round((count / (total || 1)) * 100) || 0;
+                return (
+                  <div key={label} className="at-bar-row">
+                    <div className="at-bar-head">
+                      <span>{label}</span>
+                      <span className="at-num" style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
+                    </div>
+                    <ProgressBar pct={pct} tone={tone} />
+                  </div>
+                );
+              };
+
               return (
                 <>
-                  <header className="portal-header">
-                    <div className="portal-header-left">
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
-                          {t('analyticsPage.title', 'Business Analytics & Trends')}
-                        </h1>
-                        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('analyticsPage.subtitle', 'Summary of revenues, style preferences, and operations workload.')}</p>
-                      </div>
-                    </div>
-                    <div className="portal-header-right">
+                  <PageHeader
+                    title={t('analyticsPage.title', 'Business Analytics & Trends')}
+                    subtitle={t('analyticsPage.subtitle', 'Summary of revenues, style preferences, and operations workload.')}
+                    aside={(
                       <div className="user-profile-widget">
                         <div className="user-avatar-circle">
                           <UserAvatar user={currentUser} />
                         </div>
                         <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                       </div>
-                    </div>
-                  </header>
+                    )}
+                  />
 
-                  <div className="analytics-metrics-grid" style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                    gap: '24px',
-                    marginTop: '24px'
-                  }}>
-                    {/* Revenue Card */}
-                    <div className="metric-panel-card ui-card" style={{ padding: 'var(--space-5)' }}>
-                      <div className="ui-eyebrow">{t('analyticsPage.collectedRevenue', 'Collected Revenue')}</div>
-                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--accent-text)' }}>
-                        ₹{paidRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </div>
-                      <div className="ui-stat-sub">{t('analyticsPage.fromPaidOrders', 'From paid customer orders')}</div>
-                    </div>
+                  <section className="at-stat-grid" style={{ marginBottom: 'var(--space-5)' }}>
+                    <StatCard icon={Coins} tone="green" label={t('analyticsPage.collectedRevenue', 'Collected Revenue')}
+                              value={inr(paidRevenue)} sub={t('analyticsPage.fromPaidOrders', 'From paid customer orders')} />
+                    <StatCard icon={Receipt} tone="amber" label={t('analyticsPage.pendingInvoices', 'Pending Invoices')}
+                              value={inr(pendingBill)} sub={t('analyticsPage.awaitingPayment', 'Awaiting full or partial payment')} />
+                    <StatCard icon={BarChart2} tone="blue" label={t('analyticsPage.avgTicketSize', 'Average Ticket Size')}
+                              value={inr(aov)} sub={t('analyticsPage.perBespokeOrder', 'Per bespoke order')} />
+                    <StatCard icon={Users} tone="violet" label={t('analyticsPage.clientBase', 'Client Base')}
+                              value={`${customersList.length} ${customersList.length === 1 ? t('analyticsPage.clientSingle', 'Client') : t('analyticsPage.clientPlural', 'Clients')}`}
+                              sub={t('analyticsPage.totalDirectoryProfiles', 'Total boutique directory profiles')} />
+                  </section>
 
-                    {/* Pending Bills Card */}
-                    <div className="metric-panel-card ui-card" style={{ padding: 'var(--space-5)' }}>
-                      <div className="ui-eyebrow">{t('analyticsPage.pendingInvoices', 'Pending Invoices')}</div>
-                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--warning-color)' }}>
-                        ₹{pendingBill.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </div>
-                      <div className="ui-stat-sub">{t('analyticsPage.awaitingPayment', 'Awaiting full or partial payment')}</div>
-                    </div>
+                  <div className="at-grid-2">
+                    <div className="at-stack">
+                      <SectionCard icon={Shirt} tone="green" title={t('analyticsPage.popularGarmentTypes', 'Popular Garment Types')}
+                                   subtitle="Most ordered garment categories" action={() => setDashboardTab('orders')}>
+                        {topGarmentsList.length === 0 ? (
+                          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>No garments ordered yet.</div>
+                        ) : (
+                          <div className="at-stack" style={{ gap: 'var(--space-3)' }}>
+                            {topGarmentsList.map(([garment, count]) => bar(garment, count, garmentTotal, 'forest'))}
+                          </div>
+                        )}
+                      </SectionCard>
 
-                    {/* Average Order Value Card */}
-                    <div className="metric-panel-card ui-card" style={{ padding: 'var(--space-5)' }}>
-                      <div className="ui-eyebrow">{t('analyticsPage.avgTicketSize', 'Average Ticket Size')}</div>
-                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--info-color)' }}>
-                        ₹{aov.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </div>
-                      <div className="ui-stat-sub">{t('analyticsPage.perBespokeOrder', 'Per bespoke order')}</div>
-                    </div>
-
-                    {/* Total Registered Clients */}
-                    <div className="metric-panel-card ui-card" style={{ padding: 'var(--space-5)' }}>
-                      <div className="ui-eyebrow">{t('analyticsPage.clientBase', 'Client Base')}</div>
-                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--success-color)' }}>
-                        {customersList.length} {customersList.length === 1 ? t('analyticsPage.clientSingle', 'Client') : t('analyticsPage.clientPlural', 'Clients')}
-                      </div>
-                      <div className="ui-stat-sub">{t('analyticsPage.totalDirectoryProfiles', 'Total boutique directory profiles')}</div>
-                    </div>
-                  </div>
-
-                  {/* Operational and Trend Columns */}
-                  <div className="analytics-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '32px' }}>
-                    
-                    {/* Left side: Styles & Design Trends */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      <div className="analytics-card-section" style={{
-                        background: 'var(--surface-color)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.popularGarmentTypes', 'Popular Garment Types')}</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {topGarmentsList.map(([garment, count], idx) => {
-                            const pct = Math.round((count / garmentTotal) * 100) || 0;
-                            return (
-                              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
-                                  <span>{garment}</span>
-                                  <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
-                                </div>
-                                <div style={{ width: '100%', height: '6px', background: 'var(--surface-inset)', borderRadius: '3px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent-text, #b07c40)', borderRadius: '3px' }}></div>
-                                </div>
+                      <SectionCard icon={Users} tone="violet" title={t('analyticsPage.customerSegmentation', 'Customer Segmentation')}
+                                   subtitle="Client distribution by value" action={() => setDashboardTab('customers')}>
+                        <div style={{ display: 'flex', gap: 'var(--space-6)', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div className="at-donut" style={{ background: segments.gradient }}>
+                            <div className="at-donut-label">
+                              <span className="at-donut-value">{customersList.length}</span>
+                              <span className="at-donut-sub">Clients</span>
+                            </div>
+                          </div>
+                          <div className="at-legend">
+                            {segments.rows.map(seg => (
+                              <div key={seg.name} className="at-legend-row">
+                                <span className="at-legend-dot" style={{ background: seg.color }} />
+                                <span style={{ flex: 1 }}>{seg.name}</span>
+                                <span className="at-num" style={{ fontWeight: 600 }}>{seg.count} ({seg.pct}%)</span>
                               </div>
-                            );
-                          })}
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      </SectionCard>
 
-                      <div className="analytics-card-section" style={{
-                        background: 'var(--surface-color)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.customerSegmentation', 'Customer Segmentation')}</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {(() => {
-                            const vipCount = customersList.filter(c => c.segment === 'VIP').length;
-                            const hvcCount = customersList.filter(c => c.segment === 'HVC').length;
-                            const generalCount = customersList.filter(c => c.segment === 'General').length;
-                            const total = customersList.length || 1;
-
-                            return [
-                              { name: t('analyticsPage.vipCustomer', 'VIP (Very Important Customer)'), count: vipCount, color: '#d4af37' },
-                              { name: t('analyticsPage.hvcCustomer', 'HVC (High Value Customer)'), count: hvcCount, color: '#a855f7' },
-                              { name: t('analyticsPage.generalCustomers', 'General Customers'), count: generalCount, color: '#9ca3af' }
-                            ].map((seg, idx) => {
-                              const pct = Math.round((seg.count / total) * 100);
-                              return (
-                                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: seg.color }}></span>
-                                      {seg.name}
-                                    </span>
-                                    <span style={{ fontWeight: 600 }}>{seg.count} ({pct}%)</span>
-                                  </div>
-                                  <div style={{ width: '100%', height: '6px', background: 'var(--surface-inset)', borderRadius: '3px', overflow: 'hidden' }}>
-                                    <div style={{ width: `${pct}%`, height: '100%', background: seg.color, borderRadius: '3px' }}></div>
-                                  </div>
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-                      </div>
-
-                      <div className="analytics-card-section" style={{
-                        background: 'var(--surface-color)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.necklineSleeveTrends', 'Neckline & Sleeve Trends')}</h3>
+                      <SectionCard icon={PenTool} tone="amber" title={t('analyticsPage.necklineSleeveTrends', 'Neckline & Sleeve Trends')}
+                                   subtitle="What is being asked for at the counter">
                         <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                           <div>
-                            <h4 style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topNecklines', 'Top Necklines')}</h4>
-                            {topNecklinesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                            <div className="ui-eyebrow" style={{ marginBottom: '8px' }}>{t('analyticsPage.topNecklines', 'Top Necklines')}</div>
+                            {topNecklinesList.length === 0 && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>None recorded yet.</div>}
+                            {topNecklinesList.map(([style, count]) => (
+                              <div key={style} style={{ fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
-                                <span style={{ fontWeight: 600 }}>{count}</span>
+                                <span className="at-num" style={{ fontWeight: 600 }}>{count}</span>
                               </div>
                             ))}
                           </div>
                           <div>
-                            <h4 style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topSleeves', 'Top Sleeves')}</h4>
-                            {topSleevesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                            <div className="ui-eyebrow" style={{ marginBottom: '8px' }}>{t('analyticsPage.topSleeves', 'Top Sleeves')}</div>
+                            {topSleevesList.length === 0 && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>None recorded yet.</div>}
+                            {topSleevesList.map(([style, count]) => (
+                              <div key={style} style={{ fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
-                                <span style={{ fontWeight: 600 }}>{count}</span>
+                                <span className="at-num" style={{ fontWeight: 600 }}>{count}</span>
                               </div>
                             ))}
                           </div>
                         </div>
-                      </div>
+                      </SectionCard>
                     </div>
 
-                    {/* Right side: Staff & Internal Metrics */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      <div className="analytics-card-section" style={{
-                        background: 'var(--surface-color)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.staffWorkloadOverview', 'Staff & Workload Overview')}</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: 'var(--text-base)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>{t('analyticsPage.totalTailoringTeam', 'Total Tailoring Team')}</span>
-                            <span style={{ fontWeight: 600 }}>{tailors.length} {tailors.length === 1 ? t('analyticsPage.tailorSingle', 'Tailor') : t('analyticsPage.tailorPlural', 'Tailors')}</span>
+                    <div className="at-stack">
+                      <SectionCard icon={Scissors} tone="blue" title={t('analyticsPage.staffWorkloadOverview', 'Staff & Workload Overview')}
+                                   subtitle="Current team status and capacity" action={() => setDashboardTab('staff')} actionLabel="Manage Staff">
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 'var(--space-3)' }}>
+                          <div className="at-pipeline-tile at-stat--blue" style={{ cursor: 'default' }}>
+                            <span className="at-pipeline-label">{t('analyticsPage.totalTailoringTeam', 'Total Tailoring Team')}</span>
+                            <span className="at-pipeline-value">{tailors.length} <small style={{ fontSize: 'var(--text-xs)', fontWeight: 500 }}>{tailors.length === 1 ? t('analyticsPage.tailorSingle', 'Tailor') : t('analyticsPage.tailorPlural', 'Tailors')}</small></span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>{t('analyticsPage.busyAssignedTailors', 'Busy / Assigned Tailors')}</span>
-                            <span style={{ fontWeight: 600, color: 'var(--warning-color)' }}>{busyTailors} {t('analyticsPage.busyStatus', 'Busy')}</span>
+                          <div className="at-pipeline-tile at-stat--amber" style={{ cursor: 'default' }}>
+                            <span className="at-pipeline-label">{t('analyticsPage.busyAssignedTailors', 'Busy / Assigned Tailors')}</span>
+                            <span className="at-pipeline-value" style={{ color: 'var(--tone-amber-fg)' }}>{busyTailors} <small style={{ fontSize: 'var(--text-xs)', fontWeight: 500 }}>{t('analyticsPage.busyStatus', 'Busy')}</small></span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>{t('analyticsPage.availableStaffCapacity', 'Available Staff capacity')}</span>
-                            <span style={{ fontWeight: 600, color: 'var(--success-color)' }}>{tailors.length - busyTailors} {t('analyticsPage.freeStatus', 'Free')}</span>
+                          <div className="at-pipeline-tile at-stat--green" style={{ cursor: 'default' }}>
+                            <span className="at-pipeline-label">{t('analyticsPage.availableStaffCapacity', 'Available Staff capacity')}</span>
+                            <span className="at-pipeline-value" style={{ color: 'var(--tone-green-fg)' }}>{tailors.length - busyTailors} <small style={{ fontSize: 'var(--text-xs)', fontWeight: 500 }}>{t('analyticsPage.freeStatus', 'Free')}</small></span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>{t('analyticsPage.atelierAvgRating', 'Atelier Average Rating')}</span>
-                            <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              ⭐ {avgTailorRating.toFixed(2)}
-                            </span>
+                          <div className="at-pipeline-tile at-stat--violet" style={{ cursor: 'default' }}>
+                            <span className="at-pipeline-label">{t('analyticsPage.atelierAvgRating', 'Atelier Average Rating')}</span>
+                            <span className="at-pipeline-value">⭐ {avgTailorRating.toFixed(2)} <small style={{ fontSize: 'var(--text-xs)', fontWeight: 500 }}>out of 5</small></span>
                           </div>
                         </div>
-                      </div>
+                      </SectionCard>
 
-                      <div className="analytics-card-section" style={{
-                        background: 'var(--surface-color)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.orderStatusBreakdown', 'Order Status Breakdown')}</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {Object.entries(dashboardData?.stats?.status_distribution || {}).map(([status, count], idx) => {
-                            const pct = Math.round((count / ordersList.length) * 100) || 0;
-                            return (
-                              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
-                                  <span>{t(`status.${status}`, status)}</span>
-                                  <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
-                                </div>
-                                <div style={{ width: '100%', height: '6px', background: 'var(--surface-inset)', borderRadius: '3px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${pct}%`, height: '100%', background: 'var(--info-color)', borderRadius: '3px' }}></div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                      <SectionCard icon={FileText} tone="green" title={t('analyticsPage.orderStatusBreakdown', 'Order Status Breakdown')}
+                                   subtitle="Current order distribution" action={() => setDashboardTab('orders')}>
+                        <div className="at-stack" style={{ gap: 'var(--space-3)' }}>
+                          {Object.entries(dashboardData?.stats?.status_distribution || {})
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([status, count]) => bar(t(`status.${status}`, status), count, ordersList.length, 'forest'))}
                         </div>
-                      </div>
+                      </SectionCard>
                     </div>
-
                   </div>
                 </>
               );
@@ -6197,70 +6016,80 @@ function App() {
 
           {/* Fabrics CRUD Modal Overlay */}
           {showFabricModal && (
-            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
-                <div className="search-modal-header">
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingFabric ? t('fabricsPage.editFabricDetails', 'Edit Fabric Details') : t('fabricsPage.addNewFabricTitle', 'Add New Fabric to Catalog')}
-                  </h3>
-                  <button className="close-btn" onClick={() => setShowFabricModal(false)}><X size={20} /></button>
-                </div>
-                
-                <form onSubmit={handleSaveFabric} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.fabricName', 'Fabric Name')}</label>
-                    <input 
-                      type="text" 
-                      required 
+            <FormModal
+              icon={Layers} tone="green" zIndex={1100} width="720px"
+              title={editingFabric ? t('fabricsPage.editFabricDetails', 'Edit Fabric Details') : t('fabricsPage.addNewFabricTitle', 'Add New Fabric to Catalog')}
+              subtitle="Add fabric details to your catalog for easy selection and reuse."
+              onClose={() => setShowFabricModal(false)}
+              footer={(
+                <>
+                  <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                  <button type="submit" form="fabric-form" className="btn-primary" disabled={fabricSaving || fabricPhotoBusy}>
+                    <Save size={16} />
+                    {fabricPhotoBusy
+                      ? t('common.uploading', 'Uploading…')
+                      : fabricSaving ? t('common.saving', 'Saving…') : t('fabricsPage.saveFabric', 'Save Fabric')}
+                  </button>
+                </>
+              )}
+            >
+              <form id="fabric-form" onSubmit={handleSaveFabric} className="at-stack">
+                <Field label={t('fabricsPage.fabricName', 'Fabric Name')} required icon={Type}>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    aria-label={t('fabricsPage.fabricName', 'Fabric Name')}
+                    placeholder="e.g. Chanderi Silk"
+                    value={fabricForm.name}
+                    onChange={e => setFabricForm({...fabricForm, name: e.target.value})}
+                  />
+                </Field>
+
+                <div className="at-form-grid">
+                  <Field label={t('fabricsPage.material', 'Material')} required icon={Layers}>
+                    <input
+                      type="text"
+                      required
                       className="form-control"
-                      aria-label={t('fabricsPage.fabricName', 'Fabric Name')}
-                      placeholder="e.g. Chanderi Silk"
-                      value={fabricForm.name}
-                      onChange={e => setFabricForm({...fabricForm, name: e.target.value})}
+                      aria-label={t('fabricsPage.material', 'Material')}
+                      placeholder="e.g. Silk Blend"
+                      value={fabricForm.material}
+                      onChange={e => setFabricForm({...fabricForm, material: e.target.value})}
                     />
-                  </div>
+                  </Field>
+                  <Field label={t('fabricsPage.color', 'Color')} required icon={Palette}>
+                    <input
+                      type="text"
+                      required
+                      className="form-control"
+                      aria-label={t('fabricsPage.color', 'Color')}
+                      placeholder="e.g. Aqua Blue"
+                      value={fabricForm.color}
+                      onChange={e => setFabricForm({...fabricForm, color: e.target.value})}
+                    />
+                  </Field>
+                </div>
 
-                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.material', 'Material')}</label>
-                      <input 
-                        type="text" 
-                        required 
-                        className="form-control"
-                        aria-label={t('fabricsPage.material', 'Material')}
-                        placeholder="e.g. Silk Blend"
-                        value={fabricForm.material}
-                        onChange={e => setFabricForm({...fabricForm, material: e.target.value})}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.color', 'Color')}</label>
-                      <input 
-                        type="text" 
-                        required 
-                        className="form-control"
-                        aria-label={t('fabricsPage.color', 'Color')}
-                        placeholder="e.g. Aqua Blue"
-                        value={fabricForm.color}
-                        onChange={e => setFabricForm({...fabricForm, color: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
-                  {/* The wheel is the browser's own -- <input type="color">
-                      opens the OS picker, wheel and eyedropper included, and
-                      the box beside it takes a code straight off a shade card.
-                      They are the same value, edited from either end. */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.colorCode', 'Colour Code')}</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                {/* The wheel is the browser's own -- <input type="color">
+                    opens the OS picker, wheel and eyedropper included, and
+                    the box beside it takes a code straight off a shade card.
+                    They are the same value, edited from either end. */}
+                <div className="at-field">
+                  <label className="at-field-label">{t('fabricsPage.colorCode', 'Colour Code')}</label>
+                  <div className="at-field-inline">
+                    <label className="at-swatch" title={t('fabricsPage.colorWheel', 'Colour wheel')} style={{ position: 'relative', cursor: 'pointer' }}>
+                      <i style={{ background: /^#[0-9a-fA-F]{6}$/.test(fabricForm.color_hex) ? fabricForm.color_hex : '#c8a97e' }} />
                       <input
+                        id="fabric-colour-wheel"
                         type="color"
                         aria-label={t('fabricsPage.colorWheel', 'Colour wheel')}
                         value={/^#[0-9a-fA-F]{6}$/.test(fabricForm.color_hex) ? fabricForm.color_hex : '#c8a97e'}
                         onChange={e => setFabricForm({...fabricForm, color_hex: e.target.value})}
-                        style={{ width: '52px', height: '38px', padding: '2px', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', flexShrink: 0 }}
+                        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, left: 0, bottom: 0 }}
                       />
+                    </label>
+                    <div className="at-field-control" style={{ width: '160px' }}>
                       <input
                         type="text"
                         className="form-control"
@@ -6274,110 +6103,93 @@ function App() {
                           const v = e.target.value.trim();
                           setFabricForm({...fabricForm, color_hex: v && !v.startsWith('#') ? `#${v}` : v});
                         }}
-                        style={{ maxWidth: '150px', fontFamily: 'monospace', margin: 0 }}
+                        style={{ fontFamily: 'monospace' }}
                       />
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        {t('fabricsPage.colorCodeHint', 'Pick from the wheel or type the code')}
-                      </span>
                     </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}</label>
-                    <input 
-                      type="number" 
-                      required 
-                      min="0"
-                      step="0.01"
-                      className="form-control"
-                      aria-label={t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}
-                      placeholder="e.g. 1250"
-                      value={fabricForm.price_per_meter}
-                      onChange={e => setFabricForm({...fabricForm, price_per_meter: e.target.value})}
-                    />
-                  </div>
-
-                  {/* Two inputs, one list: capture="environment" opens the
-                      phone's rear camera, the other the gallery. A boutique
-                      photographing a roll on the shelf never types a URL. */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.fabricPhotos', 'Fabric Photos')}</label>
-
-                    {(fabricForm.image_urls?.length > 0 || fabricPhotoPreviews.length > 0) && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                        {(fabricForm.image_urls || []).map((src, i) => (
-                          <div key={`saved-${i}`} style={{ position: 'relative' }}>
-                            <img src={src} alt="" style={{ width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-color)' }} />
-                            <button
-                              type="button"
-                              onClick={() => setFabricForm({...fabricForm, image_urls: fabricForm.image_urls.filter((_, idx) => idx !== i)})}
-                              style={{ position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', borderRadius: '50%', border: 'none', background: '#111', color: '#fff', cursor: 'pointer', lineHeight: 1 }}
-                              aria-label={t('common.remove', 'Remove')}
-                            >×</button>
-                          </div>
-                        ))}
-                        {fabricPhotoPreviews.map((src, i) => (
-                          <div key={`new-${i}`} style={{ position: 'relative' }}>
-                            <img src={src} alt="" style={{ width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-color)' }} />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFabricPhotoPreviews(prev => prev.filter((_, idx) => idx !== i));
-                                setFabricPhotoFiles(prev => prev.filter((_, idx) => idx !== i));
-                              }}
-                              style={{ position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', borderRadius: '50%', border: 'none', background: '#111', color: '#fff', cursor: 'pointer', lineHeight: 1 }}
-                              aria-label={t('common.remove', 'Remove')}
-                            >×</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      <input type="file" id="fabric-photo-camera" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFabricPhotosChange} />
-                      <input type="file" id="fabric-photo-gallery" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFabricPhotosChange} />
-                      <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 10px' }} onClick={() => document.getElementById('fabric-photo-camera').click()}>
-                        📷 {t('common.takePhoto', 'Take photo')}
-                      </button>
-                      <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 10px' }} onClick={() => document.getElementById('fabric-photo-gallery').click()}>
-                        {t('common.chooseFromGallery', 'Choose from gallery')}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}</label>
-                    <input 
-                      type="url" 
-                      className="form-control"
-                      aria-label={t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}
-                      placeholder="e.g. https://images.unsplash.com/photo-..."
-                      value={fabricForm.image_url}
-                      onChange={e => setFabricForm({...fabricForm, image_url: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-                    <input 
-                      type="checkbox" 
-                      id="fabricAvailable"
-                      checked={fabricForm.is_available}
-                      onChange={e => setFabricForm({...fabricForm, is_available: e.target.checked})}
-                    />
-                    <label htmlFor="fabricAvailable" style={{ fontSize: '13px', cursor: 'pointer' }}>{t('fabricsPage.availableInInventory', 'Available in Inventory')}</label>
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
-                    <button type="submit" className="btn-primary" disabled={fabricSaving || fabricPhotoBusy}>
-                      {fabricPhotoBusy
-                        ? t('common.uploading', 'Uploading…')
-                        : fabricSaving ? t('common.saving', 'Saving…') : t('fabricsPage.saveFabric', 'Save Fabric')}
+                    <button type="button" className="btn-secondary at-btn-sm" style={{ borderStyle: 'dashed' }}
+                            onClick={() => document.getElementById('fabric-colour-wheel').click()}>
+                      <Palette size={14} /> {t('fabricsPage.pickFromWheel', 'Pick from color wheel')}
                     </button>
+                    <span className="at-field-hint">
+                      {t('fabricsPage.colorCodeHint', 'Pick from the wheel or type the code')}
+                    </span>
                   </div>
-                </form>
-              </div>
-            </div>
+                </div>
+
+                <Field label={t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')} required icon={IndianRupee}
+                       hint="Enter the selling price per meter for this fabric.">
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="0.01"
+                    className="form-control"
+                    aria-label={t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}
+                    placeholder="e.g. 1250"
+                    value={fabricForm.price_per_meter}
+                    onChange={e => setFabricForm({...fabricForm, price_per_meter: e.target.value})}
+                  />
+                </Field>
+
+                {/* Two inputs, one list: capture="environment" opens the
+                    phone's rear camera, the other the gallery. A boutique
+                    photographing a roll on the shelf never types a URL. */}
+                <FormSection icon={ImageIcon} tone="green" title={t('fabricsPage.fabricPhotos', 'Fabric Photos')}
+                             subtitle="Add clear, high-quality photos of the fabric."
+                             aside={<span className="at-field-hint">Recommended: JPG, PNG (Max 5MB each)</span>}>
+                  <div className="at-side-by-side">
+                    <Dropzone
+                      multiple camera
+                      title="Drag & drop photos here"
+                      subtitle="or choose an option"
+                      chooseLabel={t('common.chooseFromGallery', 'Choose from gallery')}
+                      cameraLabel={t('common.takePhoto', 'Take photo')}
+                      onFiles={(files) => handleFabricPhotosChange({ target: { files, value: '' } })}
+                    />
+                    <div className="at-photos">
+                      {(fabricForm.image_urls || []).map((src, i) => (
+                        <PhotoTile key={`saved-${i}`} src={src}
+                                   onRemove={() => setFabricForm({...fabricForm, image_urls: fabricForm.image_urls.filter((_, idx) => idx !== i)})} />
+                      ))}
+                      {fabricPhotoPreviews.map((src, i) => (
+                        <PhotoTile key={`new-${i}`} src={src}
+                                   onRemove={() => {
+                                     setFabricPhotoPreviews(prev => prev.filter((_, idx) => idx !== i));
+                                     setFabricPhotoFiles(prev => prev.filter((_, idx) => idx !== i));
+                                   }} />
+                      ))}
+                      <AddMoreTile onClick={() => document.getElementById('fabric-photo-gallery').click()} />
+                      <input type="file" id="fabric-photo-gallery" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFabricPhotosChange} />
+                    </div>
+                  </div>
+                </FormSection>
+
+                <Field label={t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')} icon={LinkIcon}
+                       hint="Add a link if the image is hosted online.">
+                  <input
+                    type="url"
+                    className="form-control"
+                    aria-label={t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}
+                    placeholder="e.g. https://images.unsplash.com/photo-..."
+                    value={fabricForm.image_url}
+                    onChange={e => setFabricForm({...fabricForm, image_url: e.target.value})}
+                  />
+                </Field>
+
+                <label className="at-check-card" htmlFor="fabricAvailable">
+                  <input
+                    type="checkbox"
+                    id="fabricAvailable"
+                    checked={fabricForm.is_available}
+                    onChange={e => setFabricForm({...fabricForm, is_available: e.target.checked})}
+                  />
+                  <span>
+                    <span className="at-check-card-title" style={{ display: 'block' }}>{t('fabricsPage.availableInInventory', 'Available in Inventory')}</span>
+                    <span className="at-check-card-sub" style={{ display: 'block' }}>Make this fabric available for inventory and purchase orders.</span>
+                  </span>
+                </label>
+              </form>
+            </FormModal>
           )}
 
           {/* Appointment booking. apps/scheduling has always accepted these and
@@ -6479,125 +6291,117 @@ function App() {
 
           {/* Designs CRUD Modal Overlay */}
           {showDesignModal && (
-            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
-                <div className="search-modal-header">
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingDesign ? t('designsPage.editDesignDetails', 'Edit Design Details') : t('designsPage.addNewDesignTitle', 'Add New Design to Collection')}
-                  </h3>
-                  <button className="close-btn" aria-label="Close" onClick={() => setShowDesignModal(false)}><X size={20} /></button>
+            <FormModal
+              icon={Shirt} tone="amber" zIndex={1100} width="720px"
+              title={editingDesign ? t('designsPage.editDesignDetails', 'Edit Design Details') : t('designsPage.addNewDesignTitle', 'Add New Design to Collection')}
+              subtitle="Add garment details to your boutique collection."
+              onClose={() => setShowDesignModal(false)}
+              footer={(
+                <>
+                  <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                  <button type="submit" form="design-form" className="btn-primary" disabled={designSaving}>
+                    <Save size={16} /> {designSaving ? t('common.saving', 'Saving…') : t('designsPage.saveDesign', 'Save Design')}
+                  </button>
+                </>
+              )}
+            >
+              <form id="design-form" onSubmit={handleSaveDesign} className="at-stack">
+                <Field label={t('designsPage.designName', 'Design Name')} required icon={Type}>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    placeholder="e.g. Royal Maroon Velvet Lehenga"
+                    value={designForm.name}
+                    onChange={e => setDesignForm({...designForm, name: e.target.value})}
+                  />
+                </Field>
+
+                <div className="at-form-grid">
+                  <Field label={t('designsPage.garmentCategory', 'Garment Category')} required icon={Shirt}>
+                    <select
+                      className="form-control"
+                      value={designForm.garment_type}
+                      onChange={e => setDesignForm({...designForm, garment_type: e.target.value})}
+                    >
+                      <option value="Lehenga">{t('designsPage.lehenga', 'Lehenga')}</option>
+                      <option value="Gown">{t('designsPage.gown', 'Gown')}</option>
+                      <option value="Saree">{t('designsPage.saree', 'Saree')}</option>
+                      <option value="Kurti">{t('designsPage.kurti', 'Kurti')}</option>
+                      <option value="Sherwani">{t('designsPage.sherwani', 'Sherwani')}</option>
+                      <option value="Anarkali">{t('designsPage.anarkali', 'Anarkali')}</option>
+                    </select>
+                  </Field>
+                  <Field label={t('designsPage.designType', 'Design Type')} required icon={Tag}>
+                    <select
+                      className="form-control"
+                      value={designForm.is_boutique}
+                      onChange={e => setDesignForm({...designForm, is_boutique: e.target.value === 'true' || e.target.value === true})}
+                    >
+                      <option value="true">{t('designsPage.boutiqueCatalogCollection', 'Boutique Catalog Collection')}</option>
+                      <option value="false">{t('designsPage.aiSuggestionTemplate', 'AI Suggestion Template')}</option>
+                    </select>
+                  </Field>
+                  <Field label={t('designsPage.necklineStyleOptional', 'Neckline Style (Optional)')} icon={Sparkles}>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="e.g. Sweetheart Neck"
+                      value={designForm.neckline_style}
+                      onChange={e => setDesignForm({...designForm, neckline_style: e.target.value})}
+                    />
+                  </Field>
+                  <Field label={t('designsPage.sleeveStyleOptional', 'Sleeve Style (Optional)')} icon={Shirt}>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="e.g. Cap Sleeve"
+                      value={designForm.sleeve_style}
+                      onChange={e => setDesignForm({...designForm, sleeve_style: e.target.value})}
+                    />
+                  </Field>
                 </div>
-                
-                <form onSubmit={handleSaveDesign} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.designName', 'Design Name')}</label>
-                    <input 
-                      type="text" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. Royal Maroon Velvet Lehenga" 
-                      value={designForm.name}
-                      onChange={e => setDesignForm({...designForm, name: e.target.value})}
-                    />
-                  </div>
 
-                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.garmentCategory', 'Garment Category')}</label>
-                      <select 
-                        className="form-control"
-                        value={designForm.garment_type}
-                        onChange={e => setDesignForm({...designForm, garment_type: e.target.value})}
-                      >
-                        <option value="Lehenga">{t('designsPage.lehenga', 'Lehenga')}</option>
-                        <option value="Gown">{t('designsPage.gown', 'Gown')}</option>
-                        <option value="Saree">{t('designsPage.saree', 'Saree')}</option>
-                        <option value="Kurti">{t('designsPage.kurti', 'Kurti')}</option>
-                        <option value="Sherwani">{t('designsPage.sherwani', 'Sherwani')}</option>
-                        <option value="Anarkali">{t('designsPage.anarkali', 'Anarkali')}</option>
-                      </select>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.designType', 'Design Type')}</label>
-                      <select 
-                        className="form-control"
-                        value={designForm.is_boutique}
-                        onChange={e => setDesignForm({...designForm, is_boutique: e.target.value === 'true' || e.target.value === true})}
-                      >
-                        <option value="true">{t('designsPage.boutiqueCatalogCollection', 'Boutique Catalog Collection')}</option>
-                        <option value="false">{t('designsPage.aiSuggestionTemplate', 'AI Suggestion Template')}</option>
-                      </select>
-                    </div>
-                  </div>
+                <Field label={t('designsPage.catalogPriceLabel', 'Catalog Price (₹) - Only for Boutique Catalog')} icon={IndianRupee}>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="form-control"
+                    placeholder="e.g. 45000"
+                    value={designForm.price}
+                    onChange={e => setDesignForm({...designForm, price: e.target.value})}
+                    disabled={designForm.is_boutique === false || designForm.is_boutique === 'false'}
+                  />
+                </Field>
 
-                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.necklineStyleOptional', 'Neckline Style (Optional)')}</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="e.g. Sweetheart Neck" 
-                        value={designForm.neckline_style}
-                        onChange={e => setDesignForm({...designForm, neckline_style: e.target.value})}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.sleeveStyleOptional', 'Sleeve Style (Optional)')}</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="e.g. Cap Sleeve" 
-                        value={designForm.sleeve_style}
-                        onChange={e => setDesignForm({...designForm, sleeve_style: e.target.value})}
-                      />
-                    </div>
-                  </div>
+                <Field label={t('designsPage.imageUrlOptional', 'Image URL (Optional)')} icon={LinkIcon}
+                       hint="Add a link if the image is hosted online.">
+                  <input
+                    type="url"
+                    className="form-control"
+                    placeholder="e.g. https://images.unsplash.com/photo-..."
+                    value={designForm.image_url}
+                    onChange={e => setDesignForm({...designForm, image_url: e.target.value})}
+                  />
+                </Field>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.catalogPriceLabel', 'Catalog Price (₹) - Only for Boutique Catalog')}</label>
-                    <input 
-                      type="number" 
-                      min="0"
-                      step="0.01"
-                      className="form-control" 
-                      placeholder="e.g. 45000" 
-                      value={designForm.price}
-                      onChange={e => setDesignForm({...designForm, price: e.target.value})}
-                      disabled={designForm.is_boutique === false || designForm.is_boutique === 'false'}
-                    />
-                  </div>
+                <Field label={t('designsPage.descriptionOptional', 'Description (Optional)')} icon={FileText}>
+                  <textarea
+                    className="form-control"
+                    placeholder="e.g. Hand-embroidered with gold thread, georgette base..."
+                    rows="3"
+                    value={designForm.description}
+                    onChange={e => setDesignForm({...designForm, description: e.target.value})}
+                  />
+                </Field>
+                <div className="at-field-counter" style={{ marginTop: '-8px' }}>{(designForm.description || '').length} characters</div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.imageUrlOptional', 'Image URL (Optional)')}</label>
-                    <input 
-                      type="url" 
-                      className="form-control" 
-                      placeholder="e.g. https://images.unsplash.com/photo-..." 
-                      value={designForm.image_url}
-                      onChange={e => setDesignForm({...designForm, image_url: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('designsPage.descriptionOptional', 'Description (Optional)')}</label>
-                    <textarea 
-                      className="form-control" 
-                      placeholder="e.g. Hand-embroidered with gold thread, georgette base..." 
-                      rows="3"
-                      value={designForm.description}
-                      onChange={e => setDesignForm({...designForm, description: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>{t('common.cancel', 'Cancel')}</button>
-                    <button type="submit" className="btn-primary" disabled={designSaving}>
-                      {designSaving ? t('common.saving', 'Saving…') : t('designsPage.saveDesign', 'Save Design')}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
+                <InfoNote tone="amber" title="Tip">
+                  High quality images and detailed descriptions help showcase your designs better.
+                </InfoNote>
+              </form>
+            </FormModal>
           )}
 
           {/* Bottom navigation, phones only.
@@ -8842,13 +8646,13 @@ function App() {
                  { name: confirmedCustomerName })}
             </p>
             <div className="order-id-badge">
-              <span>Order ID: <strong>{confirmedOrder.order_id}</strong></span>
+              <span>Order ID: <strong>{orderRef(confirmedOrder)}</strong></span>
               <button 
                 aria-label="Copy order ID"
                 title="Copy order ID"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', minWidth: '44px', minHeight: '44px', margin: '-12px' }}
                 onClick={() => {
-                  navigator.clipboard.writeText(confirmedOrder.order_id);
+                  navigator.clipboard.writeText(orderRef(confirmedOrder));
                   alert("Copied!");
                 }}
               >
@@ -9043,7 +8847,7 @@ function App() {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>INVOICE</h2>
-                  <span style={{ fontSize: '12px', display: 'block', marginTop: '4px' }}>Invoice ID: <strong>{confirmedOrder.order_id}</strong></span>
+                  <span style={{ fontSize: '12px', display: 'block', marginTop: '4px' }}>Invoice ID: <strong>{orderRef(confirmedOrder)}</strong></span>
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
                     Date: {fmtDate(confirmedOrder.order_date)}
                   </span>
@@ -9387,129 +9191,183 @@ function App() {
       )}
 
       {/* Stage Review Modal */}
-      {activeReviewStage && activeReviewOrder && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1100
-        }}>
-          <div style={{
-            backgroundColor: 'var(--surface-color)',
-            borderRadius: '12px',
-            border: '1px solid var(--border-color)',
-            width: '500px',
-            maxWidth: '95%',
-            padding: '24px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '20px',
-            maxHeight: '90vh',
-            overflowY: 'auto'
-          }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0, fontFamily: 'var(--font-serif)' }}>
-                  {selectedStageObj ? `Production Stage: ${selectedStageObj.stage_name}` : `Stage Review: ${activeReviewStage}`}
-                </h3>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Order ID: {activeReviewOrder.order_id}</span>
+      {activeReviewStage && activeReviewOrder && (() => {
+        const stage = selectedStageObj;
+        const closeStage = () => {
+          setActiveReviewStage(null);
+          setActiveReviewOrder(null);
+          setSelectedStageObj(null);
+          setSelectedPerformerId('');
+        };
+        const isSupervisor = !currentUser.role || currentUser.role === 'Owner'
+          || SUPERVISOR_ROLES.includes(currentUser.role);
+        // One path for every forward move; the server decides whether the
+        // role, the prerequisites and the stage's own data allow it.
+        const transition = async (status, okMessage) => {
+          if (stageTransitionBusy) return;
+          setStageTransitionBusy(true);
+          try {
+            await api.transitionStage(
+              activeReviewOrder.id,
+              stage.stage_key,
+              status,
+              stageReviewComments,
+              stageReviewImage ? [stageReviewImage] : [],
+              selectedPerformerId || null
+            );
+            alert(okMessage);
+            closeStage();
+            fetchDashboardAndConfig();
+          } catch (err) {
+            alert("Failed to transition: " + err.message);
+          } finally {
+            setStageTransitionBusy(false);
+          }
+        };
+        const tone = { COMPLETED: 'success', IN_PROGRESS: 'info', PAUSED: 'warning', SKIPPED: 'neutral' }[stage?.status] || 'neutral';
+        const jobs = activeReviewOrder.garment_jobs || [];
+        const answered = (obj) => Object.values(obj || {}).filter(v => v !== '' && v !== null && v !== undefined).length;
+        const detailCount = jobs.reduce((n, j) => n + answered(j.spec) + answered(j.measurements), 0);
+        const mins = Math.floor((stage?.duration_seconds || 0) / 60);
+        const hrs = Math.floor(mins / 60);
+        const duration = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
+        const settled = stage && (stage.status === 'COMPLETED' || stage.status === 'SKIPPED');
+        return (
+          <FormModal
+            icon={Scissors} tone="green" width="1000px" zIndex={1100}
+            title={stage ? `Production Stage: ${stage.stage_name}` : `Stage Review: ${activeReviewStage}`}
+            subtitle={`Order ID: ${orderRef(activeReviewOrder)}${activeReviewOrder.customer_name ? ` · ${activeReviewOrder.customer_name}` : ''}`}
+            onClose={closeStage}
+            footer={stage && (
+              <>
+                {(stage.status === 'NOT_STARTED' || stage.status === 'PAUSED') && (
+                  <button className="btn-primary" disabled={stageTransitionBusy}
+                          onClick={() => transition('IN_PROGRESS', 'Stage started successfully!')}>
+                    <Play size={16} /> Start In-Progress
+                  </button>
+                )}
+                {stage.status === 'IN_PROGRESS' && (
+                  <>
+                    <button className="btn-secondary at-btn-amber" disabled={stageTransitionBusy}
+                            onClick={() => transition('PAUSED', 'Stage paused successfully!')}>
+                      <Pause size={16} /> Pause Stage
+                    </button>
+                    <button className="btn-primary" disabled={stageTransitionBusy}
+                            onClick={() => transition('COMPLETED', 'Stage completed successfully!')}>
+                      <Check size={16} /> Complete Stage
+                    </button>
+                  </>
+                )}
+                {!settled && (
+                  <button className="btn-secondary" disabled={stageTransitionBusy}
+                          onClick={() => transition('SKIPPED', 'Stage skipped successfully!')}>
+                    <SkipForward size={16} /> Skip Stage
+                  </button>
+                )}
+                {/* Reversals. Forward-only is the rule; these are the two
+                    audited exceptions, supervisors only, reason required.
+                    The server enforces all of it -- these buttons only appear
+                    where they could succeed. */}
+                {settled && (currentUser?.role === 'Owner' || currentUser?.role === 'Master') && (
+                  <button className="btn-secondary at-btn-warn" disabled={reversalBusy}
+                          onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'reopen' }); }}>
+                    Reopen Stage…
+                  </button>
+                )}
+                {stage.stage_key === 'master_quality_check' && stage.status !== 'COMPLETED'
+                  && ['Owner', 'Master', 'QC Staff'].includes(currentUser?.role) && (
+                  <button className="btn-secondary at-btn-danger" disabled={reversalBusy}
+                          onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'failqc' }); }}>
+                    Fail QC — Send for Rework…
+                  </button>
+                )}
+              </>
+            )}
+          >
+            {/* What this stage is for, and where it stands. */}
+            <div className="at-stage-summary">
+              <div className="at-form-section" style={{ flexDirection: 'row', alignItems: 'center', gap: 'var(--space-4)' }}>
+                <div className="kanban-thumb at-tile--green" style={{ width: 72, height: 90 }}>
+                  {activeReviewOrder.completed_garment_image
+                    ? <img src={activeReviewOrder.completed_garment_image} alt="" />
+                    : <Shirt size={28} />}
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span className="at-section-title" style={{ fontSize: 'var(--text-xl)' }}>{orderGarmentLabel(activeReviewOrder)}</span>
+                    {detailCount > 0 && <span className="ui-badge ui-badge--neutral">{detailCount} details</span>}
+                  </div>
+                  <div className="at-section-sub" style={{ fontSize: 'var(--text-sm)', marginTop: '4px' }}>
+                    {activeReviewOrder.customer_name}
+                    {jobs.length > 1 ? ` · ${jobs.length} garments` : ''}
+                    {activeReviewOrder.estimated_delivery ? ` · Delivery ${fmtDate(activeReviewOrder.estimated_delivery)}` : ''}
+                  </div>
+                  {activeReviewOrder.garment_label && jobs.length > 1 && (
+                    <div className="at-section-sub">{activeReviewOrder.garment_label}</div>
+                  )}
+                </div>
               </div>
-              <button 
-                className="btn-secondary" 
-                style={{ padding: '4px 10px', fontSize: '12px' }}
-                onClick={() => {
-                  setActiveReviewStage(null);
-                  setActiveReviewOrder(null);
-                  setSelectedStageObj(null);
-                  setSelectedPerformerId('');
-                }}
-              >
-                Close
-              </button>
+              {stage && (
+                <div className="at-form-section at-stat--green" style={{ gap: 'var(--space-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span className="ui-eyebrow" style={{ color: 'var(--text-primary)' }}>Status</span>
+                    <span className={`ui-badge ui-badge--${tone}`}>● {stage.status.replace('_', ' ').toLowerCase()}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                    <div>
+                      <div className="ui-eyebrow">Started</div>
+                      <div className="stage-meta-value" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <Calendar size={14} /> {stage.started_at ? fmtDateTime(stage.started_at) : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="ui-eyebrow">SLA / target</div>
+                      <div className="stage-meta-value" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <Clock size={14} /> {stage.sla_hours} hours
+                      </div>
+                    </div>
+                    {stage.completed_at && (
+                      <div>
+                        <div className="ui-eyebrow">Completed</div>
+                        <div className="stage-meta-value">{fmtDateTime(stage.completed_at)}</div>
+                      </div>
+                    )}
+                    {stage.duration_seconds > 0 && (
+                      <div>
+                        <div className="ui-eyebrow">Actual duration</div>
+                        <div className="stage-meta-value">{duration}</div>
+                      </div>
+                    )}
+                    {stage.performed_by_name && (
+                      <div>
+                        <div className="ui-eyebrow">Performed by</div>
+                        <div className="stage-meta-value">{stage.performed_by_name}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* What is actually being made. The wizard collects a full spec and
-                measurement snapshot per dress and saved it correctly -- and
-                then no screen ever read it back, so the person opening this
-                stage to cut or stitch the garment could not see what the
-                customer had asked for. Nested on the order payload, so it
-                needs no fetch of its own. */}
-            {(activeReviewOrder.garment_jobs || []).length > 0 && (
-              <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
-                <div style={{ fontWeight: 700, marginBottom: '8px' }}>What to make</div>
-                {activeReviewOrder.garment_jobs.map(job => {
-                  // Material fields are rendered from job.materials, which
-                  // carries the item's name, quantity and unit. Left in the spec
-                  // dump they printed as bare database UUIDs -- "main fabric:
-                  // a1222bee-8dea-442d-9858-524141b109c4" -- on the one screen
-                  // a cutter opens to find out which roll to pull.
-                  const materials = job.materials || [];
-                  const materialKeys = new Set(materials.map(m => m.field_key));
-                  const specEntries = Object.entries(job.spec || {})
-                    .filter(([k, v]) => v !== '' && v !== null && v !== undefined
-                                        && !materialKeys.has(k));
-                  return (
-                    <div key={job.id} style={{ marginBottom: '10px' }}>
-                      <div style={{ fontWeight: 600, marginBottom: '4px' }}>{job.template_name || job.template_key}</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '4px 12px' }}>
-                        {Object.entries(job.measurements || {}).map(([k, v]) => (
-                          <span key={k} style={{ color: 'var(--text-secondary)' }}>
-                            {humaniseSpecKey(k)}: <strong style={{ color: 'var(--text-primary)' }}>{String(v)} in</strong>
-                          </span>
-                        ))}
-                        {specEntries.map(([k, v]) => (
-                          <span key={k} style={{ color: 'var(--text-secondary)' }}>
-                            {humaniseSpecKey(k)}: <strong style={{ color: 'var(--text-primary)' }}>{humaniseSpecValue(v)}</strong>
-                          </span>
-                        ))}
-                      </div>
-                      {materials.length > 0 && (
-                        <div style={{ marginTop: '6px' }}>
-                          <div style={{ fontWeight: 600, marginBottom: '2px' }}>Materials</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '4px 12px' }}>
-                            {materials.map(material => (
-                              <span key={material.id} style={{ color: 'var(--text-secondary)' }}>
-                                {humaniseSpecKey(material.field_key)}:{' '}
-                                <strong style={{ color: 'var(--text-primary)' }}>
-                                  {material.item_name || material.free_text || '—'}
-                                </strong>
-                                {Number(material.quantity) > 0
-                                  && ` · ${Number(material.quantity)} ${material.unit || ''}`.trimEnd()}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {activeReviewOrder.special_instructions && (
-                  <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Special instructions: </span>
-                    <strong>{activeReviewOrder.special_instructions}</strong>
-                  </div>
-                )}
-              </div>
+            {/* What is actually being made: the garments as the template
+                groups them -- measurements, style, materials -- with the
+                labels the order form used. Nested on the order payload, so it
+                needs no fetch beyond the template itself. */}
+            {jobs.length > 0 && (
+              <OrderGarmentBrief
+                jobs={jobs}
+                specialInstructions={activeReviewOrder.special_instructions}
+              />
             )}
 
             {/* The approved design, and the Master's note on how to make it.
-                GET /design-studio/boards/ has always served this and even swaps
-                in TailorBriefSerializer for a Tailor -- but api.getDesignBoards
-                had zero callers, so the design the owner approved reached the
-                person stitching it through no screen at all. The notes box
-                lives here because the endpoint that writes it had nowhere to be
-                called from until the board was on screen. */}
+                GET /design-studio/boards/ serves this and swaps in
+                TailorBriefSerializer for a Tailor; the notes box lives here
+                because the endpoint that writes it had nowhere else to be
+                called from. */}
             {stageDesignBrief && stageDesignBrief.design && (
-              <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
-                <div style={{ fontWeight: 700, marginBottom: '8px' }}>Approved design</div>
+              <FormSection icon={Sparkles} tone="amber" title="Approved design"
+                           subtitle="The design the owner approved, and how it is to be made.">
                 <div style={{ display: 'flex', gap: '12px' }}>
                   {stageDesignBrief.design.image_url && (
                     <img src={resolveMediaUrl(stageDesignBrief.design.image_url)} alt="Approved design"
@@ -9552,345 +9410,89 @@ function App() {
                         }}>
                   {savingProductionNotes ? 'Saving…' : 'Save notes'}
                 </button>
-              </div>
+              </FormSection>
             )}
 
-            {/* Stage Info Details */}
-            {selectedStageObj && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Current Status:</span>
-                  <span style={{
-                    fontWeight: 700,
-                    color: selectedStageObj.status === 'COMPLETED' ? '#10b981' : selectedStageObj.status === 'IN_PROGRESS' ? '#3b82f6' : selectedStageObj.status === 'PAUSED' ? '#f59e0b' : '#777'
-                  }}>{selectedStageObj.status.toUpperCase()}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>SLA / Target Time:</span>
-                  <span>{selectedStageObj.sla_hours} Hours</span>
-                </div>
-                {selectedStageObj.started_at && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Started At:</span>
-                    <span>{new Date(selectedStageObj.started_at).toLocaleString()}</span>
-                  </div>
-                )}
-                {selectedStageObj.completed_at && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Completed At:</span>
-                    <span>{new Date(selectedStageObj.completed_at).toLocaleString()}</span>
-                  </div>
-                )}
-                {selectedStageObj.duration_seconds > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Actual Duration:</span>
-                    <span>{(() => {
-                      const mins = Math.floor(selectedStageObj.duration_seconds / 60);
-                      const hrs = Math.floor(mins / 60);
-                      if (hrs > 0) return `${hrs}h ${mins % 60}m`;
-                      return `${mins}m`;
-                    })()}</span>
-                  </div>
-                )}
-                {selectedStageObj.performed_by_name && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Assigned Performer:</span>
-                    <span><strong>{selectedStageObj.performed_by_name}</strong></span>
-                  </div>
-                )}
-              </div>
+            {stage && stage.comments && (
+              <InfoNote icon={FileText} tone="neutral" title="Active notes / logs">
+                &ldquo;{stage.comments}&rdquo;
+              </InfoNote>
             )}
 
-            {/* Existing Stage Feedbacks / Notes */}
-            {selectedStageObj && selectedStageObj.comments && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.01)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Active Notes / Logs:</span>
-                <p style={{ fontSize: '12px', fontStyle: 'italic', margin: 0 }}>"{selectedStageObj.comments}"</p>
-              </div>
-            )}
-
-            {/* Photo Gallery for Stage Attachments */}
-            {selectedStageObj && selectedStageObj.attachments && selectedStageObj.attachments.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Progress Photos ({selectedStageObj.attachments.length}):</span>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '8px' }}>
-                  {selectedStageObj.attachments.map((url, i) => (
-                    <a key={i} href={url} target="_blank" rel="noreferrer">
-                      <img src={url} alt={`attachment-${i}`} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-color)' }} />
+            {stage && stage.attachments && stage.attachments.length > 0 && (
+              <div className="at-field">
+                <span className="at-field-label">Progress photos ({stage.attachments.length})</span>
+                <div className="at-photos">
+                  {stage.attachments.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noreferrer" style={{ lineHeight: 0 }}>
+                      <PhotoTile src={url} alt={`attachment-${i}`} size={72} />
                     </a>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Submit New Transition / Action controls */}
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                Manage Stage Transition
-              </h4>
-
-              {/* Hand this stage to someone, ahead of the work starting.
-                  assign_stage is in SUPERVISOR_ORDER_ACTIONS specifically so a
-                  Master can delegate -- "handing work to someone else is a
-                  supervisor's call" -- and the API honours it, but the only
-                  Assign control in the product was gated to Owner AND lived on
-                  the overview tab, which a Master's nav does not contain and
-                  login never routes them to. The capability was granted and
-                  unreachable. Here it sits on the screen a Master actually
-                  works from. */}
-              {selectedStageObj && (!currentUser.role || currentUser.role === 'Owner'
-                || SUPERVISOR_ROLES.includes(currentUser.role)) && (
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
-                    Assign this stage to
-                  </label>
-                  <select
-                    className="form-control"
-                    style={{ fontSize: '12px', padding: '6px' }}
-                    value={selectedStageObj.assigned_to || ''}
-                    disabled={assigningStageKey === selectedStageObj.stage_key}
-                    onChange={(e) => handleAssignStage(
-                      activeReviewOrder.id, selectedStageObj.stage_key, e.target.value)}
-                  >
-                    <option value="">Unassigned</option>
-                    {eligibleStaffForStage(selectedStageObj.stage_key).map(t => (
-                      <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Who actually did the work, recorded with the transition. This
-                  is a different question from who it was assigned to, and it
-                  used to offer every member of staff regardless of whether the
-                  stage's role list permits them -- so it wrote a pairing that
-                  assign-stage refuses with a 400. */}
-              {(!currentUser.role || currentUser.role === 'Owner'
-                || SUPERVISOR_ROLES.includes(currentUser.role)) && (
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Record who performed this</label>
-                  <select
-                    className="form-control"
-                    style={{ fontSize: '12px', padding: '6px' }}
-                    value={selectedPerformerId}
-                    onChange={(e) => setSelectedPerformerId(e.target.value)}
-                  >
-                    <option value="">-- Select Tailor / Master --</option>
-                    {(selectedStageObj
-                      ? eligibleStaffForStage(selectedStageObj.stage_key)
-                      : tailors).map(t => (
-                      <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Comments / Fitting Logs</label>
-                <textarea 
-                  className="form-control"
-                  style={{ height: '60px', fontSize: '12px' }}
-                  placeholder="Enter notes, alterations details, or comments..."
-                  value={stageReviewComments}
-                  onChange={(e) => setStageReviewComments(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Upload Progress Photo</label>
-                <input
-                  type="file"
-                  className="form-control"
-                  style={{ fontSize: '12px' }}
-                  accept="image/*"
-                  onChange={(e) => setStageReviewImage(e.target.files[0])}
-                />
-                <input
-                  type="file"
-                  id="stage-review-photo-camera"
-                  accept="image/*"
-                  capture="environment"
-                  style={{ display: 'none' }}
-                  onChange={(e) => setStageReviewImage(e.target.files[0])}
-                />
-                <label
-                  htmlFor="stage-review-photo-camera"
-                  className="btn-secondary"
-                  style={{ display: 'inline-block', fontSize: '12px', padding: '6px 10px', marginTop: '6px', cursor: 'pointer' }}
-                >
-                  📷 Take photo
-                </label>
-              </div>
-
-              {/* Action Buttons Panel */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginTop: '10px' }}>
-                {selectedStageObj && (selectedStageObj.status === 'NOT_STARTED' || selectedStageObj.status === 'PAUSED') && (
-                  <button
-                    className="btn-primary"
-                    style={{ background: '#3b82f6', color: '#fff', fontSize: '12px', padding: '8px' }}
-                    disabled={stageTransitionBusy}
-                    onClick={async () => {
-                      if (stageTransitionBusy) return;
-                      setStageTransitionBusy(true);
-                      try {
-                        await api.transitionStage(
-                          activeReviewOrder.id,
-                          selectedStageObj.stage_key,
-                          'IN_PROGRESS',
-                          stageReviewComments,
-                          stageReviewImage ? [stageReviewImage] : [],
-                          selectedPerformerId || null
-                        );
-                        alert("Stage started successfully!");
-                        setActiveReviewStage(null);
-                        setActiveReviewOrder(null);
-                        setSelectedStageObj(null);
-                        setSelectedPerformerId('');
-                        fetchDashboardAndConfig();
-                      } catch (err) {
-                        alert("Failed to transition: " + err.message);
-                      } finally {
-                        setStageTransitionBusy(false);
-                      }
-                    }}
-                  >
-                    Start In-Progress
-                  </button>
-                )}
-
-                {selectedStageObj && selectedStageObj.status === 'IN_PROGRESS' && (
-                  <>
-                    <button
-                      className="btn-secondary"
-                      style={{ background: '#f59e0b', color: '#fff', border: 'none', fontSize: '12px', padding: '8px' }}
-                      disabled={stageTransitionBusy}
-                      onClick={async () => {
-                        if (stageTransitionBusy) return;
-                        setStageTransitionBusy(true);
-                        try {
-                          await api.transitionStage(
-                            activeReviewOrder.id,
-                            selectedStageObj.stage_key,
-                            'PAUSED',
-                            stageReviewComments,
-                            stageReviewImage ? [stageReviewImage] : [],
-                            selectedPerformerId || null
-                          );
-                          alert("Stage paused successfully!");
-                          setActiveReviewStage(null);
-                          setActiveReviewOrder(null);
-                          setSelectedStageObj(null);
-                          setSelectedPerformerId('');
-                          fetchDashboardAndConfig();
-                        } catch (err) {
-                          alert("Failed to transition: " + err.message);
-                        } finally {
-                          setStageTransitionBusy(false);
-                        }
-                      }}
+            {/* Hand this stage to someone, say who did the work, note what
+                happened, photograph it. assign_stage and the performer field
+                are supervisor calls; the API refuses them from anyone else. */}
+            <FormSection icon={RefreshCw} tone="green" title="Manage Stage Transition">
+              <div className="at-form-grid">
+                {stage && isSupervisor && (
+                  <Field label="Assign this stage to" icon={User}>
+                    <select
+                      className="form-control"
+                      value={stage.assigned_to || ''}
+                      disabled={assigningStageKey === stage.stage_key}
+                      onChange={(e) => handleAssignStage(activeReviewOrder.id, stage.stage_key, e.target.value)}
                     >
-                      Pause Stage
-                    </button>
-                    <button
-                      className="btn-primary"
-                      style={{ background: '#10b981', color: '#fff', fontSize: '12px', padding: '8px' }}
-                      disabled={stageTransitionBusy}
-                      onClick={async () => {
-                        if (stageTransitionBusy) return;
-                        setStageTransitionBusy(true);
-                        try {
-                          await api.transitionStage(
-                            activeReviewOrder.id,
-                            selectedStageObj.stage_key,
-                            'COMPLETED',
-                            stageReviewComments,
-                            stageReviewImage ? [stageReviewImage] : [],
-                            selectedPerformerId || null
-                          );
-                          alert("Stage completed successfully!");
-                          setActiveReviewStage(null);
-                          setActiveReviewOrder(null);
-                          setSelectedStageObj(null);
-                          setSelectedPerformerId('');
-                          fetchDashboardAndConfig();
-                        } catch (err) {
-                          alert("Failed to transition: " + err.message);
-                        } finally {
-                          setStageTransitionBusy(false);
-                        }
-                      }}
+                      <option value="">Unassigned</option>
+                      {eligibleStaffForStage(stage.stage_key).map(t => (
+                        <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+                {isSupervisor && (
+                  <Field label="Record who performed this" icon={Users}>
+                    <select
+                      className="form-control"
+                      value={selectedPerformerId}
+                      onChange={(e) => setSelectedPerformerId(e.target.value)}
                     >
-                      Complete Stage
-                    </button>
-                  </>
+                      <option value="">-- Select Tailor / Master --</option>
+                      {(stage ? eligibleStaffForStage(stage.stage_key) : tailors).map(t => (
+                        <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
+                      ))}
+                    </select>
+                  </Field>
                 )}
-
-                {selectedStageObj && selectedStageObj.status !== 'COMPLETED' && selectedStageObj.status !== 'SKIPPED' && (
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '8px' }}
-                    disabled={stageTransitionBusy}
-                    onClick={async () => {
-                      if (stageTransitionBusy) return;
-                      setStageTransitionBusy(true);
-                      try {
-                        await api.transitionStage(
-                          activeReviewOrder.id,
-                          selectedStageObj.stage_key,
-                          'SKIPPED',
-                          stageReviewComments,
-                          stageReviewImage ? [stageReviewImage] : [],
-                          selectedPerformerId || null
-                        );
-                        alert("Stage skipped successfully!");
-                        setActiveReviewStage(null);
-                        setActiveReviewOrder(null);
-                        setSelectedStageObj(null);
-                        setSelectedPerformerId('');
-                        fetchDashboardAndConfig();
-                      } catch (err) {
-                        alert("Failed to transition: " + err.message);
-                      } finally {
-                        setStageTransitionBusy(false);
-                      }
-                    }}
-                  >
-                    Skip Stage
-                  </button>
-                )}
-
-                {/* Reversals. Forward-only is the rule; these are the two
-                    audited exceptions, supervisors only, reason required.
-                    The server enforces all of it -- these buttons only appear
-                    where they could succeed. */}
-                {selectedStageObj && (selectedStageObj.status === 'COMPLETED' || selectedStageObj.status === 'SKIPPED')
-                  && (currentUser?.role === 'Owner' || currentUser?.role === 'Master') && (
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '8px', color: '#b45309', borderColor: '#b45309' }}
-                    disabled={reversalBusy}
-                    onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'reopen' }); }}
-                  >
-                    Reopen Stage…
-                  </button>
-                )}
-                {selectedStageObj && selectedStageObj.stage_key === 'master_quality_check'
-                  && selectedStageObj.status !== 'COMPLETED'
-                  && ['Owner', 'Master', 'QC Staff'].includes(currentUser?.role) && (
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '8px', color: '#b91c1c', borderColor: '#b91c1c' }}
-                    disabled={reversalBusy}
-                    onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'failqc' }); }}
-                  >
-                    Fail QC — Send for Rework…
-                  </button>
-                )}
+                <Field label="Comments / Fitting Logs">
+                  <textarea
+                    className="form-control"
+                    placeholder="Enter notes, alterations details, or comments..."
+                    value={stageReviewComments}
+                    onChange={(e) => setStageReviewComments(e.target.value)}
+                  />
+                </Field>
+                <div className="at-field">
+                  <span className="at-field-label">Upload Progress Photo</span>
+                  {stageReviewImage ? (
+                    <div className="at-photos">
+                      <PhotoTile src={URL.createObjectURL(stageReviewImage)} size={88}
+                                 onRemove={() => setStageReviewImage(null)} />
+                    </div>
+                  ) : (
+                    <Dropzone compact camera
+                              title="Drag & drop an image here" subtitle="or choose a file"
+                              chooseLabel="Choose file" cameraLabel="Take photo"
+                              onFiles={(files) => setStageReviewImage(files[0])} />
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </FormSection>
+          </FormModal>
+        );
+      })()}
 
       {/* AI Draping Modal */}
       {showDrapingModal && selectedFabric && (
