@@ -19,9 +19,10 @@ import { useLanguage } from '../../i18n/LanguageContext.jsx';
  */
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
 };
 
 //: Rows the documents catalogue but which cannot hold stock -- a payment
@@ -117,7 +118,7 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
       </div>
 
       {error && (
-        <div style={{ ...panel, padding: '12px 16px', marginBottom: '12px', borderColor: 'rgba(220,38,38,0.3)', color: '#fca5a5', fontSize: '13px' }}>
+        <div style={{ ...panel, padding: '12px 16px', marginBottom: '12px', borderColor: 'var(--danger-color)', color: 'var(--danger-color)', fontSize: '13px' }}>
           {error}
         </div>
       )}
@@ -175,7 +176,7 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
                   </div>
                 </div>
                 {item.stocked_item_id ? (
-                  <span style={{ fontSize: '11.5px', color: '#34d399', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '11.5px', color: 'var(--success-color)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     <Check size={13} /> {t('inventoryPage.inYourInventory', 'In your inventory')}
                   </span>
                 ) : !item.is_stockable ? (

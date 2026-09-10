@@ -1,27 +1,66 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
 
 :root {
-  --bg-color: #f9f9f9;
-  --surface-color: #ffffff;
-  --text-primary: #1a1c1c;
-  --text-secondary: #5a5f66;
-  --text-muted: #8d939e;
-  --primary-color: #1a1c1c;
-  --primary-hover: #333638;
-  --border-color: #e2e4e8;
-  --border-focus: #1a1c1c;
-  --success-color: #2e7d32;
-  --success-bg: #e8f5e9;
-  --info-color: #0060ac;
-  --info-bg: #d4e3ff;
-  --accent-color: #fcf6ee;
-  --accent-border: #f5e6d3;
-  --accent-text: #b07c40;
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.05);
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  /* ---- Surfaces & ground (warm-paper atelier refresh) ---------------- */
+  --bg-color: #f3f0e9;          /* app ground: warm paper, not cold grey   */
+  --surface-color: #ffffff;     /* cards                                    */
+  --surface-2: #faf7f1;         /* raised / alternating rows               */
+  --surface-inset: #f1ede4;     /* wells, inputs at rest                    */
+
+  /* ---- Text hierarchy (all WCAG AA on white) ------------------------- */
+  --text-primary: #1b201e;      /* headings & values      ~15:1            */
+  --text-secondary: #545e58;    /* body                   ~6.4:1           */
+  --text-muted: #676f68;        /* captions/labels        5.2:1 on white (AA) */
+  --text-on-dark: #f4f1ea;
+
+  /* ---- Brand: deep forest + warm brass ------------------------------- */
+  --primary-color: #16352a;     /* deep forest green                       */
+  --primary-hover: #1f4a3a;
+  --accent-text: #986a26;       /* brass, ~4.8:1 on white (was 3.2:1)      */
+  --accent-color: #f7efe1;      /* brass tint bg                           */
+  --accent-border: #ead9bd;
+
+  /* ---- Borders ------------------------------------------------------- */
+  --border-color: #e5e1d7;      /* warm hairline                           */
+  --border-strong: #d4cfc2;
+  --border-focus: #16352a;
+
+  /* ---- Semantic (color + soft bg), all contrast-safe ----------------- */
+  --success-color: #1c7d4d;  --success-bg: #e6f3ec;
+  --warning-color: #9a6212;  --warning-bg: #fbefd9;
+  --danger-color:  #b02a24;  --danger-bg:  #fbeae9;
+  --info-color:    #1f5fae;  --info-bg:    #e8f0fb;
+
+  /* ---- Type scale (one ladder for the whole product) ----------------- */
+  --text-2xs: 11px;   /* eyebrows, chips              */
+  --text-xs: 12px;    /* captions, meta              */
+  --text-sm: 13px;    /* dense body                  */
+  --text-base: 14px;  /* default body                */
+  --text-md: 16px;    /* card titles                 */
+  --text-lg: 18px;    /* section titles              */
+  --text-xl: 22px;    /* sub-hero, small stat        */
+  --text-2xl: 28px;   /* stat values                 */
+  --text-3xl: 34px;   /* page hero, headline stat    */
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --tracking-eyebrow: 0.08em;
+
+  /* ---- Spacing scale ------------------------------------------------- */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+
+  /* ---- Radii & elevation -------------------------------------------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --shadow-sm: 0 1px 2px rgba(28, 33, 30, 0.04), 0 1px 3px rgba(28, 33, 30, 0.06);
+  --shadow-md: 0 4px 14px rgba(28, 33, 30, 0.06), 0 1px 3px rgba(28, 33, 30, 0.05);
+  --shadow-lg: 0 12px 32px rgba(28, 33, 30, 0.10);
+
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-serif: 'Playfair Display', Georgia, Cambria, "Times New Roman", Times, serif;
 }
@@ -3010,7 +3049,7 @@ table.data-table tbody tr:hover {
   .customer-detail-card > div {
     border-left: none !important;
     padding-left: 0 !important;
-    border-top: 1px solid rgba(255,255,255,0.05);
+    border-top: 1px solid var(--border-color);
     padding-top: 16px;
   }
 
@@ -4104,3 +4143,71 @@ table.data-table tbody tr:hover {
     font-size: 16px !important;
   }
 }
+
+/* =========================================================================
+   Design-system primitives (refresh). Namespaced `ui-` so they compose with
+   the existing classes without collisions. These encode the information
+   hierarchy the redesign is built on: what to read first, in what order.
+   ========================================================================= */
+
+/* Eyebrow: the quiet label above a value/section -- read AFTER the value. */
+.ui-eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: var(--leading-tight);
+}
+
+/* Section heading: the "what am I looking at" for a block of cards. */
+.ui-section-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+  margin: 0;
+}
+.ui-section-sub { font-size: var(--text-sm); color: var(--text-muted); margin: 2px 0 0; }
+
+/* Card: one consistent surface everywhere. */
+.ui-card {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+}
+.ui-card--tap { cursor: pointer; transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease; }
+.ui-card--tap:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); transform: translateY(-1px); }
+
+/* Stat: eyebrow + value + sub, the atom of every metric row. */
+.ui-stat-value { font-size: var(--text-2xl); font-weight: var(--weight-bold); color: var(--text-primary); line-height: var(--leading-tight); font-variant-numeric: tabular-nums; }
+.ui-stat-value--hero { font-size: var(--text-3xl); }
+.ui-stat-sub { font-size: var(--text-xs); color: var(--text-secondary); margin-top: 2px; }
+
+/* Badge / pill: recognisable status at a glance. */
+.ui-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--text-2xs); font-weight: var(--weight-semibold);
+  padding: 2px 8px; border-radius: 999px; line-height: 1.6;
+}
+.ui-badge--success { background: var(--success-bg); color: var(--success-color); }
+.ui-badge--warning { background: var(--warning-bg); color: var(--warning-color); }
+.ui-badge--danger  { background: var(--danger-bg);  color: var(--danger-color); }
+.ui-badge--info    { background: var(--info-bg);    color: var(--info-color); }
+.ui-badge--neutral { background: var(--surface-inset); color: var(--text-secondary); }
+
+/* A row that lists items inside a card, tappable, with a warm hover well. */
+.ui-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+}
+.ui-row--tap { cursor: pointer; transition: background .12s ease; }
+.ui-row--tap:hover { background: var(--surface-inset); }
+
+/* Dashboard KPI band: hero revenue + three supporting stats, responsive. */
+.dashboard-kpi-band { grid-template-columns: minmax(240px, 1.5fr) repeat(3, minmax(150px, 1fr)); }
+@media (max-width: 1000px) { .dashboard-kpi-band { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px)  { .dashboard-kpi-band { grid-template-columns: 1fr; } }

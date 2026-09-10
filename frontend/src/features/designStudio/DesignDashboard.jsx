@@ -25,22 +25,20 @@ const CARD_IMAGE_FALLBACK =
 
 function StatTile({ icon: Icon, label, value, accent }) {
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: '12px', padding: '16px',
-      border: '1px solid var(--border-color)', borderRadius: '10px',
-      background: 'var(--surface-color)',
+    <div className="ui-card" style={{
+      display: 'flex', alignItems: 'center', gap: '12px', padding: 'var(--space-4)',
     }}>
       <div style={{
-        width: '38px', height: '38px', borderRadius: '8px', flexShrink: 0,
+        width: '38px', height: '38px', borderRadius: 'var(--radius-md)', flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: accent ? 'rgba(212,175,55,0.12)' : 'rgba(255,255,255,0.05)',
-        color: accent ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)',
+        background: accent ? 'var(--accent-color)' : 'var(--surface-inset)',
+        color: accent ? 'var(--accent-text)' : 'var(--text-secondary)',
       }}>
         <Icon size={18} />
       </div>
       <div>
-        <div style={{ fontSize: '20px', fontWeight: 700 }}>{value}</div>
-        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{label}</div>
+        <div className="ui-stat-value" style={{ fontSize: 'var(--text-xl)' }}>{value}</div>
+        <div className="ui-eyebrow" style={{ marginTop: '2px' }}>{label}</div>
       </div>
     </div>
   );
@@ -141,7 +139,7 @@ function DesignerRoster() {
 
   if (error) {
     return (
-      <div className="content-card" style={{ color: '#c0392b', fontSize: '12.5px' }}>
+      <div className="content-card" style={{ color: 'var(--danger-color)', fontSize: '12.5px' }}>
         {error}
         <button className="btn-secondary" style={{ marginLeft: '10px', padding: '3px 8px', fontSize: '11px' }}
                 onClick={() => { setError(null); load(); }}>Retry</button>
@@ -188,7 +186,7 @@ function DesignerRoster() {
                 {d.design_count} design{d.design_count === 1 ? '' : 's'}
               </span>
               {d.has_login ? (
-                <span style={{ fontSize: '11px', color: '#34d399', marginLeft: 'auto' }}>Has a login</span>
+                <span style={{ fontSize: '11px', color: 'var(--success-color)', marginLeft: 'auto' }}>Has a login</span>
               ) : (
                 <span style={{ display: 'flex', gap: '6px', marginLeft: 'auto', flex: '1 1 auto', maxWidth: '360px' }}>
                   <input
@@ -252,7 +250,7 @@ export default function DesignDashboard({ onOpenLibrary, canManageDesigners = fa
 
   if (error) {
     return (
-      <div className="content-card" style={{ color: '#c0392b', fontSize: '13px' }}>
+      <div className="content-card" style={{ color: 'var(--danger-color)', fontSize: '13px' }}>
         The design dashboard could not be loaded — {error}
         <button className="btn-secondary" style={{ marginLeft: '10px', padding: '4px 10px', fontSize: '12px' }} onClick={load}>
           {t('common.retry', 'Retry')}
@@ -278,8 +276,10 @@ export default function DesignDashboard({ onOpenLibrary, canManageDesigners = fa
       </div>
 
       {data.pending_approval > 0 && (
-        <div className="accent-banner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-             onClick={() => onOpenLibrary?.('pending')}>
+        <div className="accent-banner" role="button" tabIndex={0}
+             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+             onClick={() => onOpenLibrary?.('pending')}
+             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenLibrary?.('pending'); } }}>
           <span>{data.pending_approval} design{data.pending_approval === 1 ? '' : 's'} waiting on your review.</span>
           <span style={{ fontWeight: 600, textDecoration: 'underline' }}>Open the queue</span>
         </div>

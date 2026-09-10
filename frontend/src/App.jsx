@@ -67,6 +67,100 @@ const UserAvatar = ({ user, size }) => {
   );
 };
 
+// Customer value tier, as one pill. VIP and high-value carry their brand
+// colours; everyone else gets a neutral badge. One component so the directory
+// card and the profile banner cannot drift apart.
+const SEGMENT_TONES = {
+  // fg is a darker brass than --accent-text (#986a26) so 11px badge text clears
+  // WCAG AA (~4.9:1) on the --accent-color tint; bg/bd use the accent tokens.
+  VIP: { bg: 'var(--accent-color)', fg: '#7d6216', bd: 'var(--accent-border)' },
+  HVC: { bg: '#efe9f7', fg: '#6b3fa0', bd: '#dcc9ee' },
+};
+const SegmentBadge = ({ segment }) => {
+  if (!segment) return null;
+  const tone = SEGMENT_TONES[segment];
+  const skin = tone
+    ? { background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }
+    : { background: 'var(--surface-inset)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' };
+  return (
+    <span style={{
+      fontSize: 'var(--text-2xs)', fontWeight: 'var(--weight-bold)', letterSpacing: '0.06em',
+      padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase', ...skin,
+    }}>{segment}</span>
+  );
+};
+
+// The AI "Style Profile" card. Deep-forest hero surface with gold accents --
+// the same emphasis treatment as the dashboard revenue hero -- so a premium
+// insight reads as special without dropping a black card onto the light page.
+// Was two near-identical dark (#141414/#0d0d0d) blocks, one on the directory
+// card and one on the profile detail; now one component. Shows only fields the
+// AI actually filled -- the old detail card printed fabricated demo figures
+// ("premium designer", "Charcoal Black 90%") for every customer with no
+// style_dna, which read as real client data.
+const StyleProfileCard = ({ customer }) => {
+  const dna = customer?.style_dna || {};
+  const rows = [
+    ['Budget', dna.budget], ['Colours', dna.colors], ['Style', dna.style],
+    ['Size', dna.size], ['Visit pattern', dna.visit_pattern],
+  ].filter(([, v]) => v);
+  const riskColor = dna.risk_level === 'danger' ? '#f2a5a0'
+    : dna.risk_level === 'warning' ? '#f0c674' : '#7fd1a3';
+  const gold = '#e3c489';
+  const dim = 'rgba(244,241,234,0.6)';
+  const hair = '1px solid rgba(255,255,255,0.09)';
+  const row = { display: 'flex', justifyContent: 'space-between', gap: '16px',
+                padding: '10px 0', fontSize: 'var(--text-sm)' };
+  const hasAny = rows.length || dna.risk_status || dna.next_action;
+  return (
+    <div style={{
+      background: 'var(--primary-color)', color: 'var(--text-on-dark)',
+      borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-md)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '12px 18px', borderBottom: hair }}>
+        <Sparkles size={15} style={{ color: gold }} />
+        <span className="ui-eyebrow" style={{ color: 'rgba(244,241,234,0.75)' }}>
+          {customer?.first_name ? `${customer.first_name}'s style profile` : 'Style profile'}
+        </span>
+      </div>
+      <div style={{ padding: '4px 18px 14px' }}>
+        {!hasAny && (
+          <div style={{ ...row, color: dim }}>No AI style profile for this customer yet.</div>
+        )}
+        {rows.map(([label, value]) => (
+          <div key={label} style={{ ...row, borderBottom: hair }}>
+            <span style={{ color: dim, fontWeight: 'var(--weight-medium)' }}>{label}</span>
+            <strong style={{ textAlign: 'right' }}>{value}</strong>
+          </div>
+        ))}
+        {dna.risk_status && (
+          <div style={{ ...row, borderBottom: hair }}>
+            <span style={{ color: dim, fontWeight: 'var(--weight-medium)' }}>Risk status</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px',
+                           fontWeight: 'var(--weight-semibold)', color: riskColor }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: riskColor }} />
+              {dna.risk_status}
+            </span>
+          </div>
+        )}
+        {dna.next_action && (
+          <div style={row}>
+            <span style={{ color: dim, fontWeight: 'var(--weight-medium)' }}>Next action</span>
+            <strong style={{ color: gold, textAlign: 'right' }}>&ldquo;{dna.next_action}&rdquo;</strong>
+          </div>
+        )}
+        {hasAny && (
+          <div style={{ fontSize: 'var(--text-2xs)', color: 'rgba(244,241,234,0.45)',
+                        fontStyle: 'italic', marginTop: '10px' }}>
+            Read automatically from your sales data — not entered by hand.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // Live date + time for the dashboard header. Ticks once a minute -- seconds add
 // motion nobody reads and a re-render every second for no reason.
 const HeaderClock = () => {
@@ -3781,11 +3875,13 @@ function App() {
                 <header className="portal-header">
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
+                                   fontWeight: 'var(--weight-medium)', color: 'var(--text-primary)',
+                                   lineHeight: 'var(--leading-tight)' }}>
                         {t('dashboard.welcomeBackUser', `Welcome back, ${currentUserName}! 👋`, { name: currentUserName })}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('dashboard.subtitle')}</p>
-                      <div style={{ marginTop: '6px' }}><HeaderClock /></div>
+                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>{t('dashboard.subtitle')}</p>
+                      <div style={{ marginTop: 'var(--space-2)' }}><HeaderClock /></div>
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -3895,74 +3991,72 @@ function App() {
                   </section>
                 )}
 
-                {/* ── At-a-glance command centre ───────────────────────────
-                    Everything a boutique owner needs to read in one look:
-                    money, the order pipeline, what needs acting on, and what
-                    is happening today. All figures come from /api/dashboard/
-                    (dashboardData); empty states are written for a quiet day
-                    rather than left blank. */}
+                {/* ── Command centre (refresh) ─────────────────────────────
+                    Hierarchy by design: the money reads first (revenue is the
+                    hero), then what needs acting on, then today, then detail.
+                    All figures from /api/dashboard/ (dashboardData). */}
                 {(() => {
                   const s = dashboardData?.stats || {};
-                  const today = dashboardData?.today || {};
-                  const att = dashboardData?.attention || {};
+                  const outstanding = Number(s.outstanding) || 0;
+                  const overdue = Number(s.overdue) || 0;
                   const kpi = (label, value, sub, opts = {}) => (
-                    <div className="content-card" style={{ padding: '16px 18px',
-                         border: '1px solid var(--border-color)', cursor: opts.onClick ? 'pointer' : 'default' }}
-                         onClick={opts.onClick}>
-                      <div style={{ fontSize: '11px', letterSpacing: '0.07em', textTransform: 'uppercase',
-                                    color: 'var(--text-muted)' }}>{label}</div>
-                      <div style={{ fontSize: '24px', fontWeight: 600, marginTop: '6px',
-                                    color: opts.tone || 'inherit' }}>{value}</div>
-                      {sub != null && (
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{sub}</div>
-                      )}
+                    <div className={`ui-card${opts.onClick ? ' ui-card--tap' : ''}`}
+                         onClick={opts.onClick}
+                         style={{ padding: 'var(--space-4) var(--space-5)' }}>
+                      <div className="ui-eyebrow">{label}</div>
+                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)',
+                           fontSize: 'var(--text-xl)', color: opts.tone || 'var(--text-primary)' }}>{value}</div>
+                      {sub != null && <div className="ui-stat-sub">{sub}</div>}
                     </div>
                   );
                   return (
-                    <section style={{ display: 'grid', gap: '12px', marginBottom: '16px',
-                                      gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
-                      {kpi(t('dashboard.revenueMonth', 'Revenue this month'), inr(s.revenue_month),
-                           `${inr(s.revenue_total)} all time`, { tone: '#1e8a5c' })}
-                      {kpi(t('dashboard.toCollect', 'To collect'), inr(s.outstanding),
-                           Number(s.outstanding) > 0 ? 'across active orders' : 'all settled',
-                           { tone: Number(s.outstanding) > 0 ? '#c0864b' : 'inherit',
+                    <section className="dashboard-kpi-band"
+                             style={{ display: 'grid', gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
+                      <div className="ui-card" style={{ background: 'var(--primary-color)', border: 'none',
+                           display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <div className="ui-eyebrow" style={{ color: 'rgba(244,241,234,0.72)' }}>Revenue · this month</div>
+                        <div className="ui-stat-value ui-stat-value--hero"
+                             style={{ color: 'var(--text-on-dark)', marginTop: 'var(--space-2)' }}>{inr(s.revenue_month)}</div>
+                        <div className="ui-stat-sub" style={{ color: 'rgba(244,241,234,0.78)' }}>{inr(s.revenue_total)} all time</div>
+                      </div>
+                      {kpi('To collect', inr(outstanding),
+                           outstanding > 0 ? 'across active orders' : 'all settled',
+                           { tone: outstanding > 0 ? 'var(--accent-text)' : 'var(--text-primary)',
                              onClick: () => setDashboardTab('orders') })}
-                      {kpi(t('dashboard.activeOrders', 'Active orders'), s.active_orders ?? 0,
-                           `${s.due_soon ?? 0} due this week${s.overdue ? ` · ${s.overdue} overdue` : ''}`,
-                           { tone: s.overdue ? '#c0392b' : 'inherit',
+                      {kpi('Active orders', s.active_orders ?? 0,
+                           `${s.due_soon ?? 0} due this week${overdue ? ` · ${overdue} overdue` : ''}`,
+                           { tone: overdue ? 'var(--danger-color)' : 'var(--text-primary)',
                              onClick: () => setDashboardTab('orders') })}
-                      {kpi(t('dashboard.customers', 'Customers'), s.total_customers ?? 0,
+                      {kpi('Customers', s.total_customers ?? 0,
                            `${s.total_orders ?? 0} orders total`,
                            { onClick: () => setDashboardTab('customers') })}
                     </section>
                   );
                 })()}
 
-                {/* Production pipeline: where every order currently sits. */}
+                {/* Production pipeline */}
                 {(() => {
                   const dist = dashboardData?.stats?.status_distribution || {};
                   const entries = Object.entries(dist).sort((a, b) => b[1] - a[1]);
                   const toneFor = (st) =>
-                    st === 'Delivered' ? '#1e8a5c'
+                    st === 'Delivered' ? 'var(--success-color)'
                       : st === 'Cancelled' ? 'var(--text-muted)'
-                      : '#0f291e';
+                      : 'var(--primary-color)';
                   return (
-                    <section className="content-card" style={{ padding: '16px 18px',
-                             border: '1px solid var(--border-color)', marginBottom: '16px' }}>
-                      <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
-                        {t('dashboard.pipeline', 'Production pipeline')}
-                      </div>
+                    <section className="ui-card" style={{ marginBottom: 'var(--space-5)' }}>
+                      <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Production pipeline</div>
                       {entries.length === 0 ? (
-                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                           No orders yet. Create the first one to see it move through the floor.
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
                           {entries.map(([st, count]) => (
                             <div key={st} style={{ flex: '1 1 120px', minWidth: '110px',
-                                 border: '1px solid var(--border-color)', borderRadius: '10px', padding: '12px 14px' }}>
-                              <div style={{ fontSize: '22px', fontWeight: 700, color: toneFor(st) }}>{count}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{st}</div>
+                                 border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
+                                 padding: 'var(--space-3) var(--space-4)', background: 'var(--surface-2)' }}>
+                              <div className="ui-stat-value" style={{ fontSize: 'var(--text-xl)', color: toneFor(st) }}>{count}</div>
+                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>{st}</div>
                             </div>
                           ))}
                         </div>
@@ -3971,62 +4065,47 @@ function App() {
                   );
                 })()}
 
-                {/* Two columns: what needs acting on, and what is happening today. */}
-                <div className="dashboard-row-layout" style={{ marginBottom: '16px' }}>
-                  {/* Needs attention */}
-                  <div className="content-card" style={{ padding: '16px 18px', border: '1px solid var(--border-color)' }}>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
-                      {t('dashboard.needsAttention', 'Needs attention')}
-                    </div>
+                {/* Needs attention | Today */}
+                <div className="dashboard-row-layout" style={{ marginBottom: 'var(--space-5)' }}>
+                  <div className="ui-card">
+                    <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Needs attention</div>
                     {(() => {
                       const att = dashboardData?.attention || {};
                       const due = att.due || [];
                       const unpaid = att.unpaid || [];
-                      const nothing = !due.length && !unpaid.length && !att.low_stock && !att.pending_designs;
-                      if (nothing) {
-                        return <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      if (!due.length && !unpaid.length && !att.low_stock && !att.pending_designs) {
+                        return <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                           Nothing needs you right now — no overdue orders, balances or low stock.
                         </div>;
                       }
                       return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
                           {due.map((o) => (
-                            <div key={`due-${o.id}`} onClick={() => setDashboardTab('orders')}
-                                 style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
-                                          padding: '8px 10px', borderRadius: '8px', cursor: 'pointer',
-                                          background: o.overdue ? 'rgba(220,80,60,0.10)' : 'rgba(240,136,62,0.10)' }}>
-                              <span style={{ fontSize: '13px' }}>{o.order_id} · {o.customer || 'Customer'}</span>
-                              <span style={{ fontSize: '12px', fontWeight: 600,
-                                             color: o.overdue ? '#c0392b' : '#c0864b' }}>
+                            <div key={`due-${o.id}`} className="ui-row ui-row--tap" onClick={() => setDashboardTab('orders')}>
+                              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                                {o.order_id} · {o.customer || 'Customer'}</span>
+                              <span className={`ui-badge ui-badge--${o.overdue ? 'danger' : 'warning'}`}>
                                 {o.overdue ? 'Overdue' : 'Due'} {o.due ? new Date(o.due).toLocaleDateString([], { day: 'numeric', month: 'short' }) : ''}
                               </span>
                             </div>
                           ))}
                           {unpaid.map((o) => (
-                            <div key={`bal-${o.id}`} onClick={() => setDashboardTab('orders')}
-                                 style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
-                                          padding: '8px 10px', borderRadius: '8px', cursor: 'pointer',
-                                          background: 'var(--bg-color, rgba(0,0,0,0.02))' }}>
-                              <span style={{ fontSize: '13px' }}>{o.order_id} · {o.customer || 'Customer'}</span>
-                              <span style={{ fontSize: '12px', fontWeight: 600, color: '#c0864b' }}>{inr(o.balance)} due</span>
+                            <div key={`bal-${o.id}`} className="ui-row ui-row--tap" onClick={() => setDashboardTab('orders')}>
+                              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                                {o.order_id} · {o.customer || 'Customer'}</span>
+                              <span className="ui-badge ui-badge--warning">{inr(o.balance)} due</span>
                             </div>
                           ))}
                           {att.low_stock > 0 && (
-                            <div onClick={() => setDashboardTab('inventory')}
-                                 style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px',
-                                          borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
-                                          background: 'var(--bg-color, rgba(0,0,0,0.02))' }}>
-                              <span>Low stock</span>
-                              <span style={{ fontWeight: 600, color: '#c0864b' }}>{att.low_stock} item{att.low_stock === 1 ? '' : 's'}</span>
+                            <div className="ui-row ui-row--tap" onClick={() => setDashboardTab('inventory')}>
+                              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>Low stock</span>
+                              <span className="ui-badge ui-badge--warning">{att.low_stock} item{att.low_stock === 1 ? '' : 's'}</span>
                             </div>
                           )}
                           {att.pending_designs > 0 && (
-                            <div onClick={() => setDashboardTab('designWork')}
-                                 style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px',
-                                          borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
-                                          background: 'var(--bg-color, rgba(0,0,0,0.02))' }}>
-                              <span>Designs awaiting review</span>
-                              <span style={{ fontWeight: 600 }}>{att.pending_designs}</span>
+                            <div className="ui-row ui-row--tap" onClick={() => setDashboardTab('designWork')}>
+                              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>Designs awaiting review</span>
+                              <span className="ui-badge ui-badge--info">{att.pending_designs}</span>
                             </div>
                           )}
                         </div>
@@ -4034,41 +4113,37 @@ function App() {
                     })()}
                   </div>
 
-                  {/* Today */}
-                  <div className="content-card" style={{ padding: '16px 18px', border: '1px solid var(--border-color)' }}>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
-                      {t('dashboard.today', 'Today')}
-                    </div>
+                  <div className="ui-card">
+                    <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Today</div>
                     {(() => {
                       const today = dashboardData?.today || {};
                       const appts = today.appointments || [];
                       return (
                         <>
-                          <div style={{ display: 'flex', gap: '10px', marginBottom: appts.length ? '14px' : '0' }}>
-                            <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: '10px',
-                                          padding: '10px 12px', cursor: 'pointer' }}
-                                 onClick={() => setDashboardTab('staff')}>
-                              <div style={{ fontSize: '20px', fontWeight: 700, color: '#1e8a5c' }}>{today.staff_working ?? 0}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>on the floor now</div>
+                          <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: appts.length ? 'var(--space-4)' : 0 }}>
+                            <div className="ui-row--tap" onClick={() => setDashboardTab('staff')}
+                                 style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
+                                          padding: 'var(--space-3) var(--space-4)', background: 'var(--surface-2)' }}>
+                              <div className="ui-stat-value" style={{ fontSize: 'var(--text-xl)', color: 'var(--success-color)' }}>{today.staff_working ?? 0}</div>
+                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>on the floor now</div>
                             </div>
-                            <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: '10px',
-                                          padding: '10px 12px' }}>
-                              <div style={{ fontSize: '20px', fontWeight: 700 }}>{today.staff_present ?? 0}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>present today</div>
+                            <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
+                                          padding: 'var(--space-3) var(--space-4)', background: 'var(--surface-2)' }}>
+                              <div className="ui-stat-value" style={{ fontSize: 'var(--text-xl)' }}>{today.staff_present ?? 0}</div>
+                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>present today</div>
                             </div>
                           </div>
                           {appts.length === 0 ? (
-                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                               No appointments booked for today.
                             </div>
                           ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
                               {appts.map((a) => (
-                                <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
-                                     fontSize: '13px', paddingBottom: '6px',
-                                     borderBottom: '1px solid var(--border-color)' }}>
-                                  <span><b>{a.time}</b> · {a.customer || 'Customer'}</span>
-                                  <span style={{ color: 'var(--text-secondary)' }}>{a.type}{a.with ? ` · ${a.with}` : ''}</span>
+                                <div key={a.id} className="ui-row" style={{ borderBottom: '1px solid var(--border-color)', borderRadius: 0 }}>
+                                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                                    <b>{a.time}</b> · {a.customer || 'Customer'}</span>
+                                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{a.type}{a.with ? ` · ${a.with}` : ''}</span>
                                 </div>
                               ))}
                             </div>
@@ -4079,39 +4154,33 @@ function App() {
                   </div>
                 </div>
 
-                {/* Recent orders + quick actions. */}
+                {/* Recent orders | Quick actions */}
                 <div className="dashboard-row-layout">
-                  <div className="orders-list-panel">
-                    <div className="panel-header-row" style={{ marginBottom: '10px' }}>
-                      <h3 style={{ fontSize: '15px', fontWeight: 600 }}>{t('dashboard.recentOrders', 'Recent orders')}</h3>
-                      <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                  <div className="ui-card">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+                      <div className="ui-eyebrow">Recent orders</div>
+                      <button type="button" className="btn-secondary" style={{ fontSize: 'var(--text-xs)', padding: '6px 12px' }}
                               onClick={() => setDashboardTab('orders')}>{t('dashboard.viewAll', 'View all')}</button>
                     </div>
                     {!dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
-                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
                         No orders yet.
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
                         {dashboardData.recent_orders.map((order) => (
-                          <div key={order.id || order.order_id}
-                               onClick={() => setDashboardTab('orders')}
-                               style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
-                                        alignItems: 'center', padding: '10px 12px', borderRadius: '8px',
-                                        border: '1px solid var(--border-color)', cursor: 'pointer' }}>
+                          <div key={order.id || order.order_id} className="ui-row ui-row--tap"
+                               onClick={() => setDashboardTab('orders')}>
                             <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, fontSize: '13px' }}>{order.order_id}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                                {order.customer_name || order.customer || 'Customer'}
-                              </div>
+                              <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>{order.order_id}</div>
+                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                                {order.customer_name || order.customer || 'Customer'}</div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontWeight: 600, fontSize: '13px' }}>
-                                {order.total_amount != null ? inr(order.total_amount) : ''}
-                              </div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                {order.order_status || order.status || ''}
-                              </div>
+                              <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                                {order.total_amount != null ? inr(order.total_amount) : ''}</div>
+                              <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)' }}>
+                                {order.order_status || order.status || ''}</div>
                             </div>
                           </div>
                         ))}
@@ -4119,10 +4188,8 @@ function App() {
                     )}
                   </div>
 
-                  <div className="content-card" style={{ padding: '16px 18px', border: '1px solid var(--border-color)' }}>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
-                      {t('dashboard.quickActions', 'Quick actions')}
-                    </div>
+                  <div className="ui-card">
+                    <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Quick actions</div>
                     <section className="quick-action-button-grid">
                       <div className="quick-action-item" onClick={() => setView('order-selector')}>
                         <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
@@ -4178,17 +4245,23 @@ function App() {
               <>
                 <header className="portal-header">
                   <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
+                                   fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
                         {t('fabricsPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('fabricsPage.subtitle')}</p>
+                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('fabricsPage.subtitle')}</p>
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button className="btn-primary" onClick={() => {
                       setEditingFabric(null);
                       setFabricForm({ name: '', material: '', color: '', color_hex: '#c8a97e', price_per_meter: '', image_url: '', image_urls: [], is_available: true });
+                      // Clear any photos staged in a modal that was opened and
+                      // abandoned -- the Edit path already does this, so without
+                      // it those photos would ride onto the new fabric on save.
+                      setFabricPhotoFiles([]);
+                      setFabricPhotoPreviews([]);
                       setShowFabricModal(true);
                     }}>
                       <Plus size={16} />
@@ -4205,12 +4278,19 @@ function App() {
 
 
                 <div className="fabric-manager-content" style={{ marginTop: '24px' }}>
-                  <div className="fabrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
+                  {fabrics.length === 0 ? (
+                    <div className="ui-card" style={{ padding: '48px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                      <div style={{ fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)', marginBottom: '6px' }}>
+                        {t('fabricsPage.noFabricsYet', 'No fabrics in your library yet')}
+                      </div>
+                      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', maxWidth: '44ch', margin: '0 auto', lineHeight: 'var(--leading-normal)' }}>
+                        {t('fabricsPage.noFabricsHint', 'Add the cloths you keep in stock — their colour, material and price per metre — so they can be picked when you take an order.')}
+                      </div>
+                    </div>
+                  ) : (
+                  <div className="fabrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
                     {fabrics.map(fabric => (
-                      <div key={fabric.id} className="fabric-manage-card" style={{
-                        background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                        border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                        borderRadius: '12px',
+                      <div key={fabric.id} className="fabric-manage-card ui-card" style={{
                         padding: '16px',
                         display: 'flex',
                         flexDirection: 'column',
@@ -4221,7 +4301,7 @@ function App() {
                           <div className="fabric-image-swatch" style={{
                             width: '80px',
                             height: '80px',
-                            borderRadius: '8px',
+                            borderRadius: 'var(--radius-md)',
                             overflow: 'hidden',
                             // "Aqua Blue" is not a CSS colour, so this tile was
                             // blank for every fabric named the way a boutique
@@ -4231,7 +4311,7 @@ function App() {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            border: '1px solid rgba(255,255,255,0.1)'
+                            border: '1px solid var(--border-color)'
                           }}>
                             {fabric.image_url ? (
                               <img src={resolveMediaUrl(fabric.image_url)} alt={fabric.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -4242,26 +4322,26 @@ function App() {
                             )}
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <h4 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>{fabric.name}</h4>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Material: {fabric.material}</span>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <h4 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>{fabric.name}</h4>
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Material: {fabric.material}</span>
+                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                               {fabric.color_hex && (
                                 <i title={fabric.color_hex} style={{ width: '12px', height: '12px', borderRadius: '3px', background: fabric.color_hex, border: '1px solid var(--border-color)', flexShrink: 0 }} />
                               )}
                               Color: {fabric.color}
                             </span>
-                            <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--accent-text, #b07c40)', marginTop: '4px' }}>
+                            <span style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--accent-text)', marginTop: '4px' }}>
                               {formatMoney(fabric.price_per_meter)}/mtr
                             </span>
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }}>
-                          <span className={`order-row-badge ${fabric.is_available ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+                          <span className={`ui-badge ${fabric.is_available ? 'ui-badge--success' : 'ui-badge--neutral'}`}>
                             {fabric.is_available ? 'Available' : 'Out of Stock'}
                           </span>
                           <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
+                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }} onClick={() => {
                               setEditingFabric(fabric);
                               setFabricForm({
                                 name: fabric.name,
@@ -4279,7 +4359,7 @@ function App() {
                             }}>
                               <Edit2 size={12} /> Edit
                             </button>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }} disabled={deletingFabricId === fabric.id} onClick={() => handleDeleteFabric(fabric.id)}>
+                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: 'var(--text-xs)', color: 'var(--danger-color)', borderColor: 'var(--danger-color)' }} disabled={deletingFabricId === fabric.id} onClick={() => handleDeleteFabric(fabric.id)}>
                               {deletingFabricId === fabric.id ? 'Deleting…' : <><Trash2 size={12} /> Delete</>}
                             </button>
                           </div>
@@ -4287,6 +4367,7 @@ function App() {
                       </div>
                     ))}
                   </div>
+                  )}
                 </div>
               </>
             )}
@@ -4299,11 +4380,11 @@ function App() {
               <>
                 <header className="portal-header">
                   <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
                         {t('designWorkPage.title', 'Design Work')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                         {currentUser?.role === 'Designer'
                           ? t('designWorkPage.subtitleDesigner', 'The garments you have been asked to design.')
                           : t('designWorkPage.subtitleSupervisor', 'Assign a garment to a designer, and review what comes back.')}
@@ -4324,11 +4405,11 @@ function App() {
               <>
                 <header className="portal-header">
                   <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
                         {t('designsPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('designsPage.subtitle')}</p>
+                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('designsPage.subtitle')}</p>
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -4415,15 +4496,17 @@ function App() {
                 <header className="portal-header">
                   <div className="portal-header-left">
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
+                                   fontWeight: 'var(--weight-medium)', color: 'var(--text-primary)',
+                                   lineHeight: 'var(--leading-tight)' }}>
                         {t('ordersPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
                         {t('ordersPage.subtitle')}
                       </p>
                     </div>
                   </div>
-                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
                     {(!currentUser?.role || currentUser.role === 'Owner') && (
                       <button className="btn-primary" onClick={handleStartNewCustomer}>
                         <Plus size={16} /> {t('ordersPage.newOrder')}
@@ -4432,44 +4515,32 @@ function App() {
                   </div>
                 </header>
 
-                <div className="orders-registry-content" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  {/* Filters & Search */}
-                  <div style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '16px',
-                    background: 'var(--surface-color)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '12px',
-                    padding: '16px'
-                  }}>
-                    {/* Filter Tabs. Wrapping, not nowrap: four pills do not fit
-                        one 320px row and "Delivered" was clipped off the end. */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <div className="orders-registry-content" style={{ marginTop: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                  {/* Filters & search */}
+                  <div className="ui-card" style={{ display: 'flex', flexWrap: 'wrap',
+                       justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-4)',
+                       padding: 'var(--space-3) var(--space-4)' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
                       {[
                         { key: 'All', label: t('ordersPage.filterAll') },
                         { key: 'Active', label: t('ordersPage.filterActive') },
                         { key: 'Shipped', label: t('ordersPage.filterShipped') },
                         { key: 'Delivered', label: t('ordersPage.filterDelivered') }
                       ].map(({ key: statusTab, label }) => (
-                        <button 
+                        <button
                           key={statusTab}
                           onClick={() => setOrdersFilterTab(statusTab)}
                           className={ordersFilterTab === statusTab ? 'btn-primary' : 'btn-secondary'}
-                          style={{ padding: '6px 16px', fontSize: '13px' }}
+                          style={{ padding: '6px 16px', fontSize: 'var(--text-sm)' }}
                         >
                           {label}
                         </button>
                       ))}
                     </div>
-
-                    {/* Search Input */}
                     <div className="search-bar-container" style={{ width: '100%', maxWidth: '300px', margin: 0 }}>
                       <Search className="search-icon" size={16} />
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder={t('ordersPage.searchPlaceholder')}
                         className="search-input"
                         value={ordersSearch}
@@ -4478,12 +4549,15 @@ function App() {
                     </div>
                   </div>
 
-
-                  {/* Orders List Grid */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Orders list */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
                     {(() => {
+                      const statusTone = (st) =>
+                        st === 'Delivered' ? 'success'
+                          : st === 'Cancelled' ? 'neutral'
+                          : (st === 'Shipped' || st === 'Ready for Dispatch') ? 'info'
+                          : 'warning';
                       const filtered = ordersList.filter(order => {
-                        // Status filter
                         if (ordersFilterTab === 'Active') {
                           if (['Shipped', 'Delivered'].includes(order.order_status)) return false;
                         } else if (ordersFilterTab === 'Shipped') {
@@ -4491,39 +4565,22 @@ function App() {
                         } else if (ordersFilterTab === 'Delivered') {
                           if (order.order_status !== 'Delivered') return false;
                         }
-
-                        // Search text filter
                         if (ordersSearch.trim()) {
                           const query = ordersSearch.toLowerCase();
                           const matchesId = order.order_id.toLowerCase().includes(query);
                           const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
                           return matchesId || matchesClient;
                         }
-
                         return true;
                       });
 
                       if (filtered.length === 0) {
                         return (
-                          <div style={{
-                            background: 'var(--surface-color)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '12px',
-                            padding: '40px',
-                            textAlign: 'center',
-                            color: 'var(--text-muted)'
-                          }}>
-                            {/* Distinguish "no results for your filters" from
-                                "you have not made an order yet". On day one no
-                                filter is set and there is nothing to filter, so
-                                telling a new owner their filters matched
-                                nothing is both wrong and a dead end. The
-                                dashboard's own orders panel already gets this
-                                right. */}
+                          <div className="ui-card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-muted)' }}>
                             {ordersList.length === 0 ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t('ordersPage.noOrdersYet', 'No orders yet')}</div>
-                                <div style={{ fontSize: '13px', maxWidth: '44ch', lineHeight: 1.5 }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', alignItems: 'center' }}>
+                                <div style={{ fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)', fontSize: 'var(--text-md)' }}>{t('ordersPage.noOrdersYet', 'No orders yet')}</div>
+                                <div style={{ fontSize: 'var(--text-sm)', maxWidth: '44ch', lineHeight: 'var(--leading-normal)' }}>
                                   {t('ordersPage.noOrdersYetDesc', 'Orders you create will appear here, with their production stage and who is working on them.')}
                                 </div>
                                 <button className="btn-primary" onClick={() => setView('order-selector')}>
@@ -4536,26 +4593,19 @@ function App() {
                       }
 
                       return filtered.map(order => (
-                        <div key={order.id} style={{
-                          background: 'var(--surface-color)',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: '12px',
-                          padding: '24px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '16px'
-                        }}>
-                          {/* Top Row: Order Header */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                        <div key={order.id} className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-6)' }}>
+                          {/* Header: id + status read first; client/date meta; verification note */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
                             <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <span style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-primary)' }}>{order.order_id}</span>
-                                <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 'var(--weight-bold)', fontSize: 'var(--text-lg)', color: 'var(--text-primary)', fontFamily: 'var(--font-serif)' }}>{order.order_id}</span>
+                                <span className={`ui-badge ui-badge--${statusTone(order.order_status)}`}>
                                   {order.order_status_display || t(`status.${order.order_status}`, order.order_status)}
                                 </span>
                               </div>
-                              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                {t('ordersPage.client', 'Client:')} <strong>{order.customer_name}</strong> | {t('ordersPage.created', 'Created:')} {fmtDate(order.order_date)}
+                              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
+                                {t('ordersPage.client', 'Client:')} <strong style={{ color: 'var(--text-primary)' }}>{order.customer_name}</strong>
+                                {'  ·  '}{t('ordersPage.created', 'Created:')} {fmtDate(order.order_date)}
                               </div>
                               {(() => {
                                 const v = order.master_verification || {};
@@ -4563,20 +4613,19 @@ function App() {
                                 const checked = Object.values(v).filter(Boolean).length;
                                 if (checked > 0) {
                                   return (
-                                    <div style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(212,175,55,0.08)', padding: '2px 8px', borderRadius: '4px', marginTop: '4px' }}>
-                                      <span>{t('ordersPage.masterVerified', '👑 Master Verified:')} {checked}/{total} items ({Math.round((checked/total)*100)}%)</span>
-                                    </div>
+                                    <span className="ui-badge ui-badge--success" style={{ marginTop: 'var(--space-2)' }}>
+                                      👑 {t('ordersPage.masterVerified', 'Master Verified:')} {checked}/{total} ({Math.round((checked/total)*100)}%)
+                                    </span>
                                   );
                                 }
                                 return null;
                               })()}
                             </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <span style={{ fontSize: '13px', fontWeight: 600 }}>{t('ordersPage.updateStatus', 'Update Status:')}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                              <span className="ui-eyebrow">{t('ordersPage.updateStatus', 'Update status')}</span>
                               <select
                                 className="form-control"
-                                style={{ fontSize: '13px', padding: '6px 12px', width: '180px', margin: 0 }}
+                                style={{ fontSize: 'var(--text-sm)', padding: '6px 12px', width: '180px', margin: 0 }}
                                 value={order.order_status}
                                 disabled={updatingStatusOrderId === order.id}
                                 onChange={(e) => {
@@ -4595,16 +4644,37 @@ function App() {
                             </div>
                           </div>
 
-                          {/* Horizontal Progress Timeline */}
+                          {/* Key facts strip: the four numbers/people to scan */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                               gap: 'var(--space-4)', padding: 'var(--space-4)', background: 'var(--surface-2)',
+                               borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                            <div>
+                              <div className="ui-eyebrow">{t('ordersPage.supervisingMaster', 'Supervising Master')}</div>
+                              <div style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)', marginTop: '2px', color: order.master_name ? 'var(--accent-text)' : 'var(--text-muted)' }}>{order.master_name || t('ordersPage.unassigned', 'Unassigned')}</div>
+                            </div>
+                            <div>
+                              <div className="ui-eyebrow">{t('ordersPage.stitchingTailor', 'Stitching Tailor')}</div>
+                              <div style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)', marginTop: '2px', color: order.tailor_name ? 'var(--text-primary)' : 'var(--text-muted)' }}>{order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
+                            </div>
+                            {!isProductionStaff(currentUser.role) && (
+                              <div>
+                                <div className="ui-eyebrow">{t('ordersPage.totalValue', 'Total Value')}</div>
+                                <div className="ui-stat-value" style={{ fontSize: 'var(--text-lg)', marginTop: '2px' }}>{inr(order.total_amount)}</div>
+                              </div>
+                            )}
+                            <div>
+                              <div className="ui-eyebrow">{t('ordersPage.estDelivery', 'Est. Delivery')}</div>
+                              <div style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)', marginTop: '2px', color: 'var(--text-primary)' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : t('ordersPage.tbd', 'TBD')}</div>
+                            </div>
+                          </div>
+
+                          {/* Production timeline */}
                           <StageTimeline
                             stages={order.stages}
                             onSelectStage={(stage) => openStageReview(order, stage)}
                           />
 
-                          <GarmentGallery
-                            order={order}
-                            onChanged={fetchDashboardAndConfig}
-                          />
+                          <GarmentGallery order={order} onChanged={fetchDashboardAndConfig} />
 
                           <CustomerMessageQueue
                             orderId={order.id}
@@ -4612,70 +4682,18 @@ function App() {
                             onMarkSent={handleMarkMessageSent}
                           />
 
-                          {/* Middle Row: Assignment & Financials */}
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                            gap: '16px',
-                            background: 'rgba(0,0,0,0.015)',
-                            padding: '16px',
-                            borderRadius: '8px',
-                            border: '1px solid var(--border-color)'
-                          }}>
-                            <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.supervisingMaster', 'Supervising Master')}</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-text, #b07c40)' }}>{order.master_name || t('ordersPage.unassigned', 'Unassigned')}</div>
-                            </div>
-                            <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.stitchingTailor', 'Stitching Tailor')}</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
-                            </div>
-                            {/* The same guard the assignment card one screen
-                                earlier already applies to the identical figure.
-                                isProductionStaff includes 'Master', and the
-                                Master's nav routes to this registry -- so the
-                                one screen that was left ungated showed every
-                                order's value to the roles the rule exists to
-                                keep it from. Guarded here rather than by
-                                popping the field from OrderSerializer, which is
-                                also the read path for the invoice modal, the
-                                customer tracking page and the whole registry. */}
-                            {!isProductionStaff(currentUser.role) && (
-                              <div>
-                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.totalValue', 'Total Value')}</span>
-                                <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
-                              </div>
-                            )}
-                            <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.estDelivery', 'Est. Delivery')}</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : t('ordersPage.tbd', 'TBD')}</div>
-                            </div>
-                          </div>
-
-                          {/* The gathering checklist: what the store room owes
-                              this order, who had it in hand, and the photos
-                              that ride down the roadmap. */}
-                          <div style={{ padding: '14px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'left' }}>
-                            <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              🧵 Raw Materials Checklist
-                            </h4>
+                          {/* Raw materials checklist */}
+                          <div style={{ padding: 'var(--space-4)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
+                            <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-2)' }}>🧵 Raw materials checklist</div>
                             <MaterialsChecklist orderId={order.id} role={currentUser.role} />
                           </div>
 
-                          {/* Master Verification Checklist in Orders Tab */}
+                          {/* Master verification checklist */}
                           {currentUser.role === 'Master' && (
-                            <div style={{
-                              padding: '16px',
-                              background: 'rgba(212,175,55,0.03)',
-                              border: '1px solid rgba(212,175,55,0.15)',
-                              borderRadius: '8px',
-                              textAlign: 'left'
-                            }}>
-                              <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                👑 Master Production Verification Checklist
-                              </h4>
-                              
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px 16px' }}>
+                            <div style={{ padding: 'var(--space-4)', background: 'var(--accent-color)',
+                                 border: '1px solid var(--accent-border)', borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
+                              <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)', color: 'var(--accent-text)' }}>👑 Master production verification</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-2) var(--space-4)' }}>
                                 {[
                                   { key: 'dress_cutting', label: 'Dress & Pattern Cutting' },
                                   { key: 'thread', label: 'Matching Thread & Accents' },
@@ -4687,17 +4705,14 @@ function App() {
                                 ].map(item => {
                                   const isChecked = order.master_verification?.[item.key] || false;
                                   return (
-                                    <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                                    <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', cursor: 'pointer' }}>
                                       <input
                                         type="checkbox"
                                         checked={isChecked}
                                         disabled={savingVerificationOrderId === order.id}
                                         onChange={async (e) => {
                                           if (savingVerificationOrderId) return;
-                                          const updatedVerification = {
-                                            ...(order.master_verification || {}),
-                                            [item.key]: e.target.checked
-                                          };
+                                          const updatedVerification = { ...(order.master_verification || {}), [item.key]: e.target.checked };
                                           setSavingVerificationOrderId(order.id);
                                           try {
                                             await api.saveMasterVerification(order.id, updatedVerification);
@@ -4719,21 +4734,14 @@ function App() {
                             </div>
                           )}
 
-                          {/* Bottom Row: Delivery details */}
-                          <div style={{
-                            background: 'rgba(0,0,0,0.01)',
-                            border: '1px dashed var(--border-color)',
-                            borderRadius: '8px',
-                            padding: '16px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px'
-                          }}>
-                            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {/* Delivery */}
+                          <div style={{ background: 'var(--surface-2)', border: '1px dashed var(--border-strong)',
+                               borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)' }}>
                               {t('ordersPage.deliveryMethodLabel', 'Delivery Method:')} {order.delivery_method_display || t(`deliveryMethod.${order.delivery_method}`, order.delivery_method)}
                             </div>
                             {order.delivery_method === 'Courier' && (
-                              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                                 <div><strong>Courier Service Provider:</strong> {order.courier_service || 'TBD'}</div>
                                 <div><strong>Tracking Reference:</strong> {order.tracking_number || 'TBD'}</div>
                                 <div style={{ gridColumn: 'span 2', marginTop: '4px' }}>
@@ -4743,42 +4751,24 @@ function App() {
                             )}
                           </div>
 
-                          {/* Tailor Stitching Completion details */}
+                          {/* Tailor completion report */}
                           {(order.tailor_comments || order.completed_garment_image) && (
-                            <div style={{
-                              background: 'rgba(212,175,55,0.02)',
-                              border: '1px solid rgba(212,175,55,0.15)',
-                              borderRadius: '8px',
-                              padding: '16px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '10px'
-                            }}>
-                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Scissors size={14} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                                <span>Stitching Completion Report (Tailor Feedback)</span>
+                            <div style={{ background: 'var(--accent-color)', border: '1px solid var(--accent-border)',
+                                 borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                              <div className="ui-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--accent-text)' }}>
+                                <Scissors size={13} /> Stitching completion report
                               </div>
                               {order.tailor_comments && (
-                                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
+                                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
                                   "{order.tailor_comments}"
                                 </p>
                               )}
                               {order.completed_garment_image && (
                                 <div style={{ marginTop: '4px' }}>
-                                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Garment Photo:</span>
+                                  <span className="ui-eyebrow" style={{ display: 'block', marginBottom: '6px' }}>Garment photo</span>
                                   <a href={order.completed_garment_image} target="_blank" rel="noreferrer">
-                                    <img 
-                                      src={order.completed_garment_image} 
-                                      alt="Completed Garment" 
-                                      style={{
-                                        width: '100px',
-                                        height: '100px',
-                                        objectFit: 'cover',
-                                        borderRadius: '6px',
-                                        border: '1px solid var(--border-color)',
-                                        cursor: 'pointer'
-                                      }} 
-                                    />
+                                    <img src={order.completed_garment_image} alt="Completed Garment"
+                                      style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', cursor: 'pointer' }} />
                                   </a>
                                 </div>
                               )}
@@ -4797,23 +4787,24 @@ function App() {
               <>
                 <header className="portal-header">
                   <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
+                                   fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
                         {t('customersPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('customersPage.subtitle')}</p>
+                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('customersPage.subtitle')}</p>
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div className="search-input-wrapper" style={{ margin: 0 }}>
                       <Search size={18} />
-                      <input 
-                        type="text" 
-                        placeholder={t('customersPage.searchPlaceholder')} 
+                      <input
+                        type="text"
+                        placeholder={t('customersPage.searchPlaceholder')}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="form-control"
-                        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+                        style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)' }}
                       />
                     </div>
                     <div className="user-profile-widget">
@@ -4857,20 +4848,20 @@ function App() {
 
                 <div className="customers-list-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {loading && customersList.length === 0 ? (
-                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div className="ui-card" style={{ padding: '48px', textAlign: 'center' }}>
                       <span style={{ color: 'var(--text-muted)' }}>{t('common.loading')}</span>
                     </div>
                   ) : loadErrors.includes('customers') ? (
-                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(127,29,29,0.15)', borderRadius: '12px', border: '1px solid rgba(220,38,38,0.3)' }}>
-                      <div style={{ color: '#fca5a5', marginBottom: '12px' }}>Could not load the customer directory.</div>
+                    <div style={{ padding: '48px', textAlign: 'center', background: 'var(--danger-bg)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--danger-color)' }}>
+                      <div style={{ color: 'var(--danger-color)', marginBottom: '12px' }}>Could not load the customer directory.</div>
                       <button type="button" className="btn-secondary" onClick={() => fetchDashboardAndConfig()}>Retry</button>
                     </div>
                   ) : directoryCustomers.length === 0 ? (
-                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div className="ui-card" style={{ padding: '48px', textAlign: 'center' }}>
                       {customersList.length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                          <div style={{ fontWeight: 600 }}>{t('customersPage.noCustomersYet')}</div>
-                          <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '44ch', lineHeight: 1.5 }}>
+                          <div style={{ fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)' }}>{t('customersPage.noCustomersYet')}</div>
+                          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', maxWidth: '44ch', lineHeight: 'var(--leading-normal)' }}>
                             Everyone you take an order for is kept here, with their measurements, past orders and preferences.
                           </div>
                           <button className="btn-primary" onClick={handleStartNewCustomer}>
@@ -4884,16 +4875,16 @@ function App() {
                   ) : (
 
                     directoryCustomers.map(cust => (
-                      <div key={cust.id} className="customer-detail-card responsive-customer-card" style={{
-                        background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                        border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                        borderRadius: '12px',
+                      <div key={cust.id} className="customer-detail-card responsive-customer-card ui-card" style={{
                         padding: '24px'
                       }}>
                         {/* Profile Info */}
-                        <div 
+                        <div
+                          role="button"
+                          tabIndex={0}
                           style={{ display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer' }}
                           onClick={() => openDirectoryCustomer(cust)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDirectoryCustomer(cust); } }}
                         >
                           <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                             <div className="user-avatar-circle" style={{ width: '56px', height: '56px' }}>
@@ -4901,77 +4892,66 @@ function App() {
                             </div>
                             <div>
                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                 <h4 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{cust.first_name} {cust.last_name}</h4>
-                                 <span style={{
-                                   fontSize: '9px',
-                                   fontWeight: 700,
-                                   padding: '2px 6px',
-                                   borderRadius: '4px',
-                                   background: cust.segment === 'VIP' ? 'rgba(212, 175, 55, 0.15)' : cust.segment === 'HVC' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(156, 163, 175, 0.15)',
-                                   color: cust.segment === 'VIP' ? '#d4af37' : cust.segment === 'HVC' ? '#a855f7' : '#9ca3af',
-                                   border: cust.segment === 'VIP' ? '1px solid rgba(212, 175, 55, 0.3)' : cust.segment === 'HVC' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)',
-                                   textTransform: 'uppercase'
-                                 }}>
-                                   {cust.segment}
-                                 </span>
+                                 <h4 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>{cust.first_name} {cust.last_name}</h4>
+                                 <SegmentBadge segment={cust.segment} />
                                </div>
-                               <span style={{ fontSize: '12px', color: 'var(--accent-text, #b07c40)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>{cust.customer_type}</span>
+                               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 'var(--tracking-eyebrow)' }}>{cust.customer_type}</span>
                              </div>
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: '8px' }}>
                             <div>📞 {formatMobile(cust.mobile_number)}</div>
                             {cust.email_address && <div>✉️ {cust.email_address}</div>}
                             {cust.address && <div>📍 {cust.address}, {cust.city_region}</div>}
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{t('customersPage.registered')} {fmtDate(cust.created_at)}</div>
+                            <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)', marginTop: '4px' }}>{t('customersPage.registered')} {fmtDate(cust.created_at)}</div>
                           </div>
                         </div>
 
                         {/* Measurements */}
-                        <div style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', paddingLeft: '24px' }}>
-                          <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('customersPage.bodyMeasurements')}</h5>
+                        <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '24px' }}>
+                          <h5 className="ui-eyebrow" style={{ marginBottom: '12px' }}>{t('customersPage.bodyMeasurements')}</h5>
                           {cust.measurements ? (
-                            <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '13px' }}>
+                            <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                               {(() => {
                                 const parts = cust.measurements.additional_measurements?.stitch_parts || [];
                                 const visible = getVisibleMeasurementFields(parts);
                                 return (
                                   <>
-                                    {visible.includes('bust') && <div>Bust: <span style={{ fontWeight: 600 }}>{cust.measurements.bust || '—'} in</span></div>}
-                                    {visible.includes('waist') && <div>Waist: <span style={{ fontWeight: 600 }}>{cust.measurements.waist || '—'} in</span></div>}
-                                    {visible.includes('hips') && <div>Hips: <span style={{ fontWeight: 600 }}>{cust.measurements.hips || '—'} in</span></div>}
-                                    {visible.includes('shoulder') && <div>Shoulder: <span style={{ fontWeight: 600 }}>{cust.measurements.shoulder || '—'} in</span></div>}
-                                    {visible.includes('arm_length') && <div>Arm: <span style={{ fontWeight: 600 }}>{cust.measurements.arm_length || '—'} in</span></div>}
-                                    {visible.includes('neck') && <div>Neck: <span style={{ fontWeight: 600 }}>{cust.measurements.neck || '—'} in</span></div>}
-                                    {visible.includes('length') && <div>Length: <span style={{ fontWeight: 600 }}>{cust.measurements.length || '—'} in</span></div>}
+                                    {visible.includes('bust') && <div>Bust: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.bust || '—'} in</span></div>}
+                                    {visible.includes('waist') && <div>Waist: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.waist || '—'} in</span></div>}
+                                    {visible.includes('hips') && <div>Hips: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.hips || '—'} in</span></div>}
+                                    {visible.includes('shoulder') && <div>Shoulder: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.shoulder || '—'} in</span></div>}
+                                    {visible.includes('arm_length') && <div>Arm: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.arm_length || '—'} in</span></div>}
+                                    {visible.includes('neck') && <div>Neck: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.neck || '—'} in</span></div>}
+                                    {visible.includes('length') && <div>Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{cust.measurements.length || '—'} in</span></div>}
                                   </>
                                 );
                               })()}
                             </div>
                           ) : (
-                            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No size measurements logged yet.</span>
+                            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>No size measurements logged yet.</span>
                           )}
                         </div>
 
                         {/* Preferences */}
-                        <div style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', paddingLeft: '24px' }}>
-                          <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('customersPage.bespokeProfile')}</h5>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '12px' }}>
-                            <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>{t('customersPage.garment')} {cust.garment_type}{cust.measurements?.additional_measurements?.stitch_parts?.length > 0 ? ` (${cust.measurements.additional_measurements.stitch_parts.join(', ')})` : ''}</span>
-                            {cust.neckline_style && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Neck: {cust.neckline_style}</span>}
-                            {cust.sleeve_style && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Sleeve: {cust.sleeve_style}</span>}
-                            {cust.silhouette && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Silhouette: {cust.silhouette}</span>}
-                            {cust.occasion && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>{t('customersPage.occasion')} {cust.occasion}</span>}
+                        <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '24px' }}>
+                          <h5 className="ui-eyebrow" style={{ marginBottom: '12px' }}>{t('customersPage.bespokeProfile')}</h5>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: 'var(--text-xs)' }}>
+                            <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>{t('customersPage.garment')} {cust.garment_type}{cust.measurements?.additional_measurements?.stitch_parts?.length > 0 ? ` (${cust.measurements.additional_measurements.stitch_parts.join(', ')})` : ''}</span>
+                            {cust.neckline_style && <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>Neck: {cust.neckline_style}</span>}
+                            {cust.sleeve_style && <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>Sleeve: {cust.sleeve_style}</span>}
+                            {cust.silhouette && <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>Silhouette: {cust.silhouette}</span>}
+                            {cust.occasion && <span style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-sm)' }}>{t('customersPage.occasion')} {cust.occasion}</span>}
                           </div>
                           {cust.custom_requirements && (
                             <div style={{ marginTop: '12px' }}>
-                              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Special Requests:</span>
-                              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0 0', lineHeight: 1.4 }}>{cust.custom_requirements}</p>
+                              <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>Special Requests:</span>
+                              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', margin: '2px 0 0 0', lineHeight: 1.4 }}>{cust.custom_requirements}</p>
                             </div>
                           )}
                         </div>
 
                         {/* Style DNA Expand Button */}
-                        <div style={{ gridColumn: 'span 3', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ gridColumn: 'span 3', borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <Sparkles size={16} style={{ color: 'var(--accent-text, #b07c40)' }} />
                             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI Customer Intelligence has analyzed {cust.order_count ?? cust.orders?.length ?? 0} order(s) and preferences.</span>
@@ -5001,108 +4981,10 @@ function App() {
 
                         {/* Expandable Style DNA Section */}
                         {expandedDna[cust.id] && (
-                          <div style={{
-                            gridColumn: 'span 3',
-                            background: '#0d0d0d',
-                            border: '1px solid rgba(212, 175, 55, 0.25)',
-                            borderRadius: '8px',
-                            padding: '24px',
-                            marginTop: '12px',
-                            display: 'flex',
-                            justifyContent: 'center'
-                          }}>
-                            {/* Left Column: Priya's Style Profile (Mockup Left Card) */}
-                            <div style={{
-                              background: '#141414',
-                              borderRadius: '8px',
-                              border: '1px solid rgba(255, 255, 255, 0.05)',
-                              overflow: 'hidden',
-                              width: '100%',
-                              maxWidth: '550px'
-                            }}>
-                              {/* Title Header */}
-                              <div style={{
-                                background: '#e05a10',
-                                padding: '12px 20px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px'
-                              }}>
-                                <User size={18} style={{ color: '#fff' }} />
-                                <span style={{
-                                  color: '#fff',
-                                  fontWeight: 700,
-                                  fontSize: '14px',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '1px'
-                                }}>
-                                  {cust.first_name}'s Style Profile
-                                </span>
-                              </div>
-                              
-                              {/* Details Table */}
-                              <div style={{ padding: '8px 20px' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                                  <tbody>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600, width: '40%' }}>BUDGET</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.budget}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>COLORS</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>
-                                        {cust.style_dna?.colors.split(' ').map((word, idx) => {
-                                          if (word.includes('%')) return <span key={idx} style={{ color: 'var(--text-muted)', marginRight: '12px', fontWeight: 400 }}>{word} </span>;
-                                          // Color highlights
-                                          let color = '#fff';
-                                          if (word.toLowerCase().includes('blue')) color = '#60a5fa';
-                                          else if (word.toLowerCase().includes('green')) color = '#34d399';
-                                          else if (word.toLowerCase().includes('red') || word.toLowerCase().includes('maroon')) color = '#f87171';
-                                          else if (word.toLowerCase().includes('gold')) color = '#fbbf24';
-                                          else if (word.toLowerCase().includes('rose')) color = '#f472b6';
-                                          else if (word.toLowerCase().includes('ivory') || word.toLowerCase().includes('white')) color = '#f3f4f6';
-                                          else if (word.toLowerCase().includes('black') || word.toLowerCase().includes('charcoal')) color = '#9ca3af';
-                                          return <span key={idx} style={{ color }}>{word} </span>;
-                                        })}
-                                      </td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>STYLE</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.style}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>SIZE</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.size}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>VISIT PATTERN</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.visit_pattern}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>RISK STATUS</td>
-                                      <td style={{ padding: '12px 0', fontWeight: 600, color: cust.style_dna?.risk_level === 'danger' ? '#f87171' : cust.style_dna?.risk_level === 'warning' ? '#fbbf24' : '#34d399' }}>
-                                        {cust.style_dna?.risk_status.includes('Active') ? '🟢 ' : '⚠️ '}
-                                        {cust.style_dna?.risk_status}
-                                      </td>
-                                    </tr>
-                                    <tr>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>NEXT ACTION</td>
-                                      <td style={{ padding: '12px 0', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>"{cust.style_dna?.next_action}"</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                                
-                                <div style={{
-                                  padding: '12px 0 16px 0',
-                                  fontSize: '11px',
-                                  color: 'var(--text-muted)',
-                                  fontStyle: 'italic',
-                                  borderTop: '1px solid rgba(255,255,255,0.05)',
-                                  marginTop: '8px'
-                                }}>
-                                  This is NOT manual entry. AI reads your sales data automatically.
-                                </div>
-                              </div>
+                          <div style={{ gridColumn: 'span 3', marginTop: '12px',
+                                        display: 'flex', justifyContent: 'center' }}>
+                            <div style={{ width: '100%', maxWidth: '550px' }}>
+                              <StyleProfileCard customer={cust} />
                             </div>
                           </div>
                         )}
@@ -5213,23 +5095,12 @@ function App() {
                   </div>
                    <div>
                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '0 0 6px 0' }}>
-                       <h2 style={{ fontSize: '24px', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>
+                       <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-2xl)', fontWeight: 500, margin: 0, color: 'var(--text-primary)' }}>
                          {selectedDirectoryCustomer.first_name} {selectedDirectoryCustomer.last_name}
                        </h2>
-                       <span style={{
-                         fontSize: '11px',
-                         fontWeight: 700,
-                         padding: '3px 10px',
-                         borderRadius: '12px',
-                         background: selectedDirectoryCustomer.segment === 'VIP' ? 'rgba(212, 175, 55, 0.15)' : selectedDirectoryCustomer.segment === 'HVC' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(156, 163, 175, 0.15)',
-                         color: selectedDirectoryCustomer.segment === 'VIP' ? '#d4af37' : selectedDirectoryCustomer.segment === 'HVC' ? '#a855f7' : '#9ca3af',
-                         border: selectedDirectoryCustomer.segment === 'VIP' ? '1px solid rgba(212, 175, 55, 0.3)' : selectedDirectoryCustomer.segment === 'HVC' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)',
-                         textTransform: 'uppercase'
-                       }}>
-                         {selectedDirectoryCustomer.segment}
-                       </span>
+                       <SegmentBadge segment={selectedDirectoryCustomer.segment} />
                      </div>
-                    <div style={{ display: 'flex', gap: '20px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', gap: '20px', fontSize: 'var(--text-base)', color: 'var(--text-secondary)' }}>
                       <span>📞 {formatMobile(selectedDirectoryCustomer.mobile_number)}</span>
                       {selectedDirectoryCustomer.email_address && <span>✉️ {selectedDirectoryCustomer.email_address}</span>}
                       {selectedDirectoryCustomer.address && <span>📍 {selectedDirectoryCustomer.address}, {selectedDirectoryCustomer.city_region}</span>}
@@ -5244,13 +5115,8 @@ function App() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     
                     {/* Measurements & Info */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="ui-card" style={{ padding: '24px' }}>
+                      <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>Body Measurements & Sizing</span>
                         {(() => {
                           const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
@@ -5295,7 +5161,7 @@ function App() {
                                   const visible = getVisibleMeasurementFields(parts);
                                   return (
                                     <div key={hist.id || idx} style={{
-                                      background: 'rgba(0,0,0,0.015)',
+                                      background: 'var(--surface-2)',
                                       borderRadius: '8px',
                                       padding: '12px',
                                       borderLeft: '3px solid var(--accent-text, #b07c40)',
@@ -5327,13 +5193,8 @@ function App() {
                     </div>
 
                     {/* Order History */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
+                    <div className="ui-card" style={{ padding: '24px' }}>
+                      <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
                         Order History
                       </h3>
                       {directoryDetailLoading && !selectedDirectoryCustomer.orders ? (
@@ -5353,13 +5214,16 @@ function App() {
                             const current = stages.find(s => s.status === 'IN_PROGRESS');
                             return (
                             <div key={order.id} style={{
-                              background: 'rgba(0,0,0,0.015)',
-                              border: `1px solid ${isOpen ? 'var(--accent-text, #b07c40)' : 'var(--border-color)'}`,
+                              background: 'var(--surface-2)',
+                              border: `1px solid ${isOpen ? 'var(--accent-text)' : 'var(--border-color)'}`,
                               borderRadius: '8px',
                               padding: '16px'
                             }}>
                               <div
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => setExpandedCustomerOrderId(isOpen ? null : order.id)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedCustomerOrderId(isOpen ? null : order.id); } }}
                                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', gap: '12px' }}
                               >
                                 <div>
@@ -5376,16 +5240,9 @@ function App() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                                   <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontWeight: 700, color: 'var(--accent-text, #b07c40)', fontSize: '14px' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
-                                    <span style={{
-                                      display: 'inline-block',
-                                      padding: '2px 8px',
-                                      borderRadius: '12px',
-                                      fontSize: '11px',
-                                      marginTop: '4px',
-                                      background: order.order_status === 'Delivered' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 191, 36, 0.15)',
-                                      color: order.order_status === 'Delivered' ? '#34d399' : '#fbbf24'
-                                    }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--accent-text)', fontSize: 'var(--text-base)' }}>{inr(order.total_amount)}</div>
+                                    <span className={`ui-badge ${order.order_status === 'Delivered' ? 'ui-badge--success' : order.order_status === 'Cancelled' ? 'ui-badge--neutral' : 'ui-badge--warning'}`}
+                                          style={{ marginTop: '4px' }}>
                                       {order.order_status}
                                     </span>
                                   </div>
@@ -5457,9 +5314,9 @@ function App() {
                                       setView('wizard');
                                     }}
                                     style={{
-                                      background: 'rgba(212, 175, 55, 0.1)',
-                                      border: '1px solid rgba(212, 175, 55, 0.3)',
-                                      color: 'var(--accent-text, #b07c40)',
+                                      background: 'var(--accent-color)',
+                                      border: '1px solid var(--accent-border)',
+                                      color: 'var(--accent-text)',
                                       borderRadius: '6px',
                                       padding: '6px 12px',
                                       fontSize: '11px',
@@ -5488,98 +5345,11 @@ function App() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     
                     {/* Style Profile Card */}
-                    <div style={{
-                      background: '#141414',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      color: '#ffffff',
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
-                    }}>
-                      {/* Header */}
-                      <div style={{
-                        background: '#d35400',
-                        backgroundImage: 'linear-gradient(135deg, #d35400, #e67e22)',
-                        padding: '16px 20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}>
-                        <User size={16} style={{ color: '#fff' }} />
-                        <span style={{
-                          fontWeight: 700,
-                          fontSize: '13px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          color: '#fff'
-                        }}>
-                          {selectedDirectoryCustomer.first_name}'S STYLE PROFILE
-                        </span>
-                      </div>
+                    <StyleProfileCard customer={selectedDirectoryCustomer} />
 
-                      {/* Content Rows */}
-                      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>BUDGET</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.budget || '₹26,250 (premium designer)'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>COLORS</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.colors || 'Charcoal Black 90% | Silver 10%'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>STYLE</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.style || 'Contemporary 80% | Traditional 20%'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>SIZE</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.size || 'S (consistent)'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>VISIT PATTERN</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.visit_pattern || 'Every 15-30 days'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>RISK STATUS</span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
-                            <span style={{
-                              width: '8px',
-                              height: '8px',
-                              borderRadius: '50%',
-                              backgroundColor: selectedDirectoryCustomer.style_dna?.risk_level === 'danger' ? '#ff7675' : '#55efc4',
-                              display: 'inline-block'
-                            }} />
-                            <span style={{ color: selectedDirectoryCustomer.style_dna?.risk_level === 'danger' ? '#ff7675' : '#55efc4' }}>
-                              {selectedDirectoryCustomer.style_dna?.risk_status || 'Active — Last visit 0 days ago'}
-                            </span>
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>NEXT ACTION</span>
-                          <strong style={{ color: '#fff' }}>"{selectedDirectoryCustomer.style_dna?.next_action || 'Share seasonal lookbook'}"</strong>
-                        </div>
-
-                        {/* Footer Disclaimer */}
-                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', marginTop: '4px', textAlign: 'left' }}>
-                          This is NOT manual entry. AI reads your sales data automatically.
-                        </div>
-                      </div>
-                    </div>
-                    
                     {/* Saved Designs Gallery */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
+                    <div className="ui-card" style={{ padding: '24px' }}>
+                      <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
                         Saved Designs & Inspiration
                       </h3>
                       {!selectedDirectoryCustomer.design_preferences || selectedDirectoryCustomer.design_preferences.length === 0 ? (
@@ -5588,7 +5358,7 @@ function App() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                           {selectedDirectoryCustomer.design_preferences.map((pref, i) => (
                             <div key={pref.id || i} style={{
-                              border: pref.is_approved ? '1px solid rgba(16,185,129,0.5)' : '1px solid var(--border-color)',
+                              border: pref.is_approved ? '1px solid var(--success-color)' : '1px solid var(--border-color)',
                               borderRadius: '8px',
                               padding: '14px'
                             }}>
@@ -5598,7 +5368,7 @@ function App() {
                                     {pref.source_display || 'Boutique catalogue'}
                                   </span>
                                   {pref.is_approved && (
-                                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
+                                    <span className="ui-badge ui-badge--success" style={{ fontSize: 'var(--text-2xs)' }}>
                                       APPROVED FOR PRODUCTION
                                     </span>
                                   )}
@@ -5627,7 +5397,7 @@ function App() {
                                       borderRadius: '6px',
                                       overflow: 'hidden',
                                       height: '120px',
-                                      border: pref.approved_image === url ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)'
+                                      border: pref.approved_image === url ? '2px solid var(--success-color)' : '1px solid var(--border-color)'
                                     }}>
                                       <img src={url} alt="Design Ref" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     </div>
@@ -5663,11 +5433,11 @@ function App() {
               <>
                 <header className="portal-header">
                   <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
                         {t('invoicesPage.title', 'Invoices & Billing')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('invoicesPage.subtitle', 'Manage invoices, verify billing payments, and print receipts.')}</p>
+                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('invoicesPage.subtitle', 'Manage invoices, verify billing payments, and print receipts.')}</p>
                     </div>
                   </div>
                   <div className="portal-header-right">
@@ -5694,18 +5464,18 @@ function App() {
                   const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
                   
                   return (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginTop: '24px' }}>
-                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.totalCollectedRevenue', 'Total Collected Revenue')}</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#107c41', marginTop: '8px' }}>{formatMoney(paidTotal)}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-3)', marginTop: 'var(--space-6)' }}>
+                      <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)' }}>
+                        <div className="ui-eyebrow">{t('invoicesPage.totalCollectedRevenue', 'Total Collected Revenue')}</div>
+                        <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--success-color)' }}>{formatMoney(paidTotal)}</div>
                       </div>
-                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.outstandingBalance', 'Outstanding Balance')}</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#d4af37', marginTop: '8px' }}>{formatMoney(pendingTotal)}</div>
+                      <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)' }}>
+                        <div className="ui-eyebrow">{t('invoicesPage.outstandingBalance', 'Outstanding Balance')}</div>
+                        <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--warning-color)' }}>{formatMoney(pendingTotal)}</div>
                       </div>
-                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('invoicesPage.totalInvoicedVolume', 'Total Invoiced Volume')}</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>{formatMoney(grandTotal)}</div>
+                      <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)' }}>
+                        <div className="ui-eyebrow">{t('invoicesPage.totalInvoicedVolume', 'Total Invoiced Volume')}</div>
+                        <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)' }}>{formatMoney(grandTotal)}</div>
                       </div>
                     </div>
                   );
@@ -5720,7 +5490,7 @@ function App() {
                   gap: '16px',
                   background: 'var(--surface-color)',
                   border: '1px solid var(--border-color)',
-                  borderRadius: '12px',
+                  borderRadius: 'var(--radius-lg)',
                   padding: '16px',
                   marginTop: '24px'
                 }}>
@@ -5750,25 +5520,25 @@ function App() {
                 </div>
 
                 {paymentError && (
-                  <div role="alert" style={{ marginTop: '16px', background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '12px 14px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                  <div role="alert" style={{ marginTop: '16px', background: 'var(--danger-bg)', border: '1px solid var(--danger-color)', color: 'var(--danger-color)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{paymentError}</span>
                     <button type="button" onClick={() => setPaymentError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700 }}>Dismiss</button>
                   </div>
                 )}
 
                 <div className="invoices-content" style={{ marginTop: '24px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--surface-color)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.015)' }}>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.invoiceId', 'Invoice ID')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.billingClient', 'Billing Client')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.date', 'Date')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.totalPrice', 'Total Price')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.advancePaid', 'Advance Paid')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.totalPaid', 'Total Paid')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('invoicesPage.balanceDue', 'Balance Due')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.status', 'Payment Status')}</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>{t('common.actions', 'Action')}</th>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--surface-2)' }}>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.invoiceId', 'Invoice ID')}</th>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.billingClient', 'Billing Client')}</th>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('common.date', 'Date')}</th>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.totalPrice', 'Total Price')}</th>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.advancePaid', 'Advance Paid')}</th>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.totalPaid', 'Total Paid')}</th>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('invoicesPage.balanceDue', 'Balance Due')}</th>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('common.status', 'Payment Status')}</th>
+                        <th style={{ padding: '16px', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('common.actions', 'Action')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5799,7 +5569,7 @@ function App() {
                         }
 
                         return filtered.map(order => (
-                          <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
+                          <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: 'var(--text-base)' }}>
                             <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 600 }}>{order.order_id}</td>
                             <td style={{ padding: '16px' }}>{order.customer_name}</td>
                             <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{fmtDate(order.order_date)}</td>
@@ -5819,7 +5589,7 @@ function App() {
                                 order. The backend already accepted amount_paid
                                 and derives the label, clamps to the total and
                                 caps the advance -- only the input was missing. */}
-                            <td style={{ padding: '16px', color: '#107c41', fontWeight: 600 }}>
+                            <td style={{ padding: '16px', color: 'var(--success-color)', fontWeight: 600 }}>
                               <span style={{ marginRight: '2px' }}>₹</span>
                               <input
                                 type="number"
@@ -5850,14 +5620,15 @@ function App() {
                                   }
                                 }}
                                 onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-                                style={{ width: '110px', padding: '4px 6px', fontSize: '13px', fontWeight: 600, color: '#107c41', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'transparent' }}
+                                style={{ width: '110px', padding: '4px 6px', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--success-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', background: 'transparent' }}
                               />
                             </td>
-                            <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>{formatMoney(Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)))}</td>
+                            <td style={{ padding: '16px', color: (Number(order.total_amount) - Number(order.amount_paid || 0)) > 0 ? 'var(--danger-color)' : 'var(--text-secondary)', fontWeight: 600 }}>{formatMoney(Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)))}</td>
                             <td style={{ padding: '16px' }}>
                               <select
                                 value={order.payment_status}
                                 disabled={savingPaymentId === order.id}
+                                aria-label={`Payment status for invoice ${order.order_id}`}
                                 onChange={async (e) => {
                                   setSavingPaymentId(order.id);
                                   try {
@@ -5962,10 +5733,10 @@ function App() {
                   <header className="portal-header">
                     <div className="portal-header-left">
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
                           {t('analyticsPage.title', 'Business Analytics & Trends')}
                         </h1>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('analyticsPage.subtitle', 'Summary of revenues, style preferences, and operations workload.')}</p>
+                        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('analyticsPage.subtitle', 'Summary of revenues, style preferences, and operations workload.')}</p>
                       </div>
                     </div>
                     <div className="portal-header-right">
@@ -5985,71 +5756,39 @@ function App() {
                     marginTop: '24px'
                   }}>
                     {/* Revenue Card */}
-                    <div className="metric-panel-card" style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.collectedRevenue', 'Collected Revenue')}</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: 'var(--accent-text, #b07c40)' }}>
+                    <div className="metric-panel-card ui-card" style={{ padding: 'var(--space-5)' }}>
+                      <div className="ui-eyebrow">{t('analyticsPage.collectedRevenue', 'Collected Revenue')}</div>
+                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--accent-text)' }}>
                         ₹{paidRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.fromPaidOrders', 'From paid customer orders')}</span>
+                      </div>
+                      <div className="ui-stat-sub">{t('analyticsPage.fromPaidOrders', 'From paid customer orders')}</div>
                     </div>
 
                     {/* Pending Bills Card */}
-                    <div className="metric-panel-card" style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.pendingInvoices', 'Pending Invoices')}</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#ffc107' }}>
+                    <div className="metric-panel-card ui-card" style={{ padding: 'var(--space-5)' }}>
+                      <div className="ui-eyebrow">{t('analyticsPage.pendingInvoices', 'Pending Invoices')}</div>
+                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--warning-color)' }}>
                         ₹{pendingBill.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.awaitingPayment', 'Awaiting full or partial payment')}</span>
+                      </div>
+                      <div className="ui-stat-sub">{t('analyticsPage.awaitingPayment', 'Awaiting full or partial payment')}</div>
                     </div>
 
                     {/* Average Order Value Card */}
-                    <div className="metric-panel-card" style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.avgTicketSize', 'Average Ticket Size')}</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#4a90e2' }}>
+                    <div className="metric-panel-card ui-card" style={{ padding: 'var(--space-5)' }}>
+                      <div className="ui-eyebrow">{t('analyticsPage.avgTicketSize', 'Average Ticket Size')}</div>
+                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--info-color)' }}>
                         ₹{aov.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.perBespokeOrder', 'Per bespoke order')}</span>
+                      </div>
+                      <div className="ui-stat-sub">{t('analyticsPage.perBespokeOrder', 'Per bespoke order')}</div>
                     </div>
 
                     {/* Total Registered Clients */}
-                    <div className="metric-panel-card" style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{t('analyticsPage.clientBase', 'Client Base')}</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#2ec4b6' }}>
+                    <div className="metric-panel-card ui-card" style={{ padding: 'var(--space-5)' }}>
+                      <div className="ui-eyebrow">{t('analyticsPage.clientBase', 'Client Base')}</div>
+                      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: 'var(--success-color)' }}>
                         {customersList.length} {customersList.length === 1 ? t('analyticsPage.clientSingle', 'Client') : t('analyticsPage.clientPlural', 'Clients')}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('analyticsPage.totalDirectoryProfiles', 'Total boutique directory profiles')}</span>
+                      </div>
+                      <div className="ui-stat-sub">{t('analyticsPage.totalDirectoryProfiles', 'Total boutique directory profiles')}</div>
                     </div>
                   </div>
 
@@ -6059,22 +5798,22 @@ function App() {
                     {/* Left side: Styles & Design Trends */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                       <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
+                        background: 'var(--surface-color)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.popularGarmentTypes', 'Popular Garment Types')}</h3>
+                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.popularGarmentTypes', 'Popular Garment Types')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {topGarmentsList.map(([garment, count], idx) => {
                             const pct = Math.round((count / garmentTotal) * 100) || 0;
                             return (
                               <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
                                   <span>{garment}</span>
                                   <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
                                 </div>
-                                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                                <div style={{ width: '100%', height: '6px', background: 'var(--surface-inset)', borderRadius: '3px', overflow: 'hidden' }}>
                                   <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent-text, #b07c40)', borderRadius: '3px' }}></div>
                                 </div>
                               </div>
@@ -6084,12 +5823,12 @@ function App() {
                       </div>
 
                       <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
+                        background: 'var(--surface-color)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.customerSegmentation', 'Customer Segmentation')}</h3>
+                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.customerSegmentation', 'Customer Segmentation')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                           {(() => {
                             const vipCount = customersList.filter(c => c.segment === 'VIP').length;
@@ -6105,14 +5844,14 @@ function App() {
                               const pct = Math.round((seg.count / total) * 100);
                               return (
                                 <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
                                     <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                       <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: seg.color }}></span>
                                       {seg.name}
                                     </span>
                                     <span style={{ fontWeight: 600 }}>{seg.count} ({pct}%)</span>
                                   </div>
-                                  <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{ width: '100%', height: '6px', background: 'var(--surface-inset)', borderRadius: '3px', overflow: 'hidden' }}>
                                     <div style={{ width: `${pct}%`, height: '100%', background: seg.color, borderRadius: '3px' }}></div>
                                   </div>
                                 </div>
@@ -6123,26 +5862,26 @@ function App() {
                       </div>
 
                       <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
+                        background: 'var(--surface-color)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.necklineSleeveTrends', 'Neckline & Sleeve Trends')}</h3>
+                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.necklineSleeveTrends', 'Neckline & Sleeve Trends')}</h3>
                         <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                           <div>
-                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topNecklines', 'Top Necklines')}</h4>
+                            <h4 style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topNecklines', 'Top Necklines')}</h4>
                             {topNecklinesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                              <div key={idx} style={{ fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
                                 <span style={{ fontWeight: 600 }}>{count}</span>
                               </div>
                             ))}
                           </div>
                           <div>
-                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topSleeves', 'Top Sleeves')}</h4>
+                            <h4 style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>{t('analyticsPage.topSleeves', 'Top Sleeves')}</h4>
                             {topSleevesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                              <div key={idx} style={{ fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
                                 <span style={{ fontWeight: 600 }}>{count}</span>
                               </div>
@@ -6155,24 +5894,24 @@ function App() {
                     {/* Right side: Staff & Internal Metrics */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                       <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
+                        background: 'var(--surface-color)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.staffWorkloadOverview', 'Staff & Workload Overview')}</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
+                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.staffWorkloadOverview', 'Staff & Workload Overview')}</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: 'var(--text-base)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span>{t('analyticsPage.totalTailoringTeam', 'Total Tailoring Team')}</span>
                             <span style={{ fontWeight: 600 }}>{tailors.length} {tailors.length === 1 ? t('analyticsPage.tailorSingle', 'Tailor') : t('analyticsPage.tailorPlural', 'Tailors')}</span>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span>{t('analyticsPage.busyAssignedTailors', 'Busy / Assigned Tailors')}</span>
-                            <span style={{ fontWeight: 600, color: '#ffc107' }}>{busyTailors} {t('analyticsPage.busyStatus', 'Busy')}</span>
+                            <span style={{ fontWeight: 600, color: 'var(--warning-color)' }}>{busyTailors} {t('analyticsPage.busyStatus', 'Busy')}</span>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span>{t('analyticsPage.availableStaffCapacity', 'Available Staff capacity')}</span>
-                            <span style={{ fontWeight: 600, color: '#2ec4b6' }}>{tailors.length - busyTailors} {t('analyticsPage.freeStatus', 'Free')}</span>
+                            <span style={{ fontWeight: 600, color: 'var(--success-color)' }}>{tailors.length - busyTailors} {t('analyticsPage.freeStatus', 'Free')}</span>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span>{t('analyticsPage.atelierAvgRating', 'Atelier Average Rating')}</span>
@@ -6184,23 +5923,23 @@ function App() {
                       </div>
 
                       <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
+                        background: 'var(--surface-color)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
                         padding: '24px'
                       }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('analyticsPage.orderStatusBreakdown', 'Order Status Breakdown')}</h3>
+                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, marginBottom: '20px', color: 'var(--text-primary)' }}>{t('analyticsPage.orderStatusBreakdown', 'Order Status Breakdown')}</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {Object.entries(dashboardData?.stats?.status_distribution || {}).map(([status, count], idx) => {
                             const pct = Math.round((count / ordersList.length) * 100) || 0;
                             return (
                               <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
                                   <span>{t(`status.${status}`, status)}</span>
                                   <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
                                 </div>
-                                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${pct}%`, height: '100%', background: '#4a90e2', borderRadius: '3px' }}></div>
+                                <div style={{ width: '100%', height: '6px', background: 'var(--surface-inset)', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{ width: `${pct}%`, height: '100%', background: 'var(--info-color)', borderRadius: '3px' }}></div>
                                 </div>
                               </div>
                             );
@@ -6219,11 +5958,11 @@ function App() {
               <>
                 <header className="portal-header">
                   <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
                         {t('accountPage.title')}
                       </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('accountPage.subtitle')}</p>
+                      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{t('accountPage.subtitle')}</p>
                     </div>
                   </div>
                   <div className="portal-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -6250,7 +5989,7 @@ function App() {
                       <UserAvatar user={currentUser} />
                     </div>
                     <div>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{currentUser.first_name} {currentUser.last_name}</h3>
+                      <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, margin: 0, color: 'var(--text-primary)' }}>{currentUser.first_name} {currentUser.last_name}</h3>
                       {/* Editable by any signed-in user -- the photo is stored
                           per-user (UserAvatar), so the owner can set theirs too. */}
                       {currentUser && (
@@ -6277,7 +6016,7 @@ function App() {
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>{currentUser.role || 'Boutique Owner'}</p>
                     </div>
                     
-                    <div style={{ width: '100%', height: '1px', background: 'var(--border-color, rgba(255,255,255,0.08))' }}></div>
+                    <div style={{ width: '100%', height: '1px', background: 'var(--border-color)' }}></div>
                     
                     <div style={{ alignSelf: 'stretch', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
                       <div>
@@ -6394,7 +6133,7 @@ function App() {
                             <img 
                               src={boutiqueSettings.logo} 
                               alt="Boutique Logo" 
-                              style={{ width: '48px', height: '48px', borderRadius: '4px', objectFit: 'contain', background: '#f8fafc', border: '1px solid var(--border-color)' }} 
+                              style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-sm)', objectFit: 'contain', background: 'var(--surface-inset)', border: '1px solid var(--border-color)' }}
                             />
                           )}
                           <input
@@ -6473,8 +6212,9 @@ function App() {
                     <input 
                       type="text" 
                       required 
-                      className="form-control" 
-                      placeholder="e.g. Chanderi Silk" 
+                      className="form-control"
+                      aria-label={t('fabricsPage.fabricName', 'Fabric Name')}
+                      placeholder="e.g. Chanderi Silk"
                       value={fabricForm.name}
                       onChange={e => setFabricForm({...fabricForm, name: e.target.value})}
                     />
@@ -6486,8 +6226,9 @@ function App() {
                       <input 
                         type="text" 
                         required 
-                        className="form-control" 
-                        placeholder="e.g. Silk Blend" 
+                        className="form-control"
+                        aria-label={t('fabricsPage.material', 'Material')}
+                        placeholder="e.g. Silk Blend"
                         value={fabricForm.material}
                         onChange={e => setFabricForm({...fabricForm, material: e.target.value})}
                       />
@@ -6497,8 +6238,9 @@ function App() {
                       <input 
                         type="text" 
                         required 
-                        className="form-control" 
-                        placeholder="e.g. Aqua Blue" 
+                        className="form-control"
+                        aria-label={t('fabricsPage.color', 'Color')}
+                        placeholder="e.g. Aqua Blue"
                         value={fabricForm.color}
                         onChange={e => setFabricForm({...fabricForm, color: e.target.value})}
                       />
@@ -6522,6 +6264,7 @@ function App() {
                       <input
                         type="text"
                         className="form-control"
+                        aria-label={t('fabricsPage.colorCode', 'Colour Code')}
                         placeholder="#c8a97e"
                         maxLength={7}
                         pattern="#[0-9a-fA-F]{6}"
@@ -6546,8 +6289,9 @@ function App() {
                       required 
                       min="0"
                       step="0.01"
-                      className="form-control" 
-                      placeholder="e.g. 1250" 
+                      className="form-control"
+                      aria-label={t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}
+                      placeholder="e.g. 1250"
                       value={fabricForm.price_per_meter}
                       onChange={e => setFabricForm({...fabricForm, price_per_meter: e.target.value})}
                     />
@@ -6605,8 +6349,9 @@ function App() {
                     <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}</label>
                     <input 
                       type="url" 
-                      className="form-control" 
-                      placeholder="e.g. https://images.unsplash.com/photo-..." 
+                      className="form-control"
+                      aria-label={t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}
+                      placeholder="e.g. https://images.unsplash.com/photo-..."
                       value={fabricForm.image_url}
                       onChange={e => setFabricForm({...fabricForm, image_url: e.target.value})}
                     />
@@ -6622,7 +6367,7 @@ function App() {
                     <label htmlFor="fabricAvailable" style={{ fontSize: '13px', cursor: 'pointer' }}>{t('fabricsPage.availableInInventory', 'Available in Inventory')}</label>
                   </div>
 
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
                     <button type="submit" className="btn-primary" disabled={fabricSaving || fabricPhotoBusy}>
                       {fabricPhotoBusy
@@ -6740,7 +6485,7 @@ function App() {
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
                     {editingDesign ? t('designsPage.editDesignDetails', 'Edit Design Details') : t('designsPage.addNewDesignTitle', 'Add New Design to Collection')}
                   </h3>
-                  <button className="close-btn" onClick={() => setShowDesignModal(false)}><X size={20} /></button>
+                  <button className="close-btn" aria-label="Close" onClick={() => setShowDesignModal(false)}><X size={20} /></button>
                 </div>
                 
                 <form onSubmit={handleSaveDesign} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
@@ -6844,7 +6589,7 @@ function App() {
                     />
                   </div>
 
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px', marginTop: '8px' }}>
                     <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>{t('common.cancel', 'Cancel')}</button>
                     <button type="submit" className="btn-primary" disabled={designSaving}>
                       {designSaving ? t('common.saving', 'Saving…') : t('designsPage.saveDesign', 'Save Design')}

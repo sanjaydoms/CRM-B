@@ -200,8 +200,8 @@ export default function DesignUpload({ onClose, onUploaded }) {
       <div className="content-card" style={{ maxWidth: '820px', width: '100%', maxHeight: '92vh', overflowY: 'auto', margin: 0 }}
            onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '19px' }}>Upload a design</h3>
-          <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
+          <h3 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', fontWeight: 500, color: 'var(--text-primary)' }}>Upload a design</h3>
+          <button className="btn-secondary" aria-label="Close" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
         </div>
 
         {/* One row per part of the garment. Rows rather than a dropzone each:
@@ -227,7 +227,7 @@ export default function DesignUpload({ onClose, onUploaded }) {
                   display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
                   padding: '8px 10px', borderRadius: '6px',
                   border: '1px solid var(--border-color)',
-                  background: shots.length ? 'rgba(212,175,55,0.06)' : 'transparent',
+                  background: shots.length ? 'var(--accent-color)' : 'transparent',
                 }}>
                   <span style={{ fontSize: '12.5px', fontWeight: 600, flex: '0 0 190px' }}>{label}</span>
 
@@ -240,7 +240,7 @@ export default function DesignUpload({ onClose, onUploaded }) {
                               title="Remove"
                               style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px',
                                        height: '18px', borderRadius: '50%', border: 'none', cursor: 'pointer',
-                                       background: '#ff4d4d', color: '#fff', fontSize: '11px', lineHeight: '18px',
+                                       background: 'var(--danger-color)', color: '#fff', fontSize: '11px', lineHeight: '18px',
                                        padding: 0 }}>x</button>
                     </span>
                   ))}
@@ -356,7 +356,7 @@ export default function DesignUpload({ onClose, onUploaded }) {
         )}
 
         {error && (
-          <div style={{ marginTop: '14px', fontSize: '12.5px', color: '#c0392b' }}>{error}</div>
+          <div style={{ marginTop: '14px', fontSize: '12.5px', color: 'var(--danger-color)' }}>{error}</div>
         )}
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '20px',

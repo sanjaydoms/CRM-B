@@ -15,9 +15,10 @@ import { useLanguage } from '../../i18n/LanguageContext.jsx';
  */
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
 };
 
 const ROLES = [
@@ -67,7 +68,7 @@ export default function RecipesTab({ items, isOwner }) {
       </div>
 
       {error && (
-        <div style={{ ...panel, padding: '12px 16px', marginBottom: '12px', borderColor: 'rgba(220,38,38,0.3)', color: '#fca5a5', fontSize: '13px' }}>
+        <div style={{ ...panel, padding: '12px 16px', marginBottom: '12px', borderColor: 'var(--danger-color)', color: 'var(--danger-color)', fontSize: '13px' }}>
           {error}
         </div>
       )}
@@ -162,7 +163,7 @@ function RecipeDetail({ bom, items, isOwner, onChanged }) {
       </div>
 
       {error && (
-        <div style={{ padding: '10px 16px', color: '#fca5a5', fontSize: '12.5px' }}>{error}</div>
+        <div style={{ padding: '10px 16px', color: 'var(--danger-color)', fontSize: '12.5px' }}>{error}</div>
       )}
 
       {(bom.lines || []).length === 0 ? (
@@ -187,7 +188,7 @@ function RecipeDetail({ bom, items, isOwner, onChanged }) {
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ fontWeight: 500 }}>{line.material_name}</div>
                     {line.is_customer_supplied && (
-                      <div style={{ fontSize: '11px', color: '#60a5fa' }}>Customer brings this</div>
+                      <div style={{ fontSize: '11px', color: 'var(--info-color)' }}>Customer brings this</div>
                     )}
                     {line.is_optional && (
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Optional</div>
@@ -340,13 +341,13 @@ function AddLineModal({ bom, items, onClose, onAdded }) {
       </label>
 
       {chosen && form.unit !== chosen.unit && (
-        <div style={{ fontSize: '11.5px', color: '#fbbf24', marginTop: '10px' }}>
+        <div style={{ fontSize: '11.5px', color: 'var(--warning-color)', marginTop: '10px' }}>
           This line is in {form.unit} but {chosen.name} is stocked in {chosen.unit_display}.
           A conversion has to exist on the item, or the recipe cannot be used.
         </div>
       )}
 
-      {error && <div style={{ color: '#fca5a5', fontSize: '12.5px', marginTop: '12px', whiteSpace: 'pre-wrap' }}>{error}</div>}
+      {error && <div style={{ color: 'var(--danger-color)', fontSize: '12.5px', marginTop: '12px', whiteSpace: 'pre-wrap' }}>{error}</div>}
 
       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '20px' }}>
         <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
@@ -393,7 +394,7 @@ function TryRecipeModal({ bom, onClose }) {
         {busy ? 'Working…' : 'Work out what it needs'}
       </button>
 
-      {error && <div style={{ color: '#fca5a5', fontSize: '12.5px', marginTop: '14px', whiteSpace: 'pre-wrap' }}>{error}</div>}
+      {error && <div style={{ color: 'var(--danger-color)', fontSize: '12.5px', marginTop: '14px', whiteSpace: 'pre-wrap' }}>{error}</div>}
 
       {result && (
         <div className="responsive-table-wrapper" style={{ marginTop: '16px' }}>
@@ -411,7 +412,7 @@ function TryRecipeModal({ bom, onClose }) {
                   <td style={{ padding: '8px' }}>
                     {row.material}
                     {row.is_customer_supplied && (
-                      <span style={{ color: '#60a5fa', fontSize: '11px' }}> · customer</span>
+                      <span style={{ color: 'var(--info-color)', fontSize: '11px' }}> · customer</span>
                     )}
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right', color: 'var(--text-muted)' }}>
@@ -454,7 +455,7 @@ function NewRecipeModal({ onClose, onCreated }) {
         <input className="form-control" value={name} onChange={(e) => setName(e.target.value)}
                placeholder="e.g. Bridal blouse" />
       </Field>
-      {error && <div style={{ color: '#fca5a5', fontSize: '12.5px' }}>{error}</div>}
+      {error && <div style={{ color: 'var(--danger-color)', fontSize: '12.5px' }}>{error}</div>}
       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '20px' }}>
         <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
         <button type="button" className="btn-primary" onClick={submit} disabled={saving}>
@@ -483,7 +484,7 @@ function Modal({ title, onClose, children, width = '480px' }) {
            style={{ ...panel, background: 'var(--surface-color)', width: '100%', maxWidth: width,
                     padding: '22px', maxHeight: '88vh', overflowY: 'auto' }}
            onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: '0 0 16px', fontSize: '18px' }}>{title}</h3>
+        <h3 style={{ margin: '0 0 16px', fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', fontWeight: 500, color: 'var(--text-primary)' }}>{title}</h3>
         {children}
       </div>
     </div>

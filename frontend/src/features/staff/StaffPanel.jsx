@@ -24,9 +24,23 @@ import Payroll from './Payroll';
 import Performance from './Performance';
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
+};
+
+// One themed error banner, so every form and the roster report failures the
+// same way instead of each hardcoding its own red. Was rgba(220,80,60,...)
+// on #c0392b -- legible, but off-palette against the refreshed tokens.
+const errorBox = {
+  background: 'var(--danger-bg)',
+  border: '1px solid var(--danger-color)',
+  color: 'var(--danger-color)',
+  borderRadius: 'var(--radius-md)',
+  padding: '10px 12px',
+  fontSize: 'var(--text-sm)',
+  marginBottom: 'var(--space-3)',
 };
 
 const money = (n) =>
@@ -87,16 +101,17 @@ function Modal({ title, onClose, children, width = '560px' }) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: 'var(--modal-bg, #fff)', borderRadius: '12px', width: '100%',
-          maxWidth: width, maxHeight: '88vh', overflowY: 'auto', padding: '24px',
-          border: '1px solid var(--border-color)',
+          background: 'var(--surface-color)', borderRadius: 'var(--radius-xl)', width: '100%',
+          maxWidth: width, maxHeight: '88vh', overflowY: 'auto', padding: 'var(--space-6)',
+          border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)',
         }}
       >
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginBottom: '18px',
+          marginBottom: 'var(--space-5)',
         }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{title}</h3>
+          <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)',
+                       fontWeight: 500, margin: 0, color: 'var(--text-primary)' }}>{title}</h3>
           <button type="button" className="close-btn" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
@@ -110,9 +125,11 @@ function Modal({ title, onClose, children, width = '560px' }) {
 /** A tab whose domain arrives in a later phase. Says so, rather than showing nothing. */
 function NotBuiltYet({ title, blurb }) {
   return (
-    <div style={{ ...panel, padding: '40px 24px', textAlign: 'center' }}>
-      <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 8px' }}>{title}</h3>
-      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
+    <div className="ui-card" style={{ padding: 'var(--space-10) var(--space-6)', textAlign: 'center' }}>
+      <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500,
+                   margin: '0 0 var(--space-2)', color: 'var(--text-primary)' }}>{title}</h3>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0,
+                  lineHeight: 'var(--leading-normal)' }}>
         {blurb}
       </p>
     </div>
@@ -183,15 +200,7 @@ function TermsForm({ member, terms, onCancel, onSaved }) {
 
   return (
     <form onSubmit={submit}>
-      {error && (
-        <div style={{
-          background: 'rgba(220,80,60,0.12)', border: '1px solid rgba(220,80,60,0.35)',
-          color: '#c0392b', borderRadius: '8px', padding: '10px 12px',
-          fontSize: '13px', marginBottom: '14px',
-        }}>
-          {error}
-        </div>
-      )}
+      {error && <div style={errorBox}>{error}</div>}
 
       {/* mobile-stack-grid: the app sets grid columns inline, which no
           stylesheet rule can beat, so the shared !important rule keys off this
@@ -303,11 +312,7 @@ function AdvanceForm({ member, onCancel, onSaved }) {
   return (
     <form onSubmit={submit}>
       {error && (
-        <div style={{
-          background: 'rgba(220,80,60,0.12)', border: '1px solid rgba(220,80,60,0.35)',
-          color: '#c0392b', borderRadius: '8px', padding: '10px 12px',
-          fontSize: '13px', marginBottom: '14px',
-        }}>{error}</div>
+        <div style={errorBox}>{error}</div>
       )}
       <div className="mobile-stack-grid"
            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
@@ -493,11 +498,7 @@ function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
     <Modal title={editing ? `Edit ${member.name}` : 'Add staff'} onClose={onCancel}>
       <form onSubmit={submit}>
         {error && (
-          <div style={{
-            background: 'rgba(220,80,60,0.12)', border: '1px solid rgba(220,80,60,0.35)',
-            color: '#c0392b', borderRadius: '8px', padding: '10px 12px',
-            fontSize: '13px', marginBottom: '12px',
-          }}>{error}</div>
+          <div style={errorBox}>{error}</div>
         )}
         <label style={{ display: 'block', marginBottom: '10px' }}>
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Name</span>
@@ -668,11 +669,7 @@ function DocumentsModal({ member, onClose }) {
   return (
     <Modal title={`Documents — ${member.name}`} onClose={onClose} width="620px">
       {error && (
-        <div style={{
-          background: 'rgba(220,80,60,0.12)', border: '1px solid rgba(220,80,60,0.35)',
-          color: '#c0392b', borderRadius: '8px', padding: '10px 12px',
-          fontSize: '13px', marginBottom: '12px',
-        }}>{error}</div>
+        <div style={errorBox}>{error}</div>
       )}
 
       {loading ? (
@@ -718,8 +715,7 @@ function DocumentsModal({ member, onClose }) {
         marginTop: '16px', paddingTop: '14px',
         borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
       }}>
-        <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
-                      color: 'var(--text-muted)', marginBottom: '10px' }}>
+        <div className="ui-eyebrow" style={{ marginBottom: '10px' }}>
           Add a document
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -912,80 +908,82 @@ function Roster({ isOwner, canSeeTeam }) {
   return (
     <>
       {loadError && (
-        <div style={{
-          background: 'rgba(220,80,60,0.12)', border: '1px solid rgba(220,80,60,0.35)',
-          color: '#c0392b', borderRadius: '8px', padding: '10px 12px',
-          fontSize: '13px', marginBottom: '14px',
-        }}>
-          {loadError}
-        </div>
+        <div style={errorBox}>{loadError}</div>
       )}
 
       {canSeeTeam && (() => {
         const tile = (label, value, sub, tone) => (
-          <div style={{ ...panel, padding: '16px 18px', flex: '1 1 150px' }}>
-            <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
-                          color: 'var(--text-muted)' }}>{label}</div>
-            <div style={{ fontSize: '22px', fontWeight: 600, marginTop: '6px', color: tone || 'inherit' }}>
+          <div className="ui-card" style={{ flex: '1 1 150px', padding: 'var(--space-4) var(--space-5)' }}>
+            <div className="ui-eyebrow">{label}</div>
+            <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: tone }}>
               {value}
-              {sub != null && (
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 400 }}> {sub}</span>
-              )}
             </div>
+            {sub != null && <div className="ui-stat-sub">{sub}</div>}
           </div>
         );
         return (
-          <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
-            {tile('Total staff', analytics.total)}
-            {tile('Available now', analytics.available,
-                  analytics.busy ? `· ${analytics.busy} busy` : null, '#1e8a5c')}
-            {tile('On the floor today', analytics.presentToday,
-                  analytics.workingNow ? `· ${analytics.workingNow} in now` : null)}
-            {tile('Employment set up', withTerms, `of ${roster.length}`)}
+          <>
+            <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>Team overview</div>
+            <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-5)' }}>
+              {tile('Total staff', analytics.total)}
+              {tile('Available now', analytics.available,
+                    analytics.busy ? `${analytics.busy} busy` : null, 'var(--success-color)')}
+              {tile('On the floor today', analytics.presentToday,
+                    analytics.workingNow ? `${analytics.workingNow} in now` : null)}
+              {tile('Employment set up', withTerms, `of ${roster.length}`)}
+            </div>
+          </>
+        );
+      })()}
+
+      {/* Role and employment mix: a chip is a count plus a label, so it reads
+          as one figure. Grouped with an eyebrow, on a well, so the eye takes
+          them as a breakdown rather than four more cards. */}
+      {canSeeTeam && (Object.keys(roleCounts).length > 0 || withTerms > 0) && (() => {
+        const chip = (n, label) => (
+          <div key={label} style={{
+            background: 'var(--surface-color)', border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-md)', padding: '8px 14px',
+            display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)',
+          }}>
+            <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--weight-bold)',
+                           fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)' }}>{n}</span>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{label}</span>
+          </div>
+        );
+        return (
+          <div style={{
+            background: 'var(--surface-inset)', border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-lg)', padding: 'var(--space-4) var(--space-5)',
+            marginBottom: 'var(--space-5)', display: 'flex', flexWrap: 'wrap',
+            gap: 'var(--space-6)',
+          }}>
+            {Object.keys(roleCounts).length > 0 && (
+              <div>
+                <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-2)' }}>By role</div>
+                <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                  {Object.entries(roleCounts).sort((a, b) => b[1] - a[1])
+                    .map(([role, n]) => chip(n, plural(role, n)))}
+                </div>
+              </div>
+            )}
+            {withTerms > 0 && (
+              <div>
+                <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-2)' }}>By employment</div>
+                <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                  {EMPLOYMENT_TYPES.filter(([k]) => analytics.emp[k])
+                    .map(([k, label]) => chip(analytics.emp[k], label))}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
 
-      {canSeeTeam && Object.keys(roleCounts).length > 0 && (
-        <div style={{ marginBottom: '18px' }}>
-          <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
-                        color: 'var(--text-muted)', marginBottom: '8px' }}>
-            By role
-          </div>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {Object.entries(roleCounts).sort((a, b) => b[1] - a[1]).map(([role, n]) => (
-              <div key={role} style={{ ...panel, padding: '10px 14px', display: 'flex',
-                                       alignItems: 'baseline', gap: '6px' }}>
-                <span style={{ fontSize: '18px', fontWeight: 700 }}>{n}</span>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{plural(role, n)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {canSeeTeam && withTerms > 0 && (
-        <div style={{ marginBottom: '18px' }}>
-          <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase',
-                        color: 'var(--text-muted)', marginBottom: '8px' }}>
-            By employment
-          </div>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {EMPLOYMENT_TYPES.filter(([k]) => analytics.emp[k]).map(([k, label]) => (
-              <div key={k} style={{ ...panel, padding: '10px 14px', display: 'flex',
-                                    alignItems: 'baseline', gap: '6px' }}>
-                <span style={{ fontSize: '18px', fontWeight: 700 }}>{analytics.emp[k]}</span>
-                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {canSeeTeam && (
         <div style={{
-          display: 'flex', gap: '10px', alignItems: 'center',
-          flexWrap: 'wrap', marginBottom: '16px',
+          display: 'flex', gap: 'var(--space-3)', alignItems: 'center',
+          flexWrap: 'wrap', marginBottom: 'var(--space-4)',
         }}>
           <input
             value={search}
@@ -1002,7 +1000,7 @@ function Roster({ isOwner, canSeeTeam }) {
       )}
 
       {rows.length === 0 ? (
-        <div style={{ ...panel, padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+        <div className="ui-card" style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-secondary)' }}>
           {canSeeTeam
             ? 'No staff on the roster yet. Add someone with the button above -- their role, mobile number and login are all set up in one go.'
             : 'Your employment details have not been set up yet. Your boutique owner can add them.'}
@@ -1010,31 +1008,34 @@ function Roster({ isOwner, canSeeTeam }) {
       ) : (
         // Cards, not a table: a roster row is a name plus a few values, and it
         // reads correctly at 320px without a horizontal scroller.
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {rows.map(({ member, terms: t }) => (
-            <div key={member.id} style={{ ...panel, padding: '14px 16px' }}>
+            <div key={member.id} className="ui-card" style={{ padding: 'var(--space-4)' }}>
               <div style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                gap: '12px', flexWrap: 'wrap',
+                gap: 'var(--space-3)', flexWrap: 'wrap',
               }}>
                 <div style={{ minWidth: 0 }}>
-                  {isOwner ? (
-                    <button
-                      type="button"
-                      onClick={() => setPerson(member)}
-                      title="Edit name, role and specialty"
-                      style={{
-                        fontWeight: 600, fontSize: '15px', background: 'none',
-                        border: 'none', padding: 0, cursor: 'pointer',
-                        color: 'inherit', textAlign: 'left',
-                      }}
-                    >{member.name}</button>
-                  ) : (
-                    <div style={{ fontWeight: 600, fontSize: '15px' }}>{member.name}</div>
-                  )}
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                    {isOwner ? (
+                      <button
+                        type="button"
+                        onClick={() => setPerson(member)}
+                        title="Edit name, role and specialty"
+                        style={{
+                          fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-md)',
+                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                          color: 'var(--text-primary)', textAlign: 'left',
+                        }}
+                      >{member.name}</button>
+                    ) : (
+                      <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--text-md)',
+                                    color: 'var(--text-primary)' }}>{member.name}</div>
+                    )}
+                    {t && <span className="ui-badge ui-badge--neutral">{employmentLabel(t.employment_type)}</span>}
+                  </div>
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     {member.role}
-                    {t && <> · {employmentLabel(t.employment_type)}</>}
                   </div>
                 </div>
                 {isOwner && (
@@ -1105,9 +1106,7 @@ function Roster({ isOwner, canSeeTeam }) {
                       marginTop: '12px', paddingTop: '12px',
                       borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))',
                     }}>
-                      <div style={{ fontSize: '11px', letterSpacing: '0.08em',
-                                    textTransform: 'uppercase',
-                                    color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      <div className="ui-eyebrow" style={{ marginBottom: '8px' }}>
                         Security deposit
                       </div>
                       <div
@@ -1129,7 +1128,7 @@ function Roster({ isOwner, canSeeTeam }) {
                         </div>
                       </div>
                       {d.fully_recovered && (
-                        <div style={{ fontSize: '12px', color: '#1e8a5c', marginTop: '8px' }}>
+                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--success-color)', marginTop: '8px' }}>
                           Security deposit fully recovered.
                         </div>
                       )}
@@ -1145,8 +1144,7 @@ function Roster({ isOwner, canSeeTeam }) {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between',
                                 alignItems: 'center', marginBottom: '8px' }}>
-                    <div style={{ fontSize: '11px', letterSpacing: '0.08em',
-                                  textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                    <div className="ui-eyebrow">
                       Advances
                     </div>
                     <button type="button" className="btn-secondary"
@@ -1284,11 +1282,12 @@ export default function StaffPanel({ currentUser }) {
     <>
       <header className="portal-header">
         <div className="portal-header-left">
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)',
+                         fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>
               {canSeeTeam ? 'Staff Management' : 'My Attendance'}
             </h1>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
               {canSeeTeam
                 ? 'Employment terms, attendance, payroll and performance for your team.'
                 : 'Check in and out, and see the hours recorded for you.'}
@@ -1297,27 +1296,38 @@ export default function StaffPanel({ currentUser }) {
         </div>
       </header>
 
+      {/* Tab strip, not pill buttons: these switch a view, and an underline on
+          the active one reads as navigation rather than four call-to-actions. */}
       <div style={{
-        display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '18px 0',
-        borderBottom: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-        paddingBottom: '10px',
+        display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap', margin: 'var(--space-5) 0 var(--space-6)',
+        borderBottom: '1px solid var(--border-color)',
       }}>
         {(isOwner
             ? TABS
             : canSeeTeam
               ? TABS.filter((t) => t.key !== 'payroll')
               : TABS.filter((t) => ['attendance', 'roster', 'performance'].includes(t.key)))
-          .map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={tab === key ? 'btn-primary' : 'btn-secondary'}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Icon size={14} /> {canSeeTeam || key !== 'roster' ? label : 'My details'}
-          </button>
-        ))}
+          .map(({ key, label, icon: Icon }) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                background: 'none', border: 'none', cursor: 'pointer',
+                padding: '10px 14px', marginBottom: '-1px',
+                fontSize: 'var(--text-base)',
+                fontWeight: active ? 'var(--weight-semibold)' : 'var(--weight-medium)',
+                color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                borderBottom: `2px solid ${active ? 'var(--primary-color)' : 'transparent'}`,
+              }}
+            >
+              <Icon size={15} /> {canSeeTeam || key !== 'roster' ? label : 'My details'}
+            </button>
+          );
+        })}
       </div>
 
       {tab === 'roster' && <Roster isOwner={isOwner} canSeeTeam={canSeeTeam} />}

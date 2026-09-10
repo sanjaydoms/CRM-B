@@ -15,9 +15,10 @@ import { useLanguage } from '../../i18n/LanguageContext.jsx';
  */
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
 };
 
 const qty = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
@@ -66,7 +67,7 @@ export default function LocationsTab({ items, isOwner, onMoved }) {
       </div>
 
       {error && (
-        <div style={{ ...panel, padding: '12px 16px', marginBottom: '12px', borderColor: 'rgba(220,38,38,0.3)', color: '#fca5a5', fontSize: '13px' }}>
+        <div style={{ ...panel, padding: '12px 16px', marginBottom: '12px', borderColor: 'var(--danger-color)', color: 'var(--danger-color)', fontSize: '13px' }}>
           {error}
         </div>
       )}
@@ -186,7 +187,7 @@ function TransferModal({ items, locations, onClose, onDone }) {
          onClick={onClose}>
       <div className="search-modal-card" style={{ ...panel, background: 'var(--surface-color)', width: '100%', maxWidth: '480px', padding: '22px' }}
            onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: '0 0 16px', fontSize: '18px' }}>{t('inventoryPage.transferModalTitle', 'Transfer stock')}</h3>
+        <h3 style={{ margin: '0 0 16px', fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', fontWeight: 500, color: 'var(--text-primary)' }}>{t('inventoryPage.transferModalTitle', 'Transfer stock')}</h3>
 
         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>{t('inventoryPage.tableMaterial', 'Material')}</label>
         <select className="form-control" value={item} onChange={(e) => setItem(e.target.value)} style={{ marginBottom: '12px' }}>
@@ -224,7 +225,7 @@ function TransferModal({ items, locations, onClose, onDone }) {
         <input className="form-control" type="number" step="0.001" min="0" value={quantity}
                onChange={(e) => setQuantity(e.target.value)} placeholder="e.g. 12.5" />
 
-        {error && <div style={{ color: '#fca5a5', fontSize: '12.5px', marginTop: '12px' }}>{error}</div>}
+        {error && <div style={{ color: 'var(--danger-color)', fontSize: '12.5px', marginTop: '12px' }}>{error}</div>}
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '20px' }}>
           <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>{t('common.cancel', 'Cancel')}</button>

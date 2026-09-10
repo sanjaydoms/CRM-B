@@ -23,16 +23,19 @@ import { useLanguage } from '../../i18n/LanguageContext.jsx';
  * for. `isSupervisor` decides which controls to draw, not which data to trust.
  */
 
+// tone maps to a .ui-badge modifier so the pill uses the design system's
+// contrast-checked colour pairs, not a raw hex on a `${colour}1f` alpha tint
+// (bright shades tuned for a dark theme, low-contrast on the light one).
 const STATUS_STYLE = {
-  ASSIGNED: { label: 'Assigned', colour: '#d4af37', icon: ClipboardList },
-  SUBMITTED: { label: 'Awaiting review', colour: '#4a9eff', icon: Clock },
-  APPROVED: { label: 'Approved', colour: '#3fb950', icon: Check },
-  CHANGES_REQUESTED: { label: 'Changes requested', colour: '#f0883e', icon: RotateCcw },
+  ASSIGNED: { label: 'Assigned', tone: 'neutral', icon: ClipboardList },
+  SUBMITTED: { label: 'Awaiting review', tone: 'info', icon: Clock },
+  APPROVED: { label: 'Approved', tone: 'success', icon: Check },
+  CHANGES_REQUESTED: { label: 'Changes requested', tone: 'warning', icon: RotateCcw },
 };
 
 function StatusPill({ status }) {
   const { t } = useLanguage();
-  const style = STATUS_STYLE[status] || { label: status, colour: 'var(--text-secondary)', icon: ClipboardList };
+  const style = STATUS_STYLE[status] || { label: status, tone: 'neutral', icon: ClipboardList };
   const keyMap = {
     ASSIGNED: 'assigned',
     SUBMITTED: 'awaitingReview',
@@ -42,11 +45,7 @@ function StatusPill({ status }) {
   const label = keyMap[status] ? t(`designWorkPage.${keyMap[status]}`, style.label) : style.label;
   const Icon = style.icon;
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: '5px',
-      padding: '3px 9px', borderRadius: '99px', fontSize: '11px', fontWeight: 600,
-      color: style.colour, background: `${style.colour}1f`, whiteSpace: 'nowrap',
-    }}>
+    <span className={`ui-badge ui-badge--${style.tone}`} style={{ gap: '5px', whiteSpace: 'nowrap' }}>
       <Icon size={12} /> {label}
     </span>
   );
@@ -99,7 +98,8 @@ function AssignPanel({ orders, designers, onAssigned, onError }) {
 
   return (
     <form className="content-card" onSubmit={submit} style={{ marginBottom: '18px' }}>
-      <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px',
+                   fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-primary)' }}>
         <UserPlus size={16} /> {t('designWorkPage.assignDesignWork', 'Assign design work')}
       </h3>
       <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
@@ -223,7 +223,7 @@ function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError 
     <div className="content-card" style={{ marginBottom: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
         <div>
-          <h4 style={{ margin: 0 }}>{assignment.garment_name}</h4>
+          <h4 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-primary)' }}>{assignment.garment_name}</h4>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px' }}>
             {assignment.order_id || assignment.order_ref}
             {isSupervisor && assignment.customer_name ? ` · ${assignment.customer_name}` : ''}
@@ -246,8 +246,8 @@ function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError 
             .filter(([, value]) => !/^[0-9a-f]{8}-[0-9a-f]{4}/.test(String(value)))
             .map(([key, value]) => (
             <span key={key} style={{
-              fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
-              background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)',
+              fontSize: '11px', padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+              background: 'var(--surface-inset)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)',
             }}>
               {key.replace(/_/g, ' ')}: {String(value)}
             </span>
@@ -257,8 +257,8 @@ function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError 
 
       {assignment.review_note && assignment.status === 'CHANGES_REQUESTED' && (
         <p style={{
-          fontSize: '12px', marginTop: '10px', padding: '8px 10px', borderRadius: '6px',
-          background: 'rgba(240,136,62,0.12)', color: '#f0883e',
+          fontSize: '12px', marginTop: '10px', padding: '8px 10px', borderRadius: 'var(--radius-md)',
+          background: 'var(--warning-bg)', color: 'var(--warning-color)',
         }}>
           <AlertCircle size={12} style={{ verticalAlign: '-2px' }} /> {assignment.review_note}
         </p>
@@ -268,7 +268,7 @@ function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '12px' }}>
           {design.image_url && (
             <img src={resolveMediaUrl(design.image_url)} alt={design.title}
-                 style={{ width: '56px', height: '56px', objectFit: 'cover', borderRadius: '6px' }} />
+                 style={{ width: '56px', height: '56px', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
           )}
           <div>
             <div style={{ fontWeight: 600, fontSize: '13px' }}>{design.title}</div>
@@ -357,12 +357,12 @@ export default function DesignWork({ currentUser }) {
   }, [isSupervisor, myDesignerId]);
 
   const { t } = useLanguage();
-  const heading = isSupervisor ? t('designWorkPage.titleSupervisor', 'Design Work') : t('designWorkPage.titleDesigner', 'My Design Work');
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-        <h2 style={{ margin: 0 }}>{heading}</h2>
+      {/* The page title + role-specific subtitle live in the portal-header (App
+          renders them for this tab), so this row carries only the filter. */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <label style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <input type="checkbox" checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)} />
           {t('designWorkPage.onlyOpen', 'Only work still open')}
@@ -370,7 +370,7 @@ export default function DesignWork({ currentUser }) {
       </div>
 
       {error && (
-        <div className="content-card" style={{ marginBottom: '12px', color: '#f85149' }}>
+        <div className="content-card" style={{ marginBottom: '12px', color: 'var(--danger-color)' }}>
           <AlertCircle size={14} style={{ verticalAlign: '-2px' }} /> {error}
         </div>
       )}

@@ -22,10 +22,10 @@ const CARD_IMAGE_FALLBACK =
   'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400';
 
 const STATUS_COLOURS = {
-  ACTIVE: { bg: 'rgba(52, 211, 153, 0.15)', fg: '#34d399' },
-  PENDING: { bg: 'rgba(251, 191, 36, 0.15)', fg: '#fbbf24' },
-  DRAFT: { bg: 'rgba(156, 163, 175, 0.15)', fg: '#9ca3af' },
-  ARCHIVED: { bg: 'rgba(156, 163, 175, 0.15)', fg: '#9ca3af' },
+  ACTIVE: { bg: 'var(--success-bg)', fg: 'var(--success-color)' },
+  PENDING: { bg: 'var(--warning-bg)', fg: 'var(--warning-color)' },
+  DRAFT: { bg: 'var(--surface-inset)', fg: 'var(--text-secondary)' },
+  ARCHIVED: { bg: 'var(--surface-inset)', fg: 'var(--text-secondary)' },
 };
 
 // Only the boutique's own catalogue rows are editable through the catalogue
@@ -154,12 +154,12 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
            onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: '20px' }}>{design.title}</h3>
+            <h3 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', fontWeight: 500, color: 'var(--text-primary)' }}>{design.title}</h3>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
               {design.designer_name || 'No designer credited'} · added {formatDate(design.created_at)}
             </span>
           </div>
-          <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
+          <button className="btn-secondary" aria-label="Close" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '20px' }}>
@@ -234,7 +234,7 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
                       disabled={reviewing} onClick={() => decide('CHANGES_REQUESTED')}>
                 Request changes
               </button>
-              <button className="btn-secondary" style={{ padding: '6px 14px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }}
+              <button className="btn-secondary" style={{ padding: '6px 14px', fontSize: '12px', color: 'var(--danger-color)', borderColor: 'var(--danger-color)' }}
                       disabled={reviewing} onClick={() => decide('REJECTED')}>
                 Reject
               </button>
@@ -261,7 +261,7 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
           <div style={{ display: 'flex', gap: '8px', marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
             <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}
                     onClick={() => onEdit(design)}><Edit2 size={12} /> Edit</button>
-            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }}
+            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--danger-color)', borderColor: 'var(--danger-color)' }}
                     onClick={() => onDelete(design)}><Trash2 size={12} /> Delete</button>
           </div>
         )}
@@ -368,7 +368,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
 
   if (error && !openCategory) {
     return (
-      <div className="content-card" style={{ color: '#c0392b', fontSize: '13px' }}>
+      <div className="content-card" style={{ color: 'var(--danger-color)', fontSize: '13px' }}>
         The design library could not be loaded — {error}
         <button className="btn-secondary" style={{ marginLeft: '10px', padding: '4px 10px', fontSize: '12px' }}
                 onClick={loadCategories}>Retry</button>
@@ -386,7 +386,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
               {total} design{total === 1 ? '' : 's'} in the library
             </span>
             {canReview && pendingCount > 0 && (
-              <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#fbbf24', borderColor: 'rgba(251,191,36,0.3)' }}
+              <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--warning-color)', borderColor: 'var(--warning-color)' }}
                       onClick={() => { setFilters({}); setOpenCategory(PENDING_QUEUE); }}>
                 <Clock size={13} /> {pendingCount} awaiting review
               </button>
@@ -434,7 +434,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
                 onClick={() => { setOpenCategory(null); setDesigns([]); }}>
           <ArrowLeft size={13} /> All categories
         </button>
-        <h3 style={{ margin: 0, fontSize: '18px' }}>{openCategory.name}</h3>
+        <h3 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, color: 'var(--text-primary)' }}>{openCategory.name}</h3>
         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
           {loading ? 'loading…' : `${designs.length} shown`}
         </span>
@@ -458,7 +458,10 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
           const status = STATUS_COLOURS[design.status] || STATUS_COLOURS.DRAFT;
           return (
             <div key={design.id}
+                 role="button"
+                 tabIndex={0}
                  onClick={() => api.getDesignAsset(design.id).then(setSelected).catch(() => setSelected(design))}
+                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); api.getDesignAsset(design.id).then(setSelected).catch(() => setSelected(design)); } }}
                  style={{
                    border: '1px solid var(--border-color)', borderRadius: '10px',
                    overflow: 'hidden', cursor: 'pointer', background: 'var(--surface-color)',

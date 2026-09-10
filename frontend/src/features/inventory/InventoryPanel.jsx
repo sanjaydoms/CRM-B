@@ -31,28 +31,40 @@ const MOVEMENTS = [
 ];
 
 const MOVEMENT_TONE = {
-  PURCHASE: '#10b981', STOCK_IN: '#10b981', RETURN: '#10b981',
-  ISSUE: '#f59e0b', CONSUMPTION: '#f59e0b',
-  RESERVATION: '#3b82f6', RELEASE: '#3b82f6',
-  DAMAGE: '#ef4444', SCRAP: '#ef4444',
-  ADJUSTMENT: '#a855f7', TRANSFER: '#6b7280',
+  PURCHASE: 'var(--success-color)', STOCK_IN: 'var(--success-color)', RETURN: 'var(--success-color)',
+  ISSUE: 'var(--warning-color)', CONSUMPTION: 'var(--warning-color)',
+  RESERVATION: 'var(--info-color)', RELEASE: 'var(--info-color)',
+  DAMAGE: 'var(--danger-color)', SCRAP: 'var(--danger-color)',
+  ADJUSTMENT: '#7a4fb0', TRANSFER: 'var(--text-muted)',
 };
 
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 const qty = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
+};
+
+// One themed inline error, so every form and the load failure report the same
+// way instead of each hardcoding #ef4444 on a red tint.
+const errorBox = {
+  fontSize: 'var(--text-sm)',
+  color: 'var(--danger-color)',
+  background: 'var(--danger-bg)',
+  border: '1px solid var(--danger-color)',
+  padding: '10px 12px',
+  borderRadius: 'var(--radius-md)',
 };
 
 function Stat({ label, value, tone, hint }) {
   return (
-    <div style={{ ...panel, padding: '16px 18px', flex: '1 1 170px' }}>
-      <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{label}</div>
-      <div style={{ fontSize: '22px', fontWeight: 600, marginTop: '6px', color: tone || 'var(--text-primary)' }}>{value}</div>
-      {hint && <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{hint}</div>}
+    <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)', flex: '1 1 170px' }}>
+      <div className="ui-eyebrow">{label}</div>
+      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: tone || 'var(--text-primary)' }}>{value}</div>
+      {hint && <div className="ui-stat-sub">{hint}</div>}
     </div>
   );
 }
@@ -69,13 +81,13 @@ function Modal({ title, onClose, children, width = '520px' }) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: 'var(--modal-bg, #fff)', borderRadius: '12px', width: '100%',
-          maxWidth: width, maxHeight: '88vh', overflowY: 'auto', padding: '24px',
-          border: '1px solid var(--border-color)',
+          background: 'var(--surface-color)', borderRadius: 'var(--radius-xl)', width: '100%',
+          maxWidth: width, maxHeight: '88vh', overflowY: 'auto', padding: 'var(--space-6)',
+          border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{title}</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-5)' }}>
+          <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', fontWeight: 500, margin: 0, color: 'var(--text-primary)' }}>{title}</h3>
           <button type="button" className="close-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
         {children}
@@ -162,9 +174,9 @@ export default function InventoryPanel({ currentUser }) {
     <>
       <header className="portal-header">
         <div className="portal-header-left">
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>{t('inventoryPage.title')}</h1>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-3xl)', fontWeight: 400, lineHeight: 'var(--leading-tight)', color: 'var(--text-primary)' }}>{t('inventoryPage.title')}</h1>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
               {t('inventoryPage.subtitle')}
             </p>
           </div>
@@ -182,13 +194,15 @@ export default function InventoryPanel({ currentUser }) {
       {summary && (
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
           <Stat label={t('inventoryPage.stockValue')} value={money(summary.inventory_value)} hint={`${summary.item_count} ${t('inventoryPage.itemsTracked', 'items tracked')}`} />
-          <Stat label={t('inventoryPage.outOfStock')} value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? '#ef4444' : undefined} />
-          <Stat label={t('inventoryPage.reorderDue')} value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? '#f59e0b' : undefined} />
+          <Stat label={t('inventoryPage.outOfStock')} value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? 'var(--danger-color)' : undefined} />
+          <Stat label={t('inventoryPage.reorderDue')} value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? 'var(--warning-color)' : undefined} />
           <Stat label={t('inventoryPage.deadStock')} value={summary.dead_stock_count} hint={t('inventoryPage.noMovement90Days', 'No movement in 90 days')} />
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '12px', marginTop: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', flexWrap: 'wrap' }}>
+      {/* Tab strip, not pill buttons: these switch a view, so an underline on
+          the active one reads as navigation rather than seven call-to-actions. */}
+      <div style={{ display: 'flex', gap: 'var(--space-1)', marginTop: 'var(--space-5)', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
         {[
           { key: 'items', label: t('inventoryPage.items'), icon: Package },
           { key: 'catalog', label: t('inventoryPage.catalog'), icon: BookOpen },
@@ -197,29 +211,33 @@ export default function InventoryPanel({ currentUser }) {
           { key: 'purchase', label: t('inventoryPage.purchaseOrders'), icon: Truck },
           { key: 'suppliers', label: t('inventoryPage.suppliers'), icon: ClipboardList },
           { key: 'reports', label: t('inventoryPage.reports'), icon: BarChart3 },
-        ].map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            style={{
-              padding: '8px 16px', fontSize: '13px', fontWeight: 600, borderRadius: '6px',
-              border: '1px solid', display: 'flex', alignItems: 'center', gap: '6px',
-              borderColor: tab === key ? 'var(--accent-text, #b07c40)' : 'var(--border-color)',
-              background: tab === key ? 'var(--accent-color, #fcf6ee)' : 'transparent',
-              color: tab === key ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)',
-              cursor: 'pointer',
-            }}
-          >
-            <Icon size={14} /> {label}
-          </button>
-        ))}
+        ].map(({ key, label, icon: Icon }) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-current={active ? 'page' : undefined}
+              onClick={() => setTab(key)}
+              style={{
+                padding: '10px 14px', marginBottom: '-1px',
+                fontSize: 'var(--text-base)', fontWeight: active ? 'var(--weight-semibold)' : 'var(--weight-medium)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px',
+                color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                borderBottom: `2px solid ${active ? 'var(--primary-color)' : 'transparent'}`,
+              }}
+            >
+              <Icon size={15} /> {label}
+            </button>
+          );
+        })}
       </div>
 
 
       {loadError && (
-        <div style={{ ...panel, padding: '32px', textAlign: 'center', marginTop: '20px', borderColor: 'rgba(220,38,38,0.3)' }}>
-          <div style={{ color: '#fca5a5', marginBottom: '12px' }}>{loadError}</div>
+        <div style={{ ...panel, padding: '32px', textAlign: 'center', marginTop: '20px', borderColor: 'var(--danger-color)' }}>
+          <div style={{ color: 'var(--danger-color)', marginBottom: '12px' }}>{loadError}</div>
           <button type="button" className="btn-secondary" onClick={refresh}>Retry</button>
         </div>
       )}
@@ -407,7 +425,7 @@ function ItemsTab({
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {item.name}
                       {item.needs_reorder && (
-                        <span title="At or below reorder level" style={{ display: 'inline-flex', color: '#f59e0b' }}>
+                        <span title="At or below reorder level" style={{ display: 'inline-flex', color: 'var(--warning-color)' }}>
                           <AlertTriangle size={13} />
                         </span>
                       )}
@@ -421,7 +439,7 @@ function ItemsTab({
                   <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{qty(item.reserved_stock)}</td>
                   <td style={{
                     padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600,
-                    color: Number(item.available_stock) <= 0 ? '#ef4444' : item.needs_reorder ? '#f59e0b' : 'var(--text-primary)',
+                    color: Number(item.available_stock) <= 0 ? 'var(--danger-color)' : item.needs_reorder ? 'var(--warning-color)' : 'var(--text-primary)',
                   }}>
                     {qty(item.available_stock)} <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>{item.unit_display}</span>
                   </td>
@@ -575,7 +593,7 @@ function MovementModal({ item, onClose, onDone }) {
         </div>
 
         {error && (
-          <div style={{ fontSize: '12.5px', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '10px 12px', borderRadius: '6px' }}>
+          <div style={errorBox}>
             {error}
           </div>
         )}
@@ -667,7 +685,7 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
         </p>
 
         {error && (
-          <div style={{ fontSize: '12.5px', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '10px 12px', borderRadius: '6px' }}>{error}</div>
+          <div style={errorBox}>{error}</div>
         )}
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -745,7 +763,7 @@ function PurchaseTab({ purchaseOrders, suppliers, items, isOwner, onReceive, onC
                       <div key={l.id}>
                         {l.item_name} — ordered {qty(l.quantity_ordered)}, received {qty(l.quantity_received)}
                         {Number(l.quantity_outstanding) > 0 && (
-                          <span style={{ color: '#f59e0b' }}> ({qty(l.quantity_outstanding)} outstanding)</span>
+                          <span style={{ color: 'var(--warning-color)' }}> ({qty(l.quantity_outstanding)} outstanding)</span>
                         )}
                       </div>
                     ))}
@@ -816,7 +834,7 @@ function CreatePurchaseOrderModal({ suppliers, items, onClose, onSaved }) {
           <label style={{ fontSize: '12px', fontWeight: 600 }}>Lines</label>
           {lines.map((line, i) => (
             <div key={i} className="po-line-row" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
-              <select className="form-control" value={line.item} onChange={(e) => setLine(i, 'item', e.target.value)}>
+              <select className="form-control" aria-label={`Item for line ${i + 1}`} value={line.item} onChange={(e) => setLine(i, 'item', e.target.value)}>
                 <option value="">Select item…</option>
                 {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
               </select>
@@ -835,7 +853,7 @@ function CreatePurchaseOrderModal({ suppliers, items, onClose, onSaved }) {
           </button>
         </div>
 
-        {error && <div style={{ fontSize: '12.5px', color: '#ef4444' }}>{error}</div>}
+        {error && <div style={errorBox}>{error}</div>}
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
@@ -886,6 +904,7 @@ function ReceiveModal({ purchaseOrder, onClose, onDone }) {
             </div>
             <input
               type="number" step="0.001" min="0" max={line.quantity_outstanding} className="form-control"
+              aria-label={`Received quantity for ${line.item_name}`}
               value={quantities[line.id] ?? ''}
               onChange={(e) => setQuantities((q) => ({ ...q, [line.id]: e.target.value }))}
             />
@@ -893,7 +912,7 @@ function ReceiveModal({ purchaseOrder, onClose, onDone }) {
         ))}
 
         {error && (
-          <div style={{ fontSize: '12.5px', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '10px 12px', borderRadius: '6px' }}>{error}</div>
+          <div style={errorBox}>{error}</div>
         )}
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -969,7 +988,7 @@ function SupplierFormModal({ onClose, onSaved }) {
           <Field label="Email" type="email" value={form.email} onChange={(v) => set('email', v)} />
         </div>
         <Field label="GST number" value={form.gst_number} onChange={(v) => set('gst_number', v)} />
-        {error && <div style={{ fontSize: '12.5px', color: '#ef4444' }}>{error}</div>}
+        {error && <div style={errorBox}>{error}</div>}
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save supplier'}</button>

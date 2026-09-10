@@ -17,9 +17,10 @@ import { AlertCircle, Check, ChevronLeft, Lock, Star, X } from 'lucide-react';
 import { api } from '../../services/api';
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  boxShadow: 'var(--shadow-sm)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
 };
 
 const RATINGS = [

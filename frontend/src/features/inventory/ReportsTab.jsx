@@ -8,9 +8,10 @@ import { useLanguage } from '../../i18n/LanguageContext.jsx';
  */
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
 };
 
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
@@ -40,8 +41,8 @@ export default function ReportsTab() {
   }
   if (error) {
     return (
-      <div style={{ ...panel, padding: '24px', textAlign: 'center', marginTop: '20px', borderColor: 'rgba(220,38,38,0.3)' }}>
-        <div style={{ color: '#fca5a5', marginBottom: '12px', fontSize: '13px' }}>{error}</div>
+      <div style={{ ...panel, padding: '24px', textAlign: 'center', marginTop: '20px', borderColor: 'var(--danger-color)' }}>
+        <div style={{ color: 'var(--danger-color)', marginBottom: '12px', fontSize: '13px' }}>{error}</div>
         <button type="button" className="btn-secondary" onClick={load}>{t('common.retry', 'Retry')}</button>
       </div>
     );
@@ -76,9 +77,9 @@ export default function ReportsTab() {
         <Stat label={t('inventoryPage.tableReserved', 'Reserved')} value={qty(stock.reserved_stock)} />
         <Stat label={t('inventoryPage.tableAvailable', 'Available')} value={qty(stock.available_stock)} />
         <Stat label={t('inventoryPage.atReorderLevel', 'At reorder level')} value={stock.at_or_below_reorder_level}
-              tone={stock.at_or_below_reorder_level ? '#f59e0b' : undefined} />
+              tone={stock.at_or_below_reorder_level ? 'var(--warning-color)' : undefined} />
         <Stat label={t('inventoryPage.outOfStock', 'Out of stock')} value={stock.out_of_stock}
-              tone={stock.out_of_stock ? '#ef4444' : undefined} />
+              tone={stock.out_of_stock ? 'var(--danger-color)' : undefined} />
       </div>
 
       <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: '16px' }}>
@@ -119,7 +120,7 @@ export default function ReportsTab() {
               <div key={row.item_id} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
                                               padding: '8px 0', borderTop: '1px solid var(--border-color)' }}>
                 <span style={{ fontSize: '13px' }}>{row.name}</span>
-                <span style={{ fontSize: '13px', color: Number(row.available_stock) <= 0 ? '#ef4444' : '#f59e0b' }}>
+                <span style={{ fontSize: '13px', color: Number(row.available_stock) <= 0 ? 'var(--danger-color)' : 'var(--warning-color)' }}>
                   {qty(row.available_stock)} left · needs {qty(row.reorder_level)}
                 </span>
               </div>
@@ -136,7 +137,7 @@ export default function ReportsTab() {
                 <span style={{ fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
                   {money(row.total_cost)}
                   {Number(row.waste_cost) > 0 && (
-                    <span style={{ color: '#f59e0b', marginLeft: '8px', fontSize: '11.5px' }}>
+                    <span style={{ color: 'var(--warning-color)', marginLeft: '8px', fontSize: '11.5px' }}>
                       {money(row.waste_cost)} wasted
                     </span>
                   )}
@@ -186,12 +187,14 @@ export default function ReportsTab() {
   );
 }
 
+// Same card as InventoryPanel's Stat, so the two KPI rows on the Reports screen
+// read as one system (was a pre-redesign 20px/600 copy on the washed-out panel).
 function Stat({ label, value, tone, hint }) {
   return (
-    <div style={{ ...panel, padding: '16px 18px', flex: '1 1 150px' }}>
-      <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{label}</div>
-      <div style={{ fontSize: '20px', fontWeight: 600, marginTop: '6px', color: tone || 'var(--text-primary)' }}>{value}</div>
-      {hint && <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{hint}</div>}
+    <div className="ui-card" style={{ padding: 'var(--space-4) var(--space-5)', flex: '1 1 150px' }}>
+      <div className="ui-eyebrow">{label}</div>
+      <div className="ui-stat-value" style={{ marginTop: 'var(--space-2)', color: tone || 'var(--text-primary)' }}>{value}</div>
+      {hint && <div className="ui-stat-sub">{hint}</div>}
     </div>
   );
 }
