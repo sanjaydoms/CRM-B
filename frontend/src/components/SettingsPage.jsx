@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext.jsx';
 import LanguageSelector from './LanguageSelector.jsx';
+import { InvoiceTemplateSelector } from './invoice/InvoiceTemplateSelector.jsx';
 import { Globe, Settings, ShieldCheck, CheckCircle2, Building, User, Clock, Info, MessageSquare, RotateCw, RefreshCw } from 'lucide-react';
 import { api } from '../services/api.js';
 
@@ -82,7 +83,7 @@ export const SettingsPage = ({
         className="settings-grid" 
         style={{ 
           display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', 
           gap: '24px' 
         }}
       >
@@ -303,6 +304,9 @@ export const SettingsPage = ({
             )}
           </div>
         </div>
+
+        {/* Invoice Template Selection Card (Right side of WhatsApp Link card) */}
+        <InvoiceTemplateSelector currentUser={currentUser} />
       </div>
     </div>
   );

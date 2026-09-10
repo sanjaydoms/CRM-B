@@ -7,20 +7,11 @@ import LocationsTab from './LocationsTab';
 import RecipesTab from './RecipesTab';
 import ReportsTab from './ReportsTab';
 
-
-// Movement types the UI offers, in the order an item actually travels.
-// `field` names the number the form asks for, because "adjust" asks for a
-// counted total while everything else asks for a quantity moved.
 const MOVEMENTS = [
   { key: 'stock-in', label: 'Stock In', help: 'Goods received into the boutique.' },
   { key: 'reserve', label: 'Reserve', help: 'Spoken for by an order, still on the shelf.' },
   { key: 'release', label: 'Release', help: 'Cancel a reservation.' },
   { key: 'issue', label: 'Issue to production', help: 'Hand to the workroom. Leaves the shelf.' },
-  // Consumption and waste were missing from this list while the Reports tab
-  // counted exactly them: reports.consumption reads CONSUMPTION and loss_rates
-  // derives waste_percent from CONSUMPTION + WASTE. Both endpoints existed and
-  // took the same payload as their neighbours, so the two panels were correct
-  // and correctly reported nothing, for ever.
   { key: 'consume', label: 'Consume', help: 'Actually used up on a garment.' },
   { key: 'waste', label: 'Waste', help: 'Offcuts and loss during production.' },
   { key: 'return', label: 'Return', help: 'Unused material back from the workroom.' },
@@ -448,9 +439,6 @@ function ItemsTab({
 
 // Movements that take material off a shelf, and therefore need to say which.
 const STOCK_OUT = new Set(['issue', 'consume', 'waste', 'damage', 'scrap', 'reserve', 'adjust']);
-// Movements that belong to a particular garment. cost_per_order reads
-// OrderMaterialLine and the consumption report groups by order, so a movement
-// recorded without one is invisible to both.
 const ORDER_LINKED = new Set(['issue', 'consume', 'waste', 'reserve', 'release', 'return']);
 
 function MovementModal({ item, onClose, onDone }) {
@@ -467,8 +455,6 @@ function MovementModal({ item, onClose, onDone }) {
 
   const chosen = MOVEMENTS.find((m) => m.key === movement);
 
-  // Both lists are best-effort: the modal has to keep working for a boutique
-  // that tracks neither orders nor multiple locations.
   useEffect(() => {
     api.getOrders().then((rows) => setOrders(rows || [])).catch(() => setOrders([]));
     api.getItemLocations(item.id)
@@ -484,12 +470,6 @@ function MovementModal({ item, onClose, onDone }) {
       const payload = { remarks };
       payload[chosen.field || 'quantity'] = amount;
       if (movement === 'issue' && stageKey) payload.stage_key = stageKey;
-      // The backend has always read both of these; the form simply never sent
-      // them. Without order_id every movement was written with order=None, so
-      // the cost-per-order and consumption reports had nothing to group by;
-      // without from_location, record_movement substituted the default
-      // location, so any stock-out failed once material had been transferred
-      // to the workshop and Main Store held zero.
       if (orderId && ORDER_LINKED.has(movement)) payload.order_id = orderId;
       if (fromLocation && STOCK_OUT.has(movement)) payload.from_location = fromLocation;
       await api.moveStock(item.id, movement, payload);

@@ -29,8 +29,6 @@ const STATUS_COLOURS = {
   ARCHIVED: { bg: 'rgba(156, 163, 175, 0.15)', fg: '#9ca3af' },
 };
 
-// Only the boutique's own catalogue rows are editable through the catalogue
-// endpoints; an imported pin or a studio upload is not a catalogue entry.
 const EDITABLE_SOURCES = ['catalogue', 'suggestion'];
 
 const formatDate = (iso) =>
@@ -100,8 +98,6 @@ function Filters({ value, onChange, designers, collections, parts = [] }) {
 
 function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview, partLabels = {} }) {
   const editable = EDITABLE_SOURCES.includes(design.source);
-  // Grouped in the order the server returned them, which is the template's own
-  // part order (DesignImage.Meta.ordering), so the overall shot leads.
   const byPart = useMemo(() => {
     const groups = new Map();
     (design.images || []).forEach((img) => {
@@ -114,10 +110,6 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
   const [note, setNote] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const isPending = design.status === 'PENDING';
-  // A ref, not just the state above: two clicks in the same tick both read
-  // `reviewing` as false, because React has not re-rendered between them yet.
-  // That let a fast double-click on Approve write two DesignApproval rows for
-  // one decision. The ref is checked synchronously, before either render.
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -125,7 +117,7 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
   }, [design.id]);
 
   const decide = async (decision) => {
-    if (inFlight.current) return;   // one click, one call
+    if (inFlight.current) return;   
     inFlight.current = true;
     setReviewing(true);
     try {
@@ -275,7 +267,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   const { t } = useLanguage();
   const [categories, setCategories] = useState([]);
   const [total, setTotal] = useState(0);
-  const [openCategory, setOpenCategory] = useState(null);   // null = section list
+  const [openCategory, setOpenCategory] = useState(null);  
   const [designs, setDesigns] = useState([]);
   const [designers, setDesigners] = useState([]);
   const [collections, setCollections] = useState([]);
@@ -285,10 +277,6 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
-  // Parts per garment key, for the Part filter and the detail modal's headings.
-  // Cached by key rather than reset per category: reopening a category the
-  // owner has already looked at costs nothing, and it keeps the state write
-  // inside the fetch callback rather than in an effect body.
   const [partsByKey, setPartsByKey] = useState({});
 
   const PENDING_QUEUE = { key: '__pending__', name: 'Pending Approval' };
@@ -337,8 +325,6 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   const partLabels = useMemo(
     () => Object.fromEntries(parts.map(p => [p.key, p.label])), [parts]);
 
-  // Only the open category is fetched, so the landing page never pays for the
-  // whole library.
   useEffect(() => {
     if (openCategory === null) return;
     let cancelled = false;
@@ -353,9 +339,6 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
     return () => { cancelled = true; };
   }, [openCategory, filters, refreshToken, isPendingQueue]);
 
-  // A design leaving PENDING (approved/rejected) must disappear from the queue
-  // immediately, not on the next reload -- otherwise the owner reviews the same
-  // design twice.
   const handleReviewed = (updated) => {
     setSelected(updated);
     setDesigns((prev) => (isPendingQueue
@@ -501,7 +484,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
           onUploaded={() => {
             setUploading(false);
             loadCategories();
-            setFilters({ ...filters });   // refetch the open category
+            setFilters({ ...filters });   
             onUploaded?.();
           }}
         />

@@ -14,15 +14,8 @@ import {
   formatMoney, formatDate as fmtDate, formatDateTime as fmtDateTime,
   formatTime as fmtTime, setBoutiqueTimeZone,
 } from './services/format';
-// The inventory panel and the design studio are whole screens behind their own
-// tabs, and together they are a sixth of the bundle. Loading them eagerly made
-// every first paint -- including the login screen -- wait on code most sessions
-// never open, so they are fetched when their tab is first shown instead.
-// TemplateForm stays eager: it renders inline in the order wizard, where a
-// loading flicker mid-form would be worse than its few KB.
+
 const GarmentPartPicker = lazy(() => import('./features/designStudio/GarmentPartPicker'));
-// Named export off the same module, so it arrives with the chunk the
-// pickers already load rather than costing a second request.
 const SelectedDesignSummary = lazy(() => import('./features/designStudio/GarmentPartPicker')
   .then(m => ({ default: m.SelectedDesignSummary })));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
@@ -38,6 +31,7 @@ import AlterationList from './features/alterations/AlterationList';
 import { MobileHeader } from './components/ui/MobileHeader';
 import { useLanguage } from './i18n/LanguageContext.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
+import { InvoiceRenderer, normalizeInvoiceData } from './components/invoice/InvoiceTemplates';
 import { BottomNavigation } from './components/ui/BottomNavigation';
 
 import { BottomSheet } from './components/ui/BottomSheet';
@@ -50,39 +44,14 @@ const ScreenLoading = () => (
 );
 import { splitSpec, validateSpec } from './services/templates';
 
-// Mirrors core/permissions.py SUPERVISOR_ROLES. Roles that run the floor and
-// may hand work to someone else. A list rather than a bare === 'Master' check
-// so a boutique that splits its floor into specialists can be added in one
-// place instead of hunting every comparison.
 const SUPERVISOR_ROLES = ['Master'];
 
-// Everyone who works on garments. resolve_user_role returns the Tailor
-// profile's role verbatim, so a boutique that has split its floor produces
-// seven role strings beyond 'Tailor' and 'Master' -- and get_default_workflow
-// permits each of them on a specific stage. Comparing against the two literal
-// names stranded every specialist: routed to a tab their own nav does not
-// contain, and shown an order's money that the permission matrix says
-// production staff must not see.
 const PRODUCTION_ROLES = [
   'Tailor', 'Master', 'Measurement Master', 'Pattern Master', 'Cutting Master',
   'Maggam Master', 'Finishing Master', 'Pressing Staff', 'QC Master',
 ];
 const isProductionStaff = (role) => PRODUCTION_ROLES.includes(role);
 
-/**
- * A stored mobile number, written the way its owner would recognise it.
- *
- * Numbers are now stored canonically -- Customer.save folds "+91 (0) 98765
- * 43211", "0091 9876543211" and "098765 43211" onto one value -- so that a
- * returning client is the same record rather than a second profile. The stored
- * form is 919876543211, which is right for identity and wrong for a human: it
- * was printing on the invoice, and three screens rendered "+91 919876543211"
- * by prefixing a country code the value already carried.
- *
- * Storage is canonical; display is formatted. Anything that is not a
- * recognisable Indian number is shown exactly as it was typed, because those
- * digits are the only record of how to reach that client.
- */
 const formatMobile = (raw) => {
   const digits = String(raw || '').replace(/\D/g, '');
   if (digits.length === 12 && digits.startsWith('91')) {
@@ -93,14 +62,6 @@ const formatMobile = (raw) => {
   return raw || '';
 };
 
-/**
- * wa.me wants digits only, with the country code and no punctuation.
- *
- * Built as `wa.me/91${mobile}` at the call site, which produced
- * wa.me/91+91 98765 43211 for any number the owner had typed with formatting --
- * and, once numbers were stored canonically, wa.me/91919876543211. Both open a
- * chat with nobody. The stored value already carries the country code.
- */
 const waLink = (raw) => `https://wa.me/${String(raw || '').replace(/\D/g, '')}`;
 
 
@@ -112,8 +73,6 @@ const APPOINTMENT_TYPE_LABELS = {
   DELIVERY: 'Final Delivery',
 };
 
-// Mirrors Tailor.ROLE_CHOICES. A boutique run by one generalist keeps using Master;
-// larger studios split the work, and each stage only accepts its own specialists.
 const STAFF_ROLES = [
   { value: 'Tailor', label: 'Stitching Tailor', hint: 'Stitches the garment.' },
   { value: 'Master', label: 'Master Tailor (generalist)', hint: 'Can work on every stage.' },
@@ -194,17 +153,11 @@ const getColorCircleStyle = (colorName) => {
   return '#fbeedb';
 };
 
-// A garment template key as a person reads it: blouse_length -> "Blouse length".
-// Shared by the staff blueprint panel and the stage-detail "What to make" block,
-// which were about to grow two different versions of the same line.
 const humaniseSpecKey = (key) => {
   const words = String(key).replace(/_/g, ' ').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
-// A stored spec value as a person reads it. Stored values are the template's own
-// option keys -- 'a_line', 'hr2', 'hand_made' -- and booleans, both of which
-// reached the shop floor raw.
 const humaniseSpecValue = (value) => {
   if (value === true) return 'Yes';
   if (value === false) return 'No';
@@ -212,11 +165,6 @@ const humaniseSpecValue = (value) => {
   return humaniseSpecKey(value);
 };
 
-// Every garment on an order, for screens that only need to name them.
-// Prefers the order's garment jobs -- the record of what was actually ordered --
-// and falls back to the customer's single garment_type only for orders written
-// before garment jobs existed. Mirrors domains/orders/garments.py; the API sends
-// `garments` already, so this is the client-side guard for older payloads.
 const orderGarmentNames = (order) => {
   if (!order) return [];
   if (Array.isArray(order.garments) && order.garments.length) return order.garments;
@@ -273,24 +221,6 @@ const getTailorTags = (name) => {
   return ['Custom', 'Tailoring'];
 };
 
-// Clickable twelve-stage timeline. Shown on the owner's order registry and on a
-// master's assignments board, so it lives here rather than being written twice.
-/** The customer messages an order has raised, and the owner's send button.
- *
- * There is no WhatsApp Business integration behind this. Each queued message
- * carries a wa.me link that opens the customer's chat with the text already
- * written; the owner sends it from their own number and then marks it sent.
- * Nothing here can observe a send that happened in another app, so "Mark sent"
- * is the owner's word for it, which is why it is a separate deliberate click
- * rather than something inferred from opening the link.
- *
- * Presentational: the queue is fetched once for the whole screen by
- * fetchDashboardAndConfig and handed down. It used to fetch its own messages
- * from the order id, which was tidier to drop in and wrong twice over -- one
- * request per order card on an unpaginated registry, and a list that never
- * refreshed, so a message queued by the status dropdown directly above it
- * stayed invisible until a hard reload.
- */
 function CustomerMessageQueue({ orderId, messages, onMarkSent }) {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState(null);
@@ -392,17 +322,6 @@ const GARMENT_VIEWS = [
   ['DUPATTA', 'Dupatta styling'],
 ];
 
-/** Photographs of the finished garment, and the decision to show the customer.
- *
- * Front and back are required before publishing, because those are the two the
- * specification promises the customer. Publishing queues the "your outfit is
- * ready" message, so it is a deliberate button rather than something that
- * happens the moment a photograph lands -- the angles go up one at a time, and
- * a half-uploaded gallery is not what anyone wants sent.
- *
- * The images come from the order payload that is already on screen, so this
- * costs no extra request.
- */
 function GarmentGallery({ order, onChanged }) {
   const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
@@ -544,17 +463,11 @@ function GarmentGallery({ order, onChanged }) {
 
 function StageTimeline({ stages, onSelectStage }) {
   const { t } = useLanguage();
-  // Fifteen stages in a strip about three-and-a-half stages wide: opening an
-  // order on a phone put "Created" on screen and whatever actually needs doing
-  // several swipes away. Centre the live stage (or the last one finished) so
-  // the strip opens where the work is.
   const activeRef = React.useRef(null);
   const scrollerRef = React.useRef(null);
   React.useEffect(() => {
     const el = activeRef.current, box = scrollerRef.current;
     if (!el || !box) return;
-    // Not scrollIntoView: it would also scroll the page vertically to reach a
-    // strip the user may not have scrolled to yet.
     box.scrollLeft = el.offsetLeft - (box.clientWidth - el.offsetWidth) / 2;
   }, [stages]);
 
@@ -645,37 +558,12 @@ function StageTimeline({ stages, onSelectStage }) {
   );
 }
 
-/**
- * Give a design brief one shape, whatever the server sent.
- *
- * /design-studio/boards/ answers with TailorBriefSerializer -- which has a
- * `design` key -- only for a caller who has a tailor profile and is not the
- * Owner. Everyone else, the Owner included, gets DesignBoardSerializer, whose
- * approved item is under `selected` and which has no `design` at all.
- *
- * The stage panel guarded on `(brief.design || brief.selected)` and then read
- * `brief.design.image_url` on the next line, so for an Owner the guard passed
- * on `selected` and the read threw on `design`. A TypeError inside render hits
- * the error boundary, which unmounts the whole workspace -- and that panel is
- * the only place a stage can be started, paused or completed, so an Owner
- * could not run production on any order that had been through the Design
- * Studio at all.
- *
- * Normalising here rather than at each of the four reads: one place to be
- * wrong, and the next serializer shape that appears has one place to be taught.
- */
+
 const normaliseDesignBrief = (brief) => {
   if (!brief) return null;
   return { ...brief, design: brief.design || brief.selected || null };
 };
 
-/**
- * What this garment needs from the store room, shown the moment it is chosen.
- *
- * Reads the boutique's own recipe (the active BOM for the template) so the
- * person taking the order knows BEFORE promising a date whether the racks can
- * stitch it. Read-only and quiet: no recipe, no card.
- */
 function MaterialsNeeded({ templateId }) {
   const [bom, setBom] = useState(null);
   useEffect(() => {
@@ -707,15 +595,6 @@ function MaterialsNeeded({ templateId }) {
   );
 }
 
-/**
- * The Master\'s gathering checklist for one order.
- *
- * Every material the order plans, each with: a tick that records who had it in
- * hand and when, photographs of the actual bolt or spool (camera or gallery)
- * that travel with the order for QC and future rework, and the consumption
- * note once stitching has drawn it. Visibility for everyone; ticking and
- * photographing are the Owner\'s and the Master\'s.
- */
 function MaterialsChecklist({ orderId, role, onActivity }) {
   const [plan, setPlan] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -726,9 +605,7 @@ function MaterialsChecklist({ orderId, role, onActivity }) {
   const refresh = () => api.getMaterialChecklist(orderId)
     .then((data) => { setPlan(data.plan); setLoaded(true); })
     .catch(() => setLoaded(true));
-  // Fetch only when someone opens the panel. The registry renders one of
-  // these per order card, and an on-mount fetch would fire the whole page's
-  // worth of requests at a cross-region API on every visit.
+  
   useEffect(() => { if (opened) refresh(); /* eslint-disable-next-line */ }, [opened, orderId]);
 
   if (!opened) {
@@ -849,16 +726,7 @@ function NetworkActivityBar() {
 }
 
 function App() {
-  // The marketing site is static HTML at / and no longer a view in here -- see
-  // frontend/index.html. This bundle is the workspace, served from /app, so it
-  // opens on the sign-in screen and "back" links leave for the marketing site.
-  // 'login', 'signup', 'forgot', 'reset', 'dashboard', 'order-selector', 'wizard', 'confirmed'
-  //
-  // Opens on 'reset' when the address bar carries a reset token, and that wins
-  // over a restored session on purpose: whoever followed the link may still be
-  // signed in here -- the ordinary case when an owner has merely forgotten a
-  // password rather than lost it -- and sending them to the dashboard would
-  // swallow the link without ever showing the form.
+
   const [view, setView] = useState(
     () => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login');
   const [dashboardTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs'
@@ -866,36 +734,23 @@ function App() {
   const { t, language } = useLanguage();
   const currentUserName = currentUser?.first_name || currentUser?.name || currentUser?.email?.split('@')[0] || 'User';
 
-
   // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
 
-  // Password reset. `resetToken` is read out of the query string on mount --
-  // the link in the email is the only way into the 'reset' view, and the
-  // browser following it has no session and no tenant header yet, so the token
-  // carries the schema itself (see PasswordResetRequestView).
   const [resetEmail, setResetEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
-  // Read once, as the initial value, rather than in an effect: setting state
-  // synchronously inside an effect makes React render the login screen first
-  // and the reset screen a frame later, which is a visible flash of the wrong
-  // page on the one screen where the user has just clicked a link in an email.
+
   const [resetToken, setResetToken] = useState(
     () => new URLSearchParams(window.location.search).get('reset'));
   const [resetPassword, setResetPassword] = useState('');
   const [resetConfirm, setResetConfirm] = useState('');
   const [resetDone, setResetDone] = useState(false);
-  // Shown inside the auth card. These screens deliberately do not use the
-  // alert() the rest of this file reaches for: a modal dialog on top of a
-  // sign-in form is the wrong shape for "that address is not valid".
+  
   const [authError, setAuthError] = useState(null);
   const [authBusy, setAuthBusy] = useState(false);
-  // Logout asks first: one mis-tap on a phone menu ended the whole session,
-  // and the POST behind it takes seconds with nothing on screen saying so.
-  // Getting-started checklist: dismissed per device+boutique, and it also
-  // disappears on its own once every step is genuinely done.
+
   const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
     try {
       return localStorage.getItem(`onboarding_dismissed_${localStorage.getItem('tenant_id') || ''}`) === '1';
@@ -905,7 +760,7 @@ function App() {
   const [logoutBusy, setLogoutBusy] = useState(false);
 
   // Signup Wizard State
-  const [signupStep, setSignupStep] = useState(1); // 1: Account, 2: Verify, 3: Profile, 4: Prefs, 5: Complete
+  const [signupStep, setSignupStep] = useState(1); 
 
   const [signupForm, setSignupForm] = useState({
     first_name: '',
@@ -921,15 +776,11 @@ function App() {
 
   // Customer/Order Wizard State
   const [currentStep, setCurrentStep] = useState(1);
-  // Which garment tile is fetching its template right now: the load takes
-  // seconds against the remote database, and a silent tile invites re-clicks.
+  
   const [addingGarmentKey, setAddingGarmentKey] = useState(null);
 
-  // A wizard step lands read from the top, not wherever the previous step's
-  // Next button happened to leave the scroll.
   useEffect(() => {
-    // Instant, not smooth: the new step's content is still mounting, and a
-    // smooth scroll gets cancelled by the layout shifting under it.
+    
     window.scrollTo(0, 0);
   }, [view, currentStep, signupStep]);
 
@@ -938,49 +789,36 @@ function App() {
   const [profilePhoto, setProfilePhoto] = useState(null);
   const [profilePhotoPreview, setProfilePhotoPreview] = useState(null);
 
-  // Garment templates. `garmentTemplates` is the summary list that fills the
-  // picker; `garmentJobs` is the dresses on this order, each holding the full
-  // template it renders from and the answers given so far. One order can carry a
-  // lehenga, its blouse and a dupatta, so this is a list, not a single value.
   const [garmentTemplates, setGarmentTemplates] = useState([]);
   const [garmentJobs, setGarmentJobs] = useState([]);
-  // The order being written lives on the server as an OrderDraft; this is a
-  // cache of it. Refreshing, following the step-4 empty-state button, or
-  // opening a second tab must not be able to destroy work already done --
-  // which is exactly what happened while the wizard's only copy was here.
+  
   const [draftId, setDraftId] = useState(null);
   const [draftVersion, setDraftVersion] = useState(null);
-  // idle | saving | saved | failed | conflict
   const [draftSaveState, setDraftSaveState] = useState('idle');
   const [resumableDrafts, setResumableDrafts] = useState([]);
-  // Which draft is asking to be confirmed for discard. An in-app step
-  // rather than window.confirm: a destructive action should not depend on
-  // a browser dialog, which can be suppressed by the browser, by an
-  // extension, or by the automation that is supposed to be testing it --
-  // and a control nobody can test is a control nobody should trust.
+  
   const [discardingDraftId, setDiscardingDraftId] = useState(null);
   const [garmentQuantityErrors, setGarmentQuantityErrors] = useState({});
   const [garmentErrors, setGarmentErrors] = useState({});
   const [garmentTemplatesError, setGarmentTemplatesError] = useState(null);
-  // Bumped after any design write so the library refetches its counts and grid.
+  
   const [designLibraryToken, setDesignLibraryToken] = useState(0);
-  const [designsView, setDesignsView] = useState('dashboard'); // 'dashboard' | 'library'
+  const [designsView, setDesignsView] = useState('dashboard');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Wizard Details State
   const [designNotes, setDesignNotes] = useState('');
   const [designFiles, setDesignFiles] = useState([]);
   const [designPreviews, setDesignPreviews] = useState([]);
-  const [designSourceTab, setDesignSourceTab] = useState('studio'); // 'studio', 'references'
-  // Board id and selection handed up by the Design Studio, attached to the
-  // order once it is created in step 6.
+  const [designSourceTab, setDesignSourceTab] = useState('studio'); 
+  
   const [designBoard, setDesignBoard] = useState({ boardId: null, selected: null, approved: false });
   const [selectedDesignTemplates, setSelectedDesignTemplates] = useState([]);
   const [designSource, setDesignSource] = useState('BOUTIQUE_CATALOG');
   const [designLinks, setDesignLinks] = useState('');
-  const [fabricTab, setFabricTab] = useState('boutique'); // 'my-fabric', 'boutique'
+  const [fabricTab, setFabricTab] = useState('boutique'); 
   const [paymentPhase, setPaymentPhase] = useState(false);
-  const [paymentOption, setPaymentOption] = useState('full'); // 'full' or 'partial'
+  const [paymentOption, setPaymentOption] = useState('full'); 
   const [deliveryMethod, setDeliveryMethod] = useState('Direct Pickup');
   const [courierService, setCourierService] = useState('');
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -995,10 +833,7 @@ function App() {
   const [fabricFilter, setFabricFilter] = useState('All');
   const [selectedTailor, setSelectedTailor] = useState(null);
   const [selectedMaster, setSelectedMaster] = useState(null);
-  // Order-level money only. Everything garment-shaped -- base, fabric,
-  // embroidery, customization, tailoring -- lives on each entry in
-  // garmentJobs.pricing now, because one flat set is exactly how a Blouse +
-  // Lehenga order came to be priced as whichever garment the profile named.
+ 
   const [quotePrices, setQuotePrices] = useState({ packaging: 500, discount: 0 });
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [paymentModalOrder, setPaymentModalOrder] = useState(null);
@@ -1022,9 +857,7 @@ function App() {
   const [editingTailor, setEditingTailor] = useState(null);
   const [tailorSaving, setTailorSaving] = useState(false);
   const [shareCredsTailor, setShareCredsTailor] = useState(null);
-  // Recording a payment: which row is in flight, and what went wrong. Shown in
-  // the Invoices header rather than through alert() -- a modal dialog over a
-  // ledger the owner is reading down is the wrong shape for "that did not save".
+  
   const [wizardError, setWizardError] = useState(null);
   const [savingPaymentId, setSavingPaymentId] = useState(null);
   const [paymentError, setPaymentError] = useState(null);
@@ -1052,19 +885,7 @@ function App() {
     description: ''
   });
 
-  // The old effect that synced a single base/fabric price from
-  // customerForm.garment_type is gone: money is seeded per garment in
-  // addGarment and edited per garment on the review step. A boutique fabric's
-  // suggested charge is applied to a garment when the owner types it, not
-  // guessed at three metres against whichever dress came first.
 
-  // The garment list drives the whole order form, and comes from the catalogue
-  // rather than a hardcoded array.
-  //
-  // Loaded per signed-in user, not on mount. The endpoint needs a token, and
-  // on mount there is none -- the app opens on the landing page and the user
-  // logs in afterwards. Fetching once on mount meant the request 401'd, the
-  // list stayed empty, and the order form offered no garments at all.
   const loadGarmentTemplates = useCallback(async () => {
     if (!localStorage.getItem('token')) return;
     setGarmentTemplatesError(null);
@@ -1109,14 +930,7 @@ function App() {
     }
   }, [view, garmentJobs.length, garmentTemplates]);
 
-  // Pricing, the dashboard and the stage tracker still read the single
-  // garment_type on the customer, so it follows the first dress on the order
-  // until those move over to the job list.
-  //
-  // Derived rather than assigned inside addGarment: that read garmentJobs from
-  // the closure, so two garments added in the same tick both saw an empty list
-  // and the second overwrote the first -- the cost sidebar then named the wrong
-  // garment. Deriving also keeps it right when the first dress is removed.
+  
   useEffect(() => {
     const first = garmentJobs[0]?.template?.name;
     if (first) {
@@ -1166,10 +980,6 @@ function App() {
       const jobErrors = validateSpec(job.template, job.values, { partial });
       if (Object.keys(jobErrors).length) errors[job.key] = jobErrors;
 
-      // A material chosen with no quantity cannot be reserved or consumed, so
-      // it would reach production as a name with no effect on stock. Ask for
-      // the number now rather than defaulting to one nobody decided. Skipped
-      // while saving a draft, which is expected to be half-filled.
       if (partial) return;
       const jobQuantityErrors = {};
       garmentMaterialFields(job).forEach(({ field }) => {
@@ -1186,19 +996,7 @@ function App() {
     return Object.keys(errors).length === 0 && Object.keys(quantityErrors).length === 0;
   };
 
-  /** Every dress on the order being written, as one line.
-   *
-   *  The wizard's counterpart to orderGarmentLabel, which answers the same
-   *  question for an order that already exists. Derived from garmentJobs --
-   *  the actual garments chosen -- and never from customerForm.garment_type,
-   *  which holds one value and follows whichever dress was picked first.
-   *
-   *  A single definition because the expression had already been copied to two
-   *  sidebars and a third read the customer field instead: the step-5 summary
-   *  showed "Women - Blouse" for a blouse-and-lehenga order, on the screen
-   *  where the owner assigns staff and reads the price. Copies drift; this is
-   *  the fix for the drift as well as for the symptom.
-   */
+  
   const wizardGarmentLabel = garmentJobs.length
     ? garmentJobs.map(job => job.template?.name).filter(Boolean).join(', ')
     : (customerForm.garment_type || '');
@@ -1259,9 +1057,6 @@ function App() {
       delivery = {}, payment = {}, ...customer } = payload;
     setCustomerForm(prev => ({ ...prev, ...customer }));
 
-    // Templates are re-fetched rather than restored from the draft, so a
-    // resumed order is always built against the boutique's current garment
-    // definitions.
     const rebuilt = [];
     for (const garment of garments) {
       try {
@@ -1278,10 +1073,7 @@ function App() {
         console.error('Could not reload the garment template', garment.template_key, err);
       }
     }
-    // A draft written before pricing moved per-garment holds one flat price
-    // set. Put it on the first garment -- which is exactly what the flat model
-    // meant by it -- so the owner sees the same money and the next save writes
-    // the draft forward in the new shape.
+    
     const hasJobPricing = rebuilt.some(job =>
       Object.values(job.pricing || {}).some(v => parseFloat(v || 0)));
     if (!hasJobPricing && rebuilt.length && prices) {
@@ -1339,9 +1131,7 @@ function App() {
       setDraftSaveState('saved');
       return saved.id;
     } catch (err) {
-      // A conflict is not a failure to save -- it is this tab holding an older
-      // copy than the server. Overwriting would throw away whatever the other
-      // tab did, so the tab is marked stale and the person is told to reload.
+      
       setDraftSaveState(err.isConflict ? 'conflict' : 'failed');
       if (!err.isConflict) console.error('Could not save the draft', err);
       throw err;
@@ -1363,13 +1153,6 @@ function App() {
         field_key: field.key,
         inventory_item: itemId,
         quantity: job.quantities?.[field.key],
-        // Always STORE: these lines exist only because an inventory item was
-        // picked off the boutique's own racks. A garment marked "customer
-        // provided fabric" is the common case where the client brings the cloth
-        // and the boutique still supplies the lining, hooks and thread -- those
-        // trims are boutique stock and must be deducted. The customer's own
-        // material is not a line here at all; it lives in CustomerMaterial,
-        // which is a separate ledger and never touches boutique stock.
         source: 'STORE',
       }));
       try {
@@ -1402,9 +1185,7 @@ function App() {
     setDashboardTab('alterations');
   };
   const [directoryDetailLoading, setDirectoryDetailLoading] = useState(false);
-  // Which order in the customer profile is expanded to show its production
-  // progress. Opening a client's order used to throw them into the new-order
-  // wizard, so there was no way to answer "where is my dress?" from the profile.
+  
   const [expandedCustomerOrderId, setExpandedCustomerOrderId] = useState(null);
   const [approvingDesignId, setApprovingDesignId] = useState(null);
   const [submittingCompletionId, setSubmittingCompletionId] = useState(null);
@@ -1423,9 +1204,7 @@ function App() {
   const [allDesigns, setAllDesigns] = useState([]);
   const [customersList, setCustomersList] = useState([]);
   const [ordersList, setOrdersList] = useState([]);
-  // Customer messages still waiting for the owner to send them, for every
-  // order at once. Refreshed with the dashboard, so advancing an order's
-  // status makes its new message appear without a reload.
+ 
   const [queuedMessages, setQueuedMessages] = useState([]);
   const [confirmedOrder, setConfirmedOrder] = useState(null);
 
@@ -1460,14 +1239,12 @@ function App() {
   const [savingProductionNotes, setSavingProductionNotes] = useState(false);
   const [selectedPerformerId, setSelectedPerformerId] = useState('');
   const [stageTransitionBusy, setStageTransitionBusy] = useState(false);
-  // The two sanctioned reversals, both behind a mandatory-reason dialog:
-  // {type: 'reopen'|'failqc'} while the dialog is open.
+  
   const [reversalPrompt, setReversalPrompt] = useState(null);
   const [reversalReason, setReversalReason] = useState('');
   const [reversalBusy, setReversalBusy] = useState(false);
   const [globalError, setGlobalError] = useState(null);
-  // Names of the dashboard collections that failed to load, so the UI can say so
-  // instead of rendering an empty directory as if the boutique had no clients.
+  
   const [loadErrors, setLoadErrors] = useState([]);
 
   useEffect(() => {
@@ -1488,8 +1265,7 @@ function App() {
 
   const [notifications, setNotifications] = useState([]);
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
-  // In-flight guards, same shape as signupBusy/savingPaymentId: a boolean for
-  // the shared bell, an order/row id for per-row controls.
+ 
   const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false);
   const [updatingStatusOrderId, setUpdatingStatusOrderId] = useState(null);
   const [savingVerificationOrderId, setSavingVerificationOrderId] = useState(null);
@@ -1497,33 +1273,17 @@ function App() {
   const [deletingFabricId, setDeletingFabricId] = useState(null);
   const [deletingDraftId, setDeletingDraftId] = useState(null);
 
-  // `user` is passed explicitly by callers that have just signed in: setCurrentUser
-  // has not committed yet at that point, so reading it from state would bail out
-  // and leave the bell empty until some later refresh.
   const fetchNotifications = async (user = currentUser) => {
     if (!user) return;
     const data = await api.getNotifications(user.role || 'Owner', user.email);
     setNotifications(data);
   };
 
-  // Persisted Session check.
-  //
-  // The reset link is checked first and wins. Someone following it may well
-  // still hold a live token in this browser -- that is the ordinary case when
-  // an owner resets a password they simply forgot rather than one that was
-  // stolen -- and restoring them to the dashboard would swallow the link
-  // without ever showing the form.
   useEffect(() => {
     if (resetToken) {
-      // Take it out of the address bar so the token is not left in history,
-      // in a bookmark, or in whatever the next Referer header carries.
+      
       window.history.replaceState({}, '', window.location.pathname);
-      // checkAuthSession is what normally clears `loading`, and it is
-      // deliberately skipped on this path. Without this line the flag stays
-      // true forever, and the moment the reset finishes and the view goes back
-      // to 'login' the app renders its full-screen "Loading Atelier CRM..."
-      // spinner instead of the sign-in form -- with nothing left to load and
-      // no way out but a reload.
+      
       setLoading(false);
       return;
     }
@@ -1541,9 +1301,7 @@ function App() {
     setAuthError(null);
     try {
       await api.requestPasswordReset(email);
-      // Shown whatever the server found. It answers identically for an address
-      // it knows and one it does not -- on purpose -- so telling the two apart
-      // here would undo that.
+      
       setResetSent(true);
     } catch (err) {
       setAuthError(err.message || 'Could not send the reset email.');
@@ -1562,8 +1320,7 @@ function App() {
     setAuthError(null);
     try {
       await api.confirmPasswordReset(resetToken, resetPassword);
-      // The reset signed every device out, this one included, so anything
-      // still in localStorage is a token the server has already deleted.
+      
       localStorage.removeItem('token');
       localStorage.removeItem('tenant_id');
       setResetDone(true);
@@ -1583,16 +1340,7 @@ function App() {
         setCurrentUser(user);
         setView('dashboard');
         if (user.role === 'Designer') {
-          // Deliberately does not call fetchDashboardAndConfig: that pulls
-          // customers, orders and financials into the browser session, and a
-          // designer account has no legitimate use for any of it. The API
-          // itself does not enforce this yet -- see
-          // docs/design-management.md section 4 -- so this is the one real
-          // containment step 7 actually has, and it is enforced by simply
-          // never requesting the data rather than by trusting a permission
-          // check that does not exist server-side.
-          // The queue, not the upload folder: what a designer signs in for is
-          // what has been asked of them.
+          
           setDashboardTab('designWork');
           return;
         }
@@ -1630,9 +1378,6 @@ function App() {
     return 'https://images.unsplash.com/photo-1518049368264-7a13d7825d19?w=600';
   };
 
-  // Each collection paints as soon as its own request lands rather than waiting on
-  // the slowest one, and a failed request is reported instead of leaving the panel
-  // looking like an empty boutique.
   const fetchDashboardAndConfig = async (user = currentUser) => {
     setLoading(true);
     setLoadErrors([]);
@@ -1709,11 +1454,10 @@ function App() {
   /** Record that the owner sent a queued message from their own WhatsApp. */
   const handleMarkMessageSent = async (orderId, messageId) => {
     await api.markMessageSent(orderId, messageId);
-    // The queue holds only what is still waiting, so a sent one leaves it.
+    
     setQueuedMessages((prev) => prev.filter((m) => m.id !== messageId));
   };
 
-  // Catalog Management Handlers
   const handleSaveFabric = async (e) => {
     e.preventDefault();
     if (fabricSaving) return;
@@ -1797,10 +1541,7 @@ function App() {
       setEditingTailor(null);
       setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
       fetchDashboardAndConfig();
-      // The server generates this account's password and returns it on this one
-      // response, never again -- so if it is here, show it now. Opening the
-      // share panel straight away is the point: closing this without reading it
-      // means the only way to give them a password is a reset link.
+     
       if (saved && saved.bootstrap_password) {
         setShareCredsTailor(saved);
       }
@@ -1893,8 +1634,7 @@ function App() {
       setCurrentUser(res.user);
       setView('dashboard');
       if (res.user.role === 'Designer') {
-        // See the matching branch in checkAuthSession for why this skips
-        // fetchDashboardAndConfig entirely rather than fetching and hiding.
+        
         setDashboardTab('designWork');
         return;
       }
@@ -1905,11 +1645,7 @@ function App() {
       }
       fetchDashboardAndConfig(res.user);
     } catch (err) {
-      // Inline, not alert(): the comment on `authError` says these screens
-      // deliberately do not put a modal dialog on top of a sign-in form, and
-      // the forgot/reset views already follow that. Sign-in was the one that
-      // still did -- worst on a phone, where the alert covers the form and
-      // takes a second tap to clear before the password can be retyped.
+      
       setAuthError(err.message || 'Invalid credentials.');
     } finally {
       setAuthBusy(false);
@@ -1922,15 +1658,11 @@ function App() {
       alert("Please enter all required signup fields.");
       return;
     }
-    setSignupStep(2); // Boutique details
+    setSignupStep(2); 
   };
 
   const handleCompleteRegistration = async () => {
-    // Signup creates a Postgres schema and runs every migration into it, which
-    // takes seconds rather than milliseconds -- long enough that an owner who
-    // hears nothing back presses the button again. The second press used to
-    // start a second boutique; it now cannot start until the first has
-    // answered.
+    
     if (signupBusy) return;
     setSignupBusy(true);
     try {
@@ -1950,10 +1682,7 @@ function App() {
         fetchDashboardAndConfig(res.user);
       }, 1500);
     } catch (err) {
-      // Stays on this step and says so in the card. It used to alert() and
-      // throw the owner back to step 1, so "that email is already registered"
-      // -- much the commonest failure here -- read as the form having been
-      // wiped for no stated reason.
+      
       setSignupError(err.message || 'Registration failed.');
     } finally {
       setSignupBusy(false);
@@ -2099,17 +1828,6 @@ function App() {
   const submitOrderAndConfirm = async () => {
     setWizardError(null);
 
-    // One request. The server creates the client, the order, its production
-    // stages, its garments and their material lines inside a single
-    // transaction, then spends the draft.
-    //
-    // What this replaces: create the order, then save the garments, then
-    // attach the design, apologising after each step if it failed and pressing
-    // on regardless -- because going back to press Confirm again booked a
-    // SECOND order at the same price. Two invoices and doubled revenue from
-    // one failed sub-step and one reasonable retry. Now a failure leaves no
-    // order at all and the draft still on the server, so retrying is the right
-    // thing to do rather than the dangerous one.
     let id = draftId;
     try {
       id = await persistDraft({ step: 6 });
@@ -2131,9 +1849,7 @@ function App() {
       fetchDashboardAndConfig();
     } catch (err) {
       if (err.alreadyPlaced) {
-        // A double-click, a retried request, or a refresh that re-fired it.
-        // The order exists; the one thing that must not happen is booking a
-        // second one, and the server has already refused to.
+        
         setWizardError(
           'This order has already been placed. Check Manage Orders — do not place it again.');
         return;
@@ -2159,10 +1875,7 @@ function App() {
     }
   }, []);
 
-  // Orders already in progress, fetched when the owner arrives at the order
-  // screen. Not on mount: a draft is only relevant at the point of starting or
-  // resuming one, and asking for them on every dashboard load is a request
-  // nobody reads.
+  
   useEffect(() => {
     if (view !== 'order-selector') return;
     let cancelled = false;
@@ -2291,9 +2004,7 @@ function App() {
     }
   };
 
-  // Preview arithmetic only. The server recomputes all of this at confirm
-  // through domains/orders/pricing.py and stores ITS answer; these exist so
-  // the sidebar can show the owner the same number the server will reach.
+  
   const PRICING_FIELDS = [
     ['base', 'Base price'], ['fabric', 'Fabric'], ['embroidery', 'Embroidery & work'],
     ['customization', 'Customization'], ['tailoring', 'Tailoring'],
@@ -2336,34 +2047,7 @@ function App() {
     return fullName.includes(query) || (c.mobile_number || '').includes(query);
   });
 
-  // Is this order mine to work on? The same three-way test core/permissions.py
-  // visible_orders applies server-side: the order's tailor, its master, or a
-  // stage assigned to me.
-  //
-  // The stage clause is the one that was missing. assign_stage exists precisely
-  // so a supervisor can hand ONE stage to someone who is not the order's
-  // tailor, and visible_orders deliberately returns that order to them -- but
-  // this screen, which is the only screen a tailor has, threw it away and told
-  // them "No active orders are assigned to you at the moment." Work was handed
-  // out and the person was never told.
-  /** A garment's shortlist changed.
-   *
-   *  Before Confirm this is the only home the selection has, so it goes on the
-   *  garment in the draft payload -- the same place its spec, materials and
-   *  price already live. After Confirm the board is real and this just tracks
-   *  which board the order carries.
-   */
-  /** The parts a customer has chosen for one dress: {part_key: image}.
-   *
-   *  Kept on the garment job's own `design`, not in a state of its own. That is
-   *  already what serialiseWizard writes to the draft and what the resume path
-   *  reads back, so the selection persists, survives a refresh and comes back
-   *  on resume without a second copy to keep in step.
-   *
-   *  Per garment, so a saree's Pallu and a blouse's Neck can never share a
-   *  slot -- the parts are the garment's own, and mixing them across dresses is
-   *  exactly the bug this shape prevents.
-   */
+  
   const partSelection = React.useMemo(
     () => Object.fromEntries(garmentJobs.map(job => [job.key, job.design?.parts || {}])),
     [garmentJobs]);
@@ -2391,22 +2075,7 @@ function App() {
       || order.tailor === me
       || (order.stages || []).some(s => s.assigned_to === me)) return true;
 
-    // Work that has reached a stage this role performs, which nobody had to
-    // hand over first. The three clauses above are all personal attachment: a
-    // QC Master is never order.tailor (the stitcher) or order.master (the
-    // supervisor), so before this the dashboard re-filtered the server's queue
-    // straight back out and showed them nothing.
-    //
-    // Reads the stage's own `roles` -- the same list the server checks in
-    // visible_orders and check_transition, and the same one
-    // eligibleStaffForStage already reads here. One declaration, so this
-    // cannot drift from what the API will actually allow.
-    //
-    // Owner and Master are excluded deliberately: every stage names them, so
-    // including them would put the entire boutique under "My Assignments".
-    // They see the floor through the order list, and their assignments stay
-    // the work that is personally theirs -- which mirrors the server, where
-    // supervisors return early and never consult the queue at all.
+    
     if (currentUser?.role === 'Owner' || currentUser?.role === 'Master') return false;
     const live = liveStage(order);
     return !!live && (live.roles || []).includes(currentUser?.role);
@@ -2420,9 +2089,6 @@ function App() {
     setStageReviewComments(stage.comments || '');
     setStageReviewImage(null);
 
-    // Fetch the approved design for this order. Best-effort: a board that does
-    // not exist is the normal case for an order placed without one, and must
-    // not stop the stage panel from opening.
     setStageDesignBrief(null);
     setProductionNotesDraft('');
     api.getDesignBoards({ order_id: order.order_id })
@@ -2435,9 +2101,6 @@ function App() {
       .catch(() => setStageDesignBrief(null));
   };
 
-  // The directory list returns flat rows without orders or measurement history,
-  // so opening a client fetches the full record. The summary row is shown right
-  // away and replaced in place, keeping the panel populated while it loads.
   const openDirectoryCustomer = async (summaryRow) => {
     setSelectedDirectoryCustomer(summaryRow);
     setDirectoryDetailLoading(true);
@@ -2453,8 +2116,6 @@ function App() {
     }
   };
 
-  // Staff the boutique's workflow allows on a given stage. Mirrors the server-side
-  // check, so the dropdown never offers a choice the API would reject.
   const eligibleStaffForStage = (stageKey) => {
     const stageConf = (boutiqueSettings?.workflow_config || []).find(s => s.key === stageKey);
     const allowed = stageConf?.roles || [];
@@ -2462,23 +2123,9 @@ function App() {
     return tailors.filter(t => allowed.includes(t.role));
   };
 
-  // Who may actually be given the stitching.
-  //
-  // These pickers filtered `t.role !== 'Master'`, which passes all SEVEN
-  // specialist roles -- Measurement, Pattern, Cutting, Maggam, Finishing,
-  // Pressing and QC Master -- while get_default_workflow restricts both
-  // stitching stages to ["Owner", "Tailor"]. So the owner could hand the
-  // stitching to the Finishing Master, the order was accepted, and that person
-  // could see it and never advance it: transition_order_stage refuses their
-  // role. The order sat until the owner worked out what had happened.
-  //
-  // eligibleStaffForStage reads the stage's own role list, which is the same
-  // list the server checks, so the dropdown cannot offer a choice the API will
-  // reject.
   const stitchingStaff = () => eligibleStaffForStage('stitching_in_progress');
 
-  // Sign off a design. The detail record is refetched so the approved badge and the
-  // superseded state of the other designs both come from the server, not a guess.
+  
   const handleApproveDesign = async (prefId, fallbackImage) => {
     if (!selectedDirectoryCustomer) return;
     setApprovingDesignId(prefId);
@@ -2495,8 +2142,6 @@ function App() {
     }
   };
 
-  // Nominate who should perform a stage. The server refuses a role the stage does
-  // not permit, so the error is surfaced rather than swallowed.
   const handleAssignStage = async (orderId, stageKey, tailorId) => {
     setAssigningStageKey(stageKey);
     try {
@@ -2509,8 +2154,6 @@ function App() {
     }
   };
 
-  // Customer Directory rows. Memoised because this was previously filtered twice
-  // on every keystroke -- once for the empty check, once for the map.
   const directoryCustomers = React.useMemo(() => {
     const term = searchQuery.toLowerCase();
     return customersList.filter(cust => {
@@ -2557,8 +2200,6 @@ function App() {
   }
 
 
-  // Driven by real data, so it can never disagree with the boutique's actual
-  // state -- and it teaches the workflow in the order the work happens.
   const onboardingSteps = [
     { key: 'boutique', label: 'Create your boutique', done: true },
     { key: 'customer', label: 'Add your first customer', done: customersList.length > 0, go: () => setView('order-selector') },
@@ -2820,20 +2461,6 @@ function App() {
 
           {/* Auth Steps Tracker */}
           <div className="auth-steps-tracker">
-            {/* Was five steps, two of which were scenery.
-                "Verify" showed an OTP box under "We have sent a 6-digit OTP
-                code to +91 <number>". Nothing was ever sent -- no SMS
-                provider exists in this product -- and handleVerifyOTP checked
-                only that the field was non-empty, so any six characters, or
-                any one character, walked through. It taught a new owner that
-                the number they typed had been confirmed when it had not.
-                "Preferences" listed six style tags as plain <span>s: no
-                onClick, no state, nothing saved anywhere, and a heading
-                asking the owner to select from them.
-                Both are gone rather than implemented. Real mobile
-                verification is an SMS provider, a cost per message and a
-                resend/expiry flow; style tags are a feature nothing in the
-                product reads yet. Neither is a fix for a fake step. */}
             {[
               { step: 1, label: 'Account' },
               { step: 2, label: 'Boutique' },
@@ -2956,14 +2583,6 @@ function App() {
                 <h2 className="auth-title">Your Boutique</h2>
                 <p className="auth-subtitle">This is what your customers see on invoices and messages.</p>
 
-                {/* This step used to ask for an occupation and a preferred
-                    communication channel. Neither was read by anything -- the
-                    signup view bound one of them and never mentioned it again
-                    -- while the two fields the product genuinely prints on
-                    every invoice, the boutique's name and address, were never
-                    asked for at all and fell back to "123 Atelier Way, Fashion
-                    District". Same step, same number of fields, now feeding
-                    BoutiqueSettings. */}
                 <div className="auth-form">
                   <div className="form-group">
                     <label className="form-label">Boutique name</label>
@@ -3085,8 +2704,7 @@ function App() {
                   setMarkingNotificationsRead(true);
                   api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
                     .then(() => fetchNotifications())
-                    // Never let the bell take the app down: a refused or failed
-                    // mark-read is not worth losing the session over.
+                    
                     .catch(() => { })
                     .finally(() => setMarkingNotificationsRead(false));
                 }}
@@ -3124,8 +2742,7 @@ function App() {
                   setMarkingNotificationsRead(true);
                   api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
                     .then(() => fetchNotifications())
-                    // Never let the bell take the app down: a refused or failed
-                    // mark-read is not worth losing the session over.
+                    
                     .catch(() => { })
                     .finally(() => setMarkingNotificationsRead(false));
                 }}
@@ -3216,10 +2833,7 @@ function App() {
 
 
             <div className="portal-sidebar-footer">
-              {/* Opened wa.me/919876543210 -- an invented number belonging to
-                  a real stranger, offered to boutique staff as their "style
-                  concierge". Rendered only when the boutique has given its own
-                  number, and pointed at that. */}
+              
               {boutiqueSettings?.phone && (
                 <div className="portal-sidebar-help">
                   <h4 style={{ fontSize: '12px', fontWeight: 700, margin: 0 }}>Need Help?</h4>
@@ -3339,15 +2953,6 @@ function App() {
                                 <div>Assigned Stitching Tailor: <span style={{ fontWeight: 600 }}>{order.tailor_name || 'Unassigned'}</span></div>
                               </div>
 
-                              {/* What this order is for, per garment.
-                                  This panel used to print order.customer_garment_type and the
-                                  customer-level Measurement row. Both are single-valued and the
-                                  order is not: a blouse-and-lehenga order named one garment, and
-                                  the roll-up that fed the numbers keeps whichever dress was
-                                  entered last -- so the tailor was shown the lehenga's waist for
-                                  the blouse, and blouse length, upper chest, armhole and floor
-                                  length were absent entirely because they are not rolled up.
-                                  Read the garment jobs, which hold exactly what was ordered. */}
                               {(order.garment_jobs || []).length > 0 ? (
                                 <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                   <div className="assignment-card-blueprint-header" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -3381,9 +2986,7 @@ function App() {
                                   })}
                                 </div>
                               ) : order.customer_measurements && (
-                                /* Orders written before garment jobs existed. Nine of the ten
-                                   orders already in the database are in this state, so the old
-                                   panel stays reachable rather than showing them nothing. */
+                                
                                 <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                                   <div className="assignment-card-blueprint-header" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                                     <span>
@@ -3416,24 +3019,7 @@ function App() {
                               )}
                             </div>
 
-                            {/* Production stages -- a master runs most of the
-                                workflow, so the tracker belongs on the screen
-                                they land on, not only on the order registry. */}
-                            {/* Everyone who works the floor, not just supervisors.
-                                stitching_in_progress is one of only two stages a
-                                Tailor is authorised on, and this gate was the
-                                reason no screen in the product let them touch it:
-                                their nav offers only My Assignments and My
-                                Account, and the timeline is the sole control that
-                                posts a transition. Their stage never left
-                                NOT_STARTED, so the record said the garment was
-                                finished without ever being started, and the order
-                                stayed IN_PROGRESS after delivery until an Owner
-                                unstuck it. Opening the panel is safe for any
-                                role: transition_order_stage refuses every stage
-                                their role does not list, and the modal's Assign
-                                and Record-performer selects carry their own
-                                supervisor gates. */}
+                           
                             <div>
                               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>
                                 Production Stages — select a stage to update
@@ -3794,14 +3380,6 @@ function App() {
                               <div className="order-row-fabric">{t('ordersPage.stitchingTailor', 'Tailor')}: {order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
                             </div>
                             <div className="order-row-status-box">
-                              {/* Show the status the order is actually in. This
-                                  used to be a two-way test -- 'Confirmed', or
-                                  else the words "In Progress" -- so a dress that
-                                  had been finished, shipped and handed over
-                                  still read "In Progress" on the owner's
-                                  dashboard, directly beside the word Delivered.
-                                  Green for the settled states, amber while the
-                                  garment is still moving. */}
                               <span className={`order-row-badge ${['Confirmed', 'Shipped', 'Delivered'].includes(order.order_status) ? 'confirmed' : 'in_progress'}`}>
                                 {order.order_status_display || t(`status.${order.order_status}`, order.order_status || 'In Progress')}
                               </span>
@@ -4073,13 +3651,6 @@ function App() {
                 <div className="dashboard-row-layout">
                   <div>
                     <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>{t('dashboard.upcomingAppointments', 'Upcoming Appointments')}</h3>
-                    {/* Real appointments. These were two literal cards naming
-                        "Anya (Stylist)" and "Rohit (Master Tailor)" on fixed
-                        dates -- shown to every boutique including one created
-                        a minute ago, whose owner has no such staff and no such
-                        bookings. apps/scheduling has always been able to
-                        answer this; nothing had ever asked it. An empty panel
-                        is better than an invented one. */}
                     <div className="appointments-section-panel">
                       {appointments.length === 0 ? (
                         <div style={{ padding: '16px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
@@ -4113,14 +3684,6 @@ function App() {
                     </div>
                   </div>
 
-                  {/* "Style Inspiration" was three hardcoded Unsplash
-                      portraits of strangers with no behaviour and no
-                      relationship to this boutique's work -- stock photography
-                      presented on the owner's own dashboard as if it were
-                      theirs. Deleted rather than repointed at real designs: the
-                      Design Catalogue quick-action above already goes there,
-                      and a second silent route to the same screen is not worth
-                      a panel. */}
                 </div>
               </>
             )}
@@ -4744,13 +4307,7 @@ function App() {
                             textAlign: 'center',
                             color: 'var(--text-muted)'
                           }}>
-                            {/* Distinguish "no results for your filters" from
-                                "you have not made an order yet". On day one no
-                                filter is set and there is nothing to filter, so
-                                telling a new owner their filters matched
-                                nothing is both wrong and a dead end. The
-                                dashboard's own orders panel already gets this
-                                right. */}
+                            
                             {ordersList.length === 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
                                 <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t('ordersPage.noOrdersYet', 'No orders yet')}</div>
@@ -4861,16 +4418,7 @@ function App() {
                               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.stitchingTailor', 'Stitching Tailor')}</span>
                               <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
                             </div>
-                            {/* The same guard the assignment card one screen
-                                earlier already applies to the identical figure.
-                                isProductionStaff includes 'Master', and the
-                                Master's nav routes to this registry -- so the
-                                one screen that was left ungated showed every
-                                order's value to the roles the rule exists to
-                                keep it from. Guarded here rather than by
-                                popping the field from OrderSerializer, which is
-                                also the read path for the invoice modal, the
-                                customer tracking page and the whole registry. */}
+                           
                             {!isProductionStaff(currentUser.role) && (
                               <div>
                                 <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>{t('ordersPage.totalValue', 'Total Value')}</span>
@@ -4883,9 +4431,6 @@ function App() {
                             </div>
                           </div>
 
-                          {/* The gathering checklist: what the store room owes
-                              this order, who had it in hand, and the photos
-                              that ride down the roadmap. */}
                           <div style={{ padding: '14px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'left' }}>
                             <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                               🧵 Raw Materials Checklist
@@ -5377,15 +4922,6 @@ function App() {
                     <ArrowLeft size={16} /> Back to Customer Directory
                   </button>
 
-                  {/* Owner only, the same gate the Orders registry already
-                      puts on the identical button -- and for the reason its
-                      comment there records. Both of these routes land in the
-                      order wizard, whose first step PATCHes the customer, and
-                      RolePermission refuses partial_update for anyone but the
-                      Owner. A Master reached here from the Customers tab (which
-                      their nav includes), filled the form in, and got "Your
-                      role does not permit this" with everything they had typed
-                      thrown away and no route onward. */}
                   {(!currentUser?.role || currentUser.role === 'Owner') && (
                     <div className="customer-detail-header-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                       {/* Flow Option 1: Re-use Existing Design */}
@@ -5588,10 +5124,7 @@ function App() {
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', boxSizing: 'border-box' }}>
                           {selectedDirectoryCustomer.orders.map(order => {
-                            // The row opens the order's production progress.
-                            // It used to jump straight into the new-order
-                            // wizard, so a client asking "where is my dress?"
-                            // could not be answered from their own profile.
+                            
                             const isOpen = expandedCustomerOrderId === order.id;
                             const stages = order.stages || [];
                             const done = stages.filter(s => s.status === 'COMPLETED').length;
@@ -5694,10 +5227,7 @@ function App() {
                                           ...selectedDirectoryCustomer,
                                           measurements: selectedDirectoryCustomer.measurements || DEFAULT_CUSTOMER_DATA.measurements
                                         });
-                                        // Garment prices are per garment now and
-                                        // the dresses are re-added on step 3, so
-                                        // they re-quote there; only the order-level
-                                        // money carries over.
+                                        
                                         setQuotePrices({
                                           packaging: order.packaging_handling,
                                           discount: order.discount || 0,
@@ -5952,13 +5482,7 @@ function App() {
 
                 {/* Finance Overview widgets */}
                 {(() => {
-                  // Collected is what has actually been received, and
-                  // outstanding is the same (total - paid) expression the
-                  // Balance Due cell in every row below uses. These two used to
-                  // count the FULL total_amount of each order -- collected
-                  // counted a part-paid order at zero, outstanding counted it
-                  // in full -- so the header disagreed with its own table in
-                  // both directions on the same screen.
+                  
                   const paidTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
                   const pendingTotal = ordersList.reduce((sum, o) => sum + Math.max(0, parseFloat(o.total_amount || 0) - parseFloat(o.amount_paid || 0)), 0);
                   const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
@@ -6243,26 +5767,11 @@ function App() {
 
             {/* 7. ANALYTICS TAB */}
             {dashboardTab === 'analytics' && (() => {
-              // Same definition as the Invoices header and the Balance Due
-              // cells: collected is money received, not the face value of
-              // orders that happen to be labelled Paid. Counting a part-paid
-              // order as zero collected and its full value as outstanding was
-              // wrong in both directions at once.
               const paidRevenue = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
               const totalBilling = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
               const pendingBill = Math.max(0, totalBilling - paidRevenue);
               const aov = ordersList.length > 0 ? (totalBilling / ordersList.length) : 0;
 
-              // Counted per garment ordered, not per customer.
-              //
-              // These three panels read Customer.garment_type, neckline_style and
-              // sleeve_style -- one value per person, set by whichever dress was
-              // entered last. So a customer who ordered a blouse and a lehenga
-              // counted once, and the neckline and sleeve panels were permanently
-              // empty because the order wizard writes those onto the garment job
-              // and never onto the customer. Read the garment jobs, and take the
-              // percentage against the number of garments rather than the number
-              // of clients.
               const garmentDist = {};
               const necklineDist = {};
               const sleeveDist = {};
@@ -6584,10 +6093,7 @@ function App() {
                     </div>
                     <div>
                       <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{currentUser.first_name} {currentUser.last_name}</h3>
-                      {/* The signed-in role, not a hardcoded claim. This said
-                          "Boutique Owner" to every account -- tailors, masters
-                          and designers included -- on the one screen whose job
-                          is telling you who you are signed in as. */}
+                      
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>{currentUser.role || 'Boutique Owner'}</p>
                     </div>
 
@@ -6604,22 +6110,11 @@ function App() {
                         <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>{t('accountPage.atelierEmail', 'Atelier Email')}</div>
                         <div style={{ fontWeight: 600 }}>{currentUser.email}</div>
                       </div>
-                      {/* "Registered Since: June 2024" was a literal, shown to
-                          every boutique whatever date they actually signed up.
-                          Nothing in the API carries the tenant's created_on, so
-                          the row is gone rather than invented -- an absent fact
-                          beats a confident wrong one. Restore it by adding
-                          created_on to the MeView payload. */}
+                     
                     </div>
                   </div>
 
-                  {/* Owner only. Every role saw this form, and submitting it
-                      POSTs /boutique-settings/ -- whose `create` action is on
-                      neither the safe-method list nor the named-action list in
-                      RolePermission, so a Master, Tailor or Designer got a
-                      certain 403 rendered as "Failed to update boutique
-                      settings" with no reason given. A form that cannot
-                      succeed should not be drawn. */}
+                  
                   {(!currentUser?.role || currentUser.role === 'Owner') && (
                     <div className="content-card">
                       <h3 className="card-title">{t('accountPage.editProfile', 'Edit Boutique Profile')}</h3>
@@ -7822,16 +7317,6 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Dresses on this order.
-
-                      The garment list, the options in it and the fields each
-                      garment needs all come from /api/catalog/templates/. This
-                      replaced a hardcoded seven-item dropdown and a stitch-parts
-                      map that had to be edited in four places to add a garment.
-
-                      An order holds several dresses -- a lehenga, its blouse and
-                      a dupatta are three -- so this is a multiple choice, and
-                      each one opens its own form in the next step. */}
                     <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
                       <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
                         {t('wizard.dressesInOrder', 'Dresses in this Order')} <span className="required">*</span>
@@ -8317,14 +7802,7 @@ function App() {
                           ))}
                         </div>
 
-                        {/* An empty library is now the ordinary day-one state:
-                          new boutiques are no longer seeded with five fabrics
-                          at another business's prices, so this grid rendered as
-                          a blank rectangle with no explanation and no way
-                          forward. The wizard's tailor step already handles its
-                          own empty case this way. Both routes out are offered,
-                          because using the customer's own cloth is a normal
-                          boutique workflow, not a fallback. */}
+                       
                         {fabrics.filter(f => f.is_available !== false).length === 0 && (
                           <div style={{ padding: '24px', border: '1px dashed var(--border-color)', borderRadius: '10px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
                             <div style={{ fontWeight: 600 }}>Your fabric library is empty</div>
@@ -8332,13 +7810,7 @@ function App() {
                               Add the rolls you stock to pick from them here — or switch to
                               <strong> Customer's Own Fabric</strong> above if the client is bringing their own.
                             </div>
-                            {/* Save first, then go. This button is the product's
-                              own advice to a boutique with no fabric library --
-                              and following it used to destroy the order being
-                              written, because the wizard's only copy was in
-                              this component's state. The draft is on the server
-                              before we navigate, so the work is waiting when
-                              they come back. */}
+                            
                             <button type="button" className="btn-secondary" disabled={draftSaveState === 'saving'} onClick={async () => {
                               try {
                                 await persistDraft({ step: 4 });
@@ -8357,15 +7829,7 @@ function App() {
 
                         <div className="fabrics-grid">
                           {fabrics
-                            // Don't offer a roll the boutique has marked Out of
-                            // Stock. Manage Fabrics renders that badge and lets
-                            // the owner toggle it, but this grid consulted only
-                            // the material filter -- so the owner could sell a
-                            // fabric they had just told the system they had none
-                            // of, with no signal on the card either way.
-                            // Filtered here rather than in the viewset because
-                            // Manage Fabrics legitimately needs the rows this
-                            // hides; it is the screen that sets the flag.
+                            
                             .filter(f => f.is_available !== false)
                             .filter(f => fabricFilter === 'All' || f.material === fabricFilter)
                             .map(f => {
@@ -8633,11 +8097,7 @@ function App() {
               {/* STEP 6: Review & Complete Order / Payment */}
               {currentStep === 6 && (
                 <>
-                  {/* Shown when creating the order failed outright -- the one
-                    failure that wrote nothing, and so the one where trying
-                    again is safe. Everything after that point lands on the
-                    confirmation screen instead, because going back is what
-                    creates a second order. */}
+                  
                   {wizardError && (
                     <div role="alert" style={{ margin: '4px 0 16px', background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '12px 14px', fontSize: '13.5px', display: 'flex', justifyContent: 'space-between', gap: '12px', whiteSpace: 'pre-wrap' }}>
                       <span>{wizardError}</span>
@@ -8645,7 +8105,7 @@ function App() {
                     </div>
                   )}
                   {!paymentPhase ? (
-                    // Review & Complete Order Phase (Mockup 1)
+                    
                     <>
                       <div className="page-title-group">
                         <h1 className="page-title">Review & Complete Order</h1>
@@ -9463,14 +8923,6 @@ function App() {
             </div>
             <div className="meta-info-block">
               <span className="meta-info-label">Payment Status</span>
-              {/* Was the literal `Paid • ₹{total_amount}` in success green,
-                  referencing neither payment_status nor amount_paid -- so the
-                  screen staff turn to face the customer announced the order
-                  settled in full the moment it was placed, and contradicted the
-                  invoice one click later. total_amount also arrives as a string
-                  (COERCE_DECIMAL_TO_STRING is unset), and String.toLocaleString
-                  does no grouping, so it printed ₹51502.50 rather than
-                  ₹51,502.50. parseFloat fixes the second half. */}
               <span className="meta-info-val" style={{ color: confirmedOrder.payment_status === 'Paid' ? 'var(--success-color)' : 'var(--text-primary)' }}>
                 {confirmedOrder.payment_status} • {formatMoney(confirmedOrder.amount_paid)}
                 {confirmedOrder.payment_status !== 'Paid' && (
@@ -9592,14 +9044,7 @@ function App() {
               padding: '16px 24px',
               borderBottom: '1px solid var(--border-color)'
             }} className="no-print">
-              <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Customer Invoice</h3>
-              <button
-                aria-label="Close invoice"
-                onClick={() => setShowInvoiceModal(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
-              >
-                <X size={20} />
-              </button>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>Customer Invoice</h3>
             </div>
 
             {/* Invoice Printable Area */}
@@ -9626,261 +9071,10 @@ function App() {
   }
 `}</style>
 
-              {/* Invoice Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  {boutiqueSettings?.logo && (
-                    <img src={boutiqueSettings.logo} alt="Boutique Logo" style={{ maxHeight: '48px', objectFit: 'contain' }} />
-                  )}
-                  <div>
-                    <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '1px', color: '#0f291e', margin: 0 }}>
-                      {boutiqueSettings?.name || "SCALEEZY"}
-                    </h1>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Bespoke Atelier CRM</span>
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>INVOICE</h2>
-                  <span style={{ fontSize: '12px', display: 'block', marginTop: '4px' }}>Invoice ID: <strong>{confirmedOrder.order_id}</strong></span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                    Date: {fmtDate(confirmedOrder.order_date)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Billed To / Designer Details */}
-              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', borderTop: '1px solid #eaecef', borderBottom: '1px solid #eaecef', padding: '20px 0', marginBottom: '32px' }}>
-                <div>
-                  {/* Bill the customer this invoice is FOR. These fields used to
-                      read customerForm -- the new-order wizard's state -- which
-                      is empty or stale when the invoice is opened from the
-                      Invoices tab, because that button sets only
-                      confirmedOrder. The printed invoice then carried a
-                      different client's name, address, phone and email while
-                      showing the right order id and total: a wrong bill and a
-                      disclosure of one customer's details to another. */}
-                  <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Billed To:</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{confirmedOrder.customer_name}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>{confirmedOrder.delivery_address || confirmedOrder.customer_address}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {formatMobile(confirmedOrder.customer_mobile)}</span>
-                  {confirmedOrder.customer_email && <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {confirmedOrder.customer_email}</span>}
-                </div>
-                <div>
-                  <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Atelier Details:</span>
-                  {/* No vendor fallbacks on the customer's copy. These printed
-                      "123 Atelier Way, Fashion District" and
-                      "contact@scaleezy.com" as the BOUTIQUE'S OWN details on an
-                      invoice handed to a real customer -- our demo strings, in
-                      their name, telling them to pay and collect somewhere that
-                      does not exist. A blank line is the honest failure: it
-                      shows the owner something is missing from their profile,
-                      and shows the customer nothing false. */}
-                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{boutiqueSettings?.name || ''}</span>
-                  {boutiqueSettings?.address && (
-                    <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>📍 {boutiqueSettings.address}</span>
-                  )}
-                  {boutiqueSettings?.phone && (
-                    <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {boutiqueSettings.phone}</span>
-                  )}
-                  {boutiqueSettings?.email && (
-                    <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {boutiqueSettings.email}</span>
-                  )}
-                  <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>Boutique Owner: {currentUser?.first_name || 'Aditi'} {currentUser?.last_name || 'Mehta'}</span>
-                  {confirmedOrder.tailor_name && (
-                    <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      Assigned Tailor: <strong>{confirmedOrder.tailor_name}</strong>
-                    </span>
-                  )}
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>Estimated Delivery: {fmtDate(confirmedOrder.estimated_delivery)}</span>
-                </div>
-              </div>
-
-              {/* Garment Details Summary */}
-              <div style={{ backgroundColor: '#fcfdfd', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', marginBottom: '32px' }}>
-                <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 12px 0', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Design & Specifications</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '11px' }}>
-                  <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>
-                      {orderGarmentNames(confirmedOrder).length > 1 ? 'Garments' : 'Garment Type'}
-                    </span>
-                    <strong style={{ fontSize: '12px' }}>{confirmedOrder.customer_type} • {orderGarmentLabel(confirmedOrder)}</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Fabric</span>
-                    <strong style={{ fontSize: '12px' }}>
-                      {/* Priced from the order, so it is right whichever screen
-                          opened this invoice. A zero fabric charge is what
-                          "customer brought their own" looks like on the bill. */}
-                      {Number(confirmedOrder.fabric_price) > 0 ? `₹${confirmedOrder.fabric_price}` : 'Customer Fabric'}
-                    </strong>
-                  </div>
-                  <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Occasion</span>
-                    <strong style={{ fontSize: '12px' }}>{confirmedOrder.customer_occasion || '—'}</strong>
-                  </div>
-                  {confirmedOrder.customer_neckline_style && (
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Neckline Style</span>
-                      <strong>{confirmedOrder.customer_neckline_style}</strong>
-                    </div>
-                  )}
-                  {confirmedOrder.customer_sleeve_style && (
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Sleeve Style</span>
-                      <strong>{confirmedOrder.customer_sleeve_style}</strong>
-                    </div>
-                  )}
-                  {confirmedOrder.customer_back_style && (
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Back Style</span>
-                      <strong>{confirmedOrder.customer_back_style}</strong>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Pricing Table */}
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '32px', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #eaecef', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-                    <th style={{ padding: '12px 8px', fontWeight: 600 }}>Description</th>
-                    <th style={{ padding: '12px 8px', fontWeight: 600, textAlign: 'right' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody style={{ fontSize: '12px' }}>
-                  {/* One priced line per garment -- the day the old ponytail
-                      note here waited for. Each row is that job's own
-                      components summed; orders from before per-garment pricing
-                      have all-zero jobs and keep the single combined line, so
-                      an old invoice reprints exactly as it was issued. */}
-                  {(() => {
-                    const jobs = confirmedOrder.garment_jobs || [];
-                    const jobTotal = (job) =>
-                      ['base_price', 'fabric_price', 'embroidery_price',
-                        'customization_price', 'tailoring_charges']
-                        .reduce((sum, key) => sum + parseFloat(job[key] || 0), 0);
-                    const priced = jobs.filter(job => jobTotal(job) > 0);
-                    if (!priced.length) {
-                      return (
-                        <tr style={{ borderBottom: '2px solid #eaecef' }}>
-                          <td style={{ padding: '16px 8px' }}>
-                            <strong style={{ fontSize: '14px', color: '#0f291e' }}>
-                              Bespoke Handcrafted {orderGarmentLabel(confirmedOrder)}
-                            </strong>
-                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                              {orderGarmentNames(confirmedOrder).length > 1
-                                ? `${orderGarmentNames(confirmedOrder).length} custom garments, each tailored to its own measurement specifications.`
-                                : 'Custom garment design tailored to individual measurement specifications.'}
-                            </span>
-                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                              Fabric: {Number(confirmedOrder.fabric_price) > 0 ? `Boutique fabric — ₹${confirmedOrder.fabric_price}` : 'Customer Supplied Fabric'}
-                            </span>
-                          </td>
-                          {/* Before tax, matching the Subtotal row below. */}
-                          <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>
-                            {formatMoney(Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.taxes || 0))}
-                          </td>
-                        </tr>
-                      );
-                    }
-                    return (
-                      <>
-                        {priced.map(job => (
-                          <tr key={job.id} style={{ borderBottom: '1px solid #eaecef' }}>
-                            <td style={{ padding: '12px 8px' }}>
-                              <strong style={{ fontSize: '13px', color: '#0f291e' }}>
-                                Bespoke Handcrafted {job.template_name || 'Garment'}
-                              </strong>
-                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                {parseFloat(job.fabric_price || 0) > 0
-                                  ? `Includes boutique fabric — ${formatMoney(job.fabric_price)}`
-                                  : 'Customer supplied fabric'}
-                              </span>
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, fontSize: '13px' }}>
-                              {formatMoney(jobTotal(job))}
-                            </td>
-                          </tr>
-                        ))}
-                        {parseFloat(confirmedOrder.packaging_handling || 0) > 0 && (
-                          <tr style={{ borderBottom: '1px solid #eaecef' }}>
-                            <td style={{ padding: '12px 8px', fontSize: '12px' }}>Packaging & Handling</td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600, fontSize: '12px' }}>
-                              {formatMoney(confirmedOrder.packaging_handling)}
-                            </td>
-                          </tr>
-                        )}
-                        {parseFloat(confirmedOrder.discount || 0) > 0 && (
-                          <tr style={{ borderBottom: '2px solid #eaecef' }}>
-                            <td style={{ padding: '12px 8px', fontSize: '12px' }}>Discount</td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600, fontSize: '12px', color: '#107c41' }}>
-                              −{formatMoney(confirmedOrder.discount)}
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    );
-                  })()}
-                </tbody>
-              </table>
-
-              {/* Subtotal & Taxes Breakdown */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '12px' }}>
-                <div style={{ width: '250px' }}>
-                  {/* The 5% tax is charged and stored, and the invoice showed
-                      only the gross total -- so the one document the customer
-                      keeps did not say what the tax was. Both figures are
-                      already on the payload. */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    <span>Subtotal</span>
-                    <strong style={{ fontWeight: 600 }}>
-                      {formatMoney(Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.taxes || 0))}
-                    </strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    <span>Taxes (GST 5%)</span>
-                    <strong style={{ fontWeight: 600 }}>{formatMoney(confirmedOrder.taxes)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 6px 0', borderTop: '2px solid #0f291e', fontSize: '16px' }}>
-                    <span style={{ fontWeight: 700, color: '#0f291e' }}>Total Amount</span>
-                    <strong style={{ fontWeight: 800, color: '#107c41' }}>{formatMoney(confirmedOrder.total_amount)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)', borderTop: '1px solid #eaecef', marginTop: '6px' }}>
-                    <span>Payment Status</span>
-                    <strong style={{ fontWeight: 600 }}>{confirmedOrder.payment_status}</strong>
-                  </div>
-                  {/* Keyed on amount_paid, not advance_paid.
-                      The advance is only what was taken up front, and
-                      _reconcile_payment merely CAPS it as later payments land --
-                      so a settled order kept its original advance while
-                      amount_paid reached the total, and the invoice printed
-                      "Payment Status: Paid" directly above "Advance Paid
-                      ₹10,000 / Balance Due ₹23,075". Reachable for any existing
-                      order through Invoices → View Invoice, which is the copy
-                      that gets handed to the customer.
-                      Balance Due now uses the same expression as the Invoices
-                      table and the customer tracking page, so the three cannot
-                      disagree about what is owed. */}
-                  {parseFloat(confirmedOrder.amount_paid || 0) > 0 && (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        <span>Paid</span>
-                        <strong style={{ fontWeight: 600 }}>{formatMoney(confirmedOrder.amount_paid)}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        <span>Balance Due</span>
-                        <strong style={{ fontWeight: 600 }}>{formatMoney(Math.max(0, Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.amount_paid || 0)))}</strong>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Terms Footer */}
-              <div style={{ borderTop: '1px solid #eaecef', marginTop: '48px', paddingTop: '20px', textAlign: 'center', fontSize: '10px', color: 'var(--text-secondary)' }}>
-                <p style={{ margin: '0 0 4px 0' }}>Thank you for creating your bespoke order with **SCALEEZY** Atelier.</p>
-                <p style={{ margin: 0 }}>This is a computer-generated invoice and does not require a physical signature.</p>
-              </div>
+              <InvoiceRenderer
+                template={confirmedOrder.invoice_template || boutiqueSettings?.invoice_template || 'classic'}
+                data={normalizeInvoiceData(confirmedOrder, boutiqueSettings, currentUser)}
+              />
             </div>
 
             {/* Modal Footer Controls */}
@@ -10168,21 +9362,10 @@ function App() {
               </button>
             </div>
 
-            {/* What is actually being made. The wizard collects a full spec and
-                measurement snapshot per dress and saved it correctly -- and
-                then no screen ever read it back, so the person opening this
-                stage to cut or stitch the garment could not see what the
-                customer had asked for. Nested on the order payload, so it
-                needs no fetch of its own. */}
             {(activeReviewOrder.garment_jobs || []).length > 0 && (
               <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
                 <div style={{ fontWeight: 700, marginBottom: '8px' }}>What to make</div>
                 {activeReviewOrder.garment_jobs.map(job => {
-                  // Material fields are rendered from job.materials, which
-                  // carries the item's name, quantity and unit. Left in the spec
-                  // dump they printed as bare database UUIDs -- "main fabric:
-                  // a1222bee-8dea-442d-9858-524141b109c4" -- on the one screen
-                  // a cutter opens to find out which roll to pull.
                   const materials = job.materials || [];
                   const materialKeys = new Set(materials.map(m => m.field_key));
                   const specEntries = Object.entries(job.spec || {})
@@ -10232,13 +9415,7 @@ function App() {
               </div>
             )}
 
-            {/* The approved design, and the Master's note on how to make it.
-                GET /design-studio/boards/ has always served this and even swaps
-                in TailorBriefSerializer for a Tailor -- but api.getDesignBoards
-                had zero callers, so the design the owner approved reached the
-                person stitching it through no screen at all. The notes box
-                lives here because the endpoint that writes it had nowhere to be
-                called from until the board was on screen. */}
+           
             {stageDesignBrief && stageDesignBrief.design && (
               <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
                 <div style={{ fontWeight: 700, marginBottom: '8px' }}>Approved design</div>
@@ -10361,15 +9538,6 @@ function App() {
                 Manage Stage Transition
               </h4>
 
-              {/* Hand this stage to someone, ahead of the work starting.
-                  assign_stage is in SUPERVISOR_ORDER_ACTIONS specifically so a
-                  Master can delegate -- "handing work to someone else is a
-                  supervisor's call" -- and the API honours it, but the only
-                  Assign control in the product was gated to Owner AND lived on
-                  the overview tab, which a Master's nav does not contain and
-                  login never routes them to. The capability was granted and
-                  unreachable. Here it sits on the screen a Master actually
-                  works from. */}
               {selectedStageObj && (!currentUser.role || currentUser.role === 'Owner'
                 || SUPERVISOR_ROLES.includes(currentUser.role)) && (
                   <div>
@@ -10392,11 +9560,6 @@ function App() {
                   </div>
                 )}
 
-              {/* Who actually did the work, recorded with the transition. This
-                  is a different question from who it was assigned to, and it
-                  used to offer every member of staff regardless of whether the
-                  stage's role list permits them -- so it wrote a pairing that
-                  assign-stage refuses with a 400. */}
               {(!currentUser.role || currentUser.role === 'Owner'
                 || SUPERVISOR_ROLES.includes(currentUser.role)) && (
                   <div>
@@ -10679,13 +9842,6 @@ function App() {
               </button>
             </div>
 
-            {/* Modal Content Grid */}
-            {/* `repeat(auto-fit, minmax(min(190px, 100%), 1fr))`, not a fixed
-                `1.2fr 1.2fr 1.6fr`: three fixed columns put the third panel --
-                the one carrying the Try On explanation -- 70px past the right
-                edge of a 320px screen, where it was clipped and unreadable.
-                auto-fit keeps all three side by side wherever they fit and
-                stacks them when they do not. */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(190px, 100%), 1fr))', gap: '20px', alignItems: 'stretch' }}>
               {/* Left Column: Style Sketch */}
               <div style={{ background: '#141414', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>

@@ -4,13 +4,6 @@ import { Award, Clock, Image as ImageIcon, Key, UserPlus, Users } from 'lucide-r
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
-
-// The password now comes back from create-login, generated for that one
-// account and returned on that one response. The constant that used to live
-// here held a literal shared by every designer on the platform -- shipped in
-// this bundle, and a working credential against any boutique, because login
-// resolves an account by scanning every schema for the username.
-
 /**
  * The module's landing counters and leaderboards.
  *
@@ -99,10 +92,6 @@ function DesignerRoster() {
   };
 
   useEffect(load, []);
-
-  // An email typed when the designer was added is what the Grant login box
-  // starts from, so the Owner is not asked for the same address twice. `??`
-  // rather than `||` so clearing the box stays cleared.
   const draftEmail = (designer) => emailDrafts[designer.id] ?? designer.email ?? '';
 
   const add = async (event) => {
@@ -123,7 +112,7 @@ function DesignerRoster() {
 
   const grant = async (designer) => {
     const email = draftEmail(designer).trim();
-    if (!email || inFlight.current) return;   // one click, one call
+    if (!email || inFlight.current) return;  
     inFlight.current = true;
     setGranting(designer.id);
     try {
@@ -220,8 +209,7 @@ function DesignerRoster() {
             {issued.password ? (
               <> &nbsp;·&nbsp; Password: <strong style={{ fontFamily: 'ui-monospace, monospace' }}>{issued.password}</strong></>
             ) : (
-              // create-login linked an account this person already had, so
-              // their existing password still stands and there is none to give.
+              
               <> &nbsp;·&nbsp; They already had an account — their existing password still works.</>
             )}
           </div>

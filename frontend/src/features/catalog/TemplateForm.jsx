@@ -12,8 +12,6 @@ import { getSection, isVisible, pruneHidden } from '../../services/templates';
  * change.
  */
 
-// Inventory pickers all want the same shape, and several fields on one form ask
-// for the same category. Fetch once per category and share it across fields.
 function useInventoryOptions(categories) {
   const [byCategory, setByCategory] = useState({});
 
@@ -138,11 +136,6 @@ function Field({ field, value, error, onChange, inventory, quantity, quantityErr
     case 'inventory_ref': {
       const items = inventory[field.inventory_category] || [];
       const selected = items.find((item) => String(item.id) === String(value ?? ''));
-      // Picking the roll is half the answer. Without "how much", the order can
-      // name a material but the inventory ledger can never reserve or consume
-      // it -- which is exactly how a delivered order used to leave stock
-      // untouched. So the quantity is asked for here, at the moment the choice
-      // is made, rather than defaulted to a number nobody decided.
       control = (
         <>
           <select {...common}>
@@ -192,8 +185,7 @@ function Field({ field, value, error, onChange, inventory, quantity, quantityErr
     }
 
     case 'file':
-      // Uploads run through the existing media service on save, so the form only
-      // records the intent here.
+     
       control = (
         <input
           className="form-control"
@@ -232,36 +224,10 @@ function Field({ field, value, error, onChange, inventory, quantity, quantityErr
 
 export default function TemplateForm({
   template, section, values, errors = {}, onChange,
-  // How much of each selected material this garment needs, keyed by field key.
-  // Kept beside `values` rather than inside it because `spec` is validated
-  // against the template's own field list, and a quantity is not one of its
-  // fields -- it belongs to the material line, not to the garment's spec.
   quantities = {}, quantityErrors = {}, onQuantityChange = () => {},
-  // Where to send someone whose inventory is empty. Optional because this form
-  // also renders in places that have no navigation to offer.
   onGoToInventory = null,
 }) {
   const definition = getSection(template, section);
-  // File fields are not rendered, because nothing in this product can save one.
-  //
-  // The four of them -- Measurement Sheet, Reference Images, Audio Note, Final
-  // Approved Design -- stored the browser's raw File object in `values`, and
-  // saveGarmentJobs sends that through JSON.stringify, which turns a File into
-  // `{}`. core/templates.py then treats `{}` as empty and drops the key with no
-  // error; a repeatable one becomes `[{}]` and is stored verbatim, reaching the
-  // tailor's "What to make" panel as `reference images: [object Object]`.
-  // Meanwhile GarmentSummary printed "Attached".
-  //
-  // So a staff member photographed the customer's handwritten measurement
-  // sheet, the wizard advanced with no complaint, and the artefact proving what
-  // was actually measured was gone at the moment of capture.
-  //
-  // Removing the affordance rather than hardening the write path, deliberately.
-  // Rejecting the value server-side would be worse: saveGarmentJobs runs AFTER
-  // the order is created, so a hard 400 there strands an order with no garment
-  // job behind a dead wizard. Real uploads need a multipart endpoint and a
-  // FormData path, which is a feature -- see the audit's Missing Features
-  // table. Until it exists, offering the input is the bug.
   const fields = (definition?.fields || [])
     .filter((f) => f.field_type !== 'file')
     .filter((f) => isVisible(f, values));
@@ -270,21 +236,12 @@ export default function TemplateForm({
     .filter((f) => f.field_type === 'inventory_ref')
     .map((f) => f.inventory_category);
   const inventory = useInventoryOptions(inventoryCategories);
-
-  // Loaded-and-empty across every category this section asks about. A new
-  // boutique used to discover mid-order that every picker says "Nothing in
-  // stock" -- the guidance belongs before the choices, not scattered under
-  // them. Distinguished from still-loading so established boutiques never see
-  // the banner flash.
   const inventoryLoaded = inventoryCategories.length > 0
     && inventoryCategories.every((c) => c in inventory);
   const inventoryEmpty = inventoryLoaded
     && inventoryCategories.every((c) => (inventory[c] || []).length === 0);
 
   const handleChange = (key, value) => {
-    // Prune after every edit: switching Peplum to Corset must take the flare
-    // length with it, or the cutter is handed a measurement for a panel that is
-    // not being made.
     onChange(pruneHidden(template, { ...values, [key]: value }));
   };
 

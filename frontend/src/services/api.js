@@ -284,6 +284,24 @@ export const api = {
     return data;
   },
 
+  async getInvoiceTemplate() {
+    const res = await guardedFetch(`${BASE_URL}/settings/invoice-template/`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) await failWith(res, 'Failed to fetch invoice template setting');
+    return res.json();
+  },
+
+  async updateInvoiceTemplate(template) {
+    const res = await guardedFetch(`${BASE_URL}/settings/invoice-template/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ template })
+    });
+    if (!res.ok) await failWith(res, 'Failed to update invoice template setting');
+    return res.json();
+  },
+
   async seedMockData() {
     const res = await guardedFetch(`${BASE_URL}/auth/seed-data/`, {
       method: 'POST',

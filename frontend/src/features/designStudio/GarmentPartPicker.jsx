@@ -4,37 +4,10 @@ import { Check, ChevronLeft, ChevronRight, Eye, ImageOff, X } from 'lucide-react
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 
-/**
- * Choosing a garment's design, part by part.
- *
- * The boutique's designs are what a customer browses: two sarees show as two
- * sarees, each by its overall photograph. Opening one shows everything filed
- * under it -- pallu, border, body, pleat -- and the customer takes the parts
- * they want from it.
- *
- * The selection is a map of part to photograph, not a design id, which is what
- * lets a customer take THIS pallu off one saree and THAT border off another.
- * Opening a second design and picking its border simply overwrites the border
- * slot; the pallu chosen earlier stays.
- *
- * Parts never cross garments: the designs are filtered by this garment's
- * template, and the part headings come from that template's own vocabulary.
- *
- * Needs no customer and no draft. This is the boutique's own library, and the
- * point of the screen is that a customer browses it before giving any details.
- */
 
 const FALLBACK =
   'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400';
 
-/** One selectable photograph.
- *
- *  No hover zoom. A card that grew under the cursor moved its own neighbours
- *  out from under it, so aiming at the picture you wanted became a moving
- *  target -- and a customer comparing eight parts is doing exactly that. The
- *  View button opens the photograph at full size instead, on purpose rather
- *  than by accident of where the mouse rested.
- */
 function PickCard({ src, alt, picked, onClick, onView, children, height = '110px' }) {
   return (
     <div
@@ -66,9 +39,6 @@ function PickCard({ src, alt, picked, onClick, onView, children, height = '110px
       )}
 
       {onView && (
-        // stopPropagation, because this button sits over a card whose own click
-        // chooses the part. Without it, looking at a photograph would also
-        // select it.
         <button
           type="button"
           title="View full size"
@@ -98,13 +68,11 @@ function Lightbox({ items, index, onIndexChange, onClose, isSelected, onToggle }
   const item = items[index];
   const many = items.length > 1;
 
-  // Wraps, so the set has no dead end at either edge.
   const step = (delta) => onIndexChange((index + delta + items.length) % items.length);
 
   useEffect(() => {
     const onKey = (e) => {
-      // Every key handled here is swallowed. The lightbox is the top layer, so
-      // a press that moves it must not also reach whatever is underneath.
+      
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
       else if (e.key === 'ArrowLeft' && many) { e.preventDefault(); e.stopPropagation(); step(-1); }
       else if (e.key === 'ArrowRight' && many) { e.preventDefault(); e.stopPropagation(); step(1); }
@@ -113,14 +81,6 @@ function Lightbox({ items, index, onIndexChange, onClose, isSelected, onToggle }
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  // Every click here is stopped before it leaves.
-  //
-  // The lightbox is painted over the design modal but it is a CHILD of it in
-  // the React tree, and the modal's own backdrop closes on click. So a click
-  // that closed the lightbox went on bubbling into that handler and shut the
-  // modal underneath as well -- one Close, both layers gone, and the customer
-  // thrown back out to the design list. Closing the top layer must leave the
-  // one beneath it exactly where it was.
   const close = (e) => { e.stopPropagation(); onClose(); };
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
 
@@ -197,12 +157,7 @@ function Lightbox({ items, index, onIndexChange, onClose, isSelected, onToggle }
  *  above a grid of one.
  */
 function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClose }) {
-  // An index into `images`, not a copy of one, so the lightbox can step
-  // through the set and stay in sync with a selection made from inside it.
   const [viewIndex, setViewIndex] = useState(null);
-  // Template order, so the overall shot leads and the rest read the way the
-  // boutique declared them. Anything filed under a part the template no longer
-  // names still appears, after the declared ones.
   const images = useMemo(() => {
     const rank = new Map(partOrder.map((k, i) => [k, i]));
     return [...(design.images || [])].sort(
@@ -310,12 +265,8 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   const [error, setError] = useState(null);
   const [openDesign, setOpenDesign] = useState(null);
   const [viewIndex, setViewIndex] = useState(null);
-  // Bumped by Retry, so the effect below stays the only place the fetch is made.
   const [reloadToken, setReloadToken] = useState(0);
 
-  // Derived rather than stored: a `loading` flag would have to be set
-  // synchronously at the top of the effect, which is the cascading-render
-  // pattern React warns about.
   const loading = !designs && !error;
 
   useEffect(() => {
@@ -323,8 +274,6 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     let cancelled = false;
     Promise.all([
       api.getDesignLibrary({ template: garmentKey, status: 'ACTIVE' }),
-      // Only for the part headings and their order; the designs carry the
-      // photographs themselves.
       api.getGarmentTemplate(garmentKey).catch(() => null),
     ])
       .then(([rows, tpl]) => {
@@ -343,9 +292,6 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     [template]);
 
   const chosenCount = Object.values(selection).filter(Boolean).length;
-
-  // Clicking the chosen photograph again clears that part, so a customer can
-  // undo without having to pick a different one instead.
   const choose = (part, image) => {
     const next = { ...selection };
     if (next[part]?.id === image.id) delete next[part];
@@ -408,8 +354,6 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         <div style={{ display: 'grid', gap: '14px',
                       gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
           {designs.map((design, i) => {
-            // How many of this customer's chosen parts came off this design --
-            // so a design they have already taken something from is marked.
             const taken = Object.values(selection)
               .filter(img => img && String(img.design_id) === String(design.id)).length;
             return (
@@ -477,8 +421,6 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
  * keep in step -- it is a view of the selection, not a copy of it.
  */
 export function SelectedDesignSummary({ garmentJobs = [], onClear }) {
-  // Which picture the full-size view is showing, as an index into the flat
-  // list below. Null when it is closed.
   const [viewIndex, setViewIndex] = useState(null);
 
   const sections = garmentJobs
@@ -494,13 +436,6 @@ export function SelectedDesignSummary({ garmentJobs = [], onClear }) {
   if (sections.length === 0) return null;
 
   const total = sections.reduce((n, s) => n + s.picks.length, 0);
-
-  // Every chosen photograph, in the order the sections read, so the arrows walk
-  // the whole outfit rather than stopping at the end of a garment. The label
-  // carries the garment too -- 'Border Design' alone is ambiguous once a saree
-  // and a dupatta both have one.
-  // Each entry keeps the section and part it came from, so finding the one a
-  // View button belongs to is a lookup rather than a re-walk of the sections.
   const viewItems = sections.flatMap(section =>
     section.picks.map(({ part, image }) => ({
       sectionKey: section.key,

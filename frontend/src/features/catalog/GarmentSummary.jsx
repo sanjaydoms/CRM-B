@@ -3,18 +3,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import { isVisible } from '../../services/templates';
 
-/**
- * Read-only recap of every dress on the order, for the review step.
- *
- * The review used to print `customerForm.garment_type` and the handful of legacy
- * style dropdowns, so none of the per-dress answers -- the measurements, the
- * neck, the materials -- reached the confirmation screen. Staff were asked to
- * approve an order without being shown what they had entered.
- *
- * Values are rendered through the template metadata rather than raw: an option
- * shows its label, not `fall_pico`.
- */
-
 const formatKey = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 function useInventoryNames(needed) {
@@ -63,12 +51,6 @@ function displayValue(field, value, inventoryNames) {
   }
 
   if (field.field_type === 'file') {
-    // Kept for any value already stored on an existing garment job, but it can
-    // no longer say "Attached" for something that was never saved. TemplateForm
-    // stops rendering file inputs at all (see the comment there): the browser's
-    // File object does not survive JSON.stringify, so what reached the database
-    // was `{}` or `[{}]` while this line reported success. A summary that
-    // confirms an upload the product cannot perform is worse than no summary.
     if (Array.isArray(value)) {
       const named = value.filter((v) => v && v.name);
       return named.length ? named.map((v) => v.name).join(', ') : 'Not saved';
@@ -103,8 +85,7 @@ export default function GarmentSummary({ jobs, onEdit }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {jobs.map((job) => {
-        // Only what was actually answered, and only fields that still apply --
-        // an answer left behind by a since-hidden field must not resurface here.
+        
         const sections = job.template.sections
           .map((section) => ({
             ...section,
