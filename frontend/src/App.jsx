@@ -1440,11 +1440,7 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    if (view === 'wizard' && garmentJobs.length === 0 && garmentTemplates.length > 0) {
-      addGarment(garmentTemplates[0].key);
-    }
-  }, [view, garmentJobs.length, garmentTemplates]);
+
 
   // Pricing, the dashboard and the stage tracker still read the single
   // garment_type on the customer, so it follows the first dress on the order
@@ -7185,7 +7181,6 @@ function App() {
                         loadGarmentTemplates={loadGarmentTemplates}
                         addGarment={addGarment}
                         removeGarment={removeGarment}
-                        minRequired={1}
                       />
 
                       {garmentJobs.length === 0 ? (

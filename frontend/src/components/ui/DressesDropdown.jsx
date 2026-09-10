@@ -35,9 +35,6 @@ export default function DressesDropdown({
   const handleToggleGarment = (e, templateKey, isChosen) => {
     e.stopPropagation();
     if (isChosen) {
-      if (minRequired > 0 && garmentJobs.length <= minRequired) {
-        return; // Prevent removing if minimum required limit reached
-      }
       removeGarment?.(templateKey);
     } else {
       addGarment?.(templateKey);
@@ -46,7 +43,6 @@ export default function DressesDropdown({
 
   const handleRemovePill = (e, templateKey) => {
     e.stopPropagation();
-    if (minRequired > 0 && garmentJobs.length <= minRequired) return;
     removeGarment?.(templateKey);
   };
 
@@ -112,13 +108,12 @@ export default function DressesDropdown({
         {/* Selected Items / Pills Container */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', flex: 1 }}>
           {garmentJobs.length === 0 ? (
-            <span style={{ fontSize: '13px', color: 'var(--text-muted, #94a3b8)', fontStyle: 'italic' }}>
-              Select dresses to add to this order...
+            <span style={{ fontSize: '13px', color: 'var(--text-muted, #64748b)', fontWeight: 500 }}>
+              Select Garment
             </span>
           ) : (
             garmentJobs.map((job) => {
               const name = job.template?.name || job.key;
-              const isOnlyOneAndMinReq = minRequired > 0 && garmentJobs.length <= minRequired;
               return (
                 <span
                   key={job.key}
@@ -137,27 +132,25 @@ export default function DressesDropdown({
                 >
                   <Check size={12} style={{ color: '#4ade80' }} />
                   {name}
-                  {!isOnlyOneAndMinReq && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleRemovePill(e, job.key)}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'rgba(255,255,255,0.7)',
-                        cursor: 'pointer',
-                        padding: '0 2px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '50%',
-                        marginLeft: '2px',
-                      }}
-                      title={`Remove ${name}`}
-                    >
-                      <X size={12} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => handleRemovePill(e, job.key)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'rgba(255,255,255,0.7)',
+                      cursor: 'pointer',
+                      padding: '0 2px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: '50%',
+                      marginLeft: '2px',
+                    }}
+                    title={`Remove ${name}`}
+                  >
+                    <X size={12} />
+                  </button>
                 </span>
               );
             })
@@ -215,17 +208,12 @@ export default function DressesDropdown({
       {isOpen && (
         <div
           style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            marginTop: '6px',
+            marginTop: '12px',
             background: 'var(--surface-color, #ffffff)',
             border: '1px solid var(--border-color, #e2e8f0)',
             borderRadius: '12px',
-            padding: '16px',
-            boxShadow: '0 12px 30px rgba(0, 0, 0, 0.15)',
-            zIndex: 999,
+            padding: '14px',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.05)',
             animation: 'fadeIn 0.15s ease-out',
           }}
         >
@@ -234,12 +222,12 @@ export default function DressesDropdown({
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: '12px',
+              marginBottom: '10px',
               paddingBottom: '8px',
               borderBottom: '1px solid var(--border-color, #f1f5f9)',
             }}
           >
-            <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary, #64748b)' }}>
+            <span style={{ fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary, #64748b)' }}>
               Select Garments (3 Column)
             </span>
             <button
@@ -275,13 +263,12 @@ export default function DressesDropdown({
             {garmentTemplates.map((template) => {
               const chosen = garmentJobs.some((job) => job.key === template.key);
               const isLoading = addingGarmentKey === template.key;
-              const isOnlyOneAndMinReq = chosen && minRequired > 0 && garmentJobs.length <= minRequired;
 
               return (
                 <button
                   key={template.key}
                   type="button"
-                  disabled={!!addingGarmentKey || isOnlyOneAndMinReq}
+                  disabled={!!addingGarmentKey}
                   onClick={(e) => handleToggleGarment(e, template.key, chosen)}
                   style={{
                     display: 'flex',
@@ -294,7 +281,7 @@ export default function DressesDropdown({
                     fontWeight: chosen ? 600 : 500,
                     textAlign: 'left',
                     width: '100%',
-                    cursor: (addingGarmentKey || isOnlyOneAndMinReq) ? 'not-allowed' : 'pointer',
+                    cursor: addingGarmentKey ? 'not-allowed' : 'pointer',
                     transition: 'all 0.15s ease',
                     background: chosen ? '#18181b' : 'var(--background-secondary, #f8f9fa)',
                     color: chosen ? '#ffffff' : 'var(--text-primary, #1e293b)',
