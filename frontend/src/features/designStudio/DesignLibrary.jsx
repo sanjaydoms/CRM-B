@@ -4,6 +4,7 @@ import { ArrowLeft, Check, ChevronRight, Clock, Edit2, Eye, Image as ImageIcon, 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 import DesignUpload from './DesignUpload';
+import GarmentPartTabs from './GarmentPartTabs';
 import { IconTile, SectionCard, StatCard } from '../../components/ui/Atelier';
 
 /**
@@ -289,6 +290,12 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   // owner has already looked at costs nothing, and it keeps the state write
   // inside the fetch callback rather than in an effect body.
   const [partsByKey, setPartsByKey] = useState({});
+  // The part tab the owner clicked, stamped with the garment it was clicked
+  // under: {garment, part}, where a null part is the whole-design grid this
+  // screen has always shown. The stamp is what makes switching garment drop
+  // the choice -- a saree's Pallu is not a part a kurti has, and carrying the
+  // key across would open a tab that garment does not own.
+  const [partTab, setPartTab] = useState(null);
 
   const PENDING_QUEUE = { key: '__pending__', name: 'Pending Approval' };
   const isPendingQueue = openCategory?.key === PENDING_QUEUE.key;
@@ -335,6 +342,18 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   const parts = partsByKey[openKey] || [];
   const partLabels = useMemo(
     () => Object.fromEntries(parts.map(p => [p.key, p.label])), [parts]);
+
+  // Which part is showing. Derived rather than reset in an effect: opening a
+  // garment, or switching to another one, lands on that garment's first
+  // declared part -- its overall shot, for every template that lists one --
+  // and only an explicit click under this garment moves off it.
+  const openPart = partTab?.garment === openKey ? partTab.part : (parts[0]?.key ?? null);
+
+  // The design behind a card, in the detail panel. Shared by the design grid
+  // and the part tabs, so a photograph opens the same View its whole design
+  // opens; `fallback` is the row already in hand when the fetch cannot run.
+  const openDesign = (id, fallback = null) =>
+    api.getDesignAsset(id).then(setSelected).catch(() => { if (fallback) setSelected(fallback); });
 
   // Only the open category is fetched, so the landing page never pays for the
   // whole library.
@@ -448,24 +467,32 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
         </button>
       </div>
 
-      <Filters value={filters} onChange={setFilters} designers={designers}
-               collections={collections} parts={parts} />
+      {/* The garment's own parts, gathered across every design filed under it.
+          The last tab is the whole-design grid this screen has always shown. */}
+      <GarmentPartTabs garmentKey={openCategory.key} parts={parts} active={openPart}
+                       onChange={(part) => setPartTab({ garment: openKey, part })}
+                       onOpenDesign={(id) => openDesign(id)} />
 
-      {!loading && designs.length === 0 && (
+      {!openPart && (
+        <Filters value={filters} onChange={setFilters} designers={designers}
+                 collections={collections} parts={parts} />
+      )}
+
+      {!openPart && !loading && designs.length === 0 && (
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)', padding: '24px 0', textAlign: 'center' }}>
           No designs match these filters.
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))', gap: '16px' }}>
+      <div style={{ display: openPart ? 'none' : 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))', gap: '16px' }}>
         {designs.map((design) => {
           const status = STATUS_COLOURS[design.status] || STATUS_COLOURS.DRAFT;
           return (
             <div key={design.id}
                  role="button"
                  tabIndex={0}
-                 onClick={() => api.getDesignAsset(design.id).then(setSelected).catch(() => setSelected(design))}
-                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); api.getDesignAsset(design.id).then(setSelected).catch(() => setSelected(design)); } }}
+                 onClick={() => openDesign(design.id, design)}
+                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDesign(design.id, design); } }}
                  style={{
                    border: '1px solid var(--border-color)', borderRadius: '10px',
                    overflow: 'hidden', cursor: 'pointer', background: 'var(--surface-color)',

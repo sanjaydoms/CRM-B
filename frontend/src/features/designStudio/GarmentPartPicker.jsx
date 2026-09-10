@@ -3,6 +3,7 @@ import { Check, ChevronLeft, ChevronRight, Eye, ImageOff, X } from 'lucide-react
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
+import { PartTabStrip } from './GarmentPartTabs';
 
 /**
  * Choosing a garment's design, part by part.
@@ -349,6 +350,63 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     () => Object.fromEntries((template?.design_parts || []).map(p => [p.key, p.label])),
     [template]);
 
+  // Every photograph the boutique has for this garment, filed under its part
+  // and carrying the design it came off. Built from the designs already
+  // fetched above rather than from a second call: a design arrives with its
+  // images, so grouping them is a derive, and doing it here keeps the
+  // untagged uploads the fetch deliberately merges in.
+  const imagesByPart = useMemo(() => {
+    const map = new Map();
+    (designs || []).forEach((design) => {
+      (design.images || []).forEach((image) => {
+        if (!map.has(image.part)) map.set(image.part, []);
+        // design_id rather than the design itself: the chosen photograph is
+        // written into the order draft, so it stays a flat row of scalars, and
+        // it is the field the design list already reads back to mark a design
+        // the customer has taken a part from.
+        map.get(image.part).push({ ...image, design_id: design.id,
+                                   design_title: design.title,
+                                   designer_name: design.designer_name });
+      });
+    });
+    return map;
+  }, [designs]);
+
+  // The tabs: every part the template declares, in its own order, whether or
+  // not anything has been uploaded for it -- an empty Pallu tab tells the
+  // boutique what is missing. Anything filed under a part the template no
+  // longer names is listed after them, so those photographs stay reachable.
+  const tabParts = useMemo(() => {
+    const declared = template?.design_parts || [];
+    const extra = [...imagesByPart.keys()]
+      .filter(key => !declared.some(p => p.key === key))
+      .map(key => ({ key, label: key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }));
+    return [...declared, ...extra];
+  }, [template, imagesByPart]);
+
+  // Which tab is showing. `null` is the design list this screen has always
+  // opened on, and it is the last tab; anything else is a part. Derived, so a
+  // garment whose template has not loaded yet -- or a part it does not declare
+  // -- falls back to its own first part rather than an empty grid.
+  const [partTab, setPartTab] = useState(undefined);
+  const openPart = partTab === null ? null
+    : (tabParts.some(p => p.key === partTab) ? partTab : (tabParts[0]?.key ?? null));
+  const openPartLabel = tabParts.find(p => p.key === openPart)?.label || '';
+  const partShots = openPart ? (imagesByPart.get(openPart) || []) : [];
+
+  // The overall shot stands for the whole garment rather than one detail of
+  // it, so View on one opens that design's own gallery -- every part filed
+  // under it, pallu and border and body together -- instead of a bigger copy
+  // of the photograph already on screen. Every other tab is showing a single
+  // part, where full size is exactly what a customer wants from View.
+  //
+  // startsWith, because the key is the garment's own: overall_saree_design,
+  // overall_anarkali_design, overall_design on bottom wear, and a bare
+  // 'overall' on anything uploaded without a garment. Same test coverOf makes
+  // a few lines down. Garments whose template declares no overall part -- gown,
+  // suit, sherwani -- simply never take this branch.
+  const overallTab = Boolean(openPart && openPart.startsWith('overall'));
+
   const chosenCount = Object.values(selection).filter(Boolean).length;
 
   // Clicking the chosen photograph again clears that part, so a customer can
@@ -390,13 +448,71 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
           {chosenCount > 0
             ? `${chosenCount} part${chosenCount === 1 ? '' : 's'} chosen — parts may come from different designs`
-            : 'Open a design to choose its parts'}
+            : (openPart ? 'Click a photograph to choose this part'
+                        : 'Open a design to choose its parts')}
         </span>
       </div>
+
+      {/* This garment's parts. Every photograph filed under the open one, taken
+          across every design in the library, so choosing a pallu is one tab
+          rather than opening twenty sarees. The last tab is the design list
+          this screen has always opened on. */}
+      {!loading && (
+        <PartTabStrip parts={tabParts} active={openPart}
+                      onChange={(part) => { setPartTab(part); setViewIndex(null); }} />
+      )}
 
       {loading && (
         <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '18px 0' }}>
           Loading designs…
+        </div>
+      )}
+
+      {!loading && openPart && partShots.length === 0 && designs.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+                      padding: '30px 0', color: 'var(--text-secondary)' }}>
+          <ImageOff size={22} />
+          <div style={{ fontSize: '13px' }}>No designs available for this part yet.</div>
+        </div>
+      )}
+
+      {!loading && openPart && partShots.length > 0 && (
+        <div style={{ display: 'grid', gap: '14px',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+          {partShots.map((image, i) => (
+            // The same card, the same choose() and the same View the design
+            // modal uses -- this tab is another way into the one selection,
+            // not a second one.
+            <PickCard
+              key={image.id}
+              src={image.image_url}
+              alt={openPartLabel}
+              height="150px"
+              picked={selection[openPart]?.id === image.id}
+              onClick={() => choose(openPart, { ...image, design_title: image.design_title,
+                                                part_label: openPartLabel })}
+              onView={() => {
+                const design = overallTab
+                  && (designs || []).find(d => String(d.id) === String(image.design_id));
+                // Falls through to the plain full-size view whenever the design
+                // behind the photograph is not in hand.
+                if (design) setOpenDesign(design); else setViewIndex(i);
+              }}
+            >
+              <div style={{ padding: '8px 10px' }}>
+                <div style={{ fontSize: '12.5px', fontWeight: 600, overflow: 'hidden',
+                              textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {image.design_title || 'Untitled design'}
+                </div>
+                <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                  {image.designer_name || 'Unattributed'}
+                  {selection[openPart]?.id === image.id && (
+                    <span style={{ color: '#107c41', fontWeight: 700 }}> · chosen</span>
+                  )}
+                </div>
+              </div>
+            </PickCard>
+          ))}
         </div>
       )}
 
@@ -411,7 +527,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         </div>
       )}
 
-      {!loading && designs.length > 0 && (
+      {!loading && !openPart && designs.length > 0 && (
         <div style={{ display: 'grid', gap: '14px',
                       gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
           {designs.map((design, i) => {
@@ -448,7 +564,28 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         </div>
       )}
 
-      {viewIndex !== null && !openDesign && designs[viewIndex] && (
+      {/* Full size, walking whichever set is on screen: the part's photographs
+          under a part tab, the design covers under the design list. Selecting
+          from inside it is the same choose() the card behind it calls. */}
+      {viewIndex !== null && !openDesign && openPart && partShots[viewIndex] && (
+        <Lightbox
+          items={partShots.map(img => ({
+            image_url: img.image_url,
+            label: `${openPartLabel} · ${img.design_title || 'Untitled design'}`,
+          }))}
+          index={viewIndex}
+          onIndexChange={setViewIndex}
+          onClose={() => setViewIndex(null)}
+          isSelected={selection[openPart]?.id === partShots[viewIndex].id}
+          onToggle={() => choose(openPart, {
+            ...partShots[viewIndex],
+            design_title: partShots[viewIndex].design_title,
+            part_label: openPartLabel,
+          })}
+        />
+      )}
+
+      {viewIndex !== null && !openDesign && !openPart && designs[viewIndex] && (
         <Lightbox
           items={designs.map(d => ({ image_url: coverOf(d), label: d.title }))}
           index={viewIndex}
