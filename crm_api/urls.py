@@ -17,6 +17,9 @@ router.register(r'order-drafts', OrderDraftViewSet, basename='order-draft')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 router.register(r'boutique-settings', BoutiqueSettingsViewSet, basename='boutique-settings')
 
+from .whatsapp_views import WhatsAppWebhookView, WhatsAppSendMessageView, WhatsAppStatusView, WhatsAppResetView
+from .invoice_views import InvoiceTemplateView
+
 urlpatterns = [
     path('', include(router.urls)),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
@@ -30,5 +33,12 @@ urlpatterns = [
          name='auth-password-reset'),
     path('auth/password-reset/confirm/', PasswordResetConfirmView.as_view(),
          name='auth-password-reset-confirm'),
+    path('settings/invoice-template/', InvoiceTemplateView.as_view(), name='settings-invoice-template'),
+    path('whatsapp/webhook/', WhatsAppWebhookView.as_view(), name='whatsapp-webhook'),
+    path('whatsapp/send/', WhatsAppSendMessageView.as_view(), name='whatsapp-send'),
+    path('whatsapp/status/', WhatsAppStatusView.as_view(), name='whatsapp-status'),
+    path('whatsapp/reset/', WhatsAppResetView.as_view(), name='whatsapp-reset'),
+    path('whatsapp/connect/', WhatsAppResetView.as_view(), name='whatsapp-connect'),
 ]
+
 

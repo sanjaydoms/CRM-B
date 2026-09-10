@@ -2173,7 +2173,7 @@ table.data-table tbody tr:hover {
 }
 
 .portal-sidebar-footer {
-  padding: 24px;
+  padding: 12px 16px;
   border-top: 1px solid var(--border-color);
   margin-top: auto;
 }
@@ -2181,12 +2181,17 @@ table.data-table tbody tr:hover {
 .portal-sidebar-help {
   background-color: #fcf6ee;
   border-radius: var(--radius-lg);
-  padding: 16px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
   position: relative;
   overflow: hidden;
+}
+
+.portal-sidebar-help h4,
+.portal-sidebar-help p {
+  margin: 0;
 }
 
 .portal-sidebar-help::before {
@@ -2194,8 +2199,8 @@ table.data-table tbody tr:hover {
   position: absolute;
   bottom: -20px;
   right: -20px;
-  width: 60px;
-  height: 60px;
+  width: 50px;
+  height: 50px;
   background-color: #f5e6d3;
   border-radius: 50%;
   opacity: 0.5;
@@ -4144,7 +4149,7 @@ table.data-table tbody tr:hover {
   }
 }
 
-/* =========================================================================
+/* ==================================================================
    Design-system primitives (refresh). Namespaced `ui-` so they compose with
    the existing classes without collisions. These encode the information
    hierarchy the redesign is built on: what to read first, in what order.
@@ -4656,3 +4661,13 @@ table.data-table tbody tr:hover {
   .portal-nav-toggle { display: none; }
   .portal-sidebar-mark { display: none !important; }
 }
+/* Remove default browser arrows from number inputs */
+.no-spinners::-webkit-outer-spin-button,
+.no-spinners::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.no-spinners[type=number] {
+  -moz-appearance: textfield;
+}
+

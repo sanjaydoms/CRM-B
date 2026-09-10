@@ -338,7 +338,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'special_instructions',
             'master_verification', 'stage_histories', 'current_stage_key', 'production_status',
             'stages', 'activities', 'garment_images', 'garment_images_published',
-            'garment_jobs',
+            'garment_jobs', 'invoice_template',
         ]
 
     def _get_lang(self):

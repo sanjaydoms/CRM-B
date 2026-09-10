@@ -55,7 +55,7 @@ ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',
 
 
 SHARED_APPS = [
-    'django_tenants',  # mandatory
+    'django_tenants',  
     'tenants',
     'superadmin',
     # Owns no models, so it adds no migration to either schema set. Installed
@@ -74,8 +74,6 @@ SHARED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'apps.email_service',
-    # Shared, not tenant: they own no models, so they add no migration to
-    # either schema set, and the storage backend is process-wide anyway.
     'cloudinary',
     'cloudinary_storage',
 ]
@@ -94,6 +92,7 @@ TENANT_APPS = [
     'apps.staff',
     'apps.payroll',
     'apps.finance',
+    'apps.alterations',
 ]
 
 INSTALLED_APPS = list(set(SHARED_APPS + TENANT_APPS))
@@ -106,7 +105,7 @@ MIDDLEWARE = [
     # so a refusal is recorded once as a refusal rather than twice.
     'core.exceptions.ClientErrorMiddleware',
     'corsheaders.middleware.CorsMiddleware',
-    'tenants.middleware.TenantHeaderMiddleware',  # header tenant switcher
+    'tenants.middleware.TenantHeaderMiddleware',  
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -270,29 +269,9 @@ SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
 SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'boutique-crm')
 
-# Where uploaded images go.
-#
-# Every upload in the application -- the design library, customer profile
-# photographs, fabric images, stage and finished-garment shots, and the five
-# ImageFields -- goes through default_storage. So this is the one switch that
-# decides for all of them, and the reason none of those call sites mention
-# Cloudinary: swapping the backend here moves every one of them at once.
-#
-# FileSystemStorage was never viable in production. A hosted dyno has an
-# ephemeral disk, so every deploy deleted every photograph a boutique had
-# uploaded while the database rows went on pointing at URLs that had become
-# 404s. The SupabaseStorage driver in crm_api/storage.py was the intended
-# answer and is bypassed because the bucket's RLS policies reject the
-# publishable key.
-#
-# Cloudinary is used when CLOUDINARY_URL is set, and only then: a checkout with
-# no credentials still has to be able to run, and falling back to the local disk
-# is the honest behaviour for one.
+
 CLOUDINARY_URL = os.environ.get('CLOUDINARY_URL', '')
 
-# Never during tests, whatever the environment says. The suite uploads real
-# files, and pointing it at the account would spend quota on throwaway images
-# and leave them there -- a test run must not touch a live service.
 _use_cloudinary = bool(CLOUDINARY_URL) and not _running_tests
 
 STORAGES = {
@@ -309,10 +288,6 @@ STORAGES = {
 if _use_cloudinary:
     import cloudinary
 
-    # The SDK reads CLOUDINARY_URL from the environment by itself, but it does
-    # not default to HTTPS. An http:// image URL stored today is mixed content
-    # on any https page for as long as the row lives, and browsers block it --
-    # so it is forced here rather than left to the URL to carry.
     cloudinary.config(secure=True)
 
 MEDIA_URL = '/media/'
@@ -340,7 +315,7 @@ REST_FRAMEWORK = {
 
 
 
-import logging  # noqa: E402  -- local to this section, like corsheaders above
+import logging 
 
 
 def _log_level(raw):
@@ -409,7 +384,10 @@ TRACKING_BASE_URL = (
     or 'http://localhost:8000'
 )
 
-CUSTOMER_MESSAGE_BACKEND = os.environ.get('CUSTOMER_MESSAGE_BACKEND', '')
+CUSTOMER_MESSAGE_BACKEND = os.environ.get(
+    'CUSTOMER_MESSAGE_BACKEND',
+    'domains.orders.messaging.whatsapp_backend',
+)
 
 WHATSAPP_COUNTRY_CODE = os.environ.get('WHATSAPP_COUNTRY_CODE', '91')
 
@@ -430,6 +408,16 @@ UPSTASH_REDIS_REST_TOKEN = os.environ.get(
     'UPSTASH_REDIS_REST_TOKEN',
     'gQAAAAAAAkn0AAIgcDFhMjY5MTkxMTQ5YzM0OTU2YTljZDMwNDQwNjNkYzc3Zg'
 )
+
+INTERNAL_API_SECRET = os.environ.get(
+    'INTERNAL_API_SECRET',
+    'scaleezy_internal_secret_key_2026'
+)
+WHATSAPP_SERVICE_URL = os.environ.get(
+    'WHATSAPP_SERVICE_URL',
+    'http://127.0.0.1:3001'
+)
+
 
 
 

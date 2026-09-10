@@ -210,6 +210,7 @@ export const api = {
     if (!res.ok) throw new Error(data.error || describeApiError(res, data));
     
     if (data.token) {
+      sessionCheckInFlight = false;
       localStorage.setItem('token', data.token);
     }
     if (data.tenant_id) {
@@ -281,6 +282,24 @@ export const api = {
       localStorage.setItem('tenant_id', data.tenant_id);
     }
     return data;
+  },
+
+  async getInvoiceTemplate() {
+    const res = await guardedFetch(`${BASE_URL}/settings/invoice-template/`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) await failWith(res, 'Failed to fetch invoice template setting');
+    return res.json();
+  },
+
+  async updateInvoiceTemplate(template) {
+    const res = await guardedFetch(`${BASE_URL}/settings/invoice-template/`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ template })
+    });
+    if (!res.ok) await failWith(res, 'Failed to update invoice template setting');
+    return res.json();
   },
 
   async seedMockData() {
@@ -685,6 +704,23 @@ export const api = {
       const err = await res.json().catch(() => ({}));
       throw new Error(describeApiError(res, err) || 'Failed to mark the message sent');
     }
+    return res.json();
+  },
+
+  async getWhatsAppStatus() {
+    const res = await guardedFetch(`${BASE_URL}/whatsapp/status/`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) await failWith(res, 'Failed to fetch WhatsApp status');
+    return res.json();
+  },
+
+  async resetWhatsAppStatus() {
+    const res = await guardedFetch(`${BASE_URL}/whatsapp/reset/`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!res.ok) await failWith(res, 'Failed to reset WhatsApp connection');
     return res.json();
   },
 
@@ -1727,4 +1763,65 @@ Object.assign(api, {
   // detects which and sets the header accordingly.
   createExpense: (body) => financeRequest('expenses/', { method: 'POST', body }),
   deleteExpense: (id) => financeRequest(`expenses/${id}/`, { method: 'DELETE' }),
+});
+
+// --- Alterations -------------------------------------------------------------
+// Post-delivery work on a garment that has already gone home. A separate
+// prefix because it is a separate process: nothing here writes to an order.
+const alterationsUrl = (path = '', params = {}) => {
+  const clean = path ? (path.endsWith('/') ? path : `${path}/`) : '';
+  const url = new URL(`${BASE_URL}/alterations/${clean}`);
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.append(key, value);
+    }
+  });
+  return url.toString();
+};
+
+const alterationRequest = async (path = '', { method = 'GET', body } = {}, params) => {
+  const res = await guardedFetch(alterationsUrl(path, params), {
+    method,
+    headers: getHeaders(),
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const raw = await res.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { /* not JSON */ }
+  // describeApiError flattens DRF's field-keyed errors, so the server's own
+  // wording -- "only 3 metres available", "more than the 200 outstanding" --
+  // is what the screen shows, rather than a generic failure.
+  if (!res.ok) throw new Error(describeApiError(res, data));
+  return data;
+};
+
+const alterationAction = (id, action, body) =>
+  alterationRequest(`${id}/${action}`, { method: 'POST', body: body || {} });
+
+Object.assign(api, {
+  getAlterations: (params) => alterationRequest('', {}, params),
+  getAlteration: (id) => alterationRequest(`${id}`),
+  createAlteration: (payload) => alterationRequest('', { method: 'POST', body: payload }),
+
+  // Workflow. Each one returns the whole alteration back, including the
+  // refreshed `available_actions`, so a screen never has to guess what is
+  // allowed next.
+  startAlterationInspection: (id, notes) => alterationAction(id, 'start-inspection', { notes }),
+  recordAlterationInspection: (id, payload) => alterationAction(id, 'record-inspection', payload),
+  submitAlterationForApproval: (id, payload) => alterationAction(id, 'submit-for-approval', payload),
+  approveAlteration: (id, notes) => alterationAction(id, 'approve', { notes }),
+  assignAlteration: (id, payload) => alterationAction(id, 'assign', payload),
+  startAlterationWork: (id, payload) => alterationAction(id, 'start-work', payload || {}),
+  sendAlterationToQC: (id, payload) => alterationAction(id, 'send-to-qc', payload || {}),
+  passAlterationQC: (id, notes) => alterationAction(id, 'pass-qc', { notes }),
+  failAlterationQC: (id, reason) => alterationAction(id, 'fail-qc', { reason }),
+  completeAlteration: (id, notes) => alterationAction(id, 'complete', { notes }),
+  cancelAlteration: (id, reason) => alterationAction(id, 'cancel', { reason }),
+
+  // Money and materials.
+  getAlterationPayments: (id) => alterationRequest(`${id}/payments`),
+  recordAlterationPayment: (id, payload) => alterationAction(id, 'payments', payload),
+  getAlterationOutstandingBalance: (id) => alterationRequest(`${id}/outstanding-balance`),
+  getAlterationMaterials: (id) => alterationRequest(`${id}/materials`),
+  recordAlterationMaterial: (id, payload) => alterationAction(id, 'materials', payload),
 });

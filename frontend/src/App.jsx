@@ -35,9 +35,12 @@ const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary')
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
 const StaffPanel = lazy(() => import('./features/staff/StaffPanel'));
+const AlterationsPanel = lazy(() => import('./features/alterations/AlterationsPanel'));
 const FinancePanel = lazy(() => import('./features/finance/FinancePanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
+import OrderAlterations from './features/alterations/OrderAlterations';
+import AlterationList from './features/alterations/AlterationList';
 import OrderGarmentBrief from './features/catalog/OrderGarmentBrief';
 import OrderKanban from './features/orders/OrderKanban';
 import { MobileHeader } from './components/ui/MobileHeader';
@@ -48,6 +51,7 @@ import {
 import { useLanguage } from './i18n/LanguageContext.jsx';
 import LanguageSelector from './components/LanguageSelector.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
+import { InvoiceRenderer, normalizeInvoiceData } from './components/invoice/InvoiceTemplates';
 import { BottomNavigation } from './components/ui/BottomNavigation';
 
 import { BottomSheet } from './components/ui/BottomSheet';
@@ -1000,6 +1004,7 @@ function NetworkActivityBar() {
 const NAV_MODULE = {
   overview: null,
   orders: null,
+  alterations: null,
   customers: null,
   assignments: null,
   invoices: null,
@@ -1047,6 +1052,7 @@ const navSectionsFor = (user, t) => {
       { key: 'daily', label: t('nav.groups.daily', 'Daily'), items: [
         { tab: 'overview', icon: Users, label: t('nav.dashboard'), phone: true },
         { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
+        { tab: 'alterations', icon: Scissors, label: t('nav.alterations', 'Alterations') },
         { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
       ] },
       { key: 'design', label: t('nav.groups.design', 'Design'), items: [
@@ -1074,6 +1080,7 @@ const navSectionsFor = (user, t) => {
       { key: 'master', items: [
         { tab: 'assignments', icon: Scissors, label: t('nav.myAssignments'), phone: true },
         { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
+        { tab: 'alterations', icon: Scissors, label: t('nav.alterations', 'Alterations') },
         { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
         // A Master supervises the floor, so they get the team roster. The
         // screen hides every management control for them and the API strips
@@ -1749,6 +1756,15 @@ function App() {
   const [updatingOrderStatusId, setUpdatingOrderStatusId] = useState(null);
   const [expandedDna, setExpandedDna] = useState({});
   const [selectedDirectoryCustomer, setSelectedDirectoryCustomer] = useState(null);
+  // Which alteration the Alterations tab should open on. Set when somebody
+  // follows one from an order card or a customer's file, cleared once the tab
+  // has been entered so going back to the tab shows the register again.
+  const [openAlterationId, setOpenAlterationId] = useState(null);
+  const openAlteration = (id) => {
+    setOpenAlterationId(id);
+    setSelectedDirectoryCustomer(null);
+    setDashboardTab('alterations');
+  };
   const [directoryDetailLoading, setDirectoryDetailLoading] = useState(false);
   // Which order in the customer profile is expanded to show its production
   // progress. Opening a client's order used to throw them into the new-order
@@ -1817,6 +1833,7 @@ function App() {
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
+  const [whatsappStatus, setWhatsappStatus] = useState({ connected: false, status: 'disconnected', qrCode: null });
   const [boutiqueSettings, setBoutiqueSettings] = useState(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [logoFile, setLogoFile] = useState(null);
@@ -2070,6 +2087,28 @@ function App() {
   };
 
   /** Record that the owner sent a queued message from their own WhatsApp. */
+  // The linked WhatsApp session, read where it is shown. Quiet on failure:
+  // a boutique with no session service configured must not see an error
+  // banner on every dashboard visit.
+  const fetchWhatsAppStatus = useCallback(async () => {
+    try {
+      const data = await api.getWhatsAppStatus();
+      setWhatsappStatus({
+        connected: !!data.connected,
+        status: data.status || 'disconnected',
+        qrCode: data.qrCode || null,
+      });
+    } catch {
+      /* ignore silent background error */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'dashboard' && dashboardTab === 'settings' && (!currentUser?.role || currentUser.role === 'Owner')) {
+      fetchWhatsAppStatus();
+    }
+  }, [view, dashboardTab, currentUser, fetchWhatsAppStatus]);
+
   const handleMarkMessageSent = async (orderId, messageId) => {
     await api.markMessageSent(orderId, messageId);
     // The queue holds only what is still waiting, so a sent one leaves it.
@@ -3939,6 +3978,17 @@ function App() {
                     </div>
                   </div>
                 </div>
+
+                {/* The tailor's alteration queue. A list of its own, not rows
+                    smuggled into the order registry: an alteration is a
+                    separate job against a delivered order. */}
+                <div style={{ marginTop: '20px' }}>
+                  <AlterationList
+                    title="My Alterations"
+                    params={{ assigned_to_me: '1', open: '1' }}
+                    onOpenAlteration={openAlteration}
+                  />
+                </div>
               </>
             )}
 
@@ -4283,6 +4333,20 @@ function App() {
             {dashboardTab === 'finance' && (
               <Suspense fallback={<ScreenLoading />}>
                 <FinancePanel />
+              </Suspense>
+            )}
+
+            {/* Post-delivery alterations. Its own screen, deliberately not a
+                second copy of the order registry: an alteration is a separate
+                job that merely points at the order it came from. */}
+            {dashboardTab === 'alterations' && (
+              <Suspense fallback={<ScreenLoading />}>
+                <AlterationsPanel
+                  currentUser={currentUser}
+                  initialAlterationId={openAlterationId}
+                  onBackToList={() => setOpenAlterationId(null)}
+                  key={openAlterationId || 'list'}
+                />
               </Suspense>
             )}
 
@@ -4736,6 +4800,16 @@ function App() {
                             <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-2)' }}>🧵 Raw materials checklist</div>
                             <MaterialsChecklist orderId={order.id} role={currentUser.role} />
                           </div>
+
+                          {/* Post-delivery alterations. Shown only once the
+                              order is Delivered -- before that a fitting
+                              problem is production's to fix, not a new job. */}
+                          <OrderAlterations
+                            order={order}
+                            customerId={order.customer}
+                            currentUser={currentUser}
+                            onOpenAlteration={openAlteration}
+                          />
 
                           {/* Master verification checklist */}
                           {currentUser.role === 'Master' && (
@@ -5896,7 +5970,12 @@ function App() {
 
             {/* 9. SETTINGS TAB */}
             {dashboardTab === 'settings' && (
-              <SettingsPage currentUser={currentUser} boutiqueSettings={boutiqueSettings} />
+              <SettingsPage
+                currentUser={currentUser}
+                boutiqueSettings={boutiqueSettings}
+                whatsappStatus={whatsappStatus}
+                fetchWhatsAppStatus={fetchWhatsAppStatus}
+              />
             )}
           </main>
 
@@ -8731,261 +8810,10 @@ function App() {
                 }
               `}</style>
 
-              {/* Invoice Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  {boutiqueSettings?.logo && (
-                    <img src={boutiqueSettings.logo} alt="Boutique Logo" style={{ maxHeight: '48px', objectFit: 'contain' }} />
-                  )}
-                  <div>
-                    <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '1px', color: '#0f291e', margin: 0 }}>
-                      {boutiqueSettings?.name || "SCALEEZY"}
-                    </h1>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Bespoke Atelier CRM</span>
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>INVOICE</h2>
-                  <span style={{ fontSize: '12px', display: 'block', marginTop: '4px' }}>Invoice ID: <strong>{orderRef(confirmedOrder)}</strong></span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                    Date: {fmtDate(confirmedOrder.order_date)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Billed To / Designer Details */}
-              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', borderTop: '1px solid #eaecef', borderBottom: '1px solid #eaecef', padding: '20px 0', marginBottom: '32px' }}>
-                <div>
-                  {/* Bill the customer this invoice is FOR. These fields used to
-                      read customerForm -- the new-order wizard's state -- which
-                      is empty or stale when the invoice is opened from the
-                      Invoices tab, because that button sets only
-                      confirmedOrder. The printed invoice then carried a
-                      different client's name, address, phone and email while
-                      showing the right order id and total: a wrong bill and a
-                      disclosure of one customer's details to another. */}
-                  <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Billed To:</span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{confirmedOrder.customer_name}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>{confirmedOrder.delivery_address || confirmedOrder.customer_address}</span>
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {formatMobile(confirmedOrder.customer_mobile)}</span>
-                  {confirmedOrder.customer_email && <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {confirmedOrder.customer_email}</span>}
-                </div>
-                <div>
-                  <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Atelier Details:</span>
-                  {/* No vendor fallbacks on the customer's copy. These printed
-                      "123 Atelier Way, Fashion District" and
-                      "contact@scaleezy.com" as the BOUTIQUE'S OWN details on an
-                      invoice handed to a real customer -- our demo strings, in
-                      their name, telling them to pay and collect somewhere that
-                      does not exist. A blank line is the honest failure: it
-                      shows the owner something is missing from their profile,
-                      and shows the customer nothing false. */}
-                  <span style={{ fontSize: '14px', fontWeight: 700, display: 'block' }}>{boutiqueSettings?.name || ''}</span>
-                  {boutiqueSettings?.address && (
-                    <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>📍 {boutiqueSettings.address}</span>
-                  )}
-                  {boutiqueSettings?.phone && (
-                    <span style={{ display: 'block', color: 'var(--text-secondary)' }}>📞 {boutiqueSettings.phone}</span>
-                  )}
-                  {boutiqueSettings?.email && (
-                    <span style={{ display: 'block', color: 'var(--text-secondary)' }}>✉️ {boutiqueSettings.email}</span>
-                  )}
-                  <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>Boutique Owner: {currentUser?.first_name || 'Aditi'} {currentUser?.last_name || 'Mehta'}</span>
-                  {confirmedOrder.tailor_name && (
-                    <span style={{ display: 'block', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      Assigned Tailor: <strong>{confirmedOrder.tailor_name}</strong>
-                    </span>
-                  )}
-                  <span style={{ display: 'block', color: 'var(--text-secondary)' }}>Estimated Delivery: {fmtDate(confirmedOrder.estimated_delivery)}</span>
-                </div>
-              </div>
-
-              {/* Garment Details Summary */}
-              <div style={{ backgroundColor: '#fcfdfd', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', marginBottom: '32px' }}>
-                <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 12px 0', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Design & Specifications</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '11px' }}>
-                  <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>
-                      {orderGarmentNames(confirmedOrder).length > 1 ? 'Garments' : 'Garment Type'}
-                    </span>
-                    <strong style={{ fontSize: '12px' }}>{confirmedOrder.customer_type} • {orderGarmentLabel(confirmedOrder)}</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Fabric</span>
-                    <strong style={{ fontSize: '12px' }}>
-                      {/* Priced from the order, so it is right whichever screen
-                          opened this invoice. A zero fabric charge is what
-                          "customer brought their own" looks like on the bill. */}
-                      {Number(confirmedOrder.fabric_price) > 0 ? `₹${confirmedOrder.fabric_price}` : 'Customer Fabric'}
-                    </strong>
-                  </div>
-                  <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Occasion</span>
-                    <strong style={{ fontSize: '12px' }}>{confirmedOrder.customer_occasion || '—'}</strong>
-                  </div>
-                  {confirmedOrder.customer_neckline_style && (
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Neckline Style</span>
-                      <strong>{confirmedOrder.customer_neckline_style}</strong>
-                    </div>
-                  )}
-                  {confirmedOrder.customer_sleeve_style && (
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Sleeve Style</span>
-                      <strong>{confirmedOrder.customer_sleeve_style}</strong>
-                    </div>
-                  )}
-                  {confirmedOrder.customer_back_style && (
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Back Style</span>
-                      <strong>{confirmedOrder.customer_back_style}</strong>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Pricing Table */}
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '32px', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #eaecef', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-                    <th style={{ padding: '12px 8px', fontWeight: 600 }}>Description</th>
-                    <th style={{ padding: '12px 8px', fontWeight: 600, textAlign: 'right' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody style={{ fontSize: '12px' }}>
-                  {/* One priced line per garment -- the day the old ponytail
-                      note here waited for. Each row is that job's own
-                      components summed; orders from before per-garment pricing
-                      have all-zero jobs and keep the single combined line, so
-                      an old invoice reprints exactly as it was issued. */}
-                  {(() => {
-                    const jobs = confirmedOrder.garment_jobs || [];
-                    const jobTotal = (job) =>
-                      ['base_price', 'fabric_price', 'embroidery_price',
-                       'customization_price', 'tailoring_charges']
-                        .reduce((sum, key) => sum + parseFloat(job[key] || 0), 0);
-                    const priced = jobs.filter(job => jobTotal(job) > 0);
-                    if (!priced.length) {
-                      return (
-                        <tr style={{ borderBottom: '2px solid #eaecef' }}>
-                          <td style={{ padding: '16px 8px' }}>
-                            <strong style={{ fontSize: '14px', color: '#0f291e' }}>
-                              Bespoke Handcrafted {orderGarmentLabel(confirmedOrder)}
-                            </strong>
-                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                              {orderGarmentNames(confirmedOrder).length > 1
-                                ? `${orderGarmentNames(confirmedOrder).length} custom garments, each tailored to its own measurement specifications.`
-                                : 'Custom garment design tailored to individual measurement specifications.'}
-                            </span>
-                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                              Fabric: {Number(confirmedOrder.fabric_price) > 0 ? `Boutique fabric — ₹${confirmedOrder.fabric_price}` : 'Customer Supplied Fabric'}
-                            </span>
-                          </td>
-                          {/* Before tax, matching the Subtotal row below. */}
-                          <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 700, fontSize: '14px' }}>
-                            {formatMoney(Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.taxes || 0))}
-                          </td>
-                        </tr>
-                      );
-                    }
-                    return (
-                      <>
-                        {priced.map(job => (
-                          <tr key={job.id} style={{ borderBottom: '1px solid #eaecef' }}>
-                            <td style={{ padding: '12px 8px' }}>
-                              <strong style={{ fontSize: '13px', color: '#0f291e' }}>
-                                Bespoke Handcrafted {job.template_name || 'Garment'}
-                              </strong>
-                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                {parseFloat(job.fabric_price || 0) > 0
-                                  ? `Includes boutique fabric — ${formatMoney(job.fabric_price)}`
-                                  : 'Customer supplied fabric'}
-                              </span>
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, fontSize: '13px' }}>
-                              {formatMoney(jobTotal(job))}
-                            </td>
-                          </tr>
-                        ))}
-                        {parseFloat(confirmedOrder.packaging_handling || 0) > 0 && (
-                          <tr style={{ borderBottom: '1px solid #eaecef' }}>
-                            <td style={{ padding: '12px 8px', fontSize: '12px' }}>Packaging & Handling</td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600, fontSize: '12px' }}>
-                              {formatMoney(confirmedOrder.packaging_handling)}
-                            </td>
-                          </tr>
-                        )}
-                        {parseFloat(confirmedOrder.discount || 0) > 0 && (
-                          <tr style={{ borderBottom: '2px solid #eaecef' }}>
-                            <td style={{ padding: '12px 8px', fontSize: '12px' }}>Discount</td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600, fontSize: '12px', color: '#107c41' }}>
-                              −{formatMoney(confirmedOrder.discount)}
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    );
-                  })()}
-                </tbody>
-              </table>
-
-              {/* Subtotal & Taxes Breakdown */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '12px' }}>
-                <div style={{ width: '250px' }}>
-                  {/* The 5% tax is charged and stored, and the invoice showed
-                      only the gross total -- so the one document the customer
-                      keeps did not say what the tax was. Both figures are
-                      already on the payload. */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    <span>Subtotal</span>
-                    <strong style={{ fontWeight: 600 }}>
-                      {formatMoney(Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.taxes || 0))}
-                    </strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    <span>Taxes (GST 5%)</span>
-                    <strong style={{ fontWeight: 600 }}>{formatMoney(confirmedOrder.taxes)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 6px 0', borderTop: '2px solid #0f291e', fontSize: '16px' }}>
-                    <span style={{ fontWeight: 700, color: '#0f291e' }}>Total Amount</span>
-                    <strong style={{ fontWeight: 800, color: '#107c41' }}>{formatMoney(confirmedOrder.total_amount)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)', borderTop: '1px solid #eaecef', marginTop: '6px' }}>
-                    <span>Payment Status</span>
-                    <strong style={{ fontWeight: 600 }}>{confirmedOrder.payment_status}</strong>
-                  </div>
-                  {/* Keyed on amount_paid, not advance_paid.
-                      The advance is only what was taken up front, and
-                      _reconcile_payment merely CAPS it as later payments land --
-                      so a settled order kept its original advance while
-                      amount_paid reached the total, and the invoice printed
-                      "Payment Status: Paid" directly above "Advance Paid
-                      ₹10,000 / Balance Due ₹23,075". Reachable for any existing
-                      order through Invoices → View Invoice, which is the copy
-                      that gets handed to the customer.
-                      Balance Due now uses the same expression as the Invoices
-                      table and the customer tracking page, so the three cannot
-                      disagree about what is owed. */}
-                  {parseFloat(confirmedOrder.amount_paid || 0) > 0 && (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        <span>Paid</span>
-                        <strong style={{ fontWeight: 600 }}>{formatMoney(confirmedOrder.amount_paid)}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        <span>Balance Due</span>
-                        <strong style={{ fontWeight: 600 }}>{formatMoney(Math.max(0, Number(confirmedOrder.total_amount || 0) - Number(confirmedOrder.amount_paid || 0)))}</strong>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Terms Footer */}
-              <div style={{ borderTop: '1px solid #eaecef', marginTop: '48px', paddingTop: '20px', textAlign: 'center', fontSize: '10px', color: 'var(--text-secondary)' }}>
-                <p style={{ margin: '0 0 4px 0' }}>Thank you for creating your bespoke order with **SCALEEZY** Atelier.</p>
-                <p style={{ margin: 0 }}>This is a computer-generated invoice and does not require a physical signature.</p>
-              </div>
+              <InvoiceRenderer
+                template={confirmedOrder.invoice_template || boutiqueSettings?.invoice_template || 'classic'}
+                data={normalizeInvoiceData(confirmedOrder, boutiqueSettings, currentUser)}
+              />
             </div>
 
             {/* Modal Footer Controls */}

@@ -86,3 +86,30 @@ export function orderRef(order) {
     || order.order_id
     || '';
 }
+
+export const fmtDate = formatDate;
+
+export function formatMobile(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) {
+    const n = digits.slice(2);
+    return `+91 ${n.slice(0, 5)} ${n.slice(5)}`;
+  }
+  if (digits.length === 10) return `${digits.slice(0, 5)} ${digits.slice(5)}`;
+  return raw || '';
+}
+
+export function orderGarmentNames(order) {
+  if (!order) return [];
+  if (Array.isArray(order.garments) && order.garments.length) return order.garments;
+  const jobs = order.garment_jobs || [];
+  if (jobs.length) return jobs.map(j => j.template_name || j.template_key || 'Custom garment');
+  return order.customer_garment_type ? [order.customer_garment_type] : [];
+}
+
+export function orderGarmentLabel(order) {
+  const names = orderGarmentNames(order);
+  if (!names.length) return 'Custom garment';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
