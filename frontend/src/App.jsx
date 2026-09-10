@@ -58,6 +58,7 @@ import { BottomSheet } from './components/ui/BottomSheet';
 import { ResponsiveCard } from './components/ui/ResponsiveCard';
 import { ProgressiveAccordion } from './components/ui/ProgressiveAccordion';
 import DressesDropdown from './components/ui/DressesDropdown';
+import GarmentPairingModal, { getGarmentPairConfig } from './components/ui/GarmentPairingModal';
 
 /** Placeholder shown while a lazily loaded screen arrives. */
 // Whole-rupee money for the dashboard, Indian digit grouping. Paise are
@@ -1288,6 +1289,7 @@ function App() {
   // lehenga, its blouse and a dupatta, so this is a list, not a single value.
   const [garmentTemplates, setGarmentTemplates] = useState([]);
   const [garmentJobs, setGarmentJobs] = useState([]);
+  const [activePairingGarment, setActivePairingGarment] = useState(null);
   // The order being written lives on the server as an OrderDraft; this is a
   // cache of it. Refreshing, following the step-4 empty-state button, or
   // opening a second tab must not be able to destroy work already done --
@@ -1421,7 +1423,7 @@ function App() {
     loadGarmentTemplates();
   }, [currentUser, loadGarmentTemplates]);
 
-  const addGarment = async (key) => {
+  const addGarment = async (key, skipPairingPrompt = false) => {
     if (garmentJobs.some(job => job.key === key)) return;
     if (addingGarmentKey) return;
     setAddingGarmentKey(key);
@@ -1432,12 +1434,30 @@ function App() {
         pricing: { base: GARMENT_PRICES[template.name] || 15000, fabric: 0,
                    embroidery: 0, customization: 0, tailoring: 0 },
       }]);
+      if (!skipPairingPrompt) {
+        const pairConfig = getGarmentPairConfig(key, template.name);
+        if (pairConfig) {
+          setActivePairingGarment({ key, name: template.name });
+        }
+      }
     } catch (err) {
       console.error(err);
       alert('Could not load that garment form.');
     } finally {
       setAddingGarmentKey(null);
     }
+  };
+
+  const handleAddPairedGarments = async (pairKeys) => {
+    for (const pairKey of pairKeys) {
+      await addGarment(pairKey, true);
+    }
+  };
+
+  const handleSaveReferenceImage = (garmentKey, imageDataUrl) => {
+    setGarmentJobs(prev => prev.map(job => (
+      job.key === garmentKey ? { ...job, referenceImage: imageDataUrl } : job
+    )));
   };
 
 
@@ -9422,6 +9442,17 @@ function App() {
           </div>
         </div>
       )}
+
+      <GarmentPairingModal
+        isOpen={!!activePairingGarment}
+        onClose={() => setActivePairingGarment(null)}
+        primaryGarmentKey={activePairingGarment?.key}
+        primaryGarmentName={activePairingGarment?.name}
+        garmentTemplates={garmentTemplates}
+        garmentJobs={garmentJobs}
+        onAddPairedGarments={handleAddPairedGarments}
+        onSaveReferenceImage={handleSaveReferenceImage}
+      />
     </div>
   );
 }
