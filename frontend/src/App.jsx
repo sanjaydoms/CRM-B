@@ -26,6 +26,7 @@ import {
 // TemplateForm stays eager: it renders inline in the order wizard, where a
 // loading flicker mid-form would be worse than its few KB.
 const GarmentPartPicker = lazy(() => import('./features/designStudio/GarmentPartPicker'));
+const GarmentFabricPicker = lazy(() => import('./features/fabrics/GarmentFabricPicker'));
 // Named export off the same module, so it arrives with the chunk the
 // pickers already load rather than costing a second request.
 const SelectedDesignSummary = lazy(() => import('./features/designStudio/GarmentPartPicker')
@@ -1329,7 +1330,6 @@ function App() {
   const [fabricFiles, setFabricFiles] = useState([]);
   const [fabricPreviews, setFabricPreviews] = useState([]);
   const [selectedFabric, setSelectedFabric] = useState(null);
-  const [fabricFilter, setFabricFilter] = useState('All');
   const [selectedTailor, setSelectedTailor] = useState(null);
   const [selectedMaster, setSelectedMaster] = useState(null);
   // Order-level money only. Everything garment-shaped -- base, fabric,
@@ -1629,6 +1629,7 @@ function App() {
       quantities: job.quantities || {},
       pricing: job.pricing || {},
       design: job.design || {},
+      fabrics: job.fabrics || {},
       sources: job.sources || {},
       brought: job.brought || {},
       materials: garmentMaterialFields(job).map(materialLine(job)),
@@ -1677,6 +1678,7 @@ function App() {
           brought: garment.brought || {},
           pricing: garment.pricing || {},
           design: garment.design || {},
+          fabrics: garment.fabrics || {},
         });
       } catch (err) {
         console.error('Could not reload the garment template', garment.template_key, err);
@@ -2794,6 +2796,27 @@ function App() {
   const handlePartSelection = (garmentKey, next) => {
     setGarmentJobs(prev => prev.map(job => job.key === garmentKey
       ? { ...job, design: { ...(job.design || {}), parts: next } }
+      : job));
+  };
+
+  /** The fabric chosen for each part of one dress: {slot_key: [fabric_id, ...]}.
+   *
+   *  Per garment AND per part, because that is what an order is: chanderi for
+   *  the saree body, organza for its pallu, net for the blouse sleeves. One
+   *  `selectedFabric` for the whole order could not say any of it.
+   *
+   *  A list per slot rather than a single id -- a sleeve takes net and its
+   *  lining -- and kept on the garment job itself, so removing a dress takes
+   *  its fabric choices with it and no stale blouse fabric can survive on an
+   *  order that no longer has a blouse.
+   */
+  const fabricSelection = React.useMemo(
+    () => Object.fromEntries(garmentJobs.map(job => [job.key, job.fabrics || {}])),
+    [garmentJobs]);
+
+  const handleFabricSelection = (garmentKey, next) => {
+    setGarmentJobs(prev => prev.map(job => job.key === garmentKey
+      ? { ...job, fabrics: next }
       : job));
   };
 
@@ -7253,25 +7276,6 @@ function App() {
                     </div>
                   ) : (
                     <div>
-                      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', overflowX: 'auto' }}>
-                        {['All', 'Pure Silk', 'Zari Silk', 'Linen', 'Silk', 'Cotton'].map(cat => (
-                          <button 
-                            key={cat}
-                            className={`tab-btn`} 
-                            style={{ 
-                              padding: '6px 12px', 
-                              fontSize: '12px',
-                              borderRadius: '99px',
-                              border: '1px solid var(--border-color)',
-                              background: fabricFilter === cat ? 'var(--text-primary)' : '#fff',
-                              color: fabricFilter === cat ? '#fff' : 'var(--text-secondary)'
-                            }}
-                            onClick={() => setFabricFilter(cat)}
-                          >
-                            {cat}
-                          </button>
-                        ))}
-                      </div>
 
                       {/* An empty library is now the ordinary day-one state:
                           new boutiques are no longer seeded with five fabrics
@@ -7331,52 +7335,23 @@ function App() {
                         </div>
                       )}
 
-                      <div className="fabrics-grid">
-                        {fabrics
-                          // Don't offer a roll the boutique has marked Out of
-                          // Stock. Manage Fabrics renders that badge and lets
-                          // the owner toggle it, but this grid consulted only
-                          // the material filter -- so the owner could sell a
-                          // fabric they had just told the system they had none
-                          // of, with no signal on the card either way.
-                          // Filtered here rather than in the viewset because
-                          // Manage Fabrics legitimately needs the rows this
-                          // hides; it is the screen that sets the flag.
-                          .filter(f => f.is_available !== false)
-                          .filter(f => fabricFilter === 'All' || f.material === fabricFilter)
-                          .map(f => {
-                            const resolvedImg = resolveMediaUrl(f.image_url);
-                            return (
-                              <div 
-                                key={f.id} 
-                                className={`fabric-card ${selectedFabric?.id === f.id ? 'selected' : ''}`}
-                                onClick={() => {
-                                  setSelectedFabric(f);
-                                  setDrapingCompleted(false);
-                                  setDrapingLoading(false);
-                                }}
-                              >
-                                <div className="fabric-image-container">
-                                  <img src={resolvedImg || 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400'} alt={f.name} onError={(e) => {
-                                    e.target.src = 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400';
-                                  }} />
-                                  {selectedFabric?.id === f.id && (
-                                    <div className="fabric-badge">
-                                      <Check size={14} />
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="fabric-details">
-                                  <span className="fabric-title">{f.name} - {f.color}</span>
-                                  <span className="fabric-price">{formatMoney(f.price_per_meter)} / mtr</span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                    </div>
+                      {/* Garment by garment, part by part. FabricPlacement
+                          already records which garment/section/slot each roll
+                          suits and Manage Fabrics already edits that, so this
+                          lays the boutique's own filing out rather than
+                          offering one common list for every dress. */}
+                      <Suspense fallback={<ScreenLoading />}>
+                        <GarmentFabricPicker
+                          garmentJobs={garmentJobs}
+                          fabrics={fabrics}
+                          taxonomy={fabricTaxonomy}
+                          selection={fabricSelection}
+                          onChange={handleFabricSelection}
+                        />
+                      </Suspense>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
                 {/* AI Draping Trigger Section */}
                 {selectedFabric && (
