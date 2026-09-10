@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, Eye, ImageOff, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronLeft, ChevronRight, Eye, ImageOff, Link as LinkIcon, Upload, X } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
@@ -305,7 +305,14 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
 }
 
 
-export default function GarmentPartPicker({ garmentKey, garmentName, selection = {}, onChange }) {
+/** @param ownOnly  Only the customer's own references, part by part: the tabs,
+ *                   what they have already given for the open part and the two
+ *                   ways to give one. No catalogue browsing, because that is
+ *                   what the Design Studio tab next door is for. Same component
+ *                   because it is the same garment, the same parts and the same
+ *                   {part: reference} slot -- only the catalogue half is off. */
+export default function GarmentPartPicker({ garmentKey, garmentName, selection = {}, onChange,
+                                            ownOnly = false }) {
   const [designs, setDesigns] = useState(null);
   const [template, setTemplate] = useState(null);
   const [error, setError] = useState(null);
@@ -323,14 +330,15 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     if (!garmentKey) return undefined;
     let cancelled = false;
     Promise.all([
-      api.getDesignLibrary({ template: garmentKey, status: 'ACTIVE' }),
+      // Nothing browses the catalogue in ownOnly mode, so it is not fetched.
+      ownOnly ? [] : api.getDesignLibrary({ template: garmentKey, status: 'ACTIVE' }),
       // The garment select on the upload form defaults to no garment, so a
       // boutique's own uploads routinely carry none -- and filtering strictly
       // by this garment hid every one of them behind "no designs uploaded
       // yet". They are the boutique's designs either way, so they follow the
       // garment's designs rather than disappearing. Their photographs are
       // filed under 'overall', which every garment has.
-      api.getDesignLibrary({ template: 'none', status: 'ACTIVE' }).catch(() => []),
+      ownOnly ? [] : api.getDesignLibrary({ template: 'none', status: 'ACTIVE' }).catch(() => []),
       // Only for the part headings and their order; the designs carry the
       // photographs themselves.
       api.getGarmentTemplate(garmentKey).catch(() => null),
@@ -342,7 +350,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
       })
       .catch((err) => { if (!cancelled) setError(err.message); });
     return () => { cancelled = true; };
-  }, [garmentKey, reloadToken]);
+  }, [garmentKey, reloadToken, ownOnly]);
 
   const partOrder = useMemo(
     () => (template?.design_parts || []).map(p => p.key), [template]);
@@ -381,14 +389,26 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     const extra = [...imagesByPart.keys()]
       .filter(key => !declared.some(p => p.key === key))
       .map(key => ({ key, label: key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }));
+    // A template that declares no parts still has to offer somewhere to put a
+    // reference, so it gets the one part every garment has -- the same fallback
+    // the upload form makes. Only in ownOnly mode: with the catalogue on
+    // screen, no tabs is already the honest answer.
+    if (ownOnly && !declared.length && !extra.length) {
+      return [{ key: 'overall', label: 'Overall Design' }];
+    }
     return [...declared, ...extra];
-  }, [template, imagesByPart]);
+  }, [template, imagesByPart, ownOnly]);
 
   // Which tab is showing. `null` is the design list this screen has always
   // opened on, and it is the last tab; anything else is a part. Derived, so a
   // garment whose template has not loaded yet -- or a part it does not declare
   // -- falls back to its own first part rather than an empty grid.
   const [partTab, setPartTab] = useState(undefined);
+  const [linkDraft, setLinkDraft] = useState('');
+  const [addingLink, setAddingLink] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const ownFileRef = useRef(null);
   const openPart = partTab === null ? null
     : (tabParts.some(p => p.key === partTab) ? partTab : (tabParts[0]?.key ?? null));
   const openPartLabel = tabParts.find(p => p.key === openPart)?.label || '';
@@ -406,6 +426,52 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   // a few lines down. Garments whose template declares no overall part -- gown,
   // suit, sherwani -- simply never take this branch.
   const overallTab = Boolean(openPart && openPart.startsWith('overall'));
+
+  // A reference the customer brought for this part, rather than one off the
+  // boutique's catalogue. It lives in the same {part: image} slot a catalogue
+  // photograph does -- so the draft, the summary at the foot of the screen and
+  // the board item written at Confirm all carry it without knowing the
+  // difference. `source` is the one thing that tells them apart, and it is the
+  // field DesignBoardItem already has.
+  const ownPick = selection[openPart]?.source?.startsWith('customer_')
+    ? selection[openPart] : null;
+
+  const setOwnReference = (image) => onChange?.({ ...selection, [openPart]: image });
+
+  const addReferenceLink = () => {
+    const typed = linkDraft.trim();
+    if (!typed) return;
+    // A link pasted without its scheme ("pinterest.com/pin/...") is a relative
+    // path to resolveMediaUrl, which would hang it off the media host and show
+    // a broken card. What the customer meant is a site.
+    const url = /^https?:\/\//i.test(typed) ? typed : `https://${typed}`;
+    setOwnReference({
+      id: `link:${url}`, part: openPart, part_label: openPartLabel,
+      image_url: url, source_url: url, source: 'customer_link',
+      design_title: 'Your reference link',
+    });
+    setLinkDraft('');
+    setAddingLink(false);
+  };
+
+  const uploadReference = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';        // so re-picking the same file fires change again
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const { image_url } = await api.uploadReferenceImage(file);
+      setOwnReference({
+        id: `upload:${image_url}`, part: openPart, part_label: openPartLabel,
+        image_url, source: 'customer_upload', design_title: file.name,
+      });
+    } catch (err) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const chosenCount = Object.values(selection).filter(Boolean).length;
 
@@ -448,8 +514,9 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
           {chosenCount > 0
             ? `${chosenCount} part${chosenCount === 1 ? '' : 's'} chosen — parts may come from different designs`
-            : (openPart ? 'Click a photograph to choose this part'
-                        : 'Open a design to choose its parts')}
+            : (ownOnly ? 'Add your own picture or link for each part'
+                       : (openPart ? 'Click a photograph to choose this part'
+                                   : 'Open a design to choose its parts'))}
         </span>
       </div>
 
@@ -459,6 +526,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           this screen has always opened on. */}
       {!loading && (
         <PartTabStrip parts={tabParts} active={openPart}
+                      allLabel={ownOnly ? null : 'All Designs'}
                       onChange={(part) => { setPartTab(part); setViewIndex(null); }} />
       )}
 
@@ -468,11 +536,91 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         </div>
       )}
 
-      {!loading && openPart && partShots.length === 0 && designs.length > 0 && (
+      {/* The customer's own reference for THIS part -- ownOnly, so only in the
+          References tab. The Design Studio tab is for picking off the
+          boutique's catalogue and offers no upload of its own.
+          The upload is stored on the spot because the wizard's draft is JSON
+          and cannot carry a file; the link is kept as it was typed. */}
+      {!loading && ownOnly && openPart && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px',
+                      marginBottom: '14px' }}>
+          <button type="button" className="btn-secondary" disabled={uploading}
+                  style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                  onClick={() => ownFileRef.current?.click()}>
+            <Upload size={12} /> {uploading ? 'Uploading…' : `Upload ${openPartLabel} reference`}
+          </button>
+          <button type="button" className="btn-secondary"
+                  style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                  onClick={() => setAddingLink(v => !v)}>
+            <LinkIcon size={12} /> Add reference link
+          </button>
+          <input ref={ownFileRef} type="file" accept="image/*" hidden onChange={uploadReference} />
+
+          {addingLink && (
+            <>
+              <input className="form-control" value={linkDraft} autoFocus
+                     onChange={(e) => setLinkDraft(e.target.value)}
+                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addReferenceLink(); } }}
+                     placeholder={`Link to a ${openPartLabel.toLowerCase()} you like`}
+                     style={{ flex: '1 1 240px', maxWidth: '340px', padding: '5px 9px', fontSize: '11.5px' }} />
+              <button type="button" className="btn-primary" disabled={!linkDraft.trim()}
+                      style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                      onClick={addReferenceLink}>
+                Add
+              </button>
+            </>
+          )}
+
+          {uploadError && (
+            <span role="alert" style={{ fontSize: '11.5px', color: 'var(--danger-color, #c0392b)' }}>
+              {uploadError}
+            </span>
+          )}
+        </div>
+      )}
+
+      {!loading && ownOnly && openPart && ownPick && (
+        <div style={{ display: 'grid', gap: '14px', marginBottom: '16px',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+          <PickCard
+            src={ownPick.image_url}
+            alt={openPartLabel}
+            height="150px"
+            picked
+            onClick={() => {
+              // Clicking it again gives the part back to the catalogue, the
+              // same way clicking a chosen photograph clears it.
+              const next = { ...selection };
+              delete next[openPart];
+              onChange?.(next);
+            }}
+            onView={() => window.open(ownPick.source_url || resolveMediaUrl(ownPick.image_url, FALLBACK),
+                                      '_blank', 'noopener')}
+          >
+            <div style={{ padding: '8px 10px' }}>
+              <div style={{ fontSize: '12.5px', fontWeight: 600, overflow: 'hidden',
+                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {ownPick.design_title}
+              </div>
+              <div style={{ fontSize: '10px', color: '#107c41', fontWeight: 700 }}>
+                Your own reference · chosen
+              </div>
+            </div>
+          </PickCard>
+        </div>
+      )}
+
+      {!loading && !ownOnly && openPart && partShots.length === 0 && designs.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
                       padding: '30px 0', color: 'var(--text-secondary)' }}>
           <ImageOff size={22} />
-          <div style={{ fontSize: '13px' }}>No designs available for this part yet.</div>
+          <div style={{ fontSize: '13px' }}>No {openPartLabel} references available yet.</div>
+        </div>
+      )}
+
+      {!loading && ownOnly && openPart && !ownPick && (
+        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '4px 0 18px' }}>
+          No {openPartLabel.toLowerCase()} reference yet — upload a picture or add a link above.
         </div>
       )}
 
@@ -516,7 +664,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         </div>
       )}
 
-      {!loading && designs.length === 0 && (
+      {!loading && !ownOnly && designs.length === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
                       padding: '30px 0', color: 'var(--text-secondary)' }}>
           <ImageOff size={22} />

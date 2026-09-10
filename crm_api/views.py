@@ -1318,12 +1318,20 @@ def _part_items_from_draft(design):
         if not image:
             continue
         items.append({
-            'source': 'library',
+            # 'library' is a photograph off the boutique's own catalogue, which
+            # is every choice this flow could make until the customer could
+            # bring their own. A reference they uploaded or linked carries its
+            # own source, so the workroom can tell "this pallu is ours" from
+            # "this pallu is the one they sent us".
+            'source': image.get('source') or 'library',
             # The DesignAsset the photograph belongs to, so the workroom can
             # reach the whole design from the part that was chosen.
             'source_ref': str(image.get('design_id') or ''),
             'title': image.get('part_label') or part.replace('_', ' '),
             'image_url': image.get('image_url') or '',
+            # Where a linked reference points. Empty for a catalogue
+            # photograph, which is where it already stood.
+            'source_url': image.get('source_url') or '',
             'part': part,
             # Every part chosen IS the choice for that part -- there is no
             # shortlist-then-pick step in the part flow, so each one is

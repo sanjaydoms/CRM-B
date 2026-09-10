@@ -7251,6 +7251,33 @@ function App() {
                         removeGarment={removeGarment}
                       />
 
+                      {/* A reference per PART of each dress: this pallu, that
+                          border. Same component, same {part: reference} slot and
+                          same garment parts the Design Studio tab uses -- with
+                          the catalogue half switched off, because here the
+                          customer is giving a reference rather than picking one.
+                          The whole-order references below stay as they were. */}
+                      {garmentJobs.length === 0 ? (
+                        <p style={{ color: 'var(--text-secondary)', padding: '4px 0' }}>
+                          Select a garment above to add a reference for each of its parts.
+                        </p>
+                      ) : (
+                        // Its own boundary: the picker is lazy, and this branch
+                        // sits outside the one the Design Studio tab renders in.
+                        <Suspense fallback={<ScreenLoading />}>
+                          {garmentJobs.map(job => (
+                            <GarmentPartPicker
+                              key={job.key}
+                              ownOnly
+                              garmentKey={job.template?.key || job.key}
+                              garmentName={job.template?.name || job.key}
+                              selection={partSelection[job.key] || {}}
+                              onChange={(next) => handlePartSelection(job.key, next)}
+                            />
+                          ))}
+                        </Suspense>
+                      )}
+
                       <div className="card-title">
                         <Upload size={18} />
                         Share Your Design References

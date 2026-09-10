@@ -5,6 +5,7 @@ from .views import (
     DesignAssetViewSet, DesignBoardViewSet, DesignContextView, DesignDiscoveryView,
     DesignerViewSet, DesignCategoryView, DesignDashboardView, CollectionViewSet,
     GarmentPartImageView,
+    ReferenceUploadView,
     DesignAssignmentViewSet,
 )
 
@@ -20,6 +21,7 @@ urlpatterns = [
     path('discover/', DesignDiscoveryView.as_view(), name='design-discover'),
     path('categories/', DesignCategoryView.as_view(), name='design-categories'),
     path('part-images/', GarmentPartImageView.as_view(), name='design-part-images'),
+    path('reference-upload/', ReferenceUploadView.as_view(), name='design-reference-upload'),
     path('dashboard/', DesignDashboardView.as_view(), name='design-dashboard'),
     path('', include(router.urls)),
 ]

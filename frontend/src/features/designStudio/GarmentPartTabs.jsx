@@ -99,7 +99,9 @@ export function PartTabStrip({ parts = [], active, onChange, allLabel = 'All Des
         }
       `}</style>
       <div className="at-part-tabs" ref={strip} onWheel={onWheel} role="tablist">
-        {[...parts, { key: null, label: allLabel }].map((part) => (
+        {/* allLabel null means there is no view behind these tabs other than
+            the parts themselves, so the strip is parts alone. */}
+        {[...parts, ...(allLabel ? [{ key: null, label: allLabel }] : [])].map((part) => (
           <button
             key={part.key || '__all__'}
             type="button"

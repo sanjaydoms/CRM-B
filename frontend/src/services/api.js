@@ -1172,6 +1172,19 @@ export const api = {
     return res.json();
   },
 
+  // A reference photograph the customer brought for one part. Stored on the
+  // spot and returned as a URL, because the wizard holds its work in a JSON
+  // draft until Confirm and a file cannot ride in one.
+  async uploadReferenceImage(file) {
+    const body = new FormData();
+    body.append('image', file);
+    const res = await guardedFetch(`${BASE_URL}/design-studio/reference-upload/`, {
+      method: 'POST', headers: getHeaders(true), body,
+    });
+    if (!res.ok) await failWith(res, 'Failed to upload the reference image');
+    return res.json();
+  },
+
   async getDesignCategories() {
     const res = await guardedFetch(`${BASE_URL}/design-studio/categories/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load design categories');

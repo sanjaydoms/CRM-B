@@ -543,6 +543,36 @@ class GarmentPartImageView(views.APIView):
         return Response({'parts': parts, 'part': chosen, 'images': rows})
 
 
+class ReferenceUploadView(views.APIView):
+    """A photograph the customer brought, stored so a part can point at it.
+
+    The order wizard keeps its work in a JSON draft until Confirm, and a file
+    cannot ride in JSON. So the picture is stored the moment it is chosen and
+    the draft carries the URL -- the same shape a catalogue photograph already
+    has, which is why the part slot, the draft, `_part_items_from_draft` and
+    DesignBoardItem all take it without changing.
+
+    Deliberately not a DesignAsset: this is one customer's own reference for
+    one part of their own order, not something the boutique is adding to its
+    library. Nothing here writes a row, so there is no model and no migration
+    -- it stores a file and hands back where it went.
+    """
+
+    permission_classes = [DesignStudioPermission]
+
+    def post(self, request):
+        image = request.FILES.get('image')
+        if image is None:
+            return Response({'error': 'No image was sent.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        path = f"design_references/{uuid.uuid4()}_{image.name}"
+        saved = default_storage.save(path, ContentFile(image.read()))
+        return Response(
+            {'image_url': request.build_absolute_uri(default_storage.url(saved))},
+            status=status.HTTP_201_CREATED)
+
+
 class DesignCategoryView(views.APIView):
 
     permission_classes = [DesignStudioPermission]
