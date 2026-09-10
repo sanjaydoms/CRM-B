@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  AlertCircle, Check, ClipboardList, Clock, RotateCcw, Send, UserPlus,
+  AlertCircle, Calendar, Check, ChevronRight, ClipboardList, Clock, FileText, RotateCcw, Send, Shirt, User, UserPlus,
 } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { orderRef } from '../../services/format';
 import { resolveMediaUrl } from '../../services/media';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import { AvatarInitials, Field, FormSection, SearchBox, SectionCard } from '../../components/ui/Atelier';
 
 /**
  * Design work as a job on someone's desk.
@@ -97,49 +98,47 @@ function AssignPanel({ orders, designers, onAssigned, onError }) {
     }
   };
 
+  const reset = () => { setJobId(''); setDesignerId(''); setBrief(''); setDueDate(''); };
+
   return (
-    <form className="content-card" onSubmit={submit} style={{ marginBottom: '18px' }}>
-      <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px',
-                   fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-primary)' }}>
-        <UserPlus size={16} /> {t('designWorkPage.assignDesignWork', 'Assign design work')}
-      </h3>
-      <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.garment', 'Garment')}</span>
-          <select className="form-input" value={jobId} required
-                  onChange={(e) => setJobId(e.target.value)}>
-            <option value="">{t('designWorkPage.chooseGarment', 'Choose a garment…')}</option>
-            {garmentOptions.map(option => (
-              <option key={option.id} value={option.id}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.designer', 'Designer')}</span>
-          <select className="form-input" value={designerId} required
-                  onChange={(e) => setDesignerId(e.target.value)}>
-            <option value="">{t('designWorkPage.chooseDesigner', 'Choose a designer…')}</option>
-            {(designers || []).map(designer => (
-              <option key={designer.id} value={designer.id}>{designer.name}</option>
-            ))}
-          </select>
-        </label>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.dueDate', 'Due date')}</span>
-          <input type="date" className="form-input" value={dueDate}
-                 onChange={(e) => setDueDate(e.target.value)} />
-        </label>
-      </div>
-      <label style={{ display: 'block', marginTop: '12px' }}>
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t('designWorkPage.briefOptional', 'Brief (optional)')}</span>
-        <textarea className="form-input" rows={2} value={brief}
-                  placeholder={t('designWorkPage.briefPlaceholder', 'What are you asking for, beyond the spec?')}
-                  onChange={(e) => setBrief(e.target.value)} />
-      </label>
-      <button type="submit" className="btn-primary" disabled={busy || !jobId || !designerId}
-              style={{ marginTop: '12px' }}>
-        {busy ? t('designWorkPage.assigningBtn', 'Assigning…') : t('designWorkPage.assignBtn', 'Assign')}
-      </button>
+    <form onSubmit={submit} style={{ marginBottom: 'var(--space-4)' }}>
+      <FormSection icon={UserPlus} tone="green" title={t('designWorkPage.assignDesignWork', 'Assign Design Work')}
+                   subtitle="Select a garment, assign a designer, set a due date and add any notes."
+                   style={{ background: 'var(--tone-green-bg)', borderColor: 'var(--tone-green-line)' }}>
+        <div className="at-form-grid at-form-grid--3">
+          <Field label={t('designWorkPage.garment', 'Garment')} required icon={Shirt}>
+            <select className="form-input" value={jobId} required onChange={(e) => setJobId(e.target.value)}>
+              <option value="">{t('designWorkPage.chooseGarment', 'Choose a garment…')}</option>
+              {garmentOptions.map(option => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t('designWorkPage.designer', 'Designer')} required icon={User}>
+            <select className="form-input" value={designerId} required onChange={(e) => setDesignerId(e.target.value)}>
+              <option value="">{t('designWorkPage.chooseDesigner', 'Choose a designer…')}</option>
+              {(designers || []).map(designer => (
+                <option key={designer.id} value={designer.id}>{designer.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t('designWorkPage.dueDate', 'Due date')} icon={Calendar}>
+            <input type="date" className="form-input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </Field>
+        </div>
+        <Field label={t('designWorkPage.briefOptional', 'Brief / Notes (optional)')} icon={FileText}>
+          <textarea className="form-input" rows={3} value={brief}
+                    placeholder={t('designWorkPage.briefPlaceholder', 'What are you asking for, beyond the spec?')}
+                    onChange={(e) => setBrief(e.target.value)} />
+        </Field>
+        <div className="at-field-counter" style={{ marginTop: '-8px' }}>{brief.length} characters</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          <button type="button" className="btn-secondary" onClick={reset} disabled={busy}>Reset</button>
+          <button type="submit" className="btn-primary" disabled={busy || !jobId || !designerId}>
+            <Send size={15} /> {busy ? t('designWorkPage.assigningBtn', 'Assigning…') : t('designWorkPage.assignBtn', 'Assign Work')}
+          </button>
+        </div>
+      </FormSection>
     </form>
   );
 }
@@ -196,7 +195,7 @@ function SubmitPanel({ assignment, designs, onSubmitted, onError }) {
   );
 }
 
-function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError }) {
+function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError, embedded = false }) {
   const { t } = useLanguage();
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -221,19 +220,21 @@ function AssignmentCard({ assignment, isSupervisor, designs, onChanged, onError 
   const measurements = assignment.measurements || {};
 
   return (
-    <div className="content-card" style={{ marginBottom: '12px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-        <div>
-          <h4 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-primary)' }}>{assignment.garment_name}</h4>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-            {assignment.order_reference || assignment.order_id || assignment.order_ref}
-            {isSupervisor && assignment.customer_name ? ` · ${assignment.customer_name}` : ''}
-            {isSupervisor ? ` · ${assignment.designer_name}` : ''}
-            {assignment.due_date ? ` · due ${formatDate(assignment.due_date)}` : ''}
+    <div className={embedded ? '' : 'ui-card'} style={embedded ? {} : { marginBottom: '12px', padding: 'var(--space-5)' }}>
+      {!embedded && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <div>
+            <h4 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-primary)' }}>{assignment.garment_name}</h4>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px' }}>
+              {assignment.order_reference || assignment.order_id || assignment.order_ref}
+              {isSupervisor && assignment.customer_name ? ` · ${assignment.customer_name}` : ''}
+              {isSupervisor ? ` · ${assignment.designer_name}` : ''}
+              {assignment.due_date ? ` · due ${formatDate(assignment.due_date)}` : ''}
+            </div>
           </div>
+          <StatusPill status={assignment.status} />
         </div>
-        <StatusPill status={assignment.status} />
-      </div>
+      )}
 
       {assignment.brief && (
         <p style={{ fontSize: '13px', marginTop: '10px' }}>{assignment.brief}</p>
@@ -358,20 +359,29 @@ export default function DesignWork({ currentUser }) {
   }, [isSupervisor, myDesignerId]);
 
   const { t } = useLanguage();
+  const [search, setSearch] = useState('');
+  const [openRow, setOpenRow] = useState(null);
+
+  const needle = search.trim().toLowerCase();
+  const shown = needle
+    ? assignments.filter((a) => [a.garment_name, a.designer_name, a.customer_name, a.order_reference, a.order_id]
+        .some((v) => (v || '').toLowerCase().includes(needle)))
+    : assignments;
 
   return (
-    <div>
-      {/* The page title + role-specific subtitle live in the portal-header (App
+    <div className="at-stack">
+      {/* The page title + role-specific subtitle live in the page head (App
           renders them for this tab), so this row carries only the filter. */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-        <label style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginTop: 'calc(-1 * var(--space-4))' }}>
+        <label className="at-check-pill">
+          <Clock size={14} style={{ color: 'var(--text-secondary)' }} />
           <input type="checkbox" checked={openOnly} onChange={(e) => setOpenOnly(e.target.checked)} />
           {t('designWorkPage.onlyOpen', 'Only work still open')}
         </label>
       </div>
 
       {error && (
-        <div className="content-card" style={{ marginBottom: '12px', color: 'var(--danger-color)' }}>
+        <div className="ui-card" style={{ color: 'var(--danger-color)', padding: 'var(--space-3) var(--space-4)' }}>
           <AlertCircle size={14} style={{ verticalAlign: '-2px' }} /> {error}
         </div>
       )}
@@ -383,13 +393,100 @@ export default function DesignWork({ currentUser }) {
 
       {loading ? (
         <p style={{ color: 'var(--text-secondary)' }}>{t('common.loading', 'Loading…')}</p>
+      ) : isSupervisor ? (
+        <SectionCard icon={ClipboardList} tone="green" title="Assigned Design Work"
+                     subtitle="Track all design assignments and their status.">
+          <div className="at-toolbar" style={{ margin: '0 0 var(--space-3)' }}>
+            <SearchBox value={search} onChange={setSearch} placeholder="Search by garment, designer or customer…" style={{ maxWidth: '420px' }} />
+            <span className="at-row-sub">{shown.length} of {assignments.length}</span>
+          </div>
+          {shown.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 'var(--space-6)' }}>
+              <ClipboardList size={28} style={{ color: 'var(--text-secondary)' }} />
+              <p style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>
+                {assignments.length === 0
+                  ? t('designWorkPage.noWorkSupervisor', 'No design work outstanding. Assign a garment above to get started.')
+                  : 'Nothing matches that search.'}
+              </p>
+            </div>
+          ) : (
+            <div className="at-table-wrap">
+              <table className="at-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Garment</th>
+                    <th>Designer</th>
+                    <th>Due Date</th>
+                    <th>Status</th>
+                    <th>Notes</th>
+                    <th aria-label="Open" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((assignment) => {
+                    const isOpen = openRow === assignment.id;
+                    const design = assignment.design_detail;
+                    const toggle = () => setOpenRow(isOpen ? null : assignment.id);
+                    return (
+                      <React.Fragment key={assignment.id}>
+                        <tr onClick={toggle} style={{ cursor: 'pointer' }}
+                            aria-expanded={isOpen}>
+                          <td style={{ fontWeight: 700 }}>{assignment.order_reference || assignment.order_id || assignment.order_ref}</td>
+                          <td>
+                            <span className="at-cell-person">
+                              <span className="at-thumb at-tile--amber">
+                                {design?.image_url ? <img src={resolveMediaUrl(design.image_url)} alt="" /> : <Shirt size={18} />}
+                              </span>
+                              <span style={{ minWidth: 0 }}>
+                                <span className="at-row-title" style={{ display: 'block' }}>{assignment.garment_name}</span>
+                                {assignment.customer_name && <span className="at-row-sub">Customer: {assignment.customer_name}</span>}
+                              </span>
+                            </span>
+                          </td>
+                          <td>
+                            <span className="at-cell-person">
+                              <AvatarInitials name={assignment.designer_name} size={32} />
+                              <span>{assignment.designer_name}</span>
+                            </span>
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              <Calendar size={14} style={{ color: 'var(--text-secondary)' }} />
+                              {assignment.due_date ? formatDate(assignment.due_date) : '—'}
+                            </span>
+                          </td>
+                          <td><StatusPill status={assignment.status} /></td>
+                          <td style={{ color: 'var(--text-secondary)', maxWidth: '260px' }}>
+                            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {assignment.brief || assignment.submission_note || '—'}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <ChevronRight size={16} style={{ color: 'var(--text-muted)', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr>
+                            <td colSpan={7} style={{ background: 'var(--surface-2)' }}>
+                              <AssignmentCard assignment={assignment} isSupervisor designs={myDesigns}
+                                              onChanged={load} onError={setError} embedded />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
       ) : assignments.length === 0 ? (
-        <div className="content-card" style={{ textAlign: 'center', padding: '32px' }}>
+        <div className="ui-card" style={{ textAlign: 'center', padding: '32px' }}>
           <ClipboardList size={28} style={{ color: 'var(--text-secondary)' }} />
           <p style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>
-            {isSupervisor
-              ? t('designWorkPage.noWorkSupervisor', 'No design work outstanding. Assign a garment above to get started.')
-              : t('designWorkPage.noWorkDesigner', 'Nothing on your desk right now.')}
+            {t('designWorkPage.noWorkDesigner', 'Nothing on your desk right now.')}
           </p>
         </div>
       ) : (

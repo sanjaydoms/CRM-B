@@ -132,13 +132,16 @@ export function Segmented({ options, value, onChange, ariaLabel }) {
   );
 }
 
-export function PageHeader({ title, subtitle, actions, aside, meta }) {
+export function PageHeader({ icon: Icon, tone = 'neutral', title, subtitle, actions, aside, meta }) {
   return (
     <header className="at-page-head">
       <div className="at-page-head-left">
-        <h1 className="at-page-title">{title}</h1>
-        {subtitle && <p className="at-page-sub">{subtitle}</p>}
-        {meta && <div className="at-page-meta">{meta}</div>}
+        {Icon && <span className={`at-page-icon at-tile at-tile--${tone}`}><Icon size={26} strokeWidth={1.6} /></span>}
+        <div className="at-page-head-text">
+          <h1 className="at-page-title">{title}</h1>
+          {subtitle && <p className="at-page-sub">{subtitle}</p>}
+          {meta && <div className="at-page-meta">{meta}</div>}
+        </div>
       </div>
       <div className="at-page-head-right">
         {aside && <div className="at-page-aside">{aside}</div>}
