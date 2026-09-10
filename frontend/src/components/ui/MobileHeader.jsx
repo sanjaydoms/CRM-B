@@ -10,12 +10,6 @@ import { Menu, Bell } from 'lucide-react';
  * unreachable on a phone.
  */
 
-// The search affordance is gone: `onSearch` had no caller anywhere in the
-// application, so tapping the magnifier on a phone opened a full-width field,
-// took the keyboard, accepted a query and did nothing with it -- on the header
-// that sits above every screen. Deleted rather than wired up, because there is
-// no cross-entity search endpoint to wire it to; the Orders, Customers and
-// Invoices screens each have their own working search box.
 export function MobileHeader({ title, currentUser, notificationsCount, onOpenNotifications, onOpenMenu }) {
   return (
     <header className="mobile-app-header">
@@ -30,7 +24,7 @@ export function MobileHeader({ title, currentUser, notificationsCount, onOpenNot
             <h2 className="mobile-header-title">{title || 'Scaleezy'}</h2>
           </div>
 
-          <div className="mobile-header-actions">
+          <div className="mobile-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button type="button" className="icon-btn-touch relative-btn" onClick={onOpenNotifications} aria-label="Notifications">
               <Bell size={20} />
               {notificationsCount > 0 && (

@@ -336,6 +336,17 @@ class Order(models.Model):
     special_instructions = models.TextField(blank=True, default='')
     current_stage_key = models.CharField(max_length=100, default="created", db_index=True)
     production_status = models.CharField(max_length=50, default="NOT_STARTED", db_index=True) # NOT_STARTED, IN_PROGRESS, COMPLETED, PAUSED, SKIPPED
+    invoice_template = models.CharField(max_length=50, default="classic", blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and (not self.invoice_template or self.invoice_template == 'classic'):
+            try:
+                settings_obj = BoutiqueSettings.objects.first()
+                if settings_obj and settings_obj.invoice_template:
+                    self.invoice_template = settings_obj.invoice_template
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
 
     @property
     def reference(self):
@@ -471,9 +482,9 @@ def get_default_workflow():
         {"key": "created", "name": "Created", "sla_hours": 12, "roles": ["Owner", "Master"]},
         {"key": "measurements_completed", "name": "Measurements Completed", "sla_hours": 24, "roles": ["Owner", "Master"]},
         {"key": "fabric_confirmed", "name": "Fabric Confirmed", "sla_hours": 24, "roles": ["Owner", "Master"]},
-        {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master"]},
+        {"key": "pattern_cutting", "name": "Pattern Cutting", "sla_hours": 24, "roles": ["Owner", "Master", "Pattern Master", "Cutting Master"]},
         {"key": "maggam_work", "name": "Maggam Work", "sla_hours": 96, "roles": ["Owner", "Master", "Maggam Master", "Karigar"], "optional": True},
-        {"key": "assigned_to_tailor", "name": "Assigned to Tailor", "sla_hours": 12, "roles": ["Owner", "Master"]},
+        {"key": "assigned_to_tailor", "name": "Assigned to Tailor", "sla_hours": 12, "roles": ["Owner", "Master", "Tailor"]},
         {"key": "stitching_in_progress", "name": "Stitching In Progress", "sla_hours": 72, "roles": ["Owner", "Tailor"]},
         {"key": "stitching_completed", "name": "Stitching Completed", "sla_hours": 12, "roles": ["Owner", "Tailor"]},
         {"key": "finishing", "name": "Hemming & Finishing", "sla_hours": 24, "roles": ["Owner", "Master"]},
@@ -495,6 +506,7 @@ class BoutiqueSettings(models.Model):
     workflow_config = models.JSONField(default=get_default_workflow, blank=True)
     design_approval_required = models.BooleanField(default=False)
     customer_messaging_enabled = models.BooleanField(default=True)
+    invoice_template = models.CharField(max_length=50, default="classic", blank=True)
 
     #: How the OWNER distributes the modules this boutique is entitled to among
     #: its own roles, as {role: {module_key: true/false}}. The platform console

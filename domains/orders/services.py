@@ -195,6 +195,9 @@ class OrderService:
                 total_amount)
             amount_paid = advance_paid
 
+        config, _ = BoutiqueSettings.objects.get_or_create(id=1)
+        boutique_template = getattr(config, 'invoice_template', 'classic') or 'classic'
+
         has_measurements = customer_has_measurements(customer)
 
         order = Order.objects.create(
@@ -223,10 +226,10 @@ class OrderService:
             advance_paid=advance_paid,
             amount_paid=amount_paid,
             current_stage_key='measurements_completed' if has_measurements else 'created',
-            production_status='IN_PROGRESS'
+            production_status='IN_PROGRESS',
+            invoice_template=data.get('invoice_template') or boutique_template
         )
 
-        config, _ = BoutiqueSettings.objects.get_or_create(id=1)
         workflow_stages = config.workflow_config
         from django.utils import timezone
 
@@ -447,12 +450,14 @@ class OrderService:
         if stage_key in ('stitching_in_progress', 'stitching_completed', 'delivered'):
             refresh_staff_availability(order.tailor, order.master)
 
-        create_order_notifications(
-            order,
-            created=False,
-            status_changed=order.order_status != previous_order_status,
-        )
         if new_status in ('COMPLETED', 'SKIPPED'):
+            create_order_notifications(
+                order,
+                created=False,
+                status_changed=order.order_status != previous_order_status,
+                stage_name=order_stage.stage_name,
+                stage_key=order_stage.stage_key,
+            )
             from domains.orders.notifications import notify_next_stage_owners
             notify_next_stage_owners(order)
         return order

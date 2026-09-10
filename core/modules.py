@@ -86,6 +86,16 @@ MODULES = {
         ('/api/payroll/',),
         'Weekly staff payroll: hours, rates and approved gross earnings.',
     ),
+    # Post-delivery alterations. Its own switch rather than part of `orders`:
+    # a boutique that does not take garments back after delivery can turn the
+    # whole workflow off, and doing so leaves the order book, production and
+    # every delivered order's history entirely untouched -- which is the point
+    # of keeping alterations a parallel process in the first place.
+    'alterations': (
+        'Alterations',
+        ('/api/alterations/',),
+        'Post-delivery alteration requests: intake, workflow, charges and materials.',
+    ),
     'notifications': (
         'Notifications',
         ('/api/notifications/',),
@@ -100,6 +110,12 @@ MODULES = {
     # still per boutique: a boutique that has not bought outbound email must
     # not be able to send it, and this prefix answered for all of them until
     # it was registered here.
+    'whatsapp': (
+        'WhatsApp',
+        ('/api/whatsapp/',),
+        'The linked WhatsApp session: pairing QR, status, sending, and the '
+        'provider webhook that reports delivery.',
+    ),
     'email': (
         'Email',
         ('/api/email/',),
@@ -146,6 +162,8 @@ MODULE_GROUP = {
     'notifications': 'operations',
     'order_tracking': 'operations',
     'email': 'platform',
+    'whatsapp': 'platform',
+    'alterations': 'operations',
 }
 
 STRUCTURAL = {
@@ -178,11 +196,16 @@ ALWAYS_ON = (
     '/api/inventory/material-plans/',
     '/api/auth/',
     '/api/boutique-settings/',
+    '/api/settings/invoice-template/',
     # A browser reporting that it crashed must never be refused by a module
     # switch or by maintenance mode. Those are precisely the states in which the
     # frontend is most likely to break, and a report lost then is the one worth
     # having.
     '/api/client-errors/',
+    # The WhatsApp provider calls this back with delivery reports, and it
+    # arrives with no user and no token -- the view is unauthenticated on
+    # purpose. The rest of /api/whatsapp/ stays behind the `whatsapp` module.
+    '/api/whatsapp/webhook/',
     '/api/dashboard/',
     '/api/superadmin/',
     '/admin/',
@@ -256,7 +279,7 @@ ALL_ROLES = (OWNER, DESIGNER) + PRODUCTION_ROLES
 #:    the module gate is a blunter instrument that was removing the brief along
 #:    with everything else. A tailor who cannot see the design cannot make it.
 _TAILOR = frozenset({'notifications', 'garment_catalog', 'staff',
-                     'order_tracking', 'design_studio'})
+                     'order_tracking', 'design_studio', 'alterations'})
 _MASTER = _TAILOR | {'tailors', 'scheduling', 'production_api', 'activities'}
 _DESIGNER = frozenset({'design_studio', 'garment_catalog', 'notifications'})
 
