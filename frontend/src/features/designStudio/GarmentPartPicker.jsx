@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, Eye, ImageOff, Link as LinkIcon, Upload, X } from 'lucide-react';
+import { Camera, Check, ChevronLeft, ChevronRight, Eye, ImageOff, Link as LinkIcon, Upload, X } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
@@ -410,6 +410,13 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const ownFileRef = useRef(null);
+  const ownCamRef = useRef(null);
+  const videoRef = useRef(null);
+  const [camStream, setCamStream] = useState(null);
+  // Cleanup only -- nothing is set here, so the camera cannot be left running
+  // by a customer who navigates away with the modal open.
+  useEffect(() => () => camStream?.getTracks().forEach(track => track.stop()), [camStream]);
+
   const openPart = partTab === null ? null
     : (tabParts.some(p => p.key === partTab) ? partTab : (tabParts[0]?.key ?? null));
   const openPartLabel = tabParts.find(p => p.key === openPart)?.label || '';
@@ -468,9 +475,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     // The box stays open: a customer with one link usually has another.
   };
 
-  const uploadReference = async (e) => {
-    const files = [...(e.target.files || [])];
-    e.target.value = '';        // so re-picking the same file fires change again
+  const uploadFiles = async (files) => {
     if (!files.length) return;
     setUploading(true);
     setUploadError(null);
@@ -492,6 +497,55 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     } finally {
       setUploading(false);
     }
+  };
+
+  const uploadReference = (e) => {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';        // so re-picking the same file fires change again
+    uploadFiles(files);
+  };
+
+  /** Open the camera.
+   *
+   *  Not the `capture` attribute on the file input, which is what this used to
+   *  be: capture is honoured by mobile browsers ONLY. On a desktop it is
+   *  ignored outright and the button opened the ordinary file picker -- which
+   *  is exactly what a boutique on a laptop saw when they pressed Take photo.
+   *
+   *  getUserMedia works on both, so it is the one path. Where it cannot run --
+   *  no permission, no camera, or a page served over plain HTTP, which browsers
+   *  refuse outright -- it falls back to the capture input, so a phone still
+   *  gets its native camera and nothing gets worse than it was.
+   */
+  const openCamera = async () => {
+    setUploadError(null);
+    if (!navigator.mediaDevices?.getUserMedia) { ownCamRef.current?.click(); return; }
+    try {
+      setCamStream(await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }, audio: false }));
+    } catch {
+      ownCamRef.current?.click();
+    }
+  };
+
+  const closeCamera = () => {
+    // Every track stopped, or the camera light stays on after the modal shuts.
+    camStream?.getTracks().forEach(track => track.stop());
+    setCamStream(null);
+  };
+
+  const capturePhoto = async () => {
+    const video = videoRef.current;
+    if (!video?.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const blob = await new Promise(done => canvas.toBlob(done, 'image/jpeg', 0.92));
+    closeCamera();
+    if (!blob) return;
+    await uploadFiles([
+      new File([blob], `${openPart || 'reference'}-${Date.now()}.jpg`, { type: 'image/jpeg' })]);
   };
 
   const chosenCount = Object.values(selection).filter(Boolean).length;
@@ -576,6 +630,11 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
                   onClick={() => ownFileRef.current?.click()}>
             <Upload size={12} /> {uploading ? 'Uploading…' : `Upload ${openPartLabel} photos`}
           </button>
+          <button type="button" className="btn-secondary" disabled={uploading}
+                  style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                  onClick={openCamera}>
+            <Camera size={12} /> Take photo
+          </button>
           <button type="button" className="btn-secondary"
                   style={{ padding: '5px 11px', fontSize: '11.5px' }}
                   onClick={() => setAddingLink(v => !v)}>
@@ -584,6 +643,11 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           {/* multiple, because a customer describing one part sends several
               pictures of it. Each becomes its own reference for this part. */}
           <input ref={ownFileRef} type="file" accept="image/*" multiple hidden
+                 onChange={uploadReference} />
+          {/* capture, so a phone opens the camera rather than the gallery. One
+              shot at a time, which is what a camera gives; both land in the
+              same list for this part through the same handler. */}
+          <input ref={ownCamRef} type="file" accept="image/*" capture="environment" hidden
                  onChange={uploadReference} />
 
           {addingLink && (
@@ -755,6 +819,33 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
       {/* Full size, walking whichever set is on screen: the part's photographs
           under a part tab, the design covers under the design list. Selecting
           from inside it is the same choose() the card behind it calls. */}
+      {camStream && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 1100,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center',
+                      justifyContent: 'center', gap: '14px', padding: '28px' }}
+             onClick={closeCamera}>
+          <video
+            autoPlay playsInline muted
+            // srcObject cannot be set from JSX, and a ref callback sets it the
+            // moment the element exists rather than a render later.
+            ref={(el) => { videoRef.current = el; if (el && el.srcObject !== camStream) el.srcObject = camStream; }}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: '8px', background: '#000' }}
+          />
+          <div style={{ display: 'flex', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="btn-primary" disabled={uploading}
+                    style={{ padding: '6px 16px', fontSize: '12px' }}
+                    onClick={capturePhoto}>
+              <Camera size={13} /> {uploading ? 'Saving…' : `Capture ${openPartLabel}`}
+            </button>
+            <button type="button" className="btn-secondary"
+                    style={{ padding: '6px 14px', fontSize: '12px' }} onClick={closeCamera}>
+              <X size={13} /> Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {viewIndex !== null && !openDesign && openPart && partShots[viewIndex] && (
         <Lightbox
           items={partShots.map(img => ({

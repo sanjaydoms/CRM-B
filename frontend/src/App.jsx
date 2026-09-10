@@ -274,17 +274,6 @@ const STAFF_ROLES = [
   { value: 'QC Staff', label: 'QC Staff', hint: 'Runs the quality inspection.' },
 ];
 
-// Where a design came from. Mirrors DesignPreference.SOURCE_CHOICES.
-const DESIGN_SOURCES = [
-  { value: 'BOUTIQUE_CATALOG', label: 'Boutique catalogue' },
-  { value: 'CUSTOM_DESIGN', label: 'Custom design' },
-  { value: 'PREVIOUS_DESIGN', label: 'Previous design' },
-  { value: 'PINTEREST', label: 'Pinterest' },
-  { value: 'GOOGLE', label: 'Google images' },
-  { value: 'CUSTOMER_SKETCH', label: 'Customer sketch' },
-  { value: 'DESIGNER_SKETCH', label: 'Designer sketch' },
-];
-
 const GARMENT_PRICES = {
   'Lehenga': 32000,
   'Gown': 25000,
@@ -2726,20 +2715,6 @@ function App() {
         setProfilePhotoPreview(reader.result);
       };
       reader.readAsDataURL(file);
-    }
-  };
-
-  const handleDesignFilesChange = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length > 0) {
-      setDesignFiles(prev => [...prev, ...files]);
-      files.forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setDesignPreviews(prev => [...prev, reader.result]);
-        };
-        reader.readAsDataURL(file);
-      });
     }
   };
 
@@ -7277,8 +7252,7 @@ function App() {
                           border. Same component, same {part: reference} slot and
                           same garment parts the Design Studio tab uses -- with
                           the catalogue half switched off, because here the
-                          customer is giving a reference rather than picking one.
-                          The whole-order references below stay as they were. */}
+                          customer is giving a reference rather than picking one. */}
                       {garmentJobs.length === 0 ? (
                         <p style={{ color: 'var(--text-secondary)', padding: '4px 0' }}>
                           Select a garment above to add a reference for each of its parts.
@@ -7300,86 +7274,13 @@ function App() {
                         </Suspense>
                       )}
 
-                      <div className="card-title">
-                        <Upload size={18} />
-                        Share Your Design References
-                      </div>
-
-                      {/* Where the design came from, recorded against the order so the
-                          workroom knows whether it is following a catalogue piece or
-                          a client's own sketch. */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Where is this design from?</label>
-                          <select
-                            className="form-control"
-                            value={designSource}
-                            onChange={e => setDesignSource(e.target.value)}
-                          >
-                            {DESIGN_SOURCES.map(s => (
-                              <option key={s.value} value={s.value}>{s.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Inspiration links</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Paste Pinterest or image links, comma separated"
-                            value={designLinks}
-                            onChange={e => setDesignLinks(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <div className="drag-drop-zone" onClick={(e) => { if (e.target.tagName === 'INPUT') return; document.getElementById('design-picker').click(); }}>
-                        <div className="drag-drop-icon">
-                          <Upload size={24} />
-                        </div>
-                        <div className="drag-drop-text">Drag & drop images here or <span>Choose from gallery</span></div>
-                        <div className="drag-drop-subtext">JPG, PNG up to 10MB each • You can upload up to 10 images</div>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          style={{ marginTop: '8px', fontSize: '12px', padding: '6px 12px' }}
-                          onClick={(e) => { e.stopPropagation(); document.getElementById('design-picker-camera').click(); }}
-                        >
-                          📷 Take photo
-                        </button>
-                        <input
-                          type="file"
-                          id="design-picker"
-                          multiple
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                          onChange={handleDesignFilesChange}
-                        />
-                        <input
-                          type="file"
-                          id="design-picker-camera"
-                          accept="image/*"
-                          capture="environment"
-                          style={{ display: 'none' }}
-                          onChange={handleDesignFilesChange}
-                        />
-                      </div>
-
-                      {designPreviews.length > 0 && (
-                        <div className="uploaded-references-section">
-                          <div className="section-subtitle">Your Uploaded References ({designPreviews.length}/10)</div>
-                          <div className="references-grid">
-                            {designPreviews.map((src, i) => (
-                              <div className="reference-image-card" key={i}>
-                                <img src={src} alt={`Ref ${i+1}`} />
-                                <button className="remove-image-btn" onClick={() => {
-                                  setDesignPreviews(prev => prev.filter((_, idx) => idx !== i));
-                                  setDesignFiles(prev => prev.filter((_, idx) => idx !== i));
-                                }}>×</button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      {/* The flat whole-order reference box that used to sit
+                          here is gone: the part tabs above ask the same two
+                          questions -- a picture, or a link -- against the part
+                          of the garment each one is actually about, which is
+                          what the workroom needs to know. `designSource` and
+                          `designLinks` are still carried on the draft, so
+                          nothing downstream of it changes. */}
                     </div>
                   )}
                 </div>
