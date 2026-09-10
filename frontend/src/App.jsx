@@ -7239,6 +7239,18 @@ function App() {
 
                   {designSourceTab === 'references' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <DressesDropdown
+                        title={t('wizard.dressesInOrder', 'Dresses in this Order')}
+                        subtitle="Pick every garment being stitched. Each one opens its own design parts below."
+                        garmentTemplates={garmentTemplates}
+                        garmentJobs={garmentJobs}
+                        addingGarmentKey={addingGarmentKey}
+                        garmentTemplatesError={garmentTemplatesError}
+                        loadGarmentTemplates={loadGarmentTemplates}
+                        addGarment={addGarment}
+                        removeGarment={removeGarment}
+                      />
+
                       <div className="card-title">
                         <Upload size={18} />
                         Share Your Design References
