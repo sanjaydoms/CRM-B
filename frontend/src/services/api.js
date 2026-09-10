@@ -762,6 +762,14 @@ export const api = {
   // Fabrics CRUD
   // Photos go up before the fabric exists, so this returns URLs the form then
   // saves with the rest of the record.
+  async getFabricTaxonomy() {
+    const res = await guardedFetch(`${BASE_URL}/fabrics/taxonomy/`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) await failWith(res, 'Failed to fetch fabric categories');
+    return res.json();
+  },
+
   async uploadFabricImages(files) {
     const formData = new FormData();
     files.forEach(file => formData.append('images', file));

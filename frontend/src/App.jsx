@@ -43,6 +43,8 @@ import OrderAlterations from './features/alterations/OrderAlterations';
 import AlterationList from './features/alterations/AlterationList';
 import OrderGarmentBrief from './features/catalog/OrderGarmentBrief';
 import OrderKanban from './features/orders/OrderKanban';
+import FabricGroup from './features/fabrics/FabricGroup';
+import { blankGroup, blankMaterial, useFabricTaxonomy } from './features/fabrics/taxonomy';
 import { MobileHeader } from './components/ui/MobileHeader';
 import {
   PageHeader, StatCard, SectionCard, Chips, AvatarInitials, ProgressBar, SearchBox, Segmented, IconTile,
@@ -1343,21 +1345,10 @@ function App() {
   // Library filters: one predicate over the fabrics already loaded.
   const [fabricQuery, setFabricQuery] = useState({ search: '', material: 'All', colour: 'All', availability: 'All', sort: 'newest' });
   const [fabricSaving, setFabricSaving] = useState(false);
-  const [fabricForm, setFabricForm] = useState({
-    name: '',
-    material: '',
-    color: '',
-    color_hex: '#c8a97e',
-    price_per_meter: '',
-    image_url: '',
-    image_urls: [],
-    is_available: true
-  });
-  // Photos chosen in the modal but not yet uploaded: the fabric may not exist
-  // yet, so they travel with the save rather than ahead of it.
-  const [fabricPhotoFiles, setFabricPhotoFiles] = useState([]);
-  const [fabricPhotoPreviews, setFabricPhotoPreviews] = useState([]);
-  const [fabricPhotoBusy, setFabricPhotoBusy] = useState(false);
+  const [fabricGroups, setFabricGroups] = useState([blankGroup()]);
+  const fabricTaxonomy = useFabricTaxonomy();
+  const [fabricUploads, setFabricUploads] = useState(0);
+  const fabricCount = fabricGroups.reduce((n, g) => n + g.materials.length, 0);
 
   // Tailors CRUD State
   // Recording a payment: which row is in flight, and what went wrong. Shown in
@@ -2125,57 +2116,48 @@ function App() {
   // Photos picked in the modal, whether from the gallery or straight off the
   // camera, land here. Same handler for both inputs -- a capture and a pick
   // arrive as the same File.
-  const handleFabricPhotosChange = (e) => {
-    const picked = Array.from(e.target.files || []);
-    e.target.value = '';           // so the same shot can be re-picked
-    if (!picked.length) return;
-    const room = 10 - (fabricPhotoFiles.length + (fabricForm.image_urls?.length || 0));
-    const files = picked.slice(0, Math.max(room, 0));
-    if (!files.length) return;
-    setFabricPhotoFiles(prev => [...prev, ...files]);
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onloadend = () => setFabricPhotoPreviews(prev => [...prev, reader.result]);
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleSaveFabric = async (e) => {
     e.preventDefault();
-    if (fabricSaving) return;
+    if (fabricSaving || fabricUploads) return;
+    // A placement picked but never committed with "Add use" would file every
+    // material in the group as uncategorised. Say so instead of saving.
+    const unplaced = fabricGroups.findIndex((g) => !g.kind && !g.placements.length);
+    if (unplaced >= 0) {
+      alert(`Section ${unplaced + 1}: choose where these materials are used, `
+        + 'then click "Add use".');
+      return;
+    }
     setFabricSaving(true);
     try {
-      let imageUrls = [...(fabricForm.image_urls || [])];
-      if (fabricPhotoFiles.length) {
-        setFabricPhotoBusy(true);
-        const { image_urls: uploaded } = await api.uploadFabricImages(fabricPhotoFiles);
-        imageUrls = [...imageUrls, ...uploaded];
-      }
-      const payload = {
-        ...fabricForm,
-        image_urls: imageUrls,
-        image_url: fabricForm.image_url || imageUrls[0] || '',
-        price_per_meter: parseFloat(fabricForm.price_per_meter) || 0.00
-      };
+      // One catalog row per material, carrying its group's placement. The
+      // whitelist keeps UI-only fields (_id, materials) out of the payload.
+      const rows = fabricGroups.flatMap((group) => group.materials.map((row) => ({
+        name: row.name,
+        material: row.material,
+        color: row.color,
+        color_hex: row.color_hex,
+        is_available: row.is_available,
+        kind: group.kind,
+        variant: group.variant,
+        price_per_meter: parseFloat(row.price_per_meter) || 0.00,
+        image_urls: row.image_urls || [],
+        image_url: row.image_url || (row.image_urls || [])[0]
+          || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400',
+        placements: group.placements.map(
+          ({ garment, section, slot }) => ({ garment, section, slot })),
+      })));
       if (editingFabric) {
-        await api.updateFabric(editingFabric.id, payload);
+        await api.updateFabric(editingFabric.id, rows[0]);
       } else {
-        if (!payload.image_url) {
-          // Curated Unsplash fabric texture image
-          payload.image_url = 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400';
-        }
-        await api.createFabric(payload);
+        await api.createFabric(rows.length === 1 ? rows[0] : rows);
       }
       setShowFabricModal(false);
       setEditingFabric(null);
-      setFabricForm({ name: '', material: '', color: '', color_hex: '#c8a97e', price_per_meter: '', image_url: '', image_urls: [], is_available: true });
-      setFabricPhotoFiles([]);
-      setFabricPhotoPreviews([]);
+      setFabricGroups([blankGroup()]);
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save fabric: " + err.message);
     } finally {
-      setFabricPhotoBusy(false);
       setFabricSaving(false);
     }
   };
@@ -4389,28 +4371,29 @@ function App() {
                 ? fabrics.reduce((sum, f) => sum + Number(f.price_per_meter || 0), 0) / fabrics.length : 0;
               const openNew = () => {
                 setEditingFabric(null);
-                setFabricForm({ name: '', material: '', color: '', color_hex: '#c8a97e', price_per_meter: '', image_url: '', image_urls: [], is_available: true });
-                // Clear any photos staged in a modal that was opened and
-                // abandoned -- the Edit path already does this, so without
-                // it those photos would ride onto the new fabric on save.
-                setFabricPhotoFiles([]);
-                setFabricPhotoPreviews([]);
+                setFabricGroups([blankGroup()]);
                 setShowFabricModal(true);
               };
               const openEdit = (fabric) => {
                 setEditingFabric(fabric);
-                setFabricForm({
-                  name: fabric.name,
-                  material: fabric.material,
-                  color: fabric.color,
-                  color_hex: fabric.color_hex || '#c8a97e',
-                  price_per_meter: fabric.price_per_meter.toString(),
-                  image_url: fabric.image_url || '',
-                  image_urls: fabric.image_urls || [],
-                  is_available: fabric.is_available
-                });
-                setFabricPhotoFiles([]);
-                setFabricPhotoPreviews([]);
+                setFabricGroups([{
+                  ...blankGroup(),
+                  kind: fabric.kind || '',
+                  variant: fabric.variant || '',
+                  placements: (fabric.placements || []).map(
+                    ({ garment, section, slot }) => ({ garment, section, slot })),
+                  materials: [{
+                    ...blankMaterial(),
+                    name: fabric.name,
+                    material: fabric.material,
+                    color: fabric.color,
+                    color_hex: fabric.color_hex || '#c8a97e',
+                    price_per_meter: String(fabric.price_per_meter),
+                    image_url: fabric.image_url || '',
+                    image_urls: fabric.image_urls || [],
+                    is_available: fabric.is_available,
+                  }],
+                }]);
                 setShowFabricModal(true);
               };
               const pick = (key, label, options) => (
@@ -4505,6 +4488,18 @@ function App() {
                               )}
                             </span>
                           </div>
+                          {(fabric.kind_label || (fabric.placements || []).length > 0) && (
+                            <div className="at-fabric-meta" style={{ gap: '6px', flexWrap: 'wrap' }}>
+                              {fabric.kind_label && (
+                                <span className="ui-badge">
+                                  {fabric.variant_label || fabric.kind_label}
+                                </span>
+                              )}
+                              {(fabric.placements || []).map((p) => (
+                                <span key={p.id} className="ui-badge">{p.path}</span>
+                              ))}
+                            </div>
+                          )}
                           <div className="at-fabric-actions">
                             <button className="btn-secondary at-btn-sm" onClick={() => openEdit(fabric)}>
                               <Edit2 size={12} /> Edit
@@ -6003,170 +5998,45 @@ function App() {
               footer={(
                 <>
                   <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
-                  <button type="submit" form="fabric-form" className="btn-primary" disabled={fabricSaving || fabricPhotoBusy}>
+                  <button type="submit" form="fabric-form" className="btn-primary" disabled={fabricSaving || fabricUploads > 0}>
                     <Save size={16} />
-                    {fabricPhotoBusy
+                    {fabricUploads > 0
                       ? t('common.uploading', 'Uploading…')
-                      : fabricSaving ? t('common.saving', 'Saving…') : t('fabricsPage.saveFabric', 'Save Fabric')}
+                      : fabricSaving ? t('common.saving', 'Saving…')
+                        : fabricCount > 1
+                          ? `Save ${fabricCount} materials`
+                          : t('fabricsPage.saveFabric', 'Save Fabric')}
                   </button>
                 </>
               )}
             >
               <form id="fabric-form" onSubmit={handleSaveFabric} className="at-stack">
-                <Field label={t('fabricsPage.fabricName', 'Fabric Name')} required icon={Type}>
-                  <input
-                    type="text"
-                    required
-                    className="form-control"
-                    aria-label={t('fabricsPage.fabricName', 'Fabric Name')}
-                    placeholder="e.g. Chanderi Silk"
-                    value={fabricForm.name}
-                    onChange={e => setFabricForm({...fabricForm, name: e.target.value})}
+                {fabricGroups.map((group, i) => (
+                  <FabricGroup
+                    key={group._id}
+                    index={i}
+                    taxonomy={fabricTaxonomy}
+                    value={group}
+                    allowRepeat={!editingFabric}
+                    canRemove={!editingFabric && fabricGroups.length > 1}
+                    onUploading={(delta) => setFabricUploads(n => Math.max(0, n + delta))}
+                    onChange={(next) => setFabricGroups(
+                      rows => rows.map((row, idx) => (idx === i ? next : row)))}
+                    onRemove={() => setFabricGroups(
+                      rows => rows.filter((_, idx) => idx !== i))}
                   />
-                </Field>
+                ))}
 
-                <div className="at-form-grid">
-                  <Field label={t('fabricsPage.material', 'Material')} required icon={Layers}>
-                    <input
-                      type="text"
-                      required
-                      className="form-control"
-                      aria-label={t('fabricsPage.material', 'Material')}
-                      placeholder="e.g. Silk Blend"
-                      value={fabricForm.material}
-                      onChange={e => setFabricForm({...fabricForm, material: e.target.value})}
-                    />
-                  </Field>
-                  <Field label={t('fabricsPage.color', 'Color')} required icon={Palette}>
-                    <input
-                      type="text"
-                      required
-                      className="form-control"
-                      aria-label={t('fabricsPage.color', 'Color')}
-                      placeholder="e.g. Aqua Blue"
-                      value={fabricForm.color}
-                      onChange={e => setFabricForm({...fabricForm, color: e.target.value})}
-                    />
-                  </Field>
-                </div>
-
-                {/* The wheel is the browser's own -- <input type="color">
-                    opens the OS picker, wheel and eyedropper included, and
-                    the box beside it takes a code straight off a shade card.
-                    They are the same value, edited from either end. */}
-                <div className="at-field">
-                  <label className="at-field-label">{t('fabricsPage.colorCode', 'Colour Code')}</label>
-                  <div className="at-field-inline">
-                    <label className="at-swatch" title={t('fabricsPage.colorWheel', 'Colour wheel')} style={{ position: 'relative', cursor: 'pointer' }}>
-                      <i style={{ background: /^#[0-9a-fA-F]{6}$/.test(fabricForm.color_hex) ? fabricForm.color_hex : '#c8a97e' }} />
-                      <input
-                        id="fabric-colour-wheel"
-                        type="color"
-                        aria-label={t('fabricsPage.colorWheel', 'Colour wheel')}
-                        value={/^#[0-9a-fA-F]{6}$/.test(fabricForm.color_hex) ? fabricForm.color_hex : '#c8a97e'}
-                        onChange={e => setFabricForm({...fabricForm, color_hex: e.target.value})}
-                        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, left: 0, bottom: 0 }}
-                      />
-                    </label>
-                    <div className="at-field-control" style={{ width: '160px' }}>
-                      <input
-                        type="text"
-                        className="form-control"
-                        aria-label={t('fabricsPage.colorCode', 'Colour Code')}
-                        placeholder="#c8a97e"
-                        maxLength={7}
-                        pattern="#[0-9a-fA-F]{6}"
-                        title="#1a2b3c"
-                        value={fabricForm.color_hex}
-                        onChange={e => {
-                          const v = e.target.value.trim();
-                          setFabricForm({...fabricForm, color_hex: v && !v.startsWith('#') ? `#${v}` : v});
-                        }}
-                        style={{ fontFamily: 'monospace' }}
-                      />
-                    </div>
-                    <button type="button" className="btn-secondary at-btn-sm" style={{ borderStyle: 'dashed' }}
-                            onClick={() => document.getElementById('fabric-colour-wheel').click()}>
-                      <Palette size={14} /> {t('fabricsPage.pickFromWheel', 'Pick from color wheel')}
-                    </button>
-                    <span className="at-field-hint">
-                      {t('fabricsPage.colorCodeHint', 'Pick from the wheel or type the code')}
-                    </span>
-                  </div>
-                </div>
-
-                <Field label={t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')} required icon={IndianRupee}
-                       hint="Enter the selling price per meter for this fabric.">
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    step="0.01"
-                    className="form-control"
-                    aria-label={t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}
-                    placeholder="e.g. 1250"
-                    value={fabricForm.price_per_meter}
-                    onChange={e => setFabricForm({...fabricForm, price_per_meter: e.target.value})}
-                  />
-                </Field>
-
-                {/* Two inputs, one list: capture="environment" opens the
-                    phone's rear camera, the other the gallery. A boutique
-                    photographing a roll on the shelf never types a URL. */}
-                <FormSection icon={ImageIcon} tone="green" title={t('fabricsPage.fabricPhotos', 'Fabric Photos')}
-                             subtitle="Add clear, high-quality photos of the fabric."
-                             aside={<span className="at-field-hint">Recommended: JPG, PNG (Max 5MB each)</span>}>
-                  <div className="at-side-by-side">
-                    <Dropzone
-                      multiple camera
-                      title="Drag & drop photos here"
-                      subtitle="or choose an option"
-                      chooseLabel={t('common.chooseFromGallery', 'Choose from gallery')}
-                      cameraLabel={t('common.takePhoto', 'Take photo')}
-                      onFiles={(files) => handleFabricPhotosChange({ target: { files, value: '' } })}
-                    />
-                    <div className="at-photos">
-                      {(fabricForm.image_urls || []).map((src, i) => (
-                        <PhotoTile key={`saved-${i}`} src={src}
-                                   onRemove={() => setFabricForm({...fabricForm, image_urls: fabricForm.image_urls.filter((_, idx) => idx !== i)})} />
-                      ))}
-                      {fabricPhotoPreviews.map((src, i) => (
-                        <PhotoTile key={`new-${i}`} src={src}
-                                   onRemove={() => {
-                                     setFabricPhotoPreviews(prev => prev.filter((_, idx) => idx !== i));
-                                     setFabricPhotoFiles(prev => prev.filter((_, idx) => idx !== i));
-                                   }} />
-                      ))}
-                      <AddMoreTile onClick={() => document.getElementById('fabric-photo-gallery').click()} />
-                      <input type="file" id="fabric-photo-gallery" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFabricPhotosChange} />
-                    </div>
-                  </div>
-                </FormSection>
-
-                <Field label={t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')} icon={LinkIcon}
-                       hint="Add a link if the image is hosted online.">
-                  <input
-                    type="url"
-                    className="form-control"
-                    aria-label={t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}
-                    placeholder="e.g. https://images.unsplash.com/photo-..."
-                    value={fabricForm.image_url}
-                    onChange={e => setFabricForm({...fabricForm, image_url: e.target.value})}
-                  />
-                </Field>
-
-                <label className="at-check-card" htmlFor="fabricAvailable">
-                  <input
-                    type="checkbox"
-                    id="fabricAvailable"
-                    checked={fabricForm.is_available}
-                    onChange={e => setFabricForm({...fabricForm, is_available: e.target.checked})}
-                  />
-                  <span>
-                    <span className="at-check-card-title" style={{ display: 'block' }}>{t('fabricsPage.availableInInventory', 'Available in Inventory')}</span>
-                    <span className="at-check-card-sub" style={{ display: 'block' }}>Make this fabric available for inventory and purchase orders.</span>
-                  </span>
-                </label>
+                {!editingFabric && (
+                  <button
+                    type="button"
+                    className="btn-secondary at-btn-sm"
+                    style={{ alignSelf: 'flex-start', borderStyle: 'dashed' }}
+                    onClick={() => setFabricGroups(rows => [...rows, blankGroup()])}
+                  >
+                    <Plus size={14} /> Add another garment or accessory
+                  </button>
+                )}
               </form>
             </FormModal>
           )}

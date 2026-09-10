@@ -231,8 +231,43 @@ class BoutiqueFabric(models.Model):
     image_urls = models.JSONField(default=list, blank=True)
     is_available = models.BooleanField(default=True)
 
+    # What the material IS, kept apart from where it may be used. One roll of
+    # gold latkan dori is one row here and many FabricPlacement rows, rather
+    # than one row per garment it happens to suit.
+    kind = models.CharField(max_length=40, blank=True, default='', db_index=True)
+    variant = models.CharField(max_length=60, blank=True, default='')
+
     def __str__(self):
         return f"{self.name} ({self.material}) - ₹{self.price_per_meter}/mtr"
+
+
+class FabricPlacement(models.Model):
+    fabric = models.ForeignKey(
+        BoutiqueFabric, on_delete=models.CASCADE, related_name='placements')
+    garment = models.CharField(max_length=40)
+    section = models.CharField(max_length=60, blank=True, default='')
+    slot = models.CharField(max_length=60, blank=True, default='')
+    # Photographs of this material on this part of the garment. The pallu and
+    # the border of one saree are shot separately, and the counter should not
+    # have to reopen the form for each.
+    image_urls = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ['garment', 'section', 'slot']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['fabric', 'garment', 'section', 'slot'],
+                name='uniq_fabric_placement'),
+        ]
+        indexes = [models.Index(fields=['garment', 'section', 'slot'])]
+
+    @property
+    def path(self):
+        from crm_api.fabric_taxonomy import placement_path
+        return placement_path(self.garment, self.section, self.slot)
+
+    def __str__(self):
+        return f"{self.fabric.name} — {self.path}"
 
 class BoutiqueDesign(models.Model):
 
