@@ -202,6 +202,10 @@ ALWAYS_ON = (
     # frontend is most likely to break, and a report lost then is the one worth
     # having.
     '/api/client-errors/',
+    # The WhatsApp provider calls this back with delivery reports, and it
+    # arrives with no user and no token -- the view is unauthenticated on
+    # purpose. The rest of /api/whatsapp/ stays behind the `whatsapp` module.
+    '/api/whatsapp/webhook/',
     '/api/dashboard/',
     '/api/superadmin/',
     '/admin/',

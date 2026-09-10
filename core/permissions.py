@@ -181,7 +181,7 @@ class RolePermission(ModuleAccess):
         return action in self.SUPERVISOR_ORDER_ACTIONS and role in SUPERVISOR_ROLES
 
 
-class AlterationPermission(permissions.BasePermission):
+class AlterationPermission(ModuleAccess):
     """Who may reach the post-delivery alteration endpoints at all.
 
     Deliberately NOT RolePermission. That class grants every non-Owner staff
@@ -206,7 +206,9 @@ class AlterationPermission(permissions.BasePermission):
 
     message = "Your role does not permit this."
 
-    def has_permission(self, request, view):
+    # has_permission is ModuleAccess's and final: the `alterations` module
+    # gate runs first, then this decides the role.
+    def has_role_permission(self, request, view):
         role = resolve_user_role(request.user)
         if role is None or role == DESIGNER:
             return False

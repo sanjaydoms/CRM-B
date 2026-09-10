@@ -66,17 +66,8 @@ def create_order_notifications(order, created=False, status_changed=True, stage_
         # tailor the same stitching task four times -- measured on one order
         # walked from Received to Delivered. Only a change is news. The
         # per-stage handover is notify_next_stage_owners' job, not this one's.
-        if not status_changed:
-            return
-
         status = order.order_status
         display_stage = stage_name or status
-
-        Notification.objects.create(
-            title=f"Order {order.reference} Update: {display_stage}",
-            message=f"Order {order.reference} status updated to {display_stage}.",
-            recipient_role="Owner"
-        )
 
         s_key = (stage_key or getattr(order, 'current_stage_key', '') or '').lower()
         s_name = (stage_name or '').lower()
@@ -123,23 +114,35 @@ def create_order_notifications(order, created=False, status_changed=True, stage_
                 else:
                     cust_msg = f"Your order {order.reference} has been successfully Delivered. We hope you love your bespoke garment!"
 
+        # Fifteen production stages map onto six customer-facing statuses, so
+        # most transitions leave the status where it was. Only a change is
+        # news -- except the four named steps above, which the customer is
+        # told about whether or not the status label moved.
+        if not status_changed and msg_template == 'stage_update':
+            return
+
+        Notification.objects.create(
+            title=f"Order {order.reference} Update: {display_stage}",
+            message=f"Order {order.reference} status updated to {display_stage}.",
+            recipient_role="Owner"
+        )
+
         Notification.objects.create(
             title=f"Order Update: {display_stage}",
             message=f"Dear {order.customer.first_name}, {cust_msg}",
             recipient_role="Customer",
             recipient_email=client_email
         )
-        if status_changed:
-            send_customer_message(
-                order,
-                msg_template,
-                f"Dear {order.customer.first_name}, {cust_msg}\nTrack your order: {tracking_url(order)}",
-            )
-            send_stage_update_email(
-                order,
-                stage_name=display_stage,
-                custom_message=cust_msg,
-            )
+        send_customer_message(
+            order,
+            msg_template,
+            f"Dear {order.customer.first_name}, {cust_msg}\nTrack your order: {tracking_url(order)}",
+        )
+        send_stage_update_email(
+            order,
+            stage_name=display_stage,
+            custom_message=cust_msg,
+        )
 
         if status == 'Design & Creation' and order.tailor:
             Notification.objects.create(

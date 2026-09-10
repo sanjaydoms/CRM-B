@@ -21,7 +21,7 @@ from rest_framework.test import APIClient
 
 from crm_api.models import (
     BoutiqueSettings, Customer, CustomerMessage, GarmentImage, Order, Tailor,
-    whatsapp_number,
+    whatsapp_number, Measurement,
 )
 from domains.orders.messaging import send_customer_message
 from domains.orders.services import OrderService
@@ -253,7 +253,9 @@ class CustomerMessageTests(TrackingTestBase):
         self.order.tailor = tailor
         self.order.save()
 
-        # 1. Measurement completed
+        # 1. Measurement completed -- the customer is measured at this step, and
+        # the workflow will not hand the garment to a tailor without it.
+        Measurement.objects.create(customer=self.order.customer, bust=36, waist=28, hips=38)
         OrderService.transition_order_stage(self.order, 'measurements_completed', 'COMPLETED', user=owner)
         self.assertTrue(CustomerMessage.objects.filter(order=self.order, template_key='measurement_completed').exists())
 
