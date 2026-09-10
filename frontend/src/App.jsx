@@ -57,6 +57,7 @@ import { BottomNavigation } from './components/ui/BottomNavigation';
 import { BottomSheet } from './components/ui/BottomSheet';
 import { ResponsiveCard } from './components/ui/ResponsiveCard';
 import { ProgressiveAccordion } from './components/ui/ProgressiveAccordion';
+import DressesDropdown from './components/ui/DressesDropdown';
 
 /** Placeholder shown while a lazily loaded screen arrives. */
 // Whole-rupee money for the dashboard, Indian digit grouping. Paise are
@@ -6954,54 +6955,18 @@ function App() {
                       An order holds several dresses -- a lehenga, its blouse and
                       a dupatta are three -- so this is a multiple choice, and
                       each one opens its own form in the next step. */}
-                  <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
-                    <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                      {t('wizard.dressesInOrder', 'Dresses in this Order')} <span className="required">*</span>
-                    </label>
-                    <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                      {t('wizard.dressesInOrderSub', 'Pick every garment being stitched. Each one gets its own measurements and options.')}
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {garmentTemplates.map(template => {
-                        const chosen = garmentJobs.some(job => job.key === template.key);
-                        return (
-                          <button
-                            key={template.key}
-                            type="button"
-                            className={chosen ? 'btn-primary' : 'btn-secondary'}
-                            style={{ padding: '7px 14px', fontSize: '13px', borderRadius: '999px', gap: '6px', opacity: addingGarmentKey && addingGarmentKey !== template.key ? 0.6 : 1 }}
-                            disabled={!!addingGarmentKey}
-                            onClick={() => (chosen ? removeGarment(template.key) : addGarment(template.key))}
-                          >
-                            {addingGarmentKey === template.key ? <span className="spin" style={{ width: '13px', height: '13px', border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block' }} /> : (chosen ? <Check size={13} /> : <Plus size={13} />)}
-                            {addingGarmentKey === template.key ? 'Loading…' : template.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {garmentTemplates.length === 0 && (
-                      <div style={{ fontSize: '12.5px', color: garmentTemplatesError ? '#c0392b' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span>
-                          {garmentTemplatesError
-                            ? `The garment list could not be loaded — ${garmentTemplatesError}`
-                            : 'Loading the garment list…'}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          style={{ padding: '4px 10px', fontSize: '12px' }}
-                          onClick={loadGarmentTemplates}
-                        >
-                          {t('common.retry', 'Retry')}
-                        </button>
-                      </div>
-                    )}
-                    {garmentTemplates.length > 0 && garmentJobs.length === 0 && (
-                      <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '12px' }}>
-                        {t('wizard.noGarmentChosen', 'No garment chosen yet.')}
-                      </div>
-                    )}
-                  </div>
+                  <DressesDropdown
+                    title={t('wizard.dressesInOrder', 'Dresses in this Order')}
+                    subtitle={t('wizard.dressesInOrderSub', 'Pick every garment being stitched. Each one gets its own measurements and options.')}
+                    isRequired={true}
+                    garmentTemplates={garmentTemplates}
+                    garmentJobs={garmentJobs}
+                    addingGarmentKey={addingGarmentKey}
+                    garmentTemplatesError={garmentTemplatesError}
+                    loadGarmentTemplates={loadGarmentTemplates}
+                    addGarment={addGarment}
+                    removeGarment={removeGarment}
+                  />
 
                   <div className="form-grid-2">
                     <div className="form-group">
@@ -7210,31 +7175,18 @@ function App() {
                   {designSourceTab === 'studio' && (
                     <Suspense fallback={<ScreenLoading />}>
                       {/* Garment Selector on Step 1 */}
-                      <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '14px 16px', marginBottom: '20px', textAlign: 'left' }}>
-                        <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                          {t('wizard.dressesInOrder', 'Dresses in this Order')}
-                        </label>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-                          Pick every garment being stitched. Each one opens its own design parts below.
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          {garmentTemplates.map(template => {
-                            const chosen = garmentJobs.some(job => job.key === template.key);
-                            return (
-                              <button
-                                key={template.key}
-                                type="button"
-                                className={chosen ? 'btn-primary' : 'btn-secondary'}
-                                style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '999px', gap: '6px' }}
-                                onClick={() => (chosen ? (garmentJobs.length > 1 && removeGarment(template.key)) : addGarment(template.key))}
-                              >
-                                {chosen ? <Check size={12} /> : <Plus size={12} />}
-                                {template.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      <DressesDropdown
+                        title={t('wizard.dressesInOrder', 'Dresses in this Order')}
+                        subtitle="Pick every garment being stitched. Each one opens its own design parts below."
+                        garmentTemplates={garmentTemplates}
+                        garmentJobs={garmentJobs}
+                        addingGarmentKey={addingGarmentKey}
+                        garmentTemplatesError={garmentTemplatesError}
+                        loadGarmentTemplates={loadGarmentTemplates}
+                        addGarment={addGarment}
+                        removeGarment={removeGarment}
+                        minRequired={1}
+                      />
 
                       {garmentJobs.length === 0 ? (
                         <p style={{ color: 'var(--text-secondary)', padding: '20px 0' }}>
