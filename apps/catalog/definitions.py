@@ -309,6 +309,55 @@ TEMPLATES = [
         },
     },
     {
+        # Un-retired at the boutique's request. 0007 folded this into `blouse`
+        # on the grounds that a lehenga blouse is a blouse; the boutique wants
+        # it back as a garment of its own so lehenga blouse photographs are
+        # filed apart from saree blouse ones. `blouse_style` rather than
+        # `blouse_type` is the key it retired with, so the jobs that still
+        # point at this template keep reading.
+        'key': 'lehenga_blouse', 'name': 'Lehenga Blouse', 'sequence': 40,
+        'design_parts': parts('Overall Blouse Design', 'Front Design', 'Back Design',
+              'Neck Design', 'Sleeve Design', 'Hand Design'),
+        'sections': {
+            'basic': [
+                field('blouse_style', 'Style', 'select', required=True, options=[
+                    'Standard', 'Peplum', 'Ruffled', ('jacket', 'Jacket Style'),
+                    ('cape', 'Cape Style'), 'Long Waist', 'Corset']),
+            ],
+            'measurements': blouse_measurements(),
+            'style': [
+                *sleeve_and_neck(),
+                field('padding', 'Padding', 'boolean'),
+                measurement('flare_length', 'Flare Length', when=eq('blouse_style', 'peplum')),
+                field('flare_type', 'Flare Type', 'select',
+                      options=['A-Line', 'Pleats', 'Box Pleats'],
+                      when=eq('blouse_style', 'peplum')),
+                field('layer_count', 'Number of Layers', 'number',
+                      validation={'min': 1, 'max': 10, 'step': 1},
+                      when=eq('blouse_style', 'ruffled')),
+                field('collar_style', 'Collar Style', 'text', when=eq('blouse_style', 'jacket')),
+                measurement('cape_length', 'Cape Length', when=eq('blouse_style', 'cape')),
+                field('cape_neck_shape', 'Cape Neck Shape', 'text',
+                      when=eq('blouse_style', 'cape')),
+                field('cape_fastening', 'Buttons / Hooks', 'select',
+                      options=['Buttons', 'Hooks', 'None'], when=eq('blouse_style', 'cape')),
+                field('corset_cups', 'Corset Cups', 'select',
+                      options=['Soft', 'Moulded', 'None'], when=eq('blouse_style', 'corset')),
+                field('boning_required', 'Boning Required', 'boolean',
+                      when=eq('blouse_style', 'corset')),
+            ],
+            'materials': [
+                material('main_fabric', 'Main Fabric', Inv.FABRIC),
+                material('lining', 'Lining', Inv.LINING),
+                material('cups', 'Cups', Inv.EMBELLISHMENT, when=eq('padding', True)),
+                material('boning', 'Boning', Inv.EMBELLISHMENT,
+                         when=eq('boning_required', True)),
+                material('hooks', 'Hooks', Inv.STITCHING),
+                material('zip', 'Zip', Inv.STITCHING),
+            ],
+        },
+    },
+    {
         'key': 'dupatta', 'name': 'Dupatta', 'sequence': 50,
         'design_parts': parts('Overall Dupatta Design', 'Border Design', 'Pallu / End Design',
               'Body Design', 'Corner Design', 'Print Design',
