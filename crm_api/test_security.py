@@ -1,10 +1,3 @@
-"""Access control.
-
-Business endpoints require a token. These guard that: until recently every one
-of them was readable and writable with no credentials at all, so an anonymous
-caller could pull a boutique's whole client list -- names, phone numbers,
-addresses, measurements and revenue -- and write to it.
-"""
 
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -35,7 +28,6 @@ class UnauthenticatedAccessTests(TenantTestCase):
         )
         Order.objects.create(
             order_id="T2B-SEC-0001", customer=self.customer, total_amount=95000)
-        # No credentials are set on this client -- only the tenant header.
         self.client = APIClient()
         self.client.credentials(HTTP_X_TENANT_ID=self.tenant.schema_name)
 
@@ -64,7 +56,7 @@ class UnauthenticatedAccessTests(TenantTestCase):
         self.assertIn(response.status_code, (401, 403))
 
     def test_anonymous_caller_cannot_read_client_pii(self):
-        """The concrete exposure: this used to return name, mobile and address."""
+
         response = self.client.get(reverse("customer-list"))
         self.assertNotEqual(response.status_code, 200)
         self.assertNotIn("12 Residential Road", response.content.decode())

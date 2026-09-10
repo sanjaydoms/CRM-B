@@ -1,10 +1,8 @@
-# Maggam Work (Aari Embroidery / Zardosi / Hand Embroidery) — Complete Material List
 
 Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fashion.
 
 ---
 
-## 1. Base Fabrics
 
 - Raw Silk
 - Pure Silk
@@ -39,7 +37,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 2. Embroidery Threads
 
 - Cotton Thread
 - Silk Thread
@@ -61,7 +58,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 - Invisible Thread
 - Elastic Thread
 
-### Metallic Threads
 
 - Zari Gold
 - Silver Zari
@@ -76,7 +72,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 3. Needles
 
 - Aari Needle
 - Maggam Needle
@@ -94,7 +89,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 4. Frames
 
 - Maggam Frame
 - Adda Frame
@@ -107,9 +101,7 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 5. Beads
 
-### Glass Beads
 - Seed Beads
 - Czech Beads
 - Japanese Miyuki Beads
@@ -118,13 +110,11 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 - Tube Beads
 - Cut Beads
 
-### Plastic Beads
 - Pony Beads
 - Acrylic Beads
 - Resin Beads
 - ABS Beads
 
-### Crystal Beads
 - Swarovski
 - Preciosa
 - Chinese Crystal
@@ -132,25 +122,21 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 - Rondelle
 - Cube Crystal
 
-### Stone Beads
 - Agate
 - Jade
 - Quartz
 - Onyx
 - Aventurine
 
-### Metal Beads
 - Gold Beads
 - Silver Beads
 - Copper Beads
 - Brass Beads
 - Antique Finish
 
-### Other Beads
 - Wooden Beads
 - Ceramic Beads
 
-### Pearl Beads
 - Half Pearls
 - Full Pearls
 - Rice Pearls
@@ -160,7 +146,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 6. Stones
 
 - Kundan Stones
 - American Diamond
@@ -190,7 +175,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 7. Sequins
 
 - Flat Sequins
 - Cup Sequins
@@ -207,7 +191,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 8. Mirrors
 
 - Round Mirrors
 - Square Mirrors
@@ -219,7 +202,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 9. Traditional Zardosi Materials
 
 - Dabka
 - Nakshi
@@ -242,7 +224,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 10. Laces & Borders
 
 - Zari Lace
 - Cotton Lace
@@ -261,7 +242,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 11. Appliqué Materials
 
 - Felt
 - Velvet Patch
@@ -274,7 +254,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 12. Cords & Decorative Elements
 
 - Silk Cord
 - Twisted Cord
@@ -289,7 +268,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 13. Backing & Support Materials
 
 - Buckram
 - Interlining
@@ -304,7 +282,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 14. Adhesives
 
 - Fabric Glue
 - Fevicol MR
@@ -316,7 +293,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 15. Marking Tools
 
 - Tailor Chalk
 - Chalk Pencil
@@ -329,7 +305,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 16. Cutting Tools
 
 - Embroidery Scissors
 - Thread Cutter
@@ -340,7 +315,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 17. Measuring Tools
 
 - Measuring Tape
 - Scale
@@ -350,7 +324,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 18. Finishing Materials
 
 - Steam Press Cloth
 - Pressing Mat
@@ -361,7 +334,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 19. Decorative Embellishments
 
 - Feathers
 - Ostrich Feathers
@@ -378,7 +350,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 20. Modern Luxury Embellishments
 
 - Swarovski Crystals
 - Austrian Crystals
@@ -394,7 +365,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 21. Specialty Materials
 
 - Glow-in-the-dark Beads
 - UV Color-changing Beads
@@ -408,7 +378,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## 22. Tools & Accessories
 
 - Thread Wax
 - Beeswax
@@ -429,7 +398,6 @@ Used on bridal blouses, lehengas, sarees, gowns, couture garments, and luxury fa
 
 ---
 
-## Common Materials Used in Bridal Maggam Work
 
 The most frequently used materials for premium bridal blouses and sarees include:
 

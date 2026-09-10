@@ -1,84 +1,177 @@
-"""Who may do what, enforced at the API rather than in the interface.
-
-Until now a staff member's role only shaped which menu items the frontend drew.
-The API itself let any signed-in account read the whole boutique: every
-customer's contact details, every order's money, the staff list, stock
-valuation and cost-per-order. A tailor with a browser's dev tools -- or anyone
-who ended up with a tailor's token -- had the lot.
-
-Two rules, applied together:
-
-  RolePermission    denies writes that are not the caller's to make.
-  visible_orders    scopes what a tailor can read to their own work.
-
-Roles come from core.roles so this cannot drift from the workflow engine, which
-is the mistake that module's docstring already records.
-"""
 
 from rest_framework import permissions
 
+from .modules import MODULES, module_for_path, role_allows
 from .roles import DESIGNER, OWNER, resolve_user_role
 
-#: Everyone who works on garments. Masters supervise, so they see the floor;
-#: the rest see what they were given.
 SUPERVISOR_ROLES = frozenset({'Master'})
 
 
-class RolePermission(permissions.BasePermission):
-    """The default for every business endpoint.
+def _role_modules(request):
+    """The owner's role -> module map for this boutique, read ONCE per request.
 
-    Owner does everything. Production staff read, and write only through the
-    order actions that are their job. A designer gets nothing here at all --
-    the Design Studio has its own permission classes, and those views set them
-    explicitly, so reaching this class means the designer is somewhere that is
-    not theirs.
+    Cached on the request because a single view can carry several permission
+    classes and DRF instantiates and calls each one; without the cache a
+    request pays one BoutiqueSettings query per class, per call, and
+    has_object_permission paths pay it again. The cost is one indexed
+    single-row query on the first governed check of a request and nothing
+    after that.
+
+    NOT cached beyond the request: the owner edits this map from a screen in
+    the product, and a stale allow is an access-control bug rather than a slow
+    page. Entitlement is not cached here at all -- see _module_permits, which
+    no longer reads it, and tenants/middleware.py, which reads it fresh per
+    request.
+
+    Nothing here may raise. A permission class that throws is a 500 on every
+    request it guards, so the three ways this lookup legitimately finds
+    nothing -- no BoutiqueSettings row yet (a fresh boutique), no tenant schema
+    at all (management commands, the public schema), a null or malformed
+    column -- all resolve to {}: no explicit decisions recorded, so
+    ROLE_DEFAULTS decides.
     """
+    cached = getattr(request, '_role_modules', None)
+    if cached is None:
+        from crm_api.models import BoutiqueSettings
+        try:
+            # id=1 is the singleton row, the same one BoutiqueSettingsViewSet
+            # get_or_creates and queue_order_ids reads.
+            cached = BoutiqueSettings.objects.values_list(
+                'role_modules', flat=True).filter(id=1).first()
+        except Exception:
+            cached = None
+        if not isinstance(cached, dict):
+            cached = {}
+        request._role_modules = cached
+    return cached
+
+
+class ModuleAccess(permissions.BasePermission):
+    """The module gate, and the base of every permission class in this codebase.
+
+    Two layers decide whether a request may touch a module at all:
+
+        effective(user) = ENTITLED(boutique) AND ALLOWED(role)
+
+    Entitlement is the platform's (BoutiqueTenant.enabled_modules) and is
+    enforced in TenantHeaderMiddleware. Distribution is the owner's
+    (BoutiqueSettings.role_modules) and cannot be enforced there: the
+    middleware runs before DRF authenticates, so request.user is AnonymousUser
+    and the role is unknowable. Hence a permission class.
+
+    WHY THIS IS THE BASE CLASS AND NOT A MIXIN OVER has_permission. About
+    twenty-one views declare permission_classes explicitly, which replaces
+    DEFAULT_PERMISSION_CLASSES outright -- adding the gate to the default alone
+    would enforce nothing on payroll, staff, inventory or the design studio
+    while looking like it did. The obvious fix, a mixin whose has_permission
+    calls super(), does not work either: every class below defines its own
+    has_permission, so Python finds the subclass method first and the mixin
+    never runs. Verified, not assumed -- DesignLibraryPermission is the proof,
+    it returns True outright for `create` without reaching super() at all.
+
+    So has_permission is FINAL and lives here; the role rule each subclass used
+    to put in has_permission now lives in has_role_permission, which this
+    method calls after the gate. A subclass cannot skip the gate without
+    deliberately re-defining has_permission, and core/test_module_enforcement.py
+    fails if one ever does.
+
+    It also works standalone: BasePermission's contract is "return True unless
+    you object", so `permission_classes = [IsAuthenticated, ModuleAccess]` is
+    the whole fix for a view that had no role class of its own.
+    """
+
+    def has_permission(self, request, view):
+        key = module_for_path(request.path)
+        # None means NOT GOVERNED, never "unknown, so deny": /api/auth/,
+        # /api/dashboard/ and every prefix nobody has assigned a module to
+        # resolve to None, and denying on it would switch off the product.
+        if key is not None and not self._module_permits(request, key):
+            return False
+        return self.has_role_permission(request, view)
+
+    def has_role_permission(self, request, view):
+        """What this permission class actually decides. Override this one."""
+        return True
+
+    def _module_permits(self, request, key):
+        """LAYER 2 ONLY. Entitlement is the middleware's and is not re-checked.
+
+        It used to be re-checked here, off connection.tenant.enabled_modules,
+        under a comment asserting that copy could not lag the console. It can,
+        and that assertion is how this shipped. connection.tenant is the object
+        tenants/middleware.py caches per process for 300 seconds, and
+        clear_tenant_cache() clears the cache of the ONE worker that served the
+        console write -- so for up to five minutes after the platform re-enabled
+        a module, every other worker went on 403-ing the boutique owner with the
+        entitlement wording, which sends them to support, where support looks at
+        the console and sees the module enabled.
+
+        Deleted rather than re-read from the row, because the re-check was
+        redundant: nothing reaches DRF on a governed path without the
+        middleware's own check, which IS fresh (_control_state() selects
+        is_active/enabled_modules per request, not off the cached object).
+        Traced rather than assumed, for every entry path:
+
+          * TenantHeaderMiddleware.process_request runs on every request and
+            refuses a governed path before any view sees it.
+          * The only way past that check is `tenant is None`, and the same
+            method then 400s every /api/ path except /api/auth/ and
+            /api/superadmin/ -- both ALWAYS_ON, so module_for_path returns None
+            for them and there is nothing to enforce.
+          * /track/ is the one governed prefix outside /api/, and it is a plain
+            Django view: crm_api/tracking_views.py resolves its own tenant from
+            the signed token and reads is_enabled off the registry row itself.
+            No permission class is involved.
+
+        A second read here would buy nothing and cost a query per request.
+        """
+        # self.message is what DRF puts in the 403 body, and permission
+        # instances are built per request (get_permissions() constructs them),
+        # so writing to it here cannot leak one caller's refusal into another's.
+        label = MODULES.get(key, (key,))[0]
+
+        # Distribution. An unknown role gets the least-privileged
+        # real role's defaults inside role_allows, never "everything".
+        role = resolve_user_role(request.user)
+        if role_allows(_role_modules(request), role, key):
+            return True
+        whose = f"the {role} role" if role else "your role"
+        self.message = (f"The {label} module is not part of {whose}'s access "
+                        f"at this boutique. Only the owner can change that, "
+                        f"in Boutique Settings.")
+        return False
+
+
+class RolePermission(ModuleAccess):
 
     message = "Your role does not permit this."
 
-    #: Order actions production staff perform as part of the work itself.
-    #: These are the *method* names on the viewset, not the url_paths -- DRF
-    #: sets view.action from the method, so `transition_stage` here and
-    #: `transition` in the URL. Getting that wrong locks a tailor out of
-    #: advancing their own stage, which is how this list was first written.
     STAFF_ORDER_ACTIONS = frozenset({
         'transition_stage', 'submit_completion', 'submit_stage_review',
         'update_status',
-        # Reversals reach the view for every staff member so the QC Master can
+        # Reversals reach the view for every staff member so the QC Staff can
         # fail a check; the precise role gates (Owner/Master for reopen,
-        # +QC Master for fail-qc) live in the services, where a refusal also
+        # +QC Staff for fail-qc) live in the services, where a refusal also
         # explains itself.
         'reopen_stage', 'fail_qc',
     })
 
-    #: Handing work to someone else is a supervisor's call, not a tailor's.
-    #: The finished-garment photographs belong here too: the specification has
-    #: the owner or the master taking and publishing them, and publishing is
-    #: what tells the customer their outfit is ready.
     SUPERVISOR_ORDER_ACTIONS = frozenset({
         # The gathering checklist's writes: ticking a line and photographing
         # the material are the Owner's and the Master's, like the rest here.
         'gather', 'line_photo',
         'assign_stage', 'upload_garment_image', 'delete_garment_image',
         'publish_garment_images',
-        # The Master's production checklist. It has its own narrow action
-        # precisely so it can live here: the checklist used to be saved with a
-        # plain PATCH of the order, which DRF calls 'partial_update', and that
-        # action also carries payment_status and amount_paid. Admitting it
-        # wholesale would have opened the money fields to a supervisor to make
-        # a row of tick boxes work.
         'master_verification',
     })
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         role = resolve_user_role(request.user)
         if role is None:
             return False
         if role == OWNER:
             return True
         if role == DESIGNER:
-            # A design-only account has no business in customers, orders,
-            # inventory or settings. Its own module grants its own access.
             return False
         if request.method in permissions.SAFE_METHODS:
             return True
@@ -88,64 +181,116 @@ class RolePermission(permissions.BasePermission):
         return action in self.SUPERVISOR_ORDER_ACTIONS and role in SUPERVISOR_ROLES
 
 
-class OwnNotifications(permissions.BasePermission):
-    """Anyone signed in may read and clear their OWN notification feed.
-
-    NotificationViewSet used the default RolePermission, which allows a
-    non-Owner every safe method but only the named order actions as writes --
-    and mark-all-read is a POST that is on neither list. So every staff member
-    got a 403 the moment they opened the notification drawer, and because the
-    frontend surfaced that as a thrown error inside the click handler, the
-    whole application dropped to its runtime-error screen. The bell is on every
-    screen, so a tailor lost the app on their first click.
-
-    Safe without a role check for READS and updates: get_queryset derives the
-    audience from the signed-in user, so both are already confined to the
-    caller's own rows.
-
-    Creation is the exception, and the sentence above used to cover it by
-    mistake -- `create` never calls get_queryset, and NotificationSerializer is
-    fields='__all__' over a writable recipient_role and recipient_email. So any
-    signed-in staff member could POST a notification addressed to the OWNER,
-    with any title and body they liked, and it appeared in the owner's bell
-    indistinguishable from one the system had raised. Notifications are how this
-    product tells the owner an order needs attention or a payment has landed.
-
-    Nothing legitimately creates one over HTTP: every real notification is
-    written server-side by domains/orders/notifications.py.
-    """
+class OwnNotifications(ModuleAccess):
 
     message = "Sign in to see your notifications."
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         if resolve_user_role(request.user) is None:
             return False
-        # Refused for everyone, including the Owner -- there is no caller for
-        # it. `destroy` needs no clause here because it resolves its object
-        # through the scoped get_queryset, and `mark_all_read` is a custom
-        # action with its own name.
-        #
-        # Deliberately NOT http_method_names = [...] without 'post':
-        # APIView.dispatch tests that list before it maps the action, so
-        # dropping POST would 405 mark-all-read and take the notification bell
-        # down for every non-Owner -- which is the outage this class was
-        # written to fix in the first place.
         if getattr(view, 'action', None) == 'create':
             return False
         return True
 
 
-class OwnerOnly(permissions.BasePermission):
-    """For the things only the person who owns the business should see.
-
-    Stock valuation, cost per order and supplier performance are the boutique's
-    commercial position. A tailor needs none of it to sew.
-    """
+class OwnerOnly(ModuleAccess):
 
     message = "Only the boutique owner can see this."
 
-    def has_permission(self, request, view):
+    def has_role_permission(self, request, view):
         return resolve_user_role(request.user) == OWNER
+
+
+class StaffSelfOrOwner(ModuleAccess):
+    """Employment records: the owner writes them, a staff member reads their own.
+
+    Deliberately NOT RolePermission, which is the default for business
+    endpoints. That class grants every non-Owner staff member every safe
+    method -- correct for the order book, wrong here, because a GET on this
+    viewset is the whole boutique's pay rates and deposit terms. A colleague's
+    wage is the one thing on the floor that must not be readable by asking.
+
+    This is one third of the rule. It decides what a caller may *do*; which
+    rows they may do it to is StaffProfileViewSet.get_queryset; which fields of
+    a visible row they may read is StaffProfileSerializer. All three are needed
+    and none is sufficient: this class alone would let a tailor read every row,
+    the queryset alone would let them PATCH their own hourly rate, and the two
+    together still could not let a Master see the team WITHOUT seeing its pay.
+
+    A supervisor reads, and only reads. Masters are given the roster by
+    get_queryset because supervising a floor means knowing who is on it -- but
+    the money on a colleague's row is removed by the serializer, and every
+    write stays here, with the owner.
+
+    THE FINANCIAL BOUNDARY, stated once so later phases inherit it: staff money
+    is Owner-only. Payroll generation, approval, payment, deposit and advance
+    movements, and any mutation of a rate are the owner's alone. A supervisor
+    approving the wages of the people they supervise is the conflict this line
+    exists to prevent. Later phases add endpoints, not exceptions -- anything
+    that moves money uses OwnerOnly, not this class.
+    """
+
+    message = "Only the boutique owner can manage employment details."
+
+    #: The writes a staff member performs ON THEMSELVES. Named actions rather
+    #: than "POST is allowed", mirroring RolePermission.STAFF_ORDER_ACTIONS --
+    #: which exists for the same reason: production staff need a few specific
+    #: writes as part of doing the job, and listing them is what stops that need
+    #: from opening every other write on the viewset.
+    #:
+    #: These are the METHOD names on the viewset (`check_in`), not the url_paths
+    #: (`check-in`); DRF sets view.action from the method. Getting that backwards
+    #: silently locks every staff member out of recording their own hours.
+    #:
+    #: Whose row is affected is not decided here -- the actions resolve the
+    #: caller's own staff profile from the token and never read a staff id from
+    #: the request body, so there is no id for anyone to substitute.
+    #: `acknowledge` earns its place the same way: saying "I have seen my
+    #: review" is a write, and without it here the acknowledgement step is
+    #: unreachable by the only people entitled to perform it. The action itself
+    #: still checks the review is theirs and is finalised.
+    SELF_SERVICE_ACTIONS = frozenset({'check_in', 'check_out', 'acknowledge'})
+
+    def has_role_permission(self, request, view):
+        role = resolve_user_role(request.user)
+        if role is None:
+            return False
+        if role == OWNER:
+            return True
+        if getattr(view, 'action', None) in self.SELF_SERVICE_ACTIONS:
+            return True
+        # Read-only for everyone else. A staff member raising their own pay is
+        # the obvious thing to close, and it is closed here rather than by
+        # trusting the interface not to offer the button.
+        return request.method in permissions.SAFE_METHODS
+
+
+class OwnerOrOwnFinancialRecord(ModuleAccess):
+    """Financial records: the owner does everything, a staff member reads their own.
+
+    For payslips and advances only. Everything that MOVES money -- generating,
+    approving, paying, issuing, cancelling -- stays with OwnerOnly. This class
+    exists because the Phase 6 access matrix lets a person read their own net
+    pay and their own advance, and RolePermission would let them read
+    everybody's.
+
+    As with StaffSelfOrOwner, this is one third of the rule: it decides what a
+    caller may DO. Which rows they may read is the viewset's get_queryset,
+    which narrows a non-owner to rows whose staff is their own Tailor profile.
+    A Master is a non-owner here -- supervising the floor grants nothing about
+    what the floor is paid, and this class does not know or care about
+    SUPERVISOR_ROLES.
+    """
+
+    message = "Only the boutique owner can manage payroll."
+
+    def has_role_permission(self, request, view):
+        role = resolve_user_role(request.user)
+        if role is None:
+            return False
+        if role == OWNER:
+            return True
+        return request.method in permissions.SAFE_METHODS
 
 
 #: A stage nobody has finished with. The inverse of workflow.SETTLED_STATUSES,
@@ -154,41 +299,11 @@ UNSETTLED_STATUSES = ('NOT_STARTED', 'IN_PROGRESS', 'PAUSED')
 
 
 def stages_for_role(config, role):
-    """The stage keys this role is declared able to perform.
-
-    Reads workflow_config's own `roles` list -- the SAME declaration
-    workflow.check_transition enforces on the way in. That shared source is the
-    point: a role is shown exactly the work it is permitted to do, so
-    "what I can see" and "what I may touch" cannot drift apart. Two lists would.
-    """
     return [s['key'] for s in (config or [])
             if s.get('key') and role in (s.get('roles') or [])]
 
 
 def queue_order_ids(queryset, user, role):
-    """Orders sitting on this role's desk right now.
-
-    Work "has reached" a role when a stage they may perform is still open AND
-    everything required before it is settled -- which is precisely the condition
-    workflow.check_transition would accept, asked ahead of time instead of at
-    the moment of the click.
-
-    This is what makes a specialist role discoverable at all. A QC Master is
-    never order.tailor (that is the stitcher) nor order.master (that is the
-    supervisor), so before this they saw an order only if a human remembered to
-    run assign-stage against them. Orders reached quality check and sat there
-    invisible, and the inspection got completed by whoever could see it.
-
-    Readiness is what keeps it honest in the other direction: without it, every
-    order ever taken would carry a NOT_STARTED quality-check stage and the whole
-    order book would land in the QC Master's lap on day one. They see the ones
-    actually waiting for them, and nothing else.
-
-    ponytail: one small query per stage the role owns. Specialists own one stage
-    each and Masters short-circuit above, so this is 1-2 queries in practice.
-    Fold into a single window function if a boutique ever declares a role onto
-    many stages.
-    """
     from crm_api.models import BoutiqueSettings, OrderStage
     from domains.orders.workflow import prerequisites
 
@@ -201,14 +316,6 @@ def queue_order_ids(queryset, user, role):
         ready = queryset.filter(
             stages__stage_key=stage_key, stages__status__in=UNSETTLED_STATUSES)
         if earlier:
-            # An explicit subquery, NOT exclude(stages__a=..., stages__b=...).
-            # Across a multi-valued relation Django compiles that pair into two
-            # INDEPENDENT EXISTS clauses -- "has some earlier stage" AND "has
-            # some unsettled stage" -- which are satisfied by different rows.
-            # Every order sitting at quality check still has unsettled stages
-            # after it (trial, delivery), so that form excluded every order in
-            # the boutique and the queue came back empty. Both conditions have
-            # to describe ONE stage row, which is what this says.
             blocked = OrderStage.objects.filter(
                 stage_key__in=earlier, status__in=UNSETTLED_STATUSES
             ).values('order_id')
@@ -218,17 +325,6 @@ def queue_order_ids(queryset, user, role):
 
 
 def visible_orders(queryset, user):
-    """Narrow `queryset` to the orders this user is allowed to see.
-
-    Owners and Masters see the floor. Everyone else sees the orders they are on
-    -- as the assigned tailor, as the master, through a stage assigned to them,
-    or because the order has reached a stage their role performs -- because a
-    tailor reading the whole order book is how a customer list walks out of the
-    building.
-
-    That last clause is the work queue. The three before it are all personal
-    attachment, which a specialist never has until somebody grants it by hand.
-    """
     role = resolve_user_role(user)
     if role == OWNER or role in SUPERVISOR_ROLES:
         return queryset
@@ -247,7 +343,7 @@ def visible_orders(queryset, user):
 
 
 def visible_customers(queryset, user):
-    """The customers behind the orders this user can see."""
+
     role = resolve_user_role(user)
     if role == OWNER or role in SUPERVISOR_ROLES:
         return queryset
@@ -256,25 +352,10 @@ def visible_customers(queryset, user):
     if profile is None:
         return queryset.none()
 
-    # Matched through a subquery rather than by joining, because the join is
-    # what forced distinct=True onto the aggregates in
-    # CustomerRepository.summary_queryset -- and Sum(DISTINCT col) de-duplicates
-    # by VALUE, not by row, so two orders at the same price counted once.
-    #
-    # Filtering on `orders__stages__assigned_to` multiplies each customer row by
-    # every stage of every one of their orders (fifteen stages per order), so the
-    # annotations further up the queryset saw each order fifteen times. Doing the
-    # matching inside a subquery leaves the outer queryset with no multi-valued
-    # join at all: the aggregates then see each order exactly once, distinct is
-    # unnecessary, and the trailing .distinct() that was papering over the row
-    # list goes too.
     from django.db.models import Q
     from crm_api.models import Customer, Order
     match = (Q(orders__tailor=profile) | Q(orders__master=profile)
              | Q(orders__stages__assigned_to=profile))
-    # Kept deliberately in step with visible_orders: a role that can see an
-    # order must be able to resolve whose it is, or the queue renders rows with
-    # no customer on them.
     queued = queue_order_ids(Order.objects.all(), user, role)
     if queued:
         match |= Q(orders__id__in=queued)

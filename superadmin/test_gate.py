@@ -1,29 +1,3 @@
-"""Regression tests for the final security gate.
-
-Two P0s were found here and both were measured before they were fixed, not
-reasoned about:
-
-  1. **/admin/ was outside every perimeter.** The console's public-schema pin
-     covered `/api/superadmin/` only. `tenants` and `superadmin` are SHARED_APPS,
-     so their tables exist only in `public` -- but a tenant search_path is
-     `'<tenant>', public`, so they still resolve from inside a boutique, while
-     `auth_user` (in BOTH app lists) resolves to the BOUTIQUE's table. Sending
-     `X-Tenant-ID: <my own boutique>` to /admin/login/ therefore let a boutique's
-     own superuser authenticate and then administer the PLATFORM. Measured: it
-     read the full registry, read the platform audit log, and SUSPENDED a
-     different boutique. `IsPlatformAdmin` never ran, because /admin/ is not DRF.
-
-  2. **The platform administrator's password could be reset through the
-     boutique flow.** `find_tenants_for_account` scans every registry row for a
-     matching account; inside a schema that does not exist that scan reads
-     `public`, where the platform administrator lives. Measured: a reset request
-     for the administrator's address minted a valid token naming the ghost
-     schema, and the confirm endpoint accepted it and overwrote the password.
-
-Both are closed at shared boundaries rather than at call sites -- `PUBLIC_ONLY_
-PREFIXES` in tenants/middleware.py, and `EXTRA_SET_TENANT_METHOD_PATH` (django-
-tenants' own hook into every `set_tenant`) in tenants/schema_guard.py.
-"""
 
 from django.contrib.auth.models import User
 from django.core import mail, signing
@@ -57,7 +31,7 @@ def console_client(username='gate@admin.test', password='GateAdminPw-2026'):
 
 
 class DjangoAdminIsPlatformOnly(TransactionTestCase):
-    """P0-1. /admin/ is pinned to the public schema."""
+
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -86,7 +60,6 @@ class DjangoAdminIsPlatformOnly(TransactionTestCase):
                              'a boutique superuser read the platform registry')
             self.assertNotIn('Target B', body)
 
-            # And the action that would take the platform down.
             connection.set_schema_to_public()
             client.post('/admin/tenants/boutiquetenant/',
                         {'action': 'suspend', '_selected_action': [str(victim.pk)]},
@@ -97,7 +70,7 @@ class DjangoAdminIsPlatformOnly(TransactionTestCase):
                 'a boutique superuser suspended a different boutique through /admin/')
 
     def test_the_platform_administrator_can_still_use_the_admin(self):
-        """The fix must not lock out the person it is protecting."""
+
         connection.set_schema_to_public()
         User.objects.filter(username='real@gt.test').delete()
         User.objects.create_superuser(username='real@gt.test', email='real@gt.test',
@@ -117,7 +90,7 @@ class DjangoAdminIsPlatformOnly(TransactionTestCase):
 
 
 class PlatformAccountIsUnreachableFromTenantFlows(TransactionTestCase):
-    """P0-2. No boutique-scoped flow may resolve the platform administrator."""
+
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -145,7 +118,7 @@ class PlatformAccountIsUnreachableFromTenantFlows(TransactionTestCase):
                 'the platform administrator password was changed')
 
     def test_a_reset_payload_naming_a_ghost_schema_is_refused(self):
-        """The confirm endpoint takes its schema from request-body text."""
+
         with temporary_tenant('gt_real_pw', 'r@gp.test', 'Real PW'), \
              ghost_tenant('gt_ghost_pw2', 'o2@gp.test', 'Ghost PW2'):
             clear_tenant_cache()
@@ -176,8 +149,6 @@ class PlatformAccountIsUnreachableFromTenantFlows(TransactionTestCase):
             self.assertNotEqual(response.status_code, 200,
                                 'the platform account signed in as a boutique user')
             body = response.content.decode(errors='replace')
-            # The raw Postgres error used to be returned verbatim, naming real
-            # tables and columns to an unauthenticated caller.
             self.assertNotIn('does not exist', body)
             self.assertNotIn('relation', body)
             self.assertNotIn('LINE 1', body)
@@ -193,7 +164,7 @@ class PlatformAccountIsUnreachableFromTenantFlows(TransactionTestCase):
 
 
 class TheSchemaGuardIsGlobal(TransactionTestCase):
-    """The boundary itself, rather than any one caller of it."""
+
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -205,8 +176,6 @@ class TheSchemaGuardIsGlobal(TransactionTestCase):
             with self.assertRaises(MissingSchema):
                 with schema_context('gt_guard'):
                     pass
-            # And the connection is left somewhere safe rather than pointed at a
-            # schema Postgres would resolve to public.
             self.assertEqual(connection.schema_name, 'public')
 
     def test_public_and_real_schemas_are_unaffected(self):
@@ -218,8 +187,6 @@ class TheSchemaGuardIsGlobal(TransactionTestCase):
         self.assertEqual(connection.schema_name, 'public')
 
     def test_creating_a_boutique_still_works(self):
-        """The guard must not break the one flow that legitimately switches
-        into a schema that did not exist a moment earlier."""
         with temporary_tenant('gt_create', 'c@gt.test', 'Created') as tenant:
             self.assertTrue(tenant.pk)
             with schema_context('gt_create'):
@@ -245,8 +212,6 @@ class DataBrowserResidualLeaks(TransactionTestCase):
                              'public-schema accounts were rendered as a boutique\'s staff')
 
     def test_a_related_row_that_is_not_browsable_is_not_rendered(self):
-        """__str__ answers to no allowlist, so it is only shown for models the
-        allowlist has actually approved."""
         client = console_client()
         with temporary_tenant('gt_rel', 'r@gd.test', 'Rel'):
             clear_tenant_cache()
@@ -268,12 +233,6 @@ class DataBrowserResidualLeaks(TransactionTestCase):
                              'relation column')
 
     def test_an_unreviewed_credential_shaped_field_is_masked(self):
-        """The names a denylist would have missed.
-
-        Measured against the denylist this replaced: every one of these passed
-        it untouched. Under the allowlist a field is masked unless it has been
-        reviewed onto its model's list, whatever it is called.
-        """
         class Field:
             def __init__(self, name):
                 self.name = name
@@ -286,8 +245,6 @@ class DataBrowserResidualLeaks(TransactionTestCase):
                 datasets._is_redacted(Field(name), 'crm_api.customer'),
                 f'{name!r} would be rendered without ever having been reviewed')
 
-        # And the old denylist is still underneath, so a careless addition to
-        # ALLOWED_FIELDS cannot publish an obvious credential.
         for name in ('password', 'api_key', 'auth_token', 'client_secret'):
             self.assertTrue(datasets._is_redacted(Field(name)))
 
@@ -347,7 +304,7 @@ class PrivilegedReadsAreAudited(TransactionTestCase):
 
 
 class DjangoAdminSuspensionIsAudited(TransactionTestCase):
-    """The back door writes to the same trail as the front door."""
+
 
     def setUp(self):
         connection.set_schema_to_public()
@@ -386,5 +343,4 @@ class DjangoAdminSuspensionIsAudited(TransactionTestCase):
             self.assertEqual(entry.after, {'is_active': False})
             self.assertIn('Django admin', entry.reason)
 
-            # Leave the boutiques as they were found.
             BoutiqueTenant.objects.filter(pk__in=[a.pk, b.pk]).update(is_active=True)

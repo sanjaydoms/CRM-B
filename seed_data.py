@@ -1,7 +1,6 @@
 import os
 import django
 
-# Set up Django environment
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'boutique_crm.settings')
 django.setup()
 
@@ -13,7 +12,6 @@ from django_tenants.utils import schema_context
 
 def seed():
     refuse_unless_local_database()
-    # 1. Create Public Tenant Registry
     if not BoutiqueTenant.objects.filter(schema_name='public').exists():
         public_tenant = BoutiqueTenant.objects.create(
             schema_name='public',
@@ -29,24 +27,13 @@ def seed():
     else:
         print("Public tenant registry already exists")
 
-    # 2. Create Superuser in Public Schema
     with schema_context('public'):
-        # No literal password. This used to create the platform administrator
-        # -- the account that lists, browses and suspends every boutique -- as
-        # admin/admin123, and that row is in the committed SQL dump. Worse, it
-        # took the name create_superuser.py also uses, and that script used to
-        # skip when the account existed: so the deploy-time rotation reported
-        # success on every redeploy while leaving this password in place.
-        #
-        # A local seed does not need a superuser at all; create_superuser.py is
-        # what makes one, from the environment, and now rotates it every deploy.
         if not User.objects.filter(username='admin').exists():
             print("No superuser in public schema. Create one with:")
             print("  DJANGO_SUPERUSER_PASSWORD=... python create_superuser.py")
         else:
             print("Superuser in public schema already exists")
 
-    # 3. Create Default Test Boutique Owner Tenant
     owner_email = 'owner@tryon2buy.com'
     owner_schema = 'owner_tryon2buy_com'
     
@@ -65,9 +52,7 @@ def seed():
     else:
         print(f"Default tenant schema '{owner_schema}' already exists")
 
-    # 4. Seed User & Catalog inside the Owner Tenant Schema
     with schema_context(owner_schema):
-        # Create Owner User account
         if not User.objects.filter(username=owner_email).exists():
             User.objects.create_user(
                 username=owner_email,

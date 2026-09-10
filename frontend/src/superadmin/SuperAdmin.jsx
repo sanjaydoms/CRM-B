@@ -15,6 +15,7 @@
 import { Component, useCallback, useEffect, useState } from 'react';
 import { LogOut, RefreshCw, ShieldCheck } from 'lucide-react';
 
+import { reportCrash } from '../services/reportCrash';
 import { clearToken, consoleApi, getToken } from './api';
 import { NAV, ROUTES } from './nav';
 import { useRoute } from './router';
@@ -33,6 +34,7 @@ import OrdersMonitor from './screens/OrdersMonitor.jsx';
 import Integrations from './screens/Integrations.jsx';
 import Messaging from './screens/Messaging.jsx';
 import Errors from './screens/Errors.jsx';
+import ErrorHandling from './screens/ErrorHandling.jsx';
 import Health from './screens/Health.jsx';
 import Audit from './screens/Audit.jsx';
 import Sessions from './screens/Sessions.jsx';
@@ -56,6 +58,7 @@ const SCREENS = {
   integrations: Integrations,
   messaging: Messaging,
   errors: Errors,
+  handling: ErrorHandling,
   jobs: NotMeasured,
   api: NotMeasured,
   audit: Audit,
@@ -81,8 +84,11 @@ class Boundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    // Nothing collects frontend errors yet -- the backend Error Center captures
-    // server exceptions only. The console at least says so out loud.
+    // Something does collect frontend errors now: /api/client-errors/ files
+    // this as an ErrorEvent of kind='frontend'. The console reports its own
+    // crashes through the same door as the boutique workspace -- an operator
+    // whose Error Center screen just died should not have to notice and say so.
+    reportCrash(error, info);
     console.error('Console screen crashed:', error, info);
   }
 

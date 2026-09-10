@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     DesignAssetViewSet, DesignBoardViewSet, DesignContextView, DesignDiscoveryView,
     DesignerViewSet, DesignCategoryView, DesignDashboardView, CollectionViewSet,
+    GarmentPartImageView,
     DesignAssignmentViewSet,
 )
 
@@ -18,6 +19,7 @@ urlpatterns = [
     path('context/', DesignContextView.as_view(), name='design-context'),
     path('discover/', DesignDiscoveryView.as_view(), name='design-discover'),
     path('categories/', DesignCategoryView.as_view(), name='design-categories'),
+    path('part-images/', GarmentPartImageView.as_view(), name='design-part-images'),
     path('dashboard/', DesignDashboardView.as_view(), name='design-dashboard'),
     path('', include(router.urls)),
 ]

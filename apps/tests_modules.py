@@ -1,9 +1,3 @@
-"""Coverage for the production, scheduling and activity modules.
-
-These three apps had no tests at all. They are reachable over the API and the
-production tasks are created automatically for every order, so they carry real
-behaviour.
-"""
 
 from django.contrib.auth.models import User
 from django.urls import reverse

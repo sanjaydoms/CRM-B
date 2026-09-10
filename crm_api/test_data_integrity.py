@@ -1,9 +1,3 @@
-"""Validation, derived values and API contract.
-
-Covers the areas the original suite left open: input the API should reject,
-figures the dashboard reports, and derived fields the interface presents as
-client attributes.
-"""
 
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -66,11 +60,6 @@ class CustomerValidationTests(IntegrityTestBase):
             "first_name": "D", "last_name": "Four", "mobile_number": "9444444444",
         }, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # Looked up by the CANONICAL number. Mobile numbers are now stored in
-        # one form whatever spelling was typed (Customer.save), so that a
-        # returning client entered as "+91 (0) 94444 44444" is the same record
-        # rather than a second profile. The bare ten digits this used to query
-        # are no longer what is in the column.
         customer = Customer.objects.get(mobile_number="919444444444")
         self.assertTrue(hasattr(customer, "measurements"))
 
@@ -136,12 +125,6 @@ class SegmentAndSpendTests(IntegrityTestBase):
 
 class StyleDnaStabilityTests(IntegrityTestBase):
     def test_style_profile_is_stable_for_the_same_client(self):
-        """A client's style profile must not change between processes.
-
-        The colour and style fields were seeded from Python's built-in hash(),
-        which is salted per process -- so the same client showed a different
-        palette after every server restart.
-        """
         import subprocess
         import sys
 

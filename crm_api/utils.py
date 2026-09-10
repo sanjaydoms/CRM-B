@@ -1,36 +1,9 @@
 from crm_api.models import Tailor, BoutiqueFabric
 
 def seed_tenant_defaults(demo=True):
-    """Populate a tenant schema with demonstration content.
-
-    `demo` defaults to True because the two manual callers -- seed_data.py and
-    SeedDataView -- exist precisely to produce a populated playground. It is
-    passed False from SignupView, the one caller that creates a REAL boutique.
-
-    What this content was doing to a real one: four employees who do not exist
-    (Rohit Mehra, Master, rating 4.90; Anya Sharma; Rahul Verma; Preeti Singh),
-    five fabrics at another business's prices (Silk Dupion Rs1850/m, Banarasi
-    Silk Rs2850/m) and eleven catalogue designs at Rs45,000 and Rs38,000.
-
-    None of it is cosmetic, because the fabric prices reach money: the order
-    wizard sets fabric_price = selectedFabric.price_per_meter * 3, and that
-    prints on the invoice handed to the customer. So a day-one order could be
-    assigned to somebody who does not work there, priced at a rate the owner
-    never set, and sent out.
-
-    The opposite decision is already recorded a few screens away, on the
-    appointments panel: "An empty panel is better than an invented one." This
-    brings the roster, the fabric library and the catalogue into line with it.
-
-    Nothing a real tenant NEEDS is in here -- garment templates and the
-    inventory catalogue arrive with the schema's own migrations, not from this
-    function -- so returning early is safe. The order wizard already handles an
-    empty roster, and now offers to add the first staff member instead.
-    """
     if not demo:
         return
 
-    # Seed Tailors
     tailors = [
         {"name": "Rohit Mehra", "specialty": "Ethnic & Bridal Cutting", "rating": 4.90, "status": "Available", "role": "Master"},
         {"name": "Anya Sharma", "specialty": "Blouse & Lehenga Specialist", "rating": 4.80, "status": "Available", "role": "Tailor"},
@@ -44,7 +17,6 @@ def seed_tenant_defaults(demo=True):
             defaults={"specialty": t["specialty"], "rating": t["rating"], "status": t["status"], "role": t["role"]}
         )
 
-    # Seed Boutique Fabrics
     fabrics = [
         {"name": "Silk Dupion", "material": "Pure Silk", "color": "Dusty Rose", "price_per_meter": 1850.00, "image_url": "https://images.unsplash.com/photo-1558171813-4c088753af8f?w=400"},
         {"name": "Banarasi Silk", "material": "Zari Silk", "color": "Metallic Gold", "price_per_meter": 2850.00, "image_url": "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400"},
@@ -62,9 +34,7 @@ def seed_tenant_defaults(demo=True):
             fab_obj.image_url = f["image_url"]
             fab_obj.save()
 
-    # Seed Boutique & AI Designs
     designs = [
-        # AI Suggestions (is_boutique=False)
         {
             "name": "Pastel Silver Zari Lehenga",
             "garment_type": "Lehenga",
@@ -136,7 +106,6 @@ def seed_tenant_defaults(demo=True):
             "price": 0.0
         },
 
-        # Boutique Catalog (is_boutique=True)
         {
             "name": "Royal Maroon Velvet Lehenga",
             "garment_type": "Lehenga",
@@ -179,7 +148,6 @@ def seed_tenant_defaults(demo=True):
         }
     ]
 
-    # Seeds into the design library, which is where the catalogue lives now.
     from apps.design_studio.models import DesignAsset
 
     for d in designs:
@@ -202,7 +170,6 @@ def seed_tenant_defaults(demo=True):
             des_obj.image_url = d["image_url"]
             des_obj.save()
 
-    # Seed Customers & Orders only for Sanjay's Boutique
     from django.db import connection
     if connection.schema_name == 'sanjay_garlapenta_domsglobal_co':
         from crm_api.models import Customer, Measurement, Order, OrderStage, OrderActivity
@@ -229,7 +196,6 @@ def seed_tenant_defaults(demo=True):
                 }
             )
             if created:
-                # Seed measurements
                 Measurement.objects.create(
                     customer=cust,
                     bust=36.0,
@@ -241,13 +207,11 @@ def seed_tenant_defaults(demo=True):
                     length=42.0
                 )
 
-        # Fetch seeded customers and tailors
         db_customers = list(Customer.objects.all())
         db_tailors = list(Tailor.objects.all())
         master_tailor = Tailor.objects.filter(role='Master').first()
         stitching_tailor = Tailor.objects.filter(role='Tailor').first()
 
-        # Seed Orders
         orders_data = [
             {"order_id": "T2B-260701-1001", "customer": db_customers[0] if len(db_customers) > 0 else None, "status": "Delivered", "stage_key": "delivered", "prod_status": "COMPLETED"},
             {"order_id": "T2B-260702-1002", "customer": db_customers[1] if len(db_customers) > 1 else None, "status": "Ready for Dispatch", "stage_key": "ready_for_delivery", "prod_status": "NOT_STARTED"},
@@ -292,14 +256,12 @@ def seed_tenant_defaults(demo=True):
                 }
             )
             if created:
-                # Seed stages for this order
                 current_stage_reached = False
                 for idx, stage in enumerate(stages_config):
                     stage_status = "NOT_STARTED"
                     started_at = None
                     completed_at = None
                     
-                    # Logic to determine stage status based on reached key
                     if stage["key"] == o_data["stage_key"]:
                         stage_status = o_data["prod_status"]
                         started_at = datetime.datetime.now() - datetime.timedelta(hours=2)

@@ -1,33 +1,22 @@
-"""Visibility and validation for garment templates.
-
-The single most common way a dynamic form goes wrong is disagreeing with itself
-about which fields apply: the browser hides a field, the server still demands it,
-and the order saves with the wrong data. So the rule engine lives here, is used
-by every write path, and is mirrored field-for-field in
-frontend/src/services/templates.js.
-
-A hidden field is never required and is never stored.
-"""
 
 from decimal import Decimal, InvalidOperation
 
 
 class SpecValidationError(ValueError):
-    """Raised with {field_key: message} so the API can return a usable 400."""
+
 
     def __init__(self, errors):
         self.errors = errors
         super().__init__(f"{len(errors)} invalid field(s): {', '.join(sorted(errors))}")
 
 
-# --- visibility ------------------------------------------------------------
 
 def _as_list(value):
     return value if isinstance(value, (list, tuple)) else [value]
 
 
 def evaluate_rule(rule, values):
-    """Evaluate one `visible_when` rule against the answers collected so far."""
+
     if not rule:
         return True
     if 'all' in rule:
@@ -41,8 +30,6 @@ def evaluate_rule(rule, values):
 
     if op == 'is_set':
         return actual not in (None, '', [], {})
-    # A multiselect answer is a list, so 'in' means "any of the chosen values
-    # matches" -- picking Fall + Pico must reveal both the fall and pico fields.
     if op == 'in':
         return bool(set(_as_list(actual)) & set(_as_list(expected)))
     if op == 'not_in':
@@ -57,7 +44,7 @@ def is_visible(field, values):
 
 
 def visible_fields(template, values):
-    """Every field of the template that currently applies, in render order."""
+
     result = []
     for section in template.sections.all():
         for field in section.fields.all():
@@ -66,7 +53,6 @@ def visible_fields(template, values):
     return result
 
 
-# --- validation ------------------------------------------------------------
 
 def _clean_number(field, raw, errors):
     try:
@@ -95,12 +81,6 @@ def _clean_choice(field, raw, errors, multi):
 
 
 def validate_spec(template, spec, *, partial=False):
-    """Return the cleaned spec, dropping hidden fields and rejecting bad values.
-
-    `partial` relaxes the required check for a draft being saved mid-wizard; the
-    option, type and range checks always apply, because a bad value is a bad
-    value whether or not the form is finished.
-    """
     errors = {}
     cleaned = {}
     known = {}
@@ -111,8 +91,6 @@ def validate_spec(template, spec, *, partial=False):
 
     unknown_keys = set(spec) - set(known)
     if unknown_keys:
-        # Silently dropping a typo'd key is worse than refusing it: the order
-        # saves, looks fine, and the detail is simply gone by cutting day.
         for key in unknown_keys:
             errors[key] = "Unknown field for this garment."
 
@@ -152,7 +130,7 @@ def validate_spec(template, spec, *, partial=False):
 
 
 def _validate_cross_field(cleaned, errors):
-    """Rules that need more than one answer to check."""
+
     trial, delivery = cleaned.get('trial_date'), cleaned.get('delivery_date')
     if trial and delivery and str(trial) > str(delivery):
         errors['trial_date'] = "Trial date must fall before the delivery date."

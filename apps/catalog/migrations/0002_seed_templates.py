@@ -1,8 +1,3 @@
-"""Load the twelve shipped garment templates.
-
-Written as a data migration rather than a fixture so a redeploy re-syncs the
-global defaults, while every boutique's own forked template is left alone.
-"""
 
 from django.db import migrations
 

@@ -1,13 +1,3 @@
-"""Multi-garment pricing: the garment job is the source of money truth.
-
-An order used to carry one flat set of prices, filled by the wizard from the
-customer's single garment_type -- so a Blouse + Lehenga order was priced as
-whichever garment the profile named. These tests pin the replacement: each
-garment job carries its own components, the order's financial columns are their
-rollup written by domains.orders.pricing (the ONE arithmetic path), and every
-surface that shows money -- summary, invoice identity, tracking, analytics --
-agrees with that rollup to the paisa.
-"""
 
 from decimal import Decimal
 
@@ -50,8 +40,6 @@ class PricingTestBase(TenantTestCase):
                         HTTP_X_TENANT_ID=self.tenant.schema_name)
         return api
 
-    #: The minimum each template's own validation accepts -- real specs, so
-    #: these tests exercise the same GarmentJobSerializer path the wizard does.
     MINIMAL_SPECS = {
         'blouse': {'blouse_type': 'princess'},
         'lehenga': {'lehenga_type': 'a_line'},
@@ -93,7 +81,7 @@ class PricingTestBase(TenantTestCase):
 
 
 class ArithmeticTests(TenantTestCase):
-    """The pure functions, because money bugs hide in rounding and edges."""
+
 
     def test_tax_is_five_percent_after_discount(self):
         subtotal, taxes, total = pricing.totals_from_amounts(
@@ -103,7 +91,6 @@ class ArithmeticTests(TenantTestCase):
         self.assertEqual(total, Decimal('840.00'))
 
     def test_tax_rounds_half_up_to_the_paisa(self):
-        # 0.05 * 333.33 = 16.6665 -> 16.67, not banker's 16.66.
         _, taxes, _ = pricing.totals_from_amounts(
             {'base_price': Decimal('333.33')}, Decimal('0'), Decimal('0'))
         self.assertEqual(taxes, Decimal('16.67'))
@@ -139,7 +126,6 @@ class MultiGarmentPricingTests(PricingTestBase):
         self.assertEqual(jobs['lehenga'].base_price, Decimal('32000.00'))
         self.assertEqual(jobs['lehenga'].embroidery_price, Decimal('7500.00'))
 
-        # The order's columns are the rollup, not either garment's numbers.
         self.assertEqual(order.base_price, Decimal('36000.00'))
         self.assertEqual(order.tailoring_charges, Decimal('1500.00'))
         self.assertEqual(order.embroidery_price, Decimal('7500.00'))
@@ -240,7 +226,7 @@ class PaymentAgainstCanonicalTotalTests(PricingTestBase):
 
 
 class EverySurfaceOneNumberTests(PricingTestBase):
-    """The seven read surfaces must agree because they read one rollup."""
+
 
     def _confirmed_order(self):
         draft = self.a_draft(
@@ -253,8 +239,6 @@ class EverySurfaceOneNumberTests(PricingTestBase):
         return Order.objects.get(), response.data
 
     def test_the_invoice_identity_holds(self):
-        # Garment subtotals + packaging - discount + tax == grand total. If this
-        # breaks, the invoice's printed lines cannot add up to its own footer.
         order, data = self._confirmed_order()
         component_sum = sum((
             order.base_price, order.fabric_price, order.embroidery_price,
@@ -262,7 +246,6 @@ class EverySurfaceOneNumberTests(PricingTestBase):
             order.packaging_handling))
         self.assertEqual(component_sum - order.discount + order.taxes,
                          order.total_amount)
-        # And the serializer hands the same numbers to every screen.
         self.assertEqual(Decimal(str(data['total_amount'])), order.total_amount)
         self.assertEqual(Decimal(str(data['discount'])), order.discount)
 
@@ -279,9 +262,6 @@ class EverySurfaceOneNumberTests(PricingTestBase):
         connection.set_tenant(self.tenant)
         self.assertEqual(response.status_code, 200)
         page = response.content.decode()
-        # Derived from the order and run through the one shared formatter, so
-        # this test cannot agree with a wrong total OR drift from however the
-        # page happens to spell money today.
         from core.formatting import format_money
         self.assertIn(format_money(order.total_amount), page)
         self.assertIn(format_money(order.amount_paid), page)
@@ -325,8 +305,6 @@ class DraftPricingLifecycleTests(PricingTestBase):
         self.assertEqual(Order.objects.count(), 0)
 
     def test_confirm_uses_the_drafts_numbers_not_the_sessions(self):
-        # Refresh/resume: a different authenticated client confirms and the
-        # totals come from the persisted draft, nothing held in any browser.
         draft = self.a_draft([self.garment(self.blouse, base=4000)])
         other_client = self.client_for(self.owner)
         response = other_client.post(reverse('order-draft-confirm', args=[draft]))
@@ -346,7 +324,7 @@ class DraftPricingLifecycleTests(PricingTestBase):
 
 
 class ManipulationTests(PricingTestBase):
-    """The client owns its component inputs and nothing else."""
+
 
     def test_client_supplied_taxes_and_total_are_ignored(self):
         garments = [self.garment(self.blouse, base=4000)]
@@ -372,8 +350,6 @@ class ManipulationTests(PricingTestBase):
         self.assertEqual(Order.objects.count(), 0)
 
     def test_flat_priced_drafts_without_garment_pricing_still_confirm(self):
-        # The in-flight-draft path: no garment carries pricing, the flat block
-        # rules, jobs stay zero, and nothing recomputes them to zero the bill.
         payload_garments = [{'template': str(self.blouse.id),
                              'spec': dict(self.MINIMAL_SPECS['blouse']),
                              'measurements': dict(self.MINIMAL_MEASUREMENTS['blouse'])}]

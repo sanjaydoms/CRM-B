@@ -75,3 +75,14 @@ export function formatDateTime(value) {
   if (!d) return '';
   return `${formatDate(d)}, ${formatTime(d)}`;
 }
+
+/** The order number a customer reads: '#24', or the internal id for a row
+ *  written before numbering existed. Mirrors Order.reference on the server. */
+export function orderRef(order) {
+  if (!order) return '';
+  return order.order_reference
+    || (order.order_number ? `#${order.order_number}` : '')
+    || order.reference
+    || order.order_id
+    || '';
+}

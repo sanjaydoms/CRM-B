@@ -1,6 +1,9 @@
+import re
 import hashlib
 
 from rest_framework import serializers
+
+from core.validators import validate_mobile
 
 from apps.design_studio.models import DesignAsset
 from .models import (
@@ -11,17 +14,16 @@ from .models import (
 )
 
 class BoutiqueSettingsSerializer(serializers.ModelSerializer):
-    # Read-only, and sourced from the TENANT rather than this row: the zone is
-    # a property of the boutique itself (tenants.BoutiqueTenant), while this
-    # model lives inside the boutique's own schema. The browser needs it so its
-    # formatter renders the same instant as the server's -- otherwise a staff
-    # screen and the customer's tracking page disagree about what time a stage
-    # finished, which is the whole defect.
     timezone = serializers.SerializerMethodField()
 
     class Meta:
         model = BoutiqueSettings
-        fields = '__all__'
+        # Every signed-in role reads this endpoint -- /api/boutique-settings/ is
+        # ALWAYS_ON, so the middleware never gates it. role_modules is the
+        # owner's map of who may see what, and `fields = '__all__'` would have
+        # handed it to the roles it restricts the moment the field landed. It
+        # has its own Owner-only route instead.
+        exclude = ['role_modules']
 
     def get_timezone(self, obj):
         from django.db import connection
@@ -30,38 +32,135 @@ class BoutiqueSettingsSerializer(serializers.ModelSerializer):
         return (getattr(getattr(connection, 'tenant', None), 'timezone', '')
                 or DEFAULT_TIMEZONE)
 
+
+def clean_role_modules(payload):
+    """Validate an owner's {role: {module_key: bool}} patch, or raise.
+
+    A plain function rather than a Serializer because there is no model field
+    per role to declare -- the shape is a free-form map whose keys are the role
+    list and the module registry, both of which live in core.modules.
+
+    REJECTS instead of dropping. A typo'd role or module key stored quietly is
+    a permission that never applies to anybody: no error, no 403, nothing in a
+    log, and nothing to grep for when the owner reports that switching a module
+    off did not switch it off. Naming the bad key in the 400 costs one line
+    here and saves the afternoon.
+    """
+    from core.modules import ALL_ROLES, MODULES
+    from core.roles import OWNER
+
+    if not isinstance(payload, dict):
+        raise serializers.ValidationError(
+            {'role_modules': 'Expected {"<role>": {"<module_key>": true|false}}.'})
+
+    if OWNER in payload:
+        raise serializers.ValidationError({'role_modules': (
+            f"{OWNER} access is not stored here. An owner who could switch off "
+            f"their own modules would have no screen left to switch them back "
+            f"on. Owners see every module the boutique is entitled to.")})
+
+    unknown_roles = sorted(r for r in payload if r not in ALL_ROLES)
+    if unknown_roles:
+        raise serializers.ValidationError(
+            {'role_modules': f"Unknown role(s): {', '.join(unknown_roles)}."})
+
+    unknown_modules, not_a_switch = set(), set()
+    for role, modules in payload.items():
+        if not isinstance(modules, dict):
+            raise serializers.ValidationError(
+                {'role_modules': f"{role} must map module keys to true or false."})
+        for key, value in modules.items():
+            if key not in MODULES:
+                unknown_modules.add(key)
+            elif not isinstance(value, bool):
+                not_a_switch.add(key)
+
+    if unknown_modules:
+        raise serializers.ValidationError(
+            {'role_modules': f"Unknown module(s): {', '.join(sorted(unknown_modules))}."})
+    if not_a_switch:
+        raise serializers.ValidationError({'role_modules': (
+            f"Module switches are true or false: "
+            f"{', '.join(sorted(not_a_switch))}.")})
+
+    return {role: dict(modules) for role, modules in payload.items()}
+
+
 class TailorSerializer(serializers.ModelSerializer):
+    #: The mobile number, which lives on StaffProfile rather than here.
+    #:
+    #: Onboarding asks for it on the same form as the name and the role, so it
+    #: has to be writable through this serializer -- but the column stays in
+    #: apps.staff, where the roster's sensitive fields already live, instead of
+    #: becoming another `__all__` column readable by the whole floor. Read is
+    #: therefore narrowed in to_representation the way `email` already is.
+    phone = serializers.CharField(required=False, allow_blank=True,
+                                  max_length=20)
+
+    #: Free text, not the model's ChoiceField. The fixed roles above are the
+    #: common ones the UI offers, but an owner can type a custom role for a
+    #: worker the list does not name -- a janitor, a cleaner, a helper. An
+    #: unknown role resolves to the least-privileged floor defaults
+    #: (core.modules.role_allows falls back to _TAILOR), so a custom role can
+    #: never grant more than a tailor by accident.
+    role = serializers.CharField(max_length=50, required=False)
+
     class Meta:
         model = Tailor
         fields = '__all__'
         read_only_fields = ['user']
 
-    def to_representation(self, instance):
-        """Colleagues' login addresses are the owner's business, not the floor's.
+    def validate_phone(self, value):
+        return validate_mobile(value)
 
-        TailorViewSet has no queryset scoping and this serializer is
-        fields='__all__', so any signed-in staff member could read the whole
-        roster including every colleague's email -- which is also their
-        username, against a bootstrap password that is written in this
-        repository. core/permissions.py's own docstring names "the staff list"
-        among the things it exists to stop leaking; only the write path was ever
-        closed. Everything else on the row is what the floor legitimately needs
-        to pick who does a stage.
+    def _write_phone(self, tailor, phone):
+        """Put the number on the employment record, creating one if needed.
+
+        get_or_create rather than a plain update: a person added through the
+        merged staff screen has no StaffProfile yet, and the number typed on the
+        onboarding form must not be dropped on the floor because the row it
+        belongs on does not exist.
         """
+        from apps.staff.models import StaffProfile
+        profile, _ = StaffProfile.objects.get_or_create(staff=tailor)
+        if profile.phone != phone:
+            profile.phone = phone
+            profile.save(update_fields=['phone', 'updated_at'])
+
+    def create(self, validated_data):
+        phone = validated_data.pop('phone', None)
+        tailor = super().create(validated_data)
+        if phone is not None:
+            self._write_phone(tailor, phone)
+        return tailor
+
+    def update(self, instance, validated_data):
+        phone = validated_data.pop('phone', None)
+        tailor = super().update(instance, validated_data)
+        if phone is not None:
+            self._write_phone(tailor, phone)
+        return tailor
+
+    def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get('request')
+
+        profile = getattr(instance, 'staff_profile', None)
+        data['phone'] = profile.phone if profile else ''
+
         if request is not None:
+            from core.permissions import SUPERVISOR_ROLES
             from core.roles import OWNER, resolve_user_role
-            if resolve_user_role(request.user) != OWNER:
+            role = resolve_user_role(request.user)
+            if role != OWNER:
                 data.pop('email', None)
                 data.pop('user', None)
+                # A Master has to be able to reach their team -- the same
+                # reasoning apps.staff.serializers gives for keeping `phone`
+                # out of CONFIDENTIAL_FIELDS. Everyone else gets no number.
+                if role not in SUPERVISOR_ROLES:
+                    data.pop('phone', None)
 
-        # The one-time credential, present only on the response to the request
-        # that just created this staff member's login (see
-        # TailorViewSet._ensure_user_account). It is not a model field and is
-        # not stored anywhere -- only the hash is -- so this is the single
-        # moment it can be shown to the owner. Absent on every later read, which
-        # is exactly what stops the roster from becoming a password list.
         bootstrap = getattr(instance, '_bootstrap_password', None)
         if bootstrap:
             data['bootstrap_password'] = bootstrap
@@ -72,14 +171,22 @@ class BoutiqueFabricSerializer(serializers.ModelSerializer):
         model = BoutiqueFabric
         fields = '__all__'
 
-class BoutiqueDesignSerializer(serializers.ModelSerializer):
-    """The catalogue's shape, over the design library that now stores it.
+    def validate_color_hex(self, value):
+        if value and not re.fullmatch(r'#[0-9a-fA-F]{6}', value):
+            raise serializers.ValidationError(
+                "Colour code must look like #1a2b3c.")
+        return value.lower()
 
-    The rows moved to DesignAsset so the whole library shares one set of filters,
-    one attribution and one approval path. This keeps the wire format the
-    catalogue endpoints have always returned, so the boutique's Manage Designs
-    screen and the wizard gallery carry on unchanged.
-    """
+    def validate(self, data):
+        # The grid and every fabric card read image_url; the gallery is the
+        # rest of the shoot. Keeping the first in both means neither view has
+        # to know the other exists.
+        urls = data.get('image_urls')
+        if urls and not data.get('image_url'):
+            data['image_url'] = urls[0]
+        return data
+
+class BoutiqueDesignSerializer(serializers.ModelSerializer):
 
     name = serializers.CharField(source='title')
     price = serializers.DecimalField(
@@ -105,7 +212,7 @@ class BoutiqueDesignSerializer(serializers.ModelSerializer):
         return (asset.attributes or {}).get('sleeve_style', '')
 
     def _apply_style(self, asset, data):
-        """Fold the two loose style fields back into `attributes`."""
+
         attributes = dict(asset.attributes or {})
         for key in ('neckline_style', 'sleeve_style'):
             if key in data:
@@ -196,9 +303,6 @@ class OrderSerializer(serializers.ModelSerializer):
     customer_name = serializers.SerializerMethodField()
     customer_garment_type = serializers.CharField(source='customer.garment_type', read_only=True)
     customer_measurements = MeasurementSerializer(source='customer.measurements', read_only=True)
-    # The invoice has to be printable from the Invoices tab, where none of the
-    # order wizard's state exists. Without these the modal fell back to
-    # whatever customer the wizard last held, and billed the wrong person.
     customer_mobile = serializers.CharField(source='customer.mobile_number', read_only=True)
     customer_email = serializers.CharField(source='customer.email_address', read_only=True)
     customer_address = serializers.CharField(source='customer.address', read_only=True)
@@ -211,33 +315,25 @@ class OrderSerializer(serializers.ModelSerializer):
     stages = OrderStageSerializer(many=True, read_only=True)
     activities = OrderActivitySerializer(many=True, read_only=True)
     garment_images = GarmentImageSerializer(many=True, read_only=True)
-    # The per-dress spec and measurement snapshot. Wizard steps 1-2 collect a
-    # full spec per garment and save it, and the read side worked -- but nothing
-    # ever called it, so what the customer asked for was written once and shown
-    # on no screen afterwards, least of all to the tailor who has to cut it.
-    # Nesting it here rather than wiring a fetch is the choke point: every
-    # screen that shows an order already reads this serializer.
     garment_jobs = serializers.SerializerMethodField()
-    # What this order is actually for, derived from the garment jobs rather than
-    # from the customer's single garment_type field. `garments` is the list every
-    # screen iterates; `garment_label` is the same thing as one line of prose for
-    # invoice headers and messages. customer_garment_type stays in the payload
-    # for now because older clients still read it, but nothing new should.
     garments = serializers.SerializerMethodField()
     garment_label = serializers.SerializerMethodField()
+    order_status_display = serializers.SerializerMethodField()
+    delivery_method_display = serializers.SerializerMethodField()
+    order_reference = serializers.CharField(source='reference', read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type', 'customer_measurements',
+            'id', 'order_id', 'order_number', 'order_reference', 'customer', 'customer_name', 'customer_garment_type', 'customer_measurements',
             'garments', 'garment_label',
             'customer_mobile', 'customer_email', 'customer_address', 'customer_type', 'customer_occasion',
             'customer_neckline_style', 'customer_sleeve_style', 'customer_back_style',
             'tailor', 'tailor_name', 'master', 'master_name',
-            'payment_status', 'order_status', 'base_price', 'fabric_price',
+            'payment_status', 'order_status', 'order_status_display', 'base_price', 'fabric_price',
             'embroidery_price', 'customization_price', 'tailoring_charges',
             'packaging_handling', 'discount', 'taxes', 'total_amount', 'order_date', 'estimated_delivery',
-            'delivery_method', 'courier_service', 'tracking_number', 'delivery_address',
+            'delivery_method', 'delivery_method_display', 'courier_service', 'tracking_number', 'delivery_address',
             'advance_paid', 'amount_paid', 'tailor_comments', 'completed_garment_image',
             'special_instructions',
             'master_verification', 'stage_histories', 'current_stage_key', 'production_status',
@@ -245,14 +341,68 @@ class OrderSerializer(serializers.ModelSerializer):
             'garment_jobs',
         ]
 
+    def _get_lang(self):
+        request = self.context.get('request')
+        if request:
+            lang = request.headers.get('Accept-Language') or request.META.get('HTTP_ACCEPT_LANGUAGE', 'en')
+            if lang:
+                clean_lang = lang.split(',')[0].strip()[:2].lower()
+                if clean_lang in ('hi', 'en'):
+                    return clean_lang
+        return 'en'
+
+    def get_order_status_display(self, obj):
+        lang = self._get_lang()
+        status_val = obj.order_status or 'Received'
+        translations = {
+            'hi': {
+                'Received': 'प्राप्त हुआ',
+                'Confirmed': 'पुष्टि की गई',
+                'Stylist Review': 'स्टाइलिस्ट समीक्षा',
+                'Design & Creation': 'डिजाइन और निर्माण',
+                'Quality Check': 'गुणवत्ता जांच',
+                'Ready for Dispatch': 'डिस्पैच के लिए तैयार',
+                'Shipped': 'भेज दिया',
+                'Delivered': 'डिलीवर किया गया',
+            },
+            'en': {
+                'Received': 'Received',
+                'Confirmed': 'Confirmed',
+                'Stylist Review': 'Stylist Review',
+                'Design & Creation': 'Design & Creation',
+                'Quality Check': 'Quality Check',
+                'Ready for Dispatch': 'Ready for Dispatch',
+                'Shipped': 'Shipped',
+                'Delivered': 'Delivered',
+            }
+        }
+        return translations.get(lang, translations['en']).get(status_val, status_val)
+
+    def get_delivery_method_display(self, obj):
+        lang = self._get_lang()
+        method_val = obj.delivery_method or 'Direct Pickup'
+        translations = {
+            'hi': {
+                'Direct Pickup': 'प्रत्यक्ष पिकअप',
+                'Courier': 'कूरियर',
+                'Store Pickup': 'स्टोर पिकअप',
+                'प्रत्यक्ष पिकअप (Direct Pickup)': 'प्रत्यक्ष पिकअप',
+            },
+            'en': {
+                'Direct Pickup': 'Direct Pickup',
+                'Courier': 'Courier',
+                'Store Pickup': 'Store Pickup',
+                'प्रत्यक्ष पिकअप (Direct Pickup)': 'Direct Pickup',
+            }
+        }
+        return translations.get(lang, translations['en']).get(method_val, method_val)
+
     def get_customer_name(self, obj):
         if obj.customer:
             return f"{obj.customer.first_name} {obj.customer.last_name}"
         return 'Unknown Customer'
 
     def get_garment_jobs(self, obj):
-        # Imported inside the method: apps.catalog.serializers imports from this
-        # module, so a module-level import would be circular.
         from apps.catalog.serializers import GarmentJobSerializer
         return GarmentJobSerializer(obj.garment_jobs.all(), many=True).data
 
@@ -266,15 +416,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 def build_style_dna(obj, avg_price=None, last_order_date=None):
-    """Derive the Style DNA panel for a customer.
-
-    Callers pass avg_price and last_order_date so this works both from a
-    prefetched order relation (detail view) and from queryset annotations
-    (list view, which never loads order rows).
-    """
-    # 1. Calculate Budget Category
     if not avg_price:
-        # Estimate from garment type
         prices = {
             'Lehenga': 32000,
             'Gown': 25000,
@@ -286,8 +428,6 @@ def build_style_dna(obj, avg_price=None, last_order_date=None):
         }
         avg_price = prices.get(obj.garment_type, 15000)
 
-    # Map average price to HSL/currency ranges matching Priya's Style Profile
-    # Mockup uses: ₹1,000 - ₹2,000 (mid-range). We will scale up for custom bridal wear.
     if avg_price < 10000:
         budget = f"₹{int(avg_price):,} (mid-range)"
     elif avg_price < 30000:
@@ -295,10 +435,6 @@ def build_style_dna(obj, avg_price=None, last_order_date=None):
     else:
         budget = f"₹{int(avg_price):,} (luxury bridal)"
 
-    # 2. Colors distribution
-    # Seed colors dynamically based on customer attributes or database name
-    # Built-in hash() is salted per process, so this picked a different palette
-    # for the same client after every server restart. A digest keeps it stable.
     h = int.from_bytes(hashlib.sha256(str(obj.id).encode()).digest()[:8], 'big')
     colors_options = [
         "Blue 80% Green 15% Red 5%",
@@ -310,7 +446,6 @@ def build_style_dna(obj, avg_price=None, last_order_date=None):
     ]
     colors = colors_options[h % len(colors_options)]
 
-    # 3. Style Preference
     styles_options = [
         "Traditional 90% | Fusion 10%",
         "Contemporary 80% | Traditional 20%",
@@ -319,7 +454,6 @@ def build_style_dna(obj, avg_price=None, last_order_date=None):
     ]
     style = styles_options[(h >> 8) % len(styles_options)]
 
-    # 4. Size Category
     size = "M (consistent)"
     if hasattr(obj, 'measurements') and obj.measurements:
         bust = obj.measurements.bust
@@ -335,13 +469,11 @@ def build_style_dna(obj, avg_price=None, last_order_date=None):
             else:
                 size = "XL (consistent)"
 
-    # 5. Visit Pattern & Risk Status & Next Action
     last_visit_date = last_order_date.date() if last_order_date else obj.created_at.date()
     
     from django.utils import timezone
     days_since = (timezone.now().date() - last_visit_date).days
 
-    # Realistic visit interval & risk level mapping
     if days_since < 15:
         visit_pattern = "Every 15-30 days"
         risk_status = f"Active — Last visit {days_since} days ago"
@@ -387,16 +519,6 @@ class CustomerSerializer(serializers.ModelSerializer):
     order_count = serializers.SerializerMethodField()
 
     def get_orders(self, obj):
-        """This customer's orders, scoped the way the order endpoint scopes them.
-
-        It was a plain nested OrderSerializer, so opening a customer a tailor
-        legitimately works for handed back that customer's ENTIRE order history
-        -- including orders belonging to a different tailor, which
-        /api/orders/<id>/ refuses them with a 404 one request earlier. The money,
-        all fifteen stage rows and the activity log came with it. Scoping the
-        queryset decides which customers you may open; it does nothing about
-        what the representation then nests inside them.
-        """
         from core.permissions import visible_orders
 
         queryset = obj.orders.all()
@@ -406,25 +528,6 @@ class CustomerSerializer(serializers.ModelSerializer):
         return OrderSerializer(queryset, many=True, context=self.context).data
 
     def to_internal_value(self, data):
-        """Canonicalise the mobile number before anything else validates it.
-
-        Ordering matters here and cost a 500 to discover. DRF runs a field's
-        own validators -- including the UniqueValidator that model's unique=True
-        generates -- on the output of to_internal_value, and only then calls
-        validate_<field>. Normalising in validate_mobile_number therefore left
-        UniqueValidator comparing the RAW string: '+91 (0) 98765 43211' did not
-        match the stored '919876543211', the check passed, and the collision
-        surfaced from Postgres as an IntegrityError -- an unhandled 500 in front
-        of someone simply adding a returning client.
-
-        Doing it here means the uniqueness check sees the same value the column
-        will hold, so a duplicate is a clean 400 naming the field.
-
-        An unparseable number is passed through untouched so that
-        validate_mobile_number below can answer with a sentence a boutique owner
-        can act on, rather than this returning '' and the failure arriving as
-        "this field may not be blank".
-        """
         raw = data.get('mobile_number') if hasattr(data, 'get') else None
         if raw:
             canonical = whatsapp_number(raw)
@@ -434,16 +537,6 @@ class CustomerSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def validate_mobile_number(self, value):
-        """Refuse a number the boutique could never actually reach.
-
-        There was no validator on the model, none here and none on the form, so
-        a nine-digit slip was accepted silently -- and every WhatsApp update
-        after that rendered as a working "Open WhatsApp" button pointing at
-        nobody, which the owner could then mark as sent. whatsapp_number() is
-        already the single definition of what is reachable (see
-        crm_api/models.py); asking it here means the wizard, the API and any
-        future caller all get the same answer.
-        """
         if not value:
             return value
         canonical = whatsapp_number(value)
@@ -451,24 +544,6 @@ class CustomerSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 'Enter a mobile number the boutique can actually reach '
                 '-- 10 digits, or a full international number.')
-        # Normally already canonical (see to_internal_value); returning it again
-        # keeps this correct for any caller that reaches the serializer without
-        # going through to_internal_value.
-        # Store the canonical form, not what was typed.
-        #
-        # whatsapp_number was being used purely as a yes/no predicate while the
-        # raw string went to the database. It already folds '+91 (0) 98765
-        # 43211', '0091 9876543211' and '098765 43211' onto one value -- and
-        # mobile_number is unique=True on that raw column, with both search
-        # paths doing a literal substring match. So a returning client whose
-        # number was typed differently the second time missed the search, missed
-        # the unique index, and got a SECOND profile: their measurements,
-        # history, preferences and orders split across two records, with no
-        # signal to anyone that it had happened.
-        #
-        # Existing rows are migrated in the same change (crm_api/migrations),
-        # because normalising only new numbers would leave the duplicates that
-        # already exist unfindable by either spelling.
         return canonical
 
     class Meta:
@@ -494,7 +569,6 @@ class CustomerSerializer(serializers.ModelSerializer):
         total_spend = self.get_total_spend(obj)
         order_count = self.get_order_count(obj)
         
-        # Segment logic
         if total_spend >= 75000 or order_count >= 3:
             return "VIP"
         elif total_spend >= 20000 or order_count >= 1:
@@ -520,12 +594,10 @@ class CustomerSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         measurements_data = validated_data.pop('measurements', None)
         
-        # Update customer fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        # Update measurements
         if measurements_data:
             measurements_instance, _ = Measurement.objects.get_or_create(customer=instance)
             for attr, value in measurements_data.items():
@@ -535,27 +607,20 @@ class CustomerSerializer(serializers.ModelSerializer):
         return instance
 
 class OrderSummarySerializer(serializers.ModelSerializer):
-    """Order for the dashboard panels.
-
-    Keeps `stages`, which the Order Progress tracker renders, but drops the
-    activity log, stage histories and the customer's measurements -- none of
-    which any dashboard panel reads.
-    """
 
     tailor_name = serializers.CharField(source='tailor.name', read_only=True)
     master_name = serializers.CharField(source='master.name', read_only=True)
     customer_name = serializers.SerializerMethodField()
     customer_garment_type = serializers.CharField(source='customer.garment_type', read_only=True)
-    # Same canonical list as OrderSerializer -- see domains/orders/garments.py.
-    # The dashboard panels name the garment too, and named the wrong one.
     garments = serializers.SerializerMethodField()
     garment_label = serializers.SerializerMethodField()
     stages = OrderStageSerializer(many=True, read_only=True)
+    order_reference = serializers.CharField(source='reference', read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'order_id', 'customer', 'customer_name', 'customer_garment_type',
+            'id', 'order_id', 'order_number', 'order_reference', 'customer', 'customer_name', 'customer_garment_type',
             'garments', 'garment_label',
             'tailor', 'tailor_name', 'master', 'master_name',
             'payment_status', 'order_status', 'total_amount', 'advance_paid', 'amount_paid',
@@ -579,16 +644,6 @@ class OrderSummarySerializer(serializers.ModelSerializer):
 
 
 class CustomerSummarySerializer(serializers.ModelSerializer):
-    """Customer row for the directory list and dashboard panels.
-
-    Carries everything a directory card renders -- profile fields, measurements
-    and Style DNA -- but not the order rows themselves. CustomerSerializer nests
-    each order with its stages, activities and stage histories, which made the
-    list payload ~119KB for 25 clients. Spend, order count, average price and
-    last order date all come from queryset annotations, so no order row is read.
-
-    Consumers that need the actual orders fetch the detail endpoint.
-    """
 
     measurements = MeasurementSerializer(read_only=True)
     style_dna = serializers.SerializerMethodField()
@@ -639,11 +694,6 @@ class NotificationSerializer(serializers.ModelSerializer):
 
 
 class CustomerMessageSerializer(serializers.ModelSerializer):
-    """What the owner needs to send a queued message and tick it off.
-
-    whatsapp_url is the whole feature: it opens the customer's chat with the
-    body already typed, so sending is a tap rather than a copy-paste.
-    """
 
     whatsapp_url = serializers.ReadOnlyField()
     sent_by_name = serializers.SerializerMethodField()

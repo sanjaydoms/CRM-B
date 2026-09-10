@@ -3,10 +3,12 @@ import os
 import secrets
 import uuid
 from decimal import Decimal
+from datetime import timedelta
 
 from django.utils import timezone
 from django.contrib.auth.models import User
 from rest_framework import viewsets, status, views
+from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -17,7 +19,14 @@ from core.roles import OWNER, resolve_user_role
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.db.models import Q, Sum, Count
+from django.db.models import (
+    Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value,
+)
+from django.db.models.functions import Coalesce, Greatest
+
+#: One decimal shape for every money expression the dashboard builds, so
+#: Coalesce/Greatest/ExpressionWrapper never disagree on precision.
+MONEY = DecimalField(max_digits=12, decimal_places=2)
 
 from .models import (
     Customer, CustomerMessage, GarmentImage, Measurement, DesignPreference,
@@ -47,9 +56,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
 
     def get_serializer_class(self):
-        # The directory list gets flat rows; nesting every client's full order
-        # tree there made the payload ~119KB for 25 clients. Opening a client
-        # hits retrieve, which still returns orders and history in full.
         if self.action == 'list':
             return CustomerSummarySerializer
         return CustomerSerializer
@@ -71,21 +77,18 @@ class CustomerViewSet(viewsets.ModelViewSet):
         customer = self.get_object()
         notes = request.data.get('notes', '')
         
-        # Handle existing selected URLs
         selected_urls = request.data.get('selected_urls', '[]')
         try:
             image_urls = json.loads(selected_urls)
         except Exception:
             image_urls = []
             
-        # Handle reference image uploads
         files = request.FILES.getlist('images')
         for f in files:
             path = f"design_references/cust_{customer.id}/{uuid.uuid4()}_{f.name}"
             saved_path = default_storage.save(path, ContentFile(f.read()))
             image_urls.append(request.build_absolute_uri(default_storage.url(saved_path)))
             
-        # Where the design came from, and any external inspiration links.
         source = request.data.get('source') or 'BOUTIQUE_CATALOG'
         valid_sources = {c[0] for c in DesignPreference.SOURCE_CHOICES}
         if source not in valid_sources:
@@ -101,7 +104,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
         if not isinstance(reference_links, list):
             reference_links = []
 
-        # Create DesignPreference
         pref = DesignPreference.objects.create(
             customer=customer,
             notes=notes,
@@ -114,11 +116,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='design-preferences/(?P<pref_id>[^/.]+)/approve')
     def approve_design(self, request, pk=None, pref_id=None):
-        """Sign off one design for production.
-
-        Only one design per client may be approved at a time -- approving a new one
-        supersedes the last, so the production checklist has a single answer.
-        """
         customer = self.get_object()
         pref = customer.design_preferences.filter(id=pref_id).first()
         if not pref:
@@ -148,12 +145,9 @@ class CustomerViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['GET'], url_path='ai-suggestions')
     def ai_suggestions(self, request, pk=None):
         customer = self.get_object()
-        # Filter templates that are AI suggestion templates (is_boutique=False)
-        # matching the customer's garment_type
         templates = DesignAsset.objects.filter(
             source=DesignAsset.SOURCE_SUGGESTION, garment_type__iexact=customer.garment_type)
         if not templates.exists():
-            # If no matches, fallback to any AI suggestions
             templates = DesignAsset.objects.filter(source=DesignAsset.SOURCE_SUGGESTION)
         
         serializer = BoutiqueDesignSerializer(templates, many=True)
@@ -162,8 +156,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['GET'], url_path='boutique-designs')
     def boutique_designs(self, request, pk=None):
         customer = self.get_object()
-        # Filter designs that are boutique catalog designs (is_boutique=True)
-        # matching the customer's garment_type
         designs = DesignAsset.objects.filter(
             source=DesignAsset.SOURCE_CATALOGUE, garment_type__iexact=customer.garment_type)
         
@@ -180,7 +172,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
         except (ValueError, TypeError):
             fabric_price = 0.0
 
-        # Handle fabric image uploads
         image_urls = []
         files = request.FILES.getlist('images')
         for f in files:
@@ -188,13 +179,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
             saved_path = default_storage.save(path, ContentFile(f.read()))
             image_urls.append(request.build_absolute_uri(default_storage.url(saved_path)))
 
-        # Update the customer's current pick rather than appending another one.
-        # 'Save as Draft' and 'Next' both call this, and Back/Next through step
-        # 4 calls it again, so a customer who changed their mind twice ended up
-        # with three FabricSelection rows and no way to delete any of them --
-        # and the design studio's context builder reads whatever rows exist.
-        # Re-selecting is the normal case here; a genuinely new selection is
-        # what a new order is for.
         selection = customer.fabric_selections.order_by('-id').first()
         created = selection is None
         if created:
@@ -204,7 +188,6 @@ class CustomerViewSet(viewsets.ModelViewSet):
         selection.fabric_name = fabric_name
         selection.fabric_price = fabric_price
         if image_urls or created:
-            # Keep photographs already attached when this pass uploaded none.
             selection.uploaded_fabric_images = image_urls
         selection.save()
 
@@ -220,11 +203,8 @@ class CustomerViewSet(viewsets.ModelViewSet):
             order = OrderService.create_order_for_customer(
                 customer, request.data, user=request.user)
         except ValueError as ve:
-            # Money validation lives in the service, which is the one choke
-            # point every order-creation path routes through. Surface its
-            # reason as a 400 the wizard can print, not a 500.
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
-        serializer = OrderSerializer(order)
+        serializer = OrderSerializer(order, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 class TailorViewSet(viewsets.ModelViewSet):
@@ -239,15 +219,62 @@ class TailorViewSet(viewsets.ModelViewSet):
         tailor = serializer.save()
         self._ensure_user_account(tailor)
 
+    def perform_destroy(self, instance):
+        """Removing someone from the roster must not leave a live login behind.
+
+        Tailor.user is SET_NULL, so deleting the row detached the account and
+        left it with no profile of any kind. Before Phase 8 that resolved to
+        OWNER, which made dismissing a staff member the act that promoted them:
+        their token still authenticated, and payroll, deposits, advances and
+        payouts all opened to it. core.roles now answers None for an unclaimed
+        account, so the escalation is closed at the root -- but a dismissed
+        person's token should stop working, not merely stop being privileged.
+
+        Deactivating rather than deleting the User, the same choice
+        DesignerViewSet.perform_destroy makes: DRF's TokenAuthentication
+        refuses an inactive user, so this revokes the token immediately, while
+        the row survives to keep the audit trail and the payroll, ledger,
+        payout and review history that points at it.
+        """
+        user = instance.user
+        super().perform_destroy(instance)
+        if user is None:
+            return
+        # One account, two jobs. A person can hold a Design Studio login AND a
+        # place on the production roster, and deactivating on the strength of
+        # one profile cuts off the role they still hold. Only an account that
+        # nothing claims any more is closed.
+        if getattr(user, 'designer_profile', None) is not None:
+            return
+        if user.is_active:
+            user.is_active = False
+            user.save(update_fields=['is_active'])
+        # Deactivation already makes DRF refuse the token, but the row is
+        # deleted rather than left inert: reinstating the person later
+        # reactivates the account, and a token minted before the dismissal must
+        # not come back to life with it.
+        Token.objects.filter(user=user).delete()
+
     def _ensure_user_account(self, tailor):
         if tailor.email:
-            # Normalize on the way in. LoginView lowercases the whole input
-            # before matching, and these lookups are case-sensitive, so a
-            # Master whose address the owner typed with any capital letter got
-            # an account that looked correct in Manage Tailors and could never
-            # be signed in to -- the credentials were valid and nothing matched
-            # them.
             tailor.email = tailor.email.strip().lower()
+
+            # Never point a staff account at the boutique owner's address.
+            # core.roles identifies the owner by comparing User.email to the
+            # tenant's owner_email, and Django's User.email is not unique, so
+            # putting the owner's address on a staff row -- which the block
+            # below then copies onto that row's OWN User -- made that staff
+            # login resolve as the owner. DesignerViewSet.create_login has
+            # refused the owner's address for this reason since designers got
+            # accounts; the roster never did.
+            #
+            # Left as a silent no-op on the account rather than an error: the
+            # roster row keeps whatever the owner typed, and the only thing
+            # refused is granting a login under it.
+            from django.db import connection as _conn
+            tenant_owner = (getattr(_conn.tenant, 'owner_email', '') or '').lower()
+            if tenant_owner and tailor.email == tenant_owner:
+                return
 
             # Repoint the account this staff member ALREADY has, rather than
             # hunting for one under the new address. Looking up by email meant
@@ -259,6 +286,16 @@ class TailorViewSet(viewsets.ModelViewSet):
             # opened and their notifications switched to the owner's feed.
             if tailor.user_id:
                 existing = tailor.user
+                # Never move the OWNER's account off the owner address. On a
+                # boutique that ran before Phase 8 the owner's own User can
+                # already be linked to a roster row (core/roles.py's docstring
+                # records how), and renaming it here breaks the only positive
+                # test for ownership -- permanently, because every screen that
+                # could undo it is then refused to them. The guard above stops
+                # a row being moved TO the owner's address; this stops the
+                # owner's account being moved away from it.
+                if (existing.email or '').lower() == tenant_owner:
+                    return
                 if existing.email != tailor.email:
                     existing.email = tailor.email
                     existing.username = self._unique_username(
@@ -267,6 +304,41 @@ class TailorViewSet(viewsets.ModelViewSet):
                 return
 
             user = User.objects.filter(email__iexact=tailor.email).first()
+
+            # An account already spoken for by ANOTHER roster row. Tailor.user
+            # is a OneToOne, so linking it raised IntegrityError -- after
+            # perform_create had already committed the Tailor row, leaving a
+            # 500 and an orphan. Refused the same way the owner's address is,
+            # and for the same reason: the row keeps what was typed, only the
+            # login is withheld.
+            if user is not None:
+                claimed = getattr(user, 'tailor_profile', None)
+                if claimed is not None and claimed.pk != tailor.pk:
+                    return
+
+            # A previously DELETED staff member, being taken back on.
+            #
+            # perform_destroy deactivates the login it detaches, so this User is
+            # inactive with a password nobody holds. Linking it as-is produced a
+            # roster row that looks healthy and an account that can never be
+            # signed into: authenticate() refuses an inactive user, and the
+            # password-reset endpoint answers the same generic 200 it gives an
+            # unknown address without sending anything. The owner had no way to
+            # see it and no way in the product to fix it.
+            #
+            # Re-hiring is therefore a re-issue: the account comes back with a
+            # NEW credential, printed once like any other. The old password and
+            # any token minted before the dismissal stay dead, which is the
+            # point -- coming back must not silently restore the credential the
+            # person left with.
+            if user is not None and not user.is_active:
+                bootstrap = secrets.token_urlsafe(9)
+                user.is_active = True
+                user.set_password(bootstrap)
+                user.save(update_fields=['is_active', 'password'])
+                Token.objects.filter(user=user).delete()
+                tailor._bootstrap_password = bootstrap
+
             if not user:
                 # One password, generated here, for this account only.
                 #
@@ -302,14 +374,13 @@ class TailorViewSet(viewsets.ModelViewSet):
                     first_name=tailor.name
                 )
                 tailor._bootstrap_password = bootstrap
-            # Link to tailor
             if tailor.user != user:
                 tailor.user = user
                 tailor.save()
 
     @staticmethod
     def _unique_username(base, exclude_pk=None):
-        """A free username derived from `base`, lowercased to match login."""
+
         base = (base or 'staff').strip().lower() or 'staff'
         candidate, counter = base, 1
         taken = User.objects.exclude(pk=exclude_pk) if exclude_pk else User.objects.all()
@@ -322,9 +393,33 @@ class BoutiqueFabricViewSet(viewsets.ModelViewSet):
     queryset = BoutiqueFabric.objects.all()
     serializer_class = BoutiqueFabricSerializer
 
+    # A fabric that does not exist yet has no id to hang an upload on, so the
+    # shots go up first and the form saves the URLs it gets back. Same storage
+    # path shape and same absolute-URL build as every other upload here.
+    @action(detail=False, methods=['post'], url_path='upload-images')
+    def upload_images(self, request):
+        files = request.FILES.getlist('images')
+        if not files:
+            return Response({'error': 'No images were sent.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if len(files) > 10:
+            return Response({'error': 'Up to 10 images at a time.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        urls = []
+        for f in files:
+            # A phone camera roll is not a trusted source: take images only.
+            if not (f.content_type or '').startswith('image/'):
+                return Response({'error': f"{f.name} is not an image."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if f.size > 10 * 1024 * 1024:
+                return Response({'error': f"{f.name} is larger than 10MB."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            path = f"fabrics/{uuid.uuid4()}_{f.name}"
+            saved = default_storage.save(path, ContentFile(f.read()))
+            urls.append(request.build_absolute_uri(default_storage.url(saved)))
+        return Response({'image_urls': urls}, status=status.HTTP_201_CREATED)
+
 class BoutiqueDesignViewSet(viewsets.ModelViewSet):
-    # The catalogue lives in the design library now; the URL and the wire format
-    # are unchanged, so the Manage Designs screen did not have to move with it.
     queryset = DesignAsset.objects.filter(
         source__in=[DesignAsset.SOURCE_CATALOGUE, DesignAsset.SOURCE_SUGGESTION])
     serializer_class = BoutiqueDesignSerializer
@@ -337,8 +432,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         old_status = serializer.instance.order_status
-        # Captured before save(), because after it the instance carries the new
-        # values and there is nothing left to compare against.
         old_tailor_id = serializer.instance.tailor_id
         old_master_id = serializer.instance.master_id
         old_tailor = serializer.instance.tailor
@@ -350,23 +443,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         if old_status != order.order_status:
             create_order_notifications(order, created=False)
 
-        # Reassignment used to change one column and nothing else.
-        #
-        # This method did only save(), _reconcile_payment and a status
-        # notification, so moving an order to a different tailor left three
-        # things pointing at the person who no longer has it:
-        #
-        #   * Tailor.status -- the departing tailor still read Busy with nothing
-        #     on their table, the new one still read Available with a dress to
-        #     sew. Those two badges are what the owner picks staff by, so the
-        #     next order went to the wrong person for the stated reason.
-        #   * ProductionTask.assigned_to -- /api/production/tasks/ went on
-        #     naming the old tailor for work they no longer had.
-        #   * Nobody was told. assign_stage writes a notification when it hands
-        #     over a single stage; handing over the whole order wrote none.
-        #
-        # refresh_staff_availability derives the flag from live orders, which is
-        # exactly why its docstring says to call it at every write site.
         if old_tailor_id != order.tailor_id or old_master_id != order.master_id:
             refresh_staff_availability(old_tailor, old_master,
                                        order.tailor, order.master)
@@ -379,11 +455,9 @@ class OrderViewSet(viewsets.ModelViewSet):
 
                 if order.tailor:
                     Notification.objects.create(
-                        title=f"New Stitching Task: {order.order_id}",
-                        message=(f"Order {order.order_id} has been reassigned to "
+                        title=f"New Stitching Task: {order.reference}",
+                        message=(f"Order {order.reference} has been reassigned to "
                                  f"you for stitching."),
-                        # The person's own role, not the literal "Tailor" --
-                        # see the banner in domains/orders/notifications.py.
                         recipient_role=order.tailor.role,
                         recipient_email=(order.tailor.user.email
                                          if order.tailor.user else None),
@@ -391,8 +465,8 @@ class OrderViewSet(viewsets.ModelViewSet):
 
             if old_master_id != order.master_id and order.master:
                 Notification.objects.create(
-                    title=f"New Assignment: {order.order_id}",
-                    message=(f"Order {order.order_id} has been reassigned to you "
+                    title=f"New Assignment: {order.reference}",
+                    message=(f"Order {order.reference} has been reassigned to you "
                              f"as Supervising Master."),
                     recipient_role=order.master.role,
                     recipient_email=(order.master.user.email
@@ -401,25 +475,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @staticmethod
     def _reconcile_payment(order, changed):
-        """Keep the money and the payment label in step, money first.
-
-        This used to run the other way: payment_status was authoritative and
-        rewrote amount_paid -- to the full total on 'Paid', to zero on
-        'Pending' -- while never touching advance_paid and having no branch at
-        all for 'Partially Paid'. Three consequences, all seen:
-
-          * Setting 'Partially Paid' did nothing whatsoever, so the row read
-            "Balance Rs0" beside the words Partially Paid.
-          * Setting 'Pending' zeroed amount_paid but left advance_paid, so the
-            invoice printed "Advance Paid Rs10,000 / Balance Due Rs0" next to a
-            table saying Balance Rs31,500.
-          * The dashboard sums advance_paid for Partially Paid rows, so money
-            zeroed here reappeared there.
-
-        Deriving the label from the amount makes recording a part-payment
-        possible at all -- the serializer already accepts amount_paid, so the
-        Invoices row only needs to PATCH a number.
-        """
         total = order.total_amount or Decimal('0')
 
         if 'amount_paid' in changed or 'advance_paid' in changed:
@@ -441,52 +496,19 @@ class OrderViewSet(viewsets.ModelViewSet):
             label = 'Partially Paid'
 
         order.amount_paid = paid
-        # The advance is what was taken up front; it can never exceed what has
-        # actually been paid, which is where the stale-advance contradiction
-        # came from.
         order.advance_paid = min(order.advance_paid or Decimal('0'), paid)
         order.payment_status = label
         order.save(update_fields=['amount_paid', 'advance_paid', 'payment_status'])
 
-    # A client-facing status corresponds to completing a specific stage. Statuses
-    # absent here (e.g. Stylist Review, Shipped) carry no stage meaning and are
-    # recorded directly by the no-stage branch in update_status below.
-    #
-    # 'Shipped' used to alias 'ready_for_delivery', whose own status_map entry
-    # maps back to 'Ready for Dispatch' -- so picking Shipped answered 200 and
-    # stored something else. order_status could never hold 'Shipped' through any
-    # UI path, which made the Shipped branch of create_order_notifications, the
-    # only message carrying courier_service and tracking_number, unreachable.
-    # Dropping the alias lets it fall through to the no-stage branch, which
-    # writes the status and fires the notification.
-    #
-    # 'Quality Check' used to map to 'stitching_completed', while delivery is
-    # gated on 'master_quality_check'. The dropdown therefore walked the owner
-    # to the last rung, claimed QC had happened when it had not, and then
-    # refused delivery naming a step it had never offered. stitching_completed
-    # is still reached by 'Design & Creation' advancing through the ladder.
     STATUS_TO_STAGE = {
         'Received': 'created',
         'Confirmed': 'fabric_confirmed',
-        # 'Design & Creation' means the garment is being made, and the status
-        # after it is Quality Check -- so the stage it must land on is the one
-        # that says the making is finished. It used to map to
-        # assigned_to_tailor, which meant NO dropdown value touched either
-        # stitching stage: an order could walk Received -> ... -> Delivered
-        # through this control with both of them still NOT_STARTED, i.e.
-        # delivered with the garment recorded as never sewn. Mapping it here
-        # also makes the quality-check guard satisfiable from the dropdown,
-        # and correctly refuses a Master, since stitching is the tailor's own
-        # work.
         'Design & Creation': 'stitching_completed',
         'Quality Check': 'master_quality_check',
         'Ready for Dispatch': 'ready_for_delivery',
         'Delivered': 'delivered',
     }
 
-    #: Every status this endpoint will accept. Mirrors Order.order_status's own
-    #: documented values and the dropdown the UI offers. Without it the endpoint
-    #: stored any string it was handed.
     CLIENT_STATUSES = frozenset({
         'Received', 'Confirmed', 'Stylist Review', 'Design & Creation',
         'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered',
@@ -494,68 +516,24 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['PATCH'], url_path='master-verification')
     def master_verification(self, request, pk=None):
-        """The Master's production checklist.
-
-        It needs its own route because the checklist is the ONE feature built
-        exclusively for a Master -- rendered on both their screens behind
-        `currentUser.role === 'Master'` -- and it was saved with a plain PATCH
-        of the order. DRF resolves that to `partial_update`, which is in
-        neither STAFF_ORDER_ACTIONS nor SUPERVISOR_ORDER_ACTIONS, so every
-        checkbox 403'd for the only role allowed to see it.
-
-        Widening `partial_update` for supervisors was the tempting fix and the
-        wrong one: it is the same action that carries payment_status,
-        amount_paid and advance_paid, so it would have handed a Master the
-        money fields to fix a checklist. A narrow action writes exactly the one
-        JSON column and nothing else.
-        """
         order = self.get_object()
         checks = request.data.get('master_verification')
         if not isinstance(checks, dict):
             return Response({'error': 'master_verification must be an object.'},
                             status=status.HTTP_400_BAD_REQUEST)
-        # Merged into what is already stored, not substituted for it.
-        #
-        # Both screens that render this checklist build their payload by
-        # spreading the order out of the dashboard's `ordersList`, which only
-        # refreshes on a full fetchDashboardAndConfig. So ticking a second box
-        # posts a copy of the object as it was when the list was last loaded --
-        # without the first tick. A replacing write then erased it, and the
-        # Master watched earlier ticks come undone as they worked. What was
-        # stored afterwards was not what anyone had verified, which for a
-        # quality checklist is worse than losing it.
-        #
-        # Fixed here rather than in the two React call sites because this is the
-        # single endpoint both post to: one edit, and a third screen added later
-        # inherits the correct behaviour. Unticking still works -- the frontend
-        # sends the key with False, and False overwrites True.
         merged = dict(order.master_verification or {})
         merged.update({str(k): bool(v) for k, v in checks.items()})
-        # Booleans only: this is a checklist, not a free-form store on the order.
         order.master_verification = merged
         order.save(update_fields=['master_verification'])
-        return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
+        return Response(OrderSerializer(order, context={'request': request}).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['PATCH'], url_path='update-status')
     def update_status(self, request, pk=None):
-        """Advance an order by naming its client-facing status.
-
-        This used to write order_status directly, with no role check and no
-        sequencing guard, which let anyone mark a garment Delivered while the
-        quality check had never been started -- the client was told the piece
-        had shipped while the production record showed nothing done. It now goes
-        through the same workflow engine as the stage tracker, so both routes
-        enforce one set of rules and the stage rows stay in step.
-        """
         order = self.get_object()
         new_status = request.data.get('status')
         if not new_status:
             return Response({'error': 'no status provided'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # An allowlist, because this wrote whatever string it was given. A
-        # tailor could PATCH {'status': 'Totally Made Up'} and that became the
-        # order's status, on the customer's tracking page, with a customer
-        # notification behind it.
         if new_status not in self.CLIENT_STATUSES:
             return Response(
                 {'error': f"Unknown order status '{new_status}'.",
@@ -564,14 +542,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         stage_key = self.STATUS_TO_STAGE.get(new_status)
         if not stage_key:
-            # No stage maps to this status, so there is no workflow rule to
-            # enforce -- which is exactly why this branch needs its own role
-            # check. update_status is in STAFF_ORDER_ACTIONS so that a tailor
-            # can drive their own stages, and every status that maps to a stage
-            # is gated by that stage's role list. The ones that map to nothing
-            # were gated by nothing at all: a tailor could set 'Shipped' and
-            # send the customer the courier-and-tracking message. Moving an
-            # order without doing the work is a supervisor's call.
             role = resolve_user_role(request.user)
             if role != OWNER and role not in SUPERVISOR_ROLES:
                 return Response(
@@ -584,33 +554,6 @@ class OrderViewSet(viewsets.ModelViewSet):
                 create_order_notifications(order, created=False)
             return Response({'status': 'status updated', 'order_status': order.order_status})
 
-        # A client-facing status spans several production stages -- 'Design &
-        # Creation' covers cutting, assignment and both stitching stages -- and
-        # it maps to the one that says that band is finished. So reaching it
-        # means completing everything up to it, not landing on it.
-        #
-        # Each hop goes through the workflow engine, so the ordering rules, the
-        # role checks, the inventory side effects and the audit trail all apply
-        # to every stage rather than only to the last one. That keeps the stage
-        # history truthful: the owner moving an order to Quality Check really
-        # did assert that the stitching is done.
-        #
-        # The whole walk is one transaction. Without it a hop refused halfway --
-        # a tailor who may complete stitching but not the Master's cutting --
-        # would leave the order advanced part of the way with an error on the
-        # screen, which is precisely the half-applied state the state machine
-        # exists to prevent.
-        # Crucially, the walk covers only the band this status names -- the
-        # stages after the previous status's landing stage. It does NOT complete
-        # everything from the beginning.
-        #
-        # That distinction is the whole guarantee. A walk from wherever the
-        # order happens to be would let an owner choose 'Delivered' on a fresh
-        # order and have the entire production record completed in one click,
-        # quality check included: the original bug again, now with the stages
-        # marked done rather than left blank, which is worse because the record
-        # then *claims* the garment was inspected. Anything earlier that is
-        # still outstanding is refused by the workflow engine, naming it.
         config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
         keys = [s['key'] for s in config]
         target_index = keys.index(stage_key)
@@ -642,13 +585,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='garment-images')
     def upload_garment_image(self, request, pk=None):
-        """Add or replace one angle of the finished garment.
-
-        One image per view, so uploading FRONT twice replaces it rather than
-        stacking -- which is what "replace the image if a better one is taken"
-        means in practice, and bounds an order's gallery at the nine views
-        without needing a separate cap.
-        """
         order = self.get_object()
         view = request.data.get('view', 'FRONT')
         if view not in dict(GarmentImage.VIEW_CHOICES):
@@ -661,9 +597,6 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response({'error': 'No image was uploaded.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # Through the serializer rather than assigned directly: its ImageField
-        # runs the file through Pillow, so a renamed .exe is rejected here
-        # instead of becoming a broken <img> on a customer's tracking page.
         serializer = GarmentImageSerializer(
             data={'view': view, 'image': request.FILES['image']}
         )
@@ -693,13 +626,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['POST'], url_path='publish-garment-images')
     def publish_garment_images(self, request, pk=None):
-        """Show the finished-garment photographs to the customer, or stop.
-
-        Publishing is what queues the "your outfit is ready" message, so it is
-        the moment the customer learns anything -- which is why it is a separate
-        deliberate step and why front and back must both be there first. The
-        specification requires those two; the rest are optional angles.
-        """
         order = self.get_object()
         publish = request.data.get('published', True)
         if isinstance(publish, str):
@@ -716,47 +642,24 @@ class OrderViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # Ask whether the message was already queued, not whether the gallery is
-        # currently published. garment_images_published is cleared by this same
-        # endpoint on unpublish, so it was never the one-way latch the comment
-        # below intends: hiding the gallery and re-sharing it messaged the
-        # customer "your outfit is ready" a second time.
         already = order.customer_messages.filter(template_key='garment_ready').exists()
         order.garment_images_published = publish
         order.save(update_fields=['garment_images_published'])
 
-        # Only on the transition, so re-publishing an already-published gallery
-        # after swapping one photograph does not tell the customer twice.
         if publish and not already:
             send_customer_message(
                 order,
                 'garment_ready',
                 f"Dear {order.customer.first_name}, your outfit for order "
-                f"{order.order_id} is ready! You can see photographs of the "
+                f"{order.reference} is ready! You can see photographs of the "
                 f"finished garment here: {tracking_url(order)}",
             )
 
-        return Response(OrderSerializer(order).data)
+        return Response(OrderSerializer(order, context={'request': request}).data)
 
     @action(detail=False, methods=['GET'], url_path='customer-messages',
             permission_classes=[OwnerOnly])
     def customer_messages(self, request):
-        """Every message still waiting to be sent, across the boutique's orders.
-
-        One request for the whole screen rather than one per order card: the
-        orders registry is unpaginated, so a per-order fetch meant a request per
-        order in the boutique every time it opened.
-
-        Owner-only, and not because sending is their job -- because each body
-        contains the order's tracking link, which is an unauthenticated bearer
-        credential for a page showing the order's totals and balance. A tailor
-        can see their own orders, but the role matrix deliberately keeps the
-        money from them, and handing over the link would route around that.
-
-        Queued only. This is a to-do list, not the archive; what has already
-        been sent is history and does not belong in a payload fetched on every
-        dashboard refresh.
-        """
         messages = (
             CustomerMessage.objects
             .filter(status='QUEUED', order__in=self.get_queryset())
@@ -767,24 +670,10 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['POST'], url_path='mark-message-sent',
             permission_classes=[OwnerOnly])
     def mark_message_sent(self, request, pk=None):
-        """Record that the owner sent a queued message from their own WhatsApp.
-
-        Nothing here can observe a send that happened in another app, so this is
-        the owner's word for it and is stored as such -- sent_by is who said so.
-        It deliberately stops at SENT: DELIVERED and READ are provider facts,
-        and there is no provider.
-
-        Owner-only for the same reason the list is, and because it is the
-        owner's phone the message goes from. Stated explicitly rather than
-        relying on RolePermission's default for unlisted actions, so that adding
-        the name to a staff list later cannot quietly open it up.
-        """
         order = self.get_object()
         try:
             message_id = int(request.data.get('message_id'))
         except (TypeError, ValueError):
-            # id is a BigAutoField; a non-numeric value reaches the database as
-            # a bad cast and surfaces as a 500 rather than the 400 it is.
             return Response(
                 {'error': 'message_id must be a number.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -814,21 +703,6 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.completed_garment_image = image
         order.save()
 
-        # One business action, two truthful transitions.
-        #
-        # This posted stitching_completed directly, so stitching_in_progress sat
-        # at NOT_STARTED forever on every order that used the button -- which is
-        # every order. The stage history then could not answer when stitching
-        # started, how long it took, or who began it, and the state machine now
-        # rejects the jump outright rather than recording a sequence that never
-        # happened. Whether the tailor sees one button or two is a UI question;
-        # the history underneath has to be true either way.
-        # Starting before completing matters even when both happen in the same
-        # request: a tailor who pressed "Start In-Progress" earlier already has
-        # a real started_at, and re-entering IN_PROGRESS leaves it alone, so
-        # the recorded duration stays true. A tailor who never pressed it gets
-        # a start stamped now, which is the moment the system actually learned
-        # of the work -- honest, if less precise.
         try:
             for stage_key, stage_status in (
                 ('stitching_in_progress', 'IN_PROGRESS'),
@@ -845,7 +719,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = OrderSerializer(OrderRepository.get_by_id(order.pk))
+        serializer = OrderSerializer(OrderRepository.get_by_id(order.pk), context={'request': request})
         return Response(serializer.data)
 
     @action(detail=True, methods=['POST'], url_path='submit-stage-review')
@@ -859,32 +733,13 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response({'error': 'stage is required'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # The stage must be one this order actually has.
-        #
-        # `stage` was free text written straight into the row -- unlike
-        # assign_stage immediately below, which checks. A typo silently created
-        # a history entry for a stage that does not exist, invisible on every
-        # screen that reads stages by key, and this action is in
-        # STAFF_ORDER_ACTIONS so any production account could do it.
         if not order.stages.filter(stage_key=stage).exists():
             return Response({'error': f"This order has no stage '{stage}'."},
                             status=status.HTTP_404_NOT_FOUND)
 
-        # Who did it comes from the signed-in user, not the request body.
-        # `completed_by` defaulted to the literal 'Boutique Staff' and was
-        # otherwise whatever the caller typed, so the one field recording
-        # accountability for a quality review was self-declared.
         performer = (request.user.get_full_name() or request.user.username
                      or 'Boutique Staff')
 
-        # Atomic, because the delete comes first.
-        #
-        # This replaces the previous review for the stage, and the delete used
-        # to commit on its own: if the create then failed -- a rejected upload,
-        # a column overflow -- the earlier review's comments and evidence
-        # photograph were gone with nothing written in their place. That is the
-        # record of what was inspected, on the stage whose whole purpose is
-        # inspection.
         with transaction.atomic():
             OrderStageHistory.objects.filter(order=order, stage=stage).delete()
             OrderStageHistory.objects.create(
@@ -895,16 +750,10 @@ class OrderViewSet(viewsets.ModelViewSet):
                 completed_by_name=performer,
             )
 
-        return Response(OrderSerializer(order).data)
+        return Response(OrderSerializer(order, context={'request': request}).data)
 
     @action(detail=True, methods=['POST'], url_path='assign-stage')
     def assign_stage(self, request, pk=None):
-        """Nominate who should perform a stage, ahead of the work starting.
-
-        Distinct from performed_by, which records who actually did it. Refuses a
-        staff member whose role the stage does not permit, so the assignment cannot
-        contradict the transition rules.
-        """
         order = self.get_object()
         stage_key = request.data.get('stage_key')
         tailor_id = request.data.get('tailor_id')
@@ -917,16 +766,11 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response({'error': f"Unknown stage '{stage_key}' for this order."},
                             status=status.HTTP_404_NOT_FOUND)
 
-        # Passing no tailor_id clears the assignment.
         if tailor_id in (None, '', 'null'):
             stage.assigned_to = None
             stage.save(update_fields=['assigned_to'])
             return Response(OrderStageSerializer(stage).data, status=status.HTTP_200_OK)
 
-        # int() first: id is an AutoField, so a non-numeric value reaches the
-        # database as a bad cast and surfaces as a 500 rather than the 400 it
-        # is. The same guard is already written for message_id further up this
-        # file; assign_stage never got it.
         try:
             tailor_id = int(tailor_id)
         except (TypeError, ValueError):
@@ -950,16 +794,11 @@ class OrderViewSet(viewsets.ModelViewSet):
         stage.assigned_to = tailor
         stage.save(update_fields=['assigned_to'])
 
-        # Tell the person, and leave a record. Every other meaningful order
-        # event does both -- creation notifies, every transition writes an
-        # OrderActivity -- and OrderActivity's own field comment lists
-        # 'ASSIGNMENT' as an expected event_type that nothing ever wrote. Being
-        # handed work is exactly the event a staff member needs to hear about.
         Notification.objects.create(
             recipient_role=tailor.role,
             recipient_email=tailor.email or (tailor.user.email if tailor.user_id else ''),
-            title=f"New assignment on {order.order_id}",
-            message=f"You have been assigned {stage.stage_name} on order {order.order_id}.",
+            title=f"New assignment on {order.reference}",
+            message=f"You have been assigned {stage.stage_name} on order {order.reference}.",
         )
         OrderActivity.objects.create(
             order=order,
@@ -969,10 +808,6 @@ class OrderViewSet(viewsets.ModelViewSet):
                       'assigned_to': tailor.name, 'assigned_to_id': tailor.id},
         )
 
-        # Keep the production queue naming the right person. transition_stage
-        # already moves the matching ProductionTask alongside its stage; an
-        # assignment left the task pointing at whoever the order was created
-        # with until somebody started the work.
         from apps.production.models import ProductionTask
         ProductionTask.objects.filter(order=order, stage_key=stage_key).update(assigned_to=tailor)
 
@@ -1003,7 +838,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             # Re-read: `order` was loaded with its stages prefetched, so the
             # cache still holds the pre-transition rows and would serialise the
             # stage as unchanged even though the write succeeded.
-            serializer = OrderSerializer(OrderRepository.get_by_id(updated_order.pk))
+            serializer = OrderSerializer(OrderRepository.get_by_id(updated_order.pk), context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)
@@ -1041,7 +876,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         """Quality check rejects the garment: reopen the stitching band.
 
         First-class rework, not a rollback -- see fail_quality_check for the
-        rules. The QC Master can invoke it directly; the service checks roles.
+        rules. The QC Staff can invoke it directly; the service checks roles.
         """
         order = self.get_object()
         try:
@@ -1062,34 +897,15 @@ class OrderViewSet(viewsets.ModelViewSet):
 class NotificationViewSet(viewsets.ModelViewSet):
     queryset = Notification.objects.all().order_by('-created_at')
     serializer_class = NotificationSerializer
-    # Not the default RolePermission: see OwnNotifications. get_queryset scopes
-    # every row to the signed-in user, so there is nothing here a role check
-    # would protect -- and the default refused mark-all-read to every
-    # non-Owner, which took the whole app down when they opened the bell.
     permission_classes = [OwnNotifications]
 
     def _audience(self):
-        """(role, email) this caller may read, derived from who signed in.
-
-        This used to be read straight off ?role=, with an unfiltered
-        `return qs` for anything unrecognised -- so ?role=Customer handed any
-        signed-in staff member every customer notification in the boutique,
-        balances and contact details included, and ?role=Owner handed over the
-        owner's own. 'Owner' was also api.getNotifications' default argument,
-        so the client was asking for it by accident on every load.
-
-        Keyed on the Tailor profile rather than a role allowlist: a boutique
-        that has split the floor has Cutting Masters and QC Masters too (see
-        Tailor.ROLE_CHOICES), and naming only 'Master' and 'Tailor' would cut
-        every specialist off from their own notifications.
-        """
         role = resolve_user_role(self.request.user)
         if role == OWNER:
             return 'Owner', None
         profile = getattr(self.request.user, 'tailor_profile', None)
         if profile is not None:
             return profile.role, (profile.email or self.request.user.email)
-        # Designers and anyone else get nothing rather than everything.
         return None, None
 
     def get_queryset(self):
@@ -1101,13 +917,6 @@ class NotificationViewSet(viewsets.ModelViewSet):
             return qs.filter(recipient_role='Owner').order_by('-created_at')
         qs = qs.filter(recipient_role=role)
         if email:
-            # A blank recipient_email means "the whole role", not "nobody".
-            # Queue arrivals are addressed that way on purpose -- picking one
-            # QC Master in a boutique with two is the manual assignment the
-            # queue exists to replace -- and every staff member has an email,
-            # so an equality filter alone hid every role-addressed notice from
-            # all of them. Personally-addressed ones still reach only their
-            # person.
             from django.db.models import Q
             qs = qs.filter(Q(recipient_email=email) | Q(recipient_email='')
                            | Q(recipient_email__isnull=True))
@@ -1115,67 +924,161 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['POST'], url_path='mark-all-read')
     def mark_all_read(self, request):
-        # Same derivation as the read path -- otherwise a tailor could mark the
-        # owner's notifications read by asking for ?role=Owner.
         self.get_queryset().filter(is_read=False).update(is_read=True)
         return Response({'status': 'marked as read'})
 
 class DashboardView(views.APIView):
-    """The landing numbers, scoped to what the caller is allowed to see.
 
-    Every queryset here goes through visible_orders/visible_customers, the same
-    helpers OrderViewSet.get_queryset uses one class above. They were missing:
-    the dashboard read Customer.objects and Order.objects directly, so a tailor
-    who correctly got a 404 asking for an order they were not on could load
-    this endpoint and receive the boutique's turnover, its order count, and the
-    full summary row -- mobile number, measurements, total spend -- for every
-    client in the building, including the ones they had never been assigned.
-    """
+    #: Order statuses that mean the garment is done with, so they drop out of
+    #: "active work" and "money still to collect against live orders". Matches
+    #: the two terminal values Order.order_status uses.
+    CLOSED_STATUSES = ('Delivered', 'Cancelled')
 
     def get(self, request):
         orders = visible_orders(Order.objects.all(), request.user)
         customers = visible_customers(Customer.objects.all(), request.user)
-
+        today = timezone.localdate()
+        month_start = today.replace(day=1)
         total_customers = customers.count()
 
-        # The order count and both revenue figures used to be three separate
-        # queries that each scanned the same table, and the dashboard is the
-        # first thing every session loads. Conditional aggregation asks for all
-        # three in one pass, which matters far more than the scan itself when
-        # the database is a network hop away: three round trips become one.
-        order_totals = orders.aggregate(
-            total=Count('id'),
-            paid=Sum('total_amount', filter=Q(payment_status='Paid')),
-            partial=Sum('advance_paid', filter=Q(payment_status='Partially Paid')),
+        # ---- money -----------------------------------------------------------
+        # Collected: a fully-paid order counts its total; a partial one counts
+        # whatever it has actually taken (amount_paid, or the advance if that is
+        # the only figure recorded). revenue = everything collected to date.
+        collected = Coalesce(Greatest('amount_paid', 'advance_paid'),
+                             Value(Decimal('0'), output_field=MONEY))
+        money = orders.exclude(order_status='Cancelled').aggregate(
+            revenue_total=Sum(collected),
+            revenue_month=Sum(collected, filter=Q(order_date__date__gte=month_start)),
+            billed=Sum('total_amount'),
         )
-        total_orders = order_totals['total']
-        revenue = float(order_totals['paid'] or 0.0) + float(order_totals['partial'] or 0.0)
+        revenue_total = float(money['revenue_total'] or 0)
+        revenue_month = float(money['revenue_month'] or 0)
+        # Outstanding: what is billed but not yet collected on live orders. A
+        # per-row max(total - collected, 0) so an overpaid row cannot net off a
+        # genuine debt on another.
+        outstanding_expr = Greatest(
+            ExpressionWrapper(F('total_amount') - collected, output_field=MONEY),
+            Value(Decimal('0'), output_field=MONEY))
+        outstanding = float(
+            orders.exclude(order_status__in=self.CLOSED_STATUSES)
+                  .aggregate(due=Sum(outstanding_expr))['due'] or 0)
 
-        # distinct: the same stages join that scopes a tailor multiplies each
-        # order by its fifteen stage rows, so an unqualified Count made every
-        # status bucket fifteen times too big on their dashboard.
-        status_counts = orders.values('order_status').annotate(count=Count('id', distinct=True))
+        # ---- orders & pipeline ----------------------------------------------
+        status_counts = orders.values('order_status').annotate(
+            count=Count('id', distinct=True))
+        pipeline = {item['order_status']: item['count'] for item in status_counts}
+        total_orders = orders.count()
+        active = orders.exclude(order_status__in=self.CLOSED_STATUSES)
+        active_orders = active.count()
+        due_soon = active.filter(estimated_delivery__gte=today,
+                                 estimated_delivery__lte=today + timedelta(days=7)).count()
+        overdue = active.filter(estimated_delivery__lt=today).count()
 
-        # Recent orders. The dashboard renders the stage tracker but never the
-        # activity log or stage histories, so those stay out of the payload.
-        recent_orders = visible_orders(OrderRepository.summary_queryset(), request.user)[:5]
-        recent_orders_data = OrderSummarySerializer(recent_orders, many=True, context={'request': request}).data
-
-        # Recent customers, as flat summary rows -- the dashboard shows name, type
-        # and spend, not each client's full order history.
-        recent_customers = visible_customers(CustomerRepository.summary_queryset(), request.user)[:5]
-        recent_customers_data = CustomerSummarySerializer(recent_customers, many=True, context={'request': request}).data
+        recent_orders_data = OrderSummarySerializer(
+            visible_orders(OrderRepository.summary_queryset(), request.user)[:6],
+            many=True, context={'request': request}).data
+        recent_customers_data = CustomerSummarySerializer(
+            visible_customers(CustomerRepository.summary_queryset(), request.user)[:5],
+            many=True, context={'request': request}).data
 
         return Response({
             'stats': {
                 'total_customers': total_customers,
                 'total_orders': total_orders,
-                'revenue': revenue,
-                'status_distribution': {item['order_status']: item['count'] for item in status_counts}
+                'active_orders': active_orders,
+                'due_soon': due_soon,
+                'overdue': overdue,
+                # revenue kept as an alias of the all-time figure so any older
+                # caller reading stats.revenue still works.
+                'revenue': revenue_total,
+                'revenue_total': revenue_total,
+                'revenue_month': revenue_month,
+                'outstanding': outstanding,
+                'status_distribution': pipeline,
             },
+            'today': self._today(request, today),
+            'attention': self._attention(request, orders, today),
             'recent_orders': recent_orders_data,
-            'recent_customers': recent_customers_data
+            'recent_customers': recent_customers_data,
         })
+
+    def _today(self, request, today):
+        """Appointments booked for today and who is on the floor right now.
+
+        Every cross-app read here is guarded: the dashboard is the first screen
+        a boutique sees and must render even if scheduling or attendance has no
+        data, a table is mid-migration, or a module is switched off.
+        """
+        out = {'appointments': [], 'staff_working': 0, 'staff_present': 0}
+        try:
+            from apps.scheduling.models import Appointment
+            appts = (Appointment.objects
+                     .filter(scheduled_time__date=today)
+                     .exclude(status='CANCELLED')
+                     .select_related('customer', 'assigned_staff')
+                     .order_by('scheduled_time')[:6])
+            out['appointments'] = [{
+                'id': str(a.id),
+                'time': timezone.localtime(a.scheduled_time).strftime('%H:%M'),
+                'type': a.get_appointment_type_display(),
+                'customer': f"{a.customer.first_name} {a.customer.last_name}".strip()
+                            if a.customer else '',
+                'with': a.assigned_staff.name if a.assigned_staff else '',
+            } for a in appts]
+        except Exception:
+            pass
+        try:
+            from apps.staff.models import AttendanceSession
+            day = AttendanceSession.objects.filter(date=today)
+            out['staff_present'] = day.values('staff').distinct().count()
+            out['staff_working'] = (day.filter(check_out__isnull=True)
+                                    .values('staff').distinct().count())
+        except Exception:
+            pass
+        return out
+
+    def _attention(self, request, orders, today):
+        """The short list of things the owner most likely needs to act on."""
+        out = {'unpaid': [], 'due': [], 'low_stock': 0, 'pending_designs': 0}
+        live = orders.exclude(order_status__in=self.CLOSED_STATUSES)
+
+        collected = Coalesce(Greatest('amount_paid', 'advance_paid'),
+                             Value(Decimal('0'), output_field=MONEY))
+        balance = ExpressionWrapper(F('total_amount') - collected, output_field=MONEY)
+        unpaid = (live.annotate(_balance=balance).filter(_balance__gt=0)
+                  .select_related('customer').order_by('-_balance')[:5])
+        out['unpaid'] = [{
+            'id': o.id, 'order_id': o.order_id, 'reference': o.reference,
+            'customer': f"{o.customer.first_name} {o.customer.last_name}".strip()
+                        if o.customer else '',
+            'balance': float(o._balance or 0),
+        } for o in unpaid]
+
+        due = (live.filter(estimated_delivery__isnull=False)
+               .filter(Q(estimated_delivery__lt=today)
+                       | Q(estimated_delivery__lte=today + timedelta(days=7)))
+               .select_related('customer').order_by('estimated_delivery')[:5])
+        out['due'] = [{
+            'id': o.id, 'order_id': o.order_id, 'reference': o.reference,
+            'customer': f"{o.customer.first_name} {o.customer.last_name}".strip()
+                        if o.customer else '',
+            'due': o.estimated_delivery.isoformat() if o.estimated_delivery else None,
+            'overdue': bool(o.estimated_delivery and o.estimated_delivery < today),
+        } for o in due]
+
+        try:
+            from apps.inventory import reports as inv_reports
+            out['low_stock'] = len(inv_reports.low_stock(limit=100))
+        except Exception:
+            pass
+        try:
+            from apps.design_studio.models import DesignAssignment
+            out['pending_designs'] = DesignAssignment.objects.filter(
+                status='SUBMITTED').count()
+        except Exception:
+            pass
+        return out
 
 class BoutiqueSettingsViewSet(viewsets.ViewSet):
     def list(self, request):
@@ -1209,15 +1112,103 @@ class BoutiqueSettingsViewSet(viewsets.ViewSet):
         serializer = BoutiqueSettingsSerializer(config, context={'request': request})
         return Response(serializer.data)
 
+    # The owner's distribution switchboard: of the modules the platform has
+    # sold this boutique, which ones does each of its roles see?
+    #
+    # Its own route rather than fields on the settings body above, because that
+    # body is readable by every signed-in role (/api/boutique-settings/ is
+    # ALWAYS_ON, so the middleware never gates it) and who-can-see-what is not
+    # theirs to read or write. OwnerOnly rather than a fresh check:
+    # core.permissions already owns "is this the boutique owner", and a second
+    # implementation is a second thing to get wrong. Declaring it here also
+    # replaces the viewset's default RolePermission, which grants every
+    # non-Owner staff member every safe method -- a GET would have leaked the
+    # whole map to the floor.
+    @action(detail=False, methods=['get', 'patch'], url_path='role-modules',
+            permission_classes=[OwnerOnly])
+    def role_modules(self, request):
+        from core.modules import (
+            ALL_ROLES, GROUPS, MODULE_GROUP, MODULES, effective_modules, is_enabled,
+        )
+        from .serializers import clean_role_modules
+
+        config, _ = BoutiqueSettings.objects.get_or_create(id=1)
+
+        if request.method == 'PATCH':
+            patch = clean_role_modules(request.data.get('role_modules'))
+            # MERGE, never replace. Two owners with the settings screen open,
+            # one editing Tailor and one editing QC Staff, would otherwise
+            # have whichever saved second silently delete the other's work --
+            # and the screen would show it as saved.
+            #
+            # ponytail: merge-only, so an entry can be overwritten but never
+            # removed. Explicit true and explicit false already cover both
+            # outcomes; add a null-clears-the-entry case if the UI ever wants a
+            # "back to the default for this role" button.
+            #
+            # Locked, because a merge is a read-modify-write and the read above
+            # has already happened. Two owners saving at the same instant both
+            # read the pre-merge map, and whichever committed second wrote its
+            # merge over the other's -- the exact loss this comment claims to
+            # prevent. ATOMIC_REQUESTS is not set, so the transaction has to be
+            # spelled here; select_for_update is what makes the second request
+            # re-read AFTER the first commits instead of merging onto a value
+            # that is already stale. Validation stays outside the lock: a 400
+            # should not hold a row.
+            with transaction.atomic():
+                config = BoutiqueSettings.objects.select_for_update().get(pk=config.pk)
+                # isinstance, not `or {}`: a corrupt column (a list, a string, a
+                # per-role value that is not a map) 500'd the owner's PATCH --
+                # the only way back -- while core.modules.role_allows and
+                # core.permissions both healed it silently for every reader. A
+                # boutique whose column got mangled could then be repaired from
+                # psql and nowhere else. The write path is now at least as
+                # forgiving as the read path: unreadable means "no decisions
+                # recorded", and this patch records the first ones.
+                stored = config.role_modules
+                merged = dict(stored) if isinstance(stored, dict) else {}
+                for role, modules in patch.items():
+                    prior = merged.get(role)
+                    merged[role] = {**(prior if isinstance(prior, dict) else {}),
+                                    **modules}
+                config.role_modules = merged
+                config.save(update_fields=['role_modules'])
+
+        # Entitlement is re-read from the registry row rather than taken off
+        # request.tenant. TenantHeaderMiddleware caches the tenant OBJECT for
+        # five minutes but re-reads is_active/enabled_modules from the row on
+        # every request, so a console change gates immediately while the cached
+        # object stays stale in every worker but the one that cleared it. One
+        # small query stops this screen from showing a module as available
+        # while the middleware is already refusing it.
+        from tenants.models import BoutiqueTenant
+        tenant = getattr(request, 'tenant', None)
+        entitlement = {} if tenant is None else (
+            BoutiqueTenant.objects.filter(pk=tenant.pk)
+            .values_list('enabled_modules', flat=True).first() or {})
+
+        entitled = [key for key in MODULES if is_enabled(entitlement, key)]
+        # Same healing on the read side: a GET against a corrupt column reports
+        # "no decisions" rather than handing the screen a JSON list to render.
+        stored = config.role_modules if isinstance(config.role_modules, dict) else {}
+        return Response({
+            'roles': list(ALL_ROLES),
+            'groups': dict(GROUPS),
+            # `entitled` per module as well as the list below: a module the
+            # boutique has not bought can still be configured here (it may buy
+            # it next month), and without this flag the screen would show a
+            # switch that looks live and changes nothing.
+            'modules': [{'key': key, 'label': MODULES[key][0],
+                         'group': MODULE_GROUP.get(key), 'entitled': key in entitled}
+                        for key in MODULES],
+            'entitled': entitled,
+            'role_modules': stored,
+            'effective': {role: effective_modules(entitlement, stored, role)
+                          for role in ALL_ROLES},
+        })
+
 
 def _board_item_from_draft(order, customer, job, item, position, user):
-    """Carry one draft-time shortlist entry onto the confirmed order's board.
-
-    The board is created lazily and once per order -- it stays the single,
-    order-level, customer-owned board it has always been. What is new is that
-    each item records the garment it was chosen for, so a two-garment order's
-    two shortlists cannot merge into one undifferentiated pile.
-    """
     from apps.design_studio.models import DesignBoard, DesignBoardItem
 
     board, _ = DesignBoard.objects.get_or_create(
@@ -1238,18 +1229,112 @@ def _board_item_from_draft(order, customer, job, item, position, user):
         match_score=item.get('match_score') or 0,
         match_reasons=item.get('match_reasons') or [],
         is_selected=bool(item.get('is_selected')),
+        part=item.get('part') or 'overall',
         position=position,
     )
 
 
-class OrderDraftViewSet(viewsets.ViewSet):
-    """Orders being written. Scoped to the person writing them.
+# A boutique's stock categories and the customer-goods ledger's kinds are two
+# vocabularies for the same shelf. Lining is fabric to the person holding it;
+# thread and hooks are accessories; maggam work is embroidery.
+_CUSTOMER_MATERIAL_KIND = {
+    'FABRIC': 'FABRIC',
+    'LINING': 'FABRIC',
+    'BORDER': 'BORDER',
+    'EMBELLISHMENT': 'ACCESSORY',
+    'STITCHING': 'ACCESSORY',
+    'MAGGAM': 'EMBROIDERY',
+    'PACKAGING': 'OTHER',
+    'OTHER': 'OTHER',
+}
 
-    Not a ModelViewSet, and not registered anywhere near OrderViewSet, because
-    a draft is not an order: it has no stages, no material plan, no invoice and
-    no tracking link, and nothing that reads orders can reach it. See
-    domains/orders/drafts.py.
+
+def _collect_customer_materials(basket, template, job):
+    """Gather this garment's customer-supplied lines into the order's basket.
+
+    Keyed by name and unit, so one roll used for a saree's body and its border
+    is received once with the whole length -- not twice, which would tell the
+    boutique it holds twice what the customer actually handed over.
     """
+    from apps.catalog.models import JobMaterial
+
+    categories = {
+        field.key: field.inventory_category
+        for section in template.sections.all()
+        for field in section.fields.all()
+    }
+    for line in job.materials.all():
+        if line.source != JobMaterial.Source.CUSTOMER or not line.free_text:
+            continue
+        name = line.free_text.strip()
+        unit = line.unit or 'UNIT'
+        key = (name.lower(), unit)
+        entry = basket.setdefault(key, {
+            'name': name,
+            'unit': unit,
+            'kind': _CUSTOMER_MATERIAL_KIND.get(
+                categories.get(line.field_key) or 'OTHER', 'OTHER'),
+            'quantity': Decimal('0'),
+            'fields': [],
+        })
+        entry['quantity'] += (line.quantity or Decimal('0'))
+        entry['fields'].append(f"{template.name} · {line.field_key}")
+
+
+def _receive_customer_materials(order, basket, user):
+    from apps.inventory import order_materials
+
+    for entry in basket.values():
+        if entry['quantity'] <= 0:
+            continue
+        order_materials.receive_customer_material(
+            order,
+            name=entry['name'][:200],
+            quantity=entry['quantity'],
+            unit=entry['unit'],
+            kind=entry['kind'],
+            user=user,
+            notes='Brought by the customer for ' + ', '.join(entry['fields']),
+        )
+
+
+def _part_items_from_draft(design):
+    """The wizard's per-part choices, as board items.
+
+    The order wizard used to shortlist whole designs, and wrote them to the
+    draft as `design.items`. It now chooses one photograph per PART of the
+    garment -- this pallu, that border -- and writes `design.parts` as
+    {part_key: image}. Confirm read only the old key, so every part a customer
+    picked was saved on the draft and then silently dropped at the moment the
+    order was created: the order reached the workroom with no design on it and
+    nothing said so.
+
+    Translated here rather than at the call site so both shapes converge on one
+    board-item writer. A draft written before the change still carries `items`
+    and still confirms exactly as it did.
+    """
+    items = []
+    for part, image in (design.get('parts') or {}).items():
+        if not image:
+            continue
+        items.append({
+            'source': 'library',
+            # The DesignAsset the photograph belongs to, so the workroom can
+            # reach the whole design from the part that was chosen.
+            'source_ref': str(image.get('design_id') or ''),
+            'title': image.get('part_label') or part.replace('_', ' '),
+            'image_url': image.get('image_url') or '',
+            'part': part,
+            # Every part chosen IS the choice for that part -- there is no
+            # shortlist-then-pick step in the part flow, so each one is
+            # selected on arrival. The per-part uniqueness constraint added in
+            # design_studio 0017 is what keeps that to one per part.
+            'is_selected': True,
+        })
+    return items
+
+
+class OrderDraftViewSet(viewsets.ViewSet):
 
     def _serialise(self, draft):
         return {
@@ -1294,17 +1379,13 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 current_step=int(request.data.get('current_step') or 0),
                 version=request.data.get('version'))
         except drafts.DraftConflict as conflict:
-            # 409, not 400: the request is well formed, it is simply based on a
-            # copy of the order that has since moved on. The interface needs to
-            # tell the person in the older tab to reload rather than to correct
-            # a field.
             return Response({'error': str(conflict)}, status=status.HTTP_409_CONFLICT)
         if draft is None:
             return Response({'error': 'No such draft.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(self._serialise(draft))
 
     def destroy(self, request, pk=None):
-        """Abandon it, explicitly. The customer, if any, is left alone."""
+
         removed = drafts.abandon(request.user, pk)
         if not removed:
             return Response({'error': 'No such draft.'}, status=status.HTTP_404_NOT_FOUND)
@@ -1312,19 +1393,6 @@ class OrderDraftViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=['POST'], url_path='confirm')
     def confirm(self, request, pk=None):
-        """Turn this draft into a real order, atomically, once.
-
-        Everything happens inside one transaction: the client, the order, its
-        production stages, its garments and their material lines, and the
-        deletion of the draft. Either the boutique has an order and no draft, or
-        it has its draft back and nothing else changed. There is no state in
-        between to clean up.
-
-        Retrying is safe because the draft is the token. A double-click, a
-        network retry or a refresh that re-fires the request finds the draft
-        already spent and is told so, rather than booking the same garments a
-        second time.
-        """
         from apps.catalog.models import GarmentTemplate
         from apps.catalog.serializers import GarmentJobSerializer
 
@@ -1332,10 +1400,6 @@ class OrderDraftViewSet(viewsets.ViewSet):
             payload = draft.payload or {}
             customer = drafts.customer_for(draft, payload)
 
-            # Blank boxes are not zeroes. The wizard sends every measurement
-            # field it renders, most of them empty, and a DecimalField refuses
-            # '' outright -- which took the whole confirmation down with a 500
-            # rather than skipping a number nobody typed.
             measurements = {
                 key: value for key, value in (payload.get('measurements') or {}).items()
                 if value not in (None, '')
@@ -1344,10 +1408,6 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 Measurement.objects.update_or_create(
                     customer=customer, defaults=measurements)
 
-            # The wizard's own shape, mapped here rather than in the browser:
-            # the draft stores what the form holds, and this is the one place
-            # that knows what an Order needs. Keeping the translation server-side
-            # means a stale tab cannot post a differently-shaped order.
             prices = payload.get('prices') or {}
             staff = payload.get('staff') or {}
             delivery = payload.get('delivery') or {}
@@ -1360,13 +1420,6 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 except (TypeError, ValueError):
                     return 0.0
 
-            # Per-garment pricing, when the wizard sent it. Each garment carries
-            # its own components and the ORDER's components become their sums --
-            # this is what stops a Blouse + Lehenga order being priced as
-            # whichever garment came first. Drafts written before pricing moved
-            # per-garment have no `pricing` key on any garment and fall back to
-            # the flat `prices` block exactly as before, so an in-flight draft
-            # still confirms at the numbers its owner saw.
             per_garment = [g.get('pricing') or {} for g in garments]
             has_job_pricing = any(any(money(v) for v in p.values()) for p in per_garment)
             component_keys = ('base', 'fabric', 'embroidery', 'customization', 'tailoring')
@@ -1379,16 +1432,11 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 component_totals = {key: money(prices.get(key)) for key in component_keys}
             full_payment = payment.get('option') == 'full'
 
-            # The earliest date any dress on this order is due: an order is only
-            # as early as its slowest-promised garment is late.
             due = sorted(
                 d for d in ((g.get('values') or {}).get('delivery_date')
                             for g in (payload.get('garments') or []))
                 if d)
 
-            # taxes/total are NOT passed: the service recomputes them through
-            # domains.orders.pricing from these components, and what the client
-            # believed the total was has no bearing on what is stored.
             order = OrderService.create_order_for_customer(customer, {
                 'tailor_id': staff.get('tailor_id'),
                 'master_id': staff.get('master_id'),
@@ -1400,9 +1448,6 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 'packaging_handling': money(prices.get('packaging')),
                 'discount': money(prices.get('discount')),
                 'payment_status': 'Paid' if full_payment else 'Partially Paid',
-                # On 'Paid' the service sets advance = the total IT computed;
-                # nothing the client sends matters. Only a partial advance is
-                # client data, and the service clamps it to the final total.
                 'advance_paid': 0 if full_payment else money(payment.get('advance')),
                 'custom_requirements': payload.get('special_instructions')
                                        or payload.get('custom_requirements') or '',
@@ -1411,18 +1456,18 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 'courier_service': delivery.get('courier'),
                 'tracking_number': delivery.get('tracking'),
                 'delivery_address': delivery.get('address'),
-                # Held back until the garments exist -- see below.
             }, user=request.user, notify=False)
+
+            # What the customer physically handed over, gathered across every
+            # garment on the order and received once per distinct roll. The
+            # JobMaterial line says which garment part it is for; this is the
+            # goods ledger that answers "how much is left, and what goes back".
+            brought = {}
 
             for index, garment in enumerate(garments):
                 template = GarmentTemplate.objects.filter(
                     pk=garment.get('template')).first()
                 if template is None:
-                    # Skipping used to be silent. Tolerable when a job was only
-                    # a spec; not now that it is a line on the bill -- dropping
-                    # a PRICED garment would charge the customer for fewer
-                    # dresses than the order totals were computed from. A
-                    # corrupt draft is refused, not partially billed.
                     if any(money(v) for v in (garment.get('pricing') or {}).values()):
                         raise ValueError(
                             'This draft references a garment that no longer '
@@ -1444,45 +1489,40 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 })
                 serializer.is_valid(raise_exception=True)
                 job = serializer.save()
+                _collect_customer_materials(brought, template, job)
 
-                # The garment's shortlist, chosen before this customer existed.
-                # It becomes a real board item here, against the real customer,
-                # attached to the job it was chosen for -- which is what makes
-                # the personalisation survive Confirm on the correct garment.
                 design = garment.get('design') or {}
-                for position, item in enumerate(design.get('items') or []):
+                # `items` is the old whole-design shortlist; `parts` is what the
+                # part picker writes. Both, so an in-flight draft written under
+                # either shape confirms with its designs intact.
+                draft_items = list(design.get('items') or []) + _part_items_from_draft(design)
+                for position, item in enumerate(draft_items):
                     _board_item_from_draft(order, customer, job, item, position,
                                            request.user)
 
+            _receive_customer_materials(order, brought, request.user)
+
             if has_job_pricing:
-                # The consistency step, and the precedent: order totals ARE the
-                # garment jobs' sums, written by the one pricing path. Numerically
-                # a no-op here (the components above came from the same payload),
-                # but any future edit to a job's price goes through this same
-                # function, so the bill can never drift from the dresses on it.
-                # Skipped for flat-priced drafts: their jobs are all-zero, and
-                # recomputing would zero a legitimately priced order.
                 from domains.orders.pricing import recompute_order_totals
                 recompute_order_totals(order)
 
-            # Only now. The confirmation names every garment on the order, so it
-            # cannot be sent until every garment is on it. Still inside the same
-            # transaction, and send_customer_message defers actual delivery to
-            # on_commit -- so the customer hears about an order that exists, is
-            # complete, and was not rolled back.
+            # Now that the dresses are attached, the workflow can tell whether
+            # any of them asks for a measurement. A saree with no petticoat
+            # asks for none, and its Measurements stage is skipped rather than
+            # left blocking the order forever.
+            from domains.orders.services import settle_measurement_stage
+            settle_measurement_stage(order)
+
             create_order_notifications(order, created=True)
             return order
 
         try:
             order = drafts.confirm(request.user, pk, create_order=build)
-        except ValueError as exc:
+        except (ValueError, Exception) as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if order is None:
-            # Already confirmed, or never this user's. Either way there is no
-            # order to make from it now, and saying so is better than making a
-            # second one.
             return Response(
                 {'error': 'This draft has already been placed, or no longer exists.'},
                 status=status.HTTP_409_CONFLICT)
-        return Response(OrderSerializer(OrderRepository.get_by_id(order.pk)).data,
+        return Response(OrderSerializer(OrderRepository.get_by_id(order.pk), context={'request': request}).data,
                         status=status.HTTP_201_CREATED)

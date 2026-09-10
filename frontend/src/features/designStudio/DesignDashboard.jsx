@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Award, Clock, Image as ImageIcon, Key, UserPlus, Users } from 'lucide-react';
+import { Award, Clock, Eye, Image as ImageIcon, Key, LayoutGrid, ShoppingCart, Upload, UserPlus, Users } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import { IconTile, SectionCard, StatCard } from '../../components/ui/Atelier';
 
 // The password now comes back from create-login, generated for that one
 // account and returned on that one response. The constant that used to live
@@ -22,52 +24,78 @@ import { resolveMediaUrl } from '../../services/media';
 const CARD_IMAGE_FALLBACK =
   'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400';
 
-function StatTile({ icon: Icon, label, value, accent }) {
+function DesignStrip({ title, subtitle, icon, tone, designs, emptyText, metric, action, actionLabel }) {
+  const ranked = metric === 'views' || metric === 'orders';
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: '12px', padding: '16px',
-      border: '1px solid var(--border-color)', borderRadius: '10px',
-      background: 'var(--surface-color)',
-    }}>
-      <div style={{
-        width: '38px', height: '38px', borderRadius: '8px', flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: accent ? 'rgba(212,175,55,0.12)' : 'rgba(255,255,255,0.05)',
-        color: accent ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)',
-      }}>
-        <Icon size={18} />
-      </div>
-      <div>
-        <div style={{ fontSize: '20px', fontWeight: 700 }}>{value}</div>
-        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{label}</div>
-      </div>
-    </div>
-  );
-}
-
-function DesignStrip({ title, designs, emptyText, metric }) {
-  return (
-    <div className="content-card">
-      <div className="card-title" style={{ fontSize: '14px' }}>{title}</div>
+    <SectionCard icon={icon} tone={tone} title={title} subtitle={subtitle} action={action} actionLabel={actionLabel}>
       {!designs?.length ? (
-        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '8px 0' }}>{emptyText}</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', padding: '4px 0' }}>{emptyText}</div>
+      ) : ranked ? (
+        <div>
+          {designs.map((d, i) => (
+            <div key={d.id} className="at-row">
+              <span className={`at-avatar at-tile--${i === 0 ? 'rose' : i === 1 ? 'amber' : 'neutral'}`}
+                    style={{ width: 28, height: 28, fontSize: 12 }}>{i + 1}</span>
+              <span className="at-row-main">
+                <span className="at-row-title">{d.title}</span>
+                <span className="at-row-sub">
+                  {d.garment_type || 'Design'} · {metric === 'views' ? `${d.view_count} views` : `${d.order_count} orders`}
+                </span>
+              </span>
+              <img src={resolveMediaUrl(d.image_url, CARD_IMAGE_FALLBACK)} alt=""
+                   style={{ width: 44, height: 56, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+            </div>
+          ))}
+        </div>
       ) : (
-        <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '4px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--space-3)' }}>
           {designs.map((d) => (
-            <div key={d.id} style={{ minWidth: '140px', flexShrink: 0 }}>
+            <div key={d.id} style={{ minWidth: 0 }}>
               <img src={resolveMediaUrl(d.image_url, CARD_IMAGE_FALLBACK)} alt={d.title}
-                   style={{ width: '100%', height: '110px', objectFit: 'cover', borderRadius: '6px' }} />
-              <div style={{ fontSize: '12px', fontWeight: 600, marginTop: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                   style={{ width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', borderRadius: 10, display: 'block' }} />
+              <div className="at-row-title" style={{ marginTop: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {d.title}
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                {metric === 'views' ? `${d.view_count} views` : metric === 'orders' ? `${d.order_count} orders` : d.designer_name || 'Unattributed'}
+              <div className="at-row-sub">
+                {d.garment_type || d.designer_name || 'Unattributed'}
+                {d.created_at ? ` · added ${new Date(d.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : ''}
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </SectionCard>
+  );
+}
+
+/** Categories at a glance: counts per garment, straight from the library's
+ *  own category endpoint, with a way into the library to manage them. */
+function CategoriesPanel({ onOpenLibrary }) {
+  const [categories, setCategories] = useState(null);
+  useEffect(() => {
+    api.getDesignCategories()
+      .then((data) => setCategories((data.categories || []).filter((c) => c.key)))
+      .catch(() => setCategories([]));
+  }, []);
+  return (
+    <SectionCard icon={LayoutGrid} tone="neutral" title="Categories" action={onOpenLibrary} actionLabel="Manage">
+      {categories === null ? (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Loading…</div>
+      ) : categories.length === 0 ? (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>No garment categories yet.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 'var(--space-2)' }}>
+          {categories.slice(0, 6).map((c) => (
+            <button key={c.key} type="button" className="at-cat" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}
+                    onClick={onOpenLibrary}>
+              <IconTile icon={ImageIcon} tone={c.count ? 'green' : 'neutral'} size={34} iconSize={16} />
+              <span className="at-cat-name">{c.name}</span>
+              <span className="at-cat-count">{c.count} design{c.count === 1 ? '' : 's'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </SectionCard>
   );
 }
 
@@ -140,7 +168,7 @@ function DesignerRoster() {
 
   if (error) {
     return (
-      <div className="content-card" style={{ color: '#c0392b', fontSize: '12.5px' }}>
+      <div className="content-card" style={{ color: 'var(--danger-color)', fontSize: '12.5px' }}>
         {error}
         <button className="btn-secondary" style={{ marginLeft: '10px', padding: '3px 8px', fontSize: '11px' }}
                 onClick={() => { setError(null); load(); }}>Retry</button>
@@ -149,8 +177,7 @@ function DesignerRoster() {
   }
 
   return (
-    <div className="content-card">
-      <div className="card-title" style={{ fontSize: '14px' }}>Designers</div>
+    <SectionCard icon={Users} tone="blue" title="Designers" subtitle="Who is credited on the library, and who can sign in">
 
       <form onSubmit={add}
             style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '4px 0 12px' }}>
@@ -187,7 +214,7 @@ function DesignerRoster() {
                 {d.design_count} design{d.design_count === 1 ? '' : 's'}
               </span>
               {d.has_login ? (
-                <span style={{ fontSize: '11px', color: '#34d399', marginLeft: 'auto' }}>Has a login</span>
+                <span style={{ fontSize: '11px', color: 'var(--success-color)', marginLeft: 'auto' }}>Has a login</span>
               ) : (
                 <span style={{ display: 'flex', gap: '6px', marginLeft: 'auto', flex: '1 1 auto', maxWidth: '360px' }}>
                   <input
@@ -233,62 +260,62 @@ function DesignerRoster() {
                   onClick={() => setIssued(null)}>Close</button>
         </div>
       )}
-    </div>
+    </SectionCard>
   );
 }
 
 export default function DesignDashboard({ onOpenLibrary, canManageDesigners = false }) {
+  const { t } = useLanguage();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
   const load = () => {
-    setError(null);
-    api.getDesignDashboard().then(setData).catch((err) => setError(err.message));
+    api.getDesignDashboard()
+      .then((d) => { setData(d); setError(null); })
+      .catch((err) => setError(err.message));
   };
 
   useEffect(load, []);
 
   if (error) {
     return (
-      <div className="content-card" style={{ color: '#c0392b', fontSize: '13px' }}>
+      <div className="content-card" style={{ color: 'var(--danger-color)', fontSize: '13px' }}>
         The design dashboard could not be loaded — {error}
         <button className="btn-secondary" style={{ marginLeft: '10px', padding: '4px 10px', fontSize: '12px' }} onClick={load}>
-          Retry
+          {t('common.retry', 'Retry')}
         </button>
       </div>
     );
   }
 
-  if (!data) return <div className="content-card">Loading…</div>;
+  if (!data) return <div className="content-card">{t('common.loading', 'Loading…')}</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
-        <StatTile icon={ImageIcon} label="Total Designs" value={data.total_designs} />
-        <StatTile icon={Users} label="Designers" value={data.designers} />
-        <StatTile icon={Award} label="Collections" value={data.collections} />
-        <StatTile
-          icon={Clock}
-          label="Pending Approval"
-          value={data.pending_approval}
-          accent={data.pending_approval > 0}
-        />
+    <div className="at-stack">
+      <div className="at-stat-grid">
+        <StatCard icon={ImageIcon} tone="green" label={t('designsPage.totalDesigns', 'Total Designs')} value={data.total_designs}
+                  sub={data.recent_uploads?.length ? `${data.recent_uploads.length} recent upload${data.recent_uploads.length === 1 ? '' : 's'}` : 'Nothing uploaded yet'} />
+        <StatCard icon={Users} tone="amber" label={t('designsPage.designers', 'Designers')} value={data.designers} sub="Active" />
+        <StatCard icon={Award} tone="violet" label={t('designsPage.collections', 'Collections')} value={data.collections}
+                  sub={data.collections ? 'Curated sets' : 'Create your first'} />
+        <StatCard icon={Clock} tone={data.pending_approval > 0 ? 'rose' : 'blue'} label={t('designsPage.pendingApproval', 'Pending Approval')}
+                  value={data.pending_approval} sub={data.pending_approval > 0 ? 'Waiting on your review' : 'All up to date'}
+                  onClick={data.pending_approval > 0 ? () => onOpenLibrary?.('pending') : undefined} />
       </div>
 
-      {data.pending_approval > 0 && (
-        <div className="accent-banner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-             onClick={() => onOpenLibrary?.('pending')}>
-          <span>{data.pending_approval} design{data.pending_approval === 1 ? '' : 's'} waiting on your review.</span>
-          <span style={{ fontWeight: 600, textDecoration: 'underline' }}>Open the queue</span>
-        </div>
-      )}
-
-      <DesignStrip title="Recent Uploads" designs={data.recent_uploads} emptyText="Nothing uploaded yet." />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
-        <DesignStrip title="Most Viewed" designs={data.most_viewed} metric="views" emptyText="No views recorded yet." />
-        <DesignStrip title="Most Ordered" designs={data.most_ordered} metric="orders" emptyText="No orders placed from the library yet." />
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(260px, 1fr)', gap: 'var(--space-4)' }} className="design-dashboard-grid">
+        <DesignStrip icon={Upload} tone="green" title={t('designsPage.recentUploads', 'Recent Uploads')} subtitle="Your latest added designs"
+                     designs={data.recent_uploads} emptyText="Nothing uploaded yet." action={onOpenLibrary} />
+        <CategoriesPanel onOpenLibrary={onOpenLibrary} />
       </div>
-      <DesignStrip title="Trending This Week" designs={data.trending} metric="views" emptyText="Nothing trending in the last 7 days." />
+      <div className="at-grid-2">
+        <DesignStrip icon={Eye} tone="amber" title={t('designsPage.mostViewed', 'Most Viewed')} subtitle="Designs that get the most attention"
+                     designs={data.most_viewed} metric="views" emptyText="No views recorded yet." action={onOpenLibrary} />
+        <DesignStrip icon={ShoppingCart} tone="green" title={t('designsPage.mostOrdered', 'Most Ordered')} subtitle="Designs loved by your customers"
+                     designs={data.most_ordered} metric="orders" emptyText="No orders placed from the library yet." action={onOpenLibrary} />
+      </div>
+      <DesignStrip icon={Clock} tone="violet" title={t('designsPage.trendingThisWeek', 'Trending This Week')} subtitle="Most viewed in the last 7 days"
+                   designs={data.trending} metric="views" emptyText="Nothing trending in the last 7 days." />
 
       {canManageDesigners && <DesignerRoster />}
     </div>

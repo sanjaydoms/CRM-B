@@ -1,13 +1,10 @@
-# Boutique CRM — confirmed audit findings
 
 145 findings, each verified against the source by a second agent tasked with refuting it.
 Line numbers drift (App.jsx is edited concurrently) — grep the quoted code before editing.
 The consolidated, de-duplicated execution order is in production-readiness-plan.md.
 
 
-## CRITICAL
 
-### Live Supabase database password is in git history and is still the password in use
 `.env:3`
 
 **Impact.** Anyone who has ever cloned this repository holds a working credential for the Supabase `postgres` role on the single instance that hosts every boutique's schema. That is direct read/write/DROP over every tenant's customers, measurements, phone numbers, orders and revenue, entirely bypassing TenantHeaderMiddleware and core/permissions.py.
@@ -16,7 +13,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Rotate the password in the Supabase dashboard, set the new DB_PASSWORD in Render and in the local .env, and delete the false 'has been rotated' sentence at docs/scaleezy-product-architecture.html:1047. Rewriting history is not required and not the point — the credential must simply stop working.
 
-### SECRET_KEY falls back to a committed literal, so anyone can forge a tracking token for any order in any boutique
 `boutique_crm/settings.py:44`
 
 **Impact.** With the key known, anyone can mint tracking tokens for any (schema, order_id) pair — schema names are public, since tracking.py:35-37 documents the payload as readable base64 — and read every customer's name, phone, address, stage history, total/paid/balance, trial appointment and published garment photos across every boutique. Nothing expires, nothing is logged.
@@ -25,7 +21,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In boutique_crm/settings.py:44, refuse the literal outside DEBUG the way create_superuser.py refuses a missing password: read DJANGO_SECRET_KEY, fall back to the dev literal only when DEBUG, else sys.exit with a message naming the variable. Add it to the README Render env list and rotate once (which invalidates outstanding links, as tracking.py's own ponytail note says).
 
-### SECRET_KEY falls back to a committed literal and is not in the deploy variable list — forged tracking tokens read any boutique's orders
 `boutique_crm/settings.py:44`
 
 **Impact.** With the key known, an outsider mints tracking tokens at will. One genuine link leaks the schema name (the payload is plain base64 JSON, as tracking.py's docstring states), and 9000 guesses per date walks that boutique's whole order book — customer names, garment details, money owed — unauthenticated at /track/<token>/.
@@ -34,7 +29,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In boutique_crm/settings.py, keep the dev literal only under DEBUG and `raise ImproperlyConfigured` when DJANGO_SECRET_KEY is unset and DEBUG is False, so a deploy cannot silently boot on the public key. Then generate a fresh key, set DJANGO_SECRET_KEY on Render, and add it to README.md:134's list. Rotating invalidates outstanding tracking links, which is the intended effect.
 
-### Every staff and designer account is created with one bootstrap password that is published in this repo and in the JS bundle
 `crm_api/views.py:272`
 
 **Impact.** Anyone with the repo or the shipped bundle can sign in as staff at any boutique on the platform by guessing a first-name-shaped username, and then read that boutique's customer names, phones, addresses and order book. Departed staff keep working credentials everywhere, not just where they worked.
@@ -43,7 +37,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In crm_api/views.py:_ensure_user_account and apps/design_studio/views.py:create_login, replace the shared constant with secrets.token_urlsafe(9) per account and return it once in that response (a write-only 'bootstrap_password' key on the serializer output for the create/create_login call) so the owner hands over a unique password. Same change also fixes the next finding.
 
-### Owner opening any production stage on a designed order crashes the whole workspace
 `frontend/src/App.jsx:8408`
 
 **Impact.** An Owner clicking any stage on the timeline of an order that went through the Design Studio loses the entire workspace to the runtime-error screen and must reload. That modal is the only place stages are started/paused/completed (App.jsx:8614-8720), so production on designed orders cannot be run from the Owner account at all.
@@ -53,9 +46,7 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 **Fix.** Agree with the fetch-site normalisation: in openStageReview (App.jsx:1703-1708) store `setStageDesignBrief(brief ? { ...brief, design: brief.design || brief.selected } : null)`. One edit fixes the guard, all three derefs and the production-notes deref for every role.
 
 
-## HIGH
 
-### /api/catalog/jobs/ has no order scoping, so any staff account reads every client's body measurements and garment spec
 `apps/catalog/views.py:88`
 
 **Impact.** A tailor who is correctly scoped out of another tailor's order by visible_orders can GET /api/catalog/jobs/ and receive every garment on every order in the boutique, including each client's full measurement set and design spec.
@@ -64,7 +55,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Scope GarmentJobViewSet.get_queryset (apps/catalog/views.py:88) the way the siblings do: `from core.permissions import visible_orders` + `from crm_api.models import Order`, then `queryset = queryset.filter(order__in=visible_orders(Order.objects.all(), self.request.user))` before the `?order=` filter.
 
-### Purchase-order receipt is not atomic: a rejected later line leaves earlier lines already stocked in
 `apps/inventory/views.py:318`
 
 **Impact.** An owner booking a multi-line delivery who mistypes one quantity gets a 400 saying the receipt failed while the earlier lines are already in stock with PURCHASE ledger rows. Correcting and resubmitting counts those lines twice, so on-hand quantity and inventory value are permanently wrong with only a duplicate ledger pair as evidence.
@@ -73,7 +63,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agree. Wrap the body of PurchaseOrderViewSet.receive from the `lines_by_id` build through `purchase_order.save(...)` in `with transaction.atomic():`, leaving the `except ValueError` handler outside the block so the rollback completes before the 400 is returned.
 
-### /api/appointments/ nests the entire CustomerSerializer with zero prefetching
 `apps/scheduling/serializers.py:6`
 
 **Impact.** The endpoint is in fetchDashboardAndConfig (App.jsx:1018), so it runs on every login and after every mutation refresh. A calendar of a few dozen appointments costs hundreds to low-thousands of round trips against a pooled remote Postgres, and ships every client's full order history and money to render two names.
@@ -82,7 +71,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agree with the auditor. In apps/scheduling/serializers.py replace the nested CustomerSerializer with an inline two-field serializer (`id`, `first_name`, `last_name`) -- the only fields App.jsx:3138-3139 reads. One class, no view change, and it removes both the N+1 and the over-disclosure of order money at the same time.
 
-### Uploaded media is written to Render's ephemeral disk and is lost on every redeploy
 `boutique_crm/settings.py:360`
 
 **Impact.** Every fabric swatch, design reference, stage progress photo and finished-garment image a boutique uploads disappears on the next deploy while the database rows keep pointing at now-404ing URLs. The customer tracking page's gallery (crm_api/tracking_views.py:84-88) and the design library go blank — silent, permanent loss of the boutique's own photography.
@@ -91,7 +79,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Attach a Render persistent disk mounted at MEDIA_ROOT and document it in README.md's deployment guide — that is the change that does not require fixing the Supabase bucket policy first. Until it lands, the deploy guide must say plainly that uploads do not survive a deploy.
 
-### Every new boutique is seeded with four invented employees, five priced fabrics and a priced catalogue
 `crm_api/utils.py:3`
 
 **Impact.** A day-one owner's first order can be assigned to a person who does not exist and priced at another business's fabric rate, and that price prints on the invoice and reaches the customer.
@@ -100,7 +87,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Give seed_tenant_defaults a `demo=True` parameter in crm_api/utils.py:3 that gates the three literal lists, and pass demo=False from the SignupView call at crm_api/auth_views.py:150 — SeedDataView (auth_views.py:507) and seed_data.py:73 keep the demo path. The order wizard already handles an empty roster (App.jsx:6894, 6951).
 
-### Customer lifetime spend uses SUM(DISTINCT), so two orders of the same amount count once
 `domains/customers/repositories.py:42`
 
 **Impact.** Two ₹40,000 orders show a lifetime spend of ₹40,000 on the Customer Directory list and the dashboard recent-customers panel, and the segment badge reads HVC where the customer detail banner for the same person reads VIP. Repeat orders at a repeated price point are the normal case in a boutique, so the segmentation is wrong for precisely the highest-value clients, and two screens contradict each other about the same person.
@@ -109,7 +95,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed with the direction but the simpler edit is enough: in CustomerRepository.summary_queryset (domains/customers/repositories.py:42-43), drop distinct=True from the Sum and Avg and replace each with a correlated Subquery over Order (Subquery(Order.objects.filter(customer=OuterRef('pk')).values('customer').annotate(s=Sum('total_amount')).values('s')) and the matching Avg). Merely dropping distinct=True is NOT sufficient — the multiplication the comment describes is real for a tailor, so the subquery is required to make the figure correct for both roles. Leave orders_count=Count(..., distinct=True) alone; it is correct. Update the comment so the next reader does not re-add distinct.
 
-### Customer total spend uses SUM(DISTINCT), so two orders of the same value count once
 `domains/customers/repositories.py:42`
 
 **Impact.** Any client with two or more orders at the same price -- the ordinary repeat-order pattern -- has their lifetime spend under-reported by the duplicated amounts. CustomerSummarySerializer.get_total_spend (crm_api/serializers.py:509) and get_segment (:516) then grade them a tier low, and build_style_dna's budget band (via orders_avg_price at :528) is skewed the same way. Applies on the Owner's plain LEFT JOIN too, not just the tailor path.
@@ -118,7 +103,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Two-line root fix, not the auditor's Subquery rewrite. (1) In core/permissions.visible_customers (core/permissions.py:151) replace the multi-valued join filter with `queryset.filter(pk__in=Customer.objects.filter(Q(orders__tailor=profile) | Q(orders__master=profile) | Q(orders__stages__assigned_to=profile)).values('pk'))` -- that removes the row multiplication and the need for the trailing .distinct(). (2) Drop `distinct=True` from the Sum and Avg in CustomerRepository.summary_queryset. Verified this preserves current disclosure semantics: the aggregate already spans all of the customer's orders on the tailor path, so no tailor sees more money than today.
 
-### Skipping or starting the Delivered stage marks the order Delivered and messages the customer, bypassing the QC gate
 `domains/orders/services.py:445`
 
 **Impact.** An Owner or Master who clicks 'Skip Stage' or 'Start In-Progress' on the Delivered stage flips an uninspected order to Delivered on the public tracking page and drafts the customer a balance-due message; the one hard invariant of the workflow (asserted for the other route by crm_api/test_workflow.py:521) is unenforced here.
@@ -127,7 +111,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Two one-line edits in OrderService.transition_order_stage (domains/orders/services.py): make the delivered entry mirror the master_quality_check pattern — `'delivered': 'Delivered' if new_status == 'COMPLETED' else order.order_status` — and drop `and new_status == 'COMPLETED'` from the guard at line 314 so the QC precondition also refuses SKIPPED/IN_PROGRESS on that stage. (The auditor's proposed `new_status in ('COMPLETED','IN_PROGRESS')` gate does not help: IN_PROGRESS on 'delivered' would still write 'Delivered'.)
 
-### Signup's OTP step is theatre: it claims an SMS was sent that nothing can send, and accepts any input
 `frontend/src/App.jsx:1198`
 
 **Impact.** Every new owner is told to wait for a code that cannot arrive. Some abandon the signup wizard — the product's front door — and those who guess that any digits work have been shown a security assurance the product does not have on a page advertising 'bank level security'.
@@ -136,7 +119,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Delete step 2: make handleSignupSubmit (App.jsx:1191) call setSignupStep(3), drop { step: 2, label: 'Verify' } from the tracker array at line 2061 and remove the signupStep === 2 block (2178-2205).
 
-### Customer Directory CTAs launch the order wizard for a Master, who is 403'd on step 1
 `frontend/src/App.jsx:4318`
 
 **Impact.** A Master opens a client from the directory, clicks either CTA, fills in the customer form, and gets `Failed to save customer: detail: Your role does not permit this.` Everything typed is lost and there is no route from that screen to a completed order.
@@ -145,7 +127,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Wrap the `<div className="customer-detail-header-actions">` block at App.jsx:4318 in the guard the Orders registry already uses at App.jsx:3679: `{(!currentUser?.role || currentUser.role === 'Owner') && ( ... )}`. One gate covers both buttons.
 
-### Boutique address is skippable at signup, so the customer tracking page shows the shipped placeholder address
 `frontend/src/App.jsx:2233`
 
 **Impact.** A customer opens their tracking link and is told to collect a garment from a fictional address, and the same address prints on the invoice. The owner gets no signal that anything is wrong.
@@ -154,7 +135,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Guard handleProfileSubmit (frontend/src/App.jsx:1210): if boutiqueName or boutiqueAddress is blank, alert and return instead of advancing — step 3 is a div, not a form, so HTML `required` has no effect there.
 
-### Garment-form file uploads (Measurement Sheet, Reference Images, Audio Note, Final Approved Design) are never uploaded — single files are silently discarded, repeatable ones store "[object Object]"
 `frontend/src/App.jsx:740`
 
 **Impact.** A staff member scans the hand-written measurement sheet, attaches it, the wizard advances with no error and the file is gone — the artefact proving what was actually measured is lost at capture. Reference images persist as [{}] and the tailor's "What to make" panel renders them through String(v) (App.jsx:8405) as "reference images: [object Object]".
@@ -163,7 +143,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Smallest correct fix is to remove the affordance, not to harden the write path: drop the four 'file' entries from COMMON_PRODUCTION (apps/catalog/definitions.py:111-115) and add a resync migration alongside apps/catalog/migrations/0003_resync_templates.py so existing tenants lose the fields too — otherwise definitions.py changes never reach seeded rows. Do NOT take the auditor's alternative of raising in core.templates.validate_spec: saveGarmentJobs runs AFTER the order is created (App.jsx:1454), so a hard rejection there leaves an order saved with no garment job and the wizard dead mid-flow. Re-add the fields when saveGarmentJobs can POST multipart.
 
-### Files attached to a garment (measurement sheet, reference images, audio note) are silently discarded
 `frontend/src/App.jsx:754`
 
 **Impact.** Staff photograph the customer's handwritten measurement sheet or record the audio note, the step-6 review says 'Attached', and the workroom receives nothing — the key is not even present on the GarmentJob, with no error anywhere.
@@ -172,7 +151,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Smallest honest fix: drop file fields from what the form renders — in TemplateForm.jsx:199 filter `(f) => f.field_type !== 'file'` — so the product stops offering an input it cannot save. (Also removes the false 'Attached' in GarmentSummary, since those keys will never be set.) Only build the multipart path when the media service is actually wired to garment jobs.
 
-### A failed order submission leaves the order created and a second click bills the customer twice
 `frontend/src/App.jsx:1461`
 
 **Impact.** On a partial failure the owner is told only 'Failed to submit order.', not that an order exists, and retrying creates a second order with the same total_amount and advance_paid — two invoices and doubled revenue in Invoices and Analytics. On a money-validation 400 the owner sees the same blank message and can never learn which figure the server refused.
@@ -181,7 +159,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Two small edits: in api.js createOrder (352-360) read the body and throw `describeApiError(res, data)` like updateOrderStatus already does; in submitOrderAndConfirm keep the created order in a ref and reuse it instead of re-POSTing on retry, and name the created order id in the catch at 1486-1489.
 
-### Master's verification checklist loses ticks — each checkbox posts a stale copy of the whole object
 `frontend/src/App.jsx:2647`
 
 **Impact.** A Master ticking six or seven items in sequence sees earlier ticks revert after each dashboard refresh, and the stored record of what was verified is wrong.
@@ -190,7 +167,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Merge server-side instead of patching two React call sites: in crm_api/views.py:432 write `order.master_verification = {**(order.master_verification or {}), **{str(k): bool(v) for k, v in checks.items()}}`. One edit at the single choke point both screens post to; unticking still works because the key is sent with False.
 
-### 'Partially Paid' in the Invoices table does nothing; no screen can record a part payment
 `frontend/src/App.jsx:4945`
 
 **Impact.** A customer paying an installment at the counter cannot be recorded: selecting 'Partially Paid' snaps back to Pending and Balance Due never moves. Only 'nothing paid' and 'paid in full' are expressible, so the invoice ledger and the Analytics paid/pending totals are wrong for every part-paid order.
@@ -199,7 +175,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agree: make the 'Total Paid' cell at App.jsx:4942 an editable number input that PATCHes `{ amount_paid: value }` via the existing api.updateOrder. _reconcile_payment already derives the correct label and clamps the advance, so no backend change is needed.
 
-### An uploaded design can never be edited, archived or deleted — no UI and no API client for it
 `frontend/src/features/designStudio/DesignLibrary.jsx:33`
 
 **Impact.** An owner or designer who uploads the wrong photograph, the wrong title, or the same dress twice has no way to correct or remove the row. It stays ACTIVE, counts in DesignCategoryView's tile (views.py:386-403) and keeps being returned into the discovery gallery by LibraryProvider (providers/internal.py:127) that the owner picks a customer's design from. Compounds findings 3 and 4: a design whose cover image is broken is also unfixable.
@@ -208,7 +183,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed and kept. Add `updateDesignAsset(id, payload)` (PATCH) and `deleteDesignAsset(id)` (DELETE) next to getDesignAsset in frontend/src/services/api.js, and in DesignLibrary.jsx's DesignDetail route non-catalogue sources through them instead of hiding the buttons — DesignLibraryPermission.has_object_permission already enforces exactly the right rule server-side.
 
-### Approved design is lost whenever the wizard returns to step 3
 `frontend/src/features/designStudio/DesignStudio.jsx:187`
 
 **Impact.** Owner approves a design in step 3, goes back or edits from the summary, then submits: the order reaches the floor with no design attached, behind the green confirmation screen and with no message.
@@ -217,7 +191,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agree: in DesignStudio, fetch the customer's board on mount before the first onBoardChange — `api.getDesignBoards({ customer_id: customerId })` is already supported server-side (apps/design_studio/views.py:562-564) — and seed board/items from it. That restores boardId+approved on remount and stops ensureBoard creating a duplicate board.
 
-### seed_data.py creates the platform superuser as admin/admin123 and create_superuser.py can never rotate it
 `seed_data.py:33`
 
 **Impact.** Every database seeded by seed_data.py keeps admin/admin123 on the console that lists, browses and suspends every boutique on the platform, and every redeploy prints "Superuser 'admin' already exists" and passes green, so the DJANGO_SUPERUSER_PASSWORD work in create_superuser.py is silently defeated by the script next to it.
@@ -226,7 +199,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In create_superuser.py, replace the exists() early-out at line 43 with an unconditional rotate — user, _ = User.objects.get_or_create(username=username, defaults={'email': email}); user.set_password(password); user.is_superuser = user.is_staff = True; user.save() — so every deploy makes the environment value true. Then drop the literals at seed_data.py:33 and :64 in favour of os.environ.
 
-### seed_mock_orders.py deletes every order and customer and defaults to the production database
 `seed_mock_orders.py:18`
 
 **Impact.** A developer running the seed script to populate their local database irreversibly wipes every order, customer, tailor and notification in every live boutique's schema.
@@ -236,9 +208,7 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 **Fix.** Do NOT adopt the proposed global flip of USE_LOCAL_DB. Render sets no .env and no USE_LOCAL_DB (README.md:134-163 never mentions it), so defaulting to local would point production at 127.0.0.1 and take the service down. The smallest correct fix is a guard at the top of seed_all() in seed_mock_orders.py: `if os.environ.get('USE_LOCAL_DB') != 'True': raise SystemExit('refusing to seed a non-local database')` — one condition in the one destructive file.
 
 
-## MEDIUM
 
-### README documents port 6543 — the transaction pooler settings.py proves breaks tenant isolation
 `README.md:38`
 
 **Impact.** An operator following README.md:38 sets DB_PORT=6543 on Render and reintroduces exactly the configuration the settings comment documents as having leaked queries into the wrong schema and produced random 401s. Locally, any manage.py command run outside start.sh reaches the live database in that same broken configuration.
@@ -247,7 +217,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Fix README.md:38 to say session pooler / port 5432 and cite the reasoning in boutique_crm/settings.py:141-161; change DB_PORT to 5432 in the local .env.
 
-### /api/catalog/jobs/ is unscoped: any tailor reads every order's garment spec and measurement snapshot
 `apps/catalog/views.py:88`
 
 **Impact.** A tailor assigned to one garment can GET /api/catalog/jobs/ with their own token and receive the per-dress specification and body-measurement snapshot for every order in the boutique, including clients they were never put on. Within-tenant only -- no cross-tenant leak.
@@ -256,7 +225,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In GarmentJobViewSet.get_queryset (apps/catalog/views.py:88), add `from core.permissions import visible_orders` / `from crm_api.models import Order` and chain `queryset = queryset.filter(order__in=visible_orders(Order.objects.all(), self.request.user))`, matching apps/production/views.py:20.
 
-### GET /api/catalog/jobs/ returns every order's garment spec and measurements to any signed-in tailor
 `apps/catalog/views.py:88`
 
 **Impact.** A tailor who is correctly 404'd from /api/orders/<id>/ for an order they are not on can call /api/catalog/jobs/ and read that order's full garment spec — every measurement, the customer_notes, the internal_notes and the special_instructions for every dress in the boutique. It is the same read the role matrix exists to prevent, reached through a route that was never given the guard.
@@ -265,7 +233,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed. In GarmentJobViewSet.get_queryset (apps/catalog/views.py:88), wrap the base queryset with `queryset.filter(order__in=visible_orders(Order.objects.all(), self.request.user))`, importing visible_orders from core.permissions and Order from crm_api.models. One line covering list, retrieve and both materials sub-actions, since all of them reach rows through this queryset.
 
-### The Saved Library source ignores the search keywords entirely
 `apps/design_studio/providers/internal.py:119`
 
 **Impact.** The owner types 'peacock motif' during a customer's order and the boutique's own uploaded and saved designs are unaffected — the studio returns the 24 most recently added ACTIVE designs whatever was typed. A matching design uploaded months ago is unreachable through discovery, while the catalogue source beside it does honour the same words.
@@ -274,7 +241,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed and kept: in LibraryProvider.search, reuse the module-level _tokens(queries) helper and the same Q(title__icontains=…) | Q(description__icontains=…) narrowing with CatalogueProvider's fall-back-if-nothing-hits pattern, applied before the [:limit] slice.
 
-### DesignerViewSet.portfolio bypasses the serializer redaction that hides staff email addresses
 `apps/design_studio/views.py:538`
 
 **Impact.** Any signed-in tailor or designer can GET /api/design-studio/designers/<id>/portfolio/ and read that designer's login address plus a flag saying a live account exists for it, which combined with the shared default password is an account-takeover shortcut inside the boutique.
@@ -283,7 +249,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In DesignerViewSet.portfolio (apps/design_studio/views.py:538) pass the context: `DesignerSerializer(..., context=self.get_serializer_context())`. That is the whole fix; leave line 524 alone.
 
-### Design uploads accept any file of any size — no server-side type or size check
 `apps/design_studio/views.py:246`
 
 **Impact.** A PDF, a .mov picked from a phone's camera roll or a corrupt file is accepted with a 201 and becomes the design's cover image; the card then renders permanently broken, and per finding 1 the row can never be corrected or deleted. accept="image/*" at DesignUpload.jsx:149 is client-side only and any direct API caller ignores it.
@@ -292,7 +257,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** One guard in DesignAssetViewSet._store_images (apps/design_studio/views.py:246): before storing, reject with 400 any file whose f.content_type is not in a small image whitelist or whose f.size exceeds a limit (10MB is ample for a garment photograph). While there, pass `f` to default_storage.save instead of ContentFile(f.read()) so Django streams it in chunks.
 
-### Upload stores an absolute URL built from the request Host, so image_url breaks when the host changes and is attacker-settable
 `apps/design_studio/views.py:252`
 
 **Impact.** The API hostname is frozen into every uploaded row, so a move to a custom domain or a new Render URL 404s every uploaded design image while seeded catalogue rows (bare filenames) keep working — and per finding 1 the row cannot be edited to repair it. Uploading against a dev host bakes localhost:8000 into the row permanently. Secondarily, any signed-in role may upload (permissions.py:55-56) and can point a design's cover image at a host they control.
@@ -301,7 +265,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed and kept, it is the smallest fix: in _store_images (apps/design_studio/views.py:252) store the relative path — `stored.append(default_storage.url(saved))`. resolveMediaUrl already resolves it on every screen that renders a design.
 
-### Granting a designer a login on an email already linked to another designer returns a 500
 `apps/design_studio/views.py:519`
 
 **Impact.** An owner granting a login to a second designer at a shared studio address, or simply reusing an address they already granted, gets an unreadable 500 from the roster with no indication of what is wrong or which designer holds that address. The action is blocked with no path forward from the screen.
@@ -310,7 +273,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed and kept: in DesignerViewSet.create_login, alongside the tailor_profile check at views.py:497, add — if getattr(user, 'designer_profile', None) is not None, return 400 naming that designer, mirroring the Tailor branch's wording.
 
-### release_unused() releases the line's full outstanding reservation with no clamp, so a write-off that shrank the item's reserved figure permanently wedges the plan
 `apps/inventory/order_materials.py:322`
 
 **Impact.** Any plan whose reserved material is later damaged, scrapped, returned to supplier, or counted short can never be closed or cancelled — both 400 with "Cannot release N ... only M is reserved" — and the order can never be given a new plan. Reachable only through the material-plan API, which has no screen.
@@ -319,7 +281,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Smaller than the auditor's version: pass the existing clamp to the one call site — `InventoryService.release(line.item, outstanding, clamp_reserved=True, ...)` at apps/inventory/order_materials.py:322. services.py:96-97 already handles reserved_delta < 0 by flooring at zero, and tests.py:125 (test_cannot_release_more_than_reserved) calls release() without the flag, so it still refuses a genuine over-release. close(), cancel() and the release-unused endpoint all route through this one line.
 
-### dashboard() ignores the selected date window for the Suppliers panel (and for Cost-per-order)
 `apps/inventory/reports.py:425`
 
 **Impact.** The owner picks a week, four panels narrow, and the supplier on-time percentages keep showing all-time figures with nothing on screen saying so.
@@ -328,7 +289,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In dashboard() in apps/inventory/reports.py:426, pass the window through: `supplier_performance(since=since, limit=10)`. Leave cost_per_order alone — it has no date column of its own and is empty in practice; if you want it labelled, that belongs in ReportsTab.jsx, not here.
 
-### Stock valuation is Owner-only on the reports endpoint but open to any tailor on /inventory/items/summary/
 `apps/inventory/views.py:54`
 
 **Impact.** A tailor's token reads the boutique's total stock valuation and the purchase price of every material -- the exact commercial figure OwnerOnly exists to withhold -- through a URL their nav never shows them.
@@ -337,7 +297,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add `permission_classes = [OwnerOnly]` to InventoryItemViewSet at apps/inventory/views.py:54, matching SupplierViewSet (43) and PurchaseOrderViewSet (308). OwnerOnly is already imported in this module.
 
-### PurchaseOrderViewSet.receive() is not atomic, so a mid-loop failure half-applies a multi-line goods receipt
 `apps/inventory/views.py:318`
 
 **Impact.** When the receipt does error partway, the earlier lines' goods are already in stock and in the ledger while the owner sees only a failure; the retry then contradicts what the modal still displays, and the PO cannot be completed without a page reload.
@@ -346,7 +305,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add @transaction.atomic to PurchaseOrderViewSet.receive in apps/inventory/views.py:318 — agreed, that is the smallest fix and covers the 500 path too, since the whole request rolls back either way.
 
-### Stock valuation and purchase prices are readable by any non-Owner staff account, defeating the OwnerOnly guard two viewsets over
 `apps/inventory/views.py:54`
 
 **Impact.** Any signed-in Master or Tailor can GET /api/inventory/items/summary/ for the boutique's total stock valuation and GET /api/inventory/items/ for what every material cost.
@@ -355,7 +313,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Two lines in apps/inventory: drop 'purchase_price' from InventoryItemSummarySerializer's fields (serializers.py:52), and gate the `inventory_value` key in InventoryItemViewSet.summary (views.py:113) on `resolve_user_role(request.user) == OWNER`. Quantities, reorder levels and locations stay readable so production staff can still work.
 
-### Uploaded customer and garment photos share one global media directory served with no authentication
 `boutique_crm/settings.py:350`
 
 **Impact.** Customer profile photos, stage-progress shots and finished-garment photographs of any boutique are fetchable by any unauthenticated client that guesses a plain filename, and the 'not published yet' gate on garment images is bypassable that way.
@@ -364,7 +321,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In boutique_crm/settings.py:350, set STORAGES['default']['BACKEND'] to 'django_tenants.files.storage.TenantFileSystemStorage' (django-tenants 3.10.1 is already pinned in requirements.txt). It prefixes path and URL with the schema name, so all five upload_to prefixes are namespaced at once and the existing serve() route keeps working. Note this is hardening, not authentication, and existing rows keep paths under media/<dir>/ — those files must be moved under media/<schema>/<dir>/ or their images break.
 
-### No pagination anywhere: /api/orders/ and /api/notifications/ return the whole table forever
 `boutique_crm/settings.py:362`
 
 **Impact.** By the second year an Owner's bell fetch returns tens of thousands of notification rows as one JSON array on every login and every refresh, and the orders tab downloads the boutique's entire order book with stages, activities and jobs attached. Degrades exactly the boutiques that grow, with no error to point at.
@@ -373,7 +329,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Scope it to the one genuinely unbounded feed and keep the frontend working: set `pagination_class = PageNumberPagination` with `page_size = 50` on NotificationViewSet only (crm_api/views.py), and change fetchNotifications (App.jsx:857) to `setNotifications(data.results || data)`. mark_all_read is unaffected because it calls get_queryset() directly, not the paginated response. Leave the global REST_FRAMEWORK default alone until the list readers in services/api.js are converted.
 
-### No LOGGING configuration — with DEBUG=False every 500 traceback is silently discarded
 `boutique_crm/settings.py:53`
 
 **Impact.** Unhandled exceptions surface to the boutique as a generic error and leave no trace an operator can read, so a customer-reported bug has to be reproduced by guesswork.
@@ -382,7 +337,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add a LOGGING dict to boutique_crm/settings.py with an unfiltered StreamHandler on stderr bound to the `django` and root loggers at ERROR/INFO. gunicorn already forwards stderr to Render's log stream, so no new dependency is needed.
 
-### No STATIC_ROOT and nothing serves /static/ — the Django admin has no CSS or JS in production
 `boutique_crm/settings.py:283`
 
 **Impact.** The /admin/ fallback README.md designates for use "when the console itself is what is broken" renders as unstyled raw HTML with no admin JavaScript, so the raw-id lookups on the Order admin do not work and the page is painful to use in exactly the situation it exists for.
@@ -391,7 +345,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Set `STATIC_ROOT = BASE_DIR / 'staticfiles'` in boutique_crm/settings.py, add whitenoise to requirements.txt with WhiteNoiseMiddleware directly after SecurityMiddleware in MIDDLEWARE (settings.py:102), and append `python manage.py collectstatic --noinput` to the Render build command at README.md:118.
 
-### Any signed-in staff member can POST forged notifications into the owner's inbox
 `core/permissions.py:101`
 
 **Impact.** A tailor or designer can post a notification that appears in the owner's bell indistinguishable from a system event, making the owner's only trusted event feed forgeable.
@@ -400,7 +353,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** One guard in OwnNotifications.has_permission (core/permissions.py:102): `if getattr(view, 'action', None) == 'create': return False` before the existing return. Blocking 'destroy' is unnecessary — it already routes through the scoped get_queryset — and mark_all_read is a custom action, so it is unaffected.
 
-### A signup that fails after the tenant row is created burns the email address permanently
 `crm_api/auth_views.py:205`
 
 **Impact.** Owner sees a raw exception string or a gateway timeout, retries, and is told the email already exists while login says invalid credentials. That address is permanently unusable for the product.
@@ -409,7 +361,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In SignupView's except (crm_api/auth_views.py:205), keep the reference from line 124 and call tenant.delete(force_drop=True) if it was created before returning, and return a fixed 'We could not finish creating your boutique. Please try again.' instead of str(e).
 
-### Failed signup after tenant creation leaves an orphan tenant row that blocks re-signup on that email
 `crm_api/auth_views.py:205`
 
 **Impact.** When a signup does fail after the schema is created, that email address can never sign up again and can never log in (no User row exists, and password reset correctly reports nothing). The owner also sees the raw exception string, since line 207 returns str(e) and frontend/src/services/api.js:74 throws data.error verbatim into an alert.
@@ -418,7 +369,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In SignupView.post's except block (crm_api/auth_views.py:205), keep a reference to the created tenant, call connection.set_schema_to_public() first, then inside a nested try call tenant.delete(force_drop=True) (force_drop is required -- BoutiqueTenant sets only auto_create_schema), and return a generic 'We could not finish creating your boutique. Please try again.' instead of str(e).
 
-### The tailor's "Sizing Blueprint" shows the customer's live measurements, not the order's, so a later order silently rewrites an in-production one
 `crm_api/serializers.py:173`
 
 **Impact.** A client with a lehenga on the table returns for a blouse and is re-measured. Step 2 of the second order rewrites the customer's chest/waist. The tailor still working the first order opens their assignment card and the Sizing Blueprint for that order has changed underneath them with no indication that it did — a garment cut to numbers taken for a different dress.
@@ -427,7 +377,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Replace the auditor's fix — it does not drop in. GarmentJob.measurements is keyed by TEMPLATE keys (chest/hip/floor_length/petticoat_waist), while the assignment card hardcodes the seven Measurement columns (bust/waist/hips/shoulder/arm_length/neck/length), so the keys do not line up. Instead, on the assignment card block (frontend/src/App.jsx:2572-2600), render order.garment_jobs[].measurements generically as key/value pairs — the same shape the "What to make" panel already renders at App.jsx:8398-8412 — when the order has jobs, and fall back to order.customer_measurements only when it has none. That makes the two production screens read the same snapshot.
 
-### Mobile numbers are stored exactly as typed, so the same customer can be created twice and cannot be found by search
 `crm_api/serializers.py:382`
 
 **Impact.** Staff type the number differently on a return visit — '+91 98765 43211' where the record says '9876543211'. Both search paths miss, the unique index does not fire because the strings differ, and a second customer record is created. That client's measurements, measurement history, design preferences and order history split across two profiles, and the directory shows one person twice.
@@ -436,7 +385,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed. Make CustomerSerializer.validate_mobile_number (crm_api/serializers.py:382) return the canonical form — `return whatsapp_number(value) or value` — so create and update, the wizard and the API all store one shape. One caveat to handle in the same change: existing rows are unnormalised, so ship a data migration that runs whatsapp_number over Customer.mobile_number (resolving any collisions it surfaces) or the fix only helps rows created after it lands.
 
-### Tracking page shows the wrong garment for a repeat customer
 `crm_api/templates/crm_api/tracking.html:88`
 
 **Impact.** A returning customer's older tracking link names the garment from her newest order — the one line on the page that tells her what is being made is wrong for every order but the latest.
@@ -445,7 +393,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Snapshot it: add `garment_type` to Order, set it from `customer.garment_type` in the Order.objects.create(...) call in OrderService.create_order_for_customer (domains/orders/services.py), and render `{{ order.garment_type }}` in tracking.html:88.
 
-### Tracking page's trial-appointment card never renders: nothing ever sets Appointment.order
 `crm_api/tracking_views.py:73`
 
 **Impact.** The customer's tracking page never shows the fitting date, time, boutique address or contact number, even though the boutique booked the appointment in the product.
@@ -454,7 +401,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Wire the source, not the read: add `order: ''` to appointmentForm (frontend/src/App.jsx:788) and an order <select> to the booking modal (App.jsx:5545-5590) restricted to the chosen client's orders. AppointmentSerializer is `fields='__all__'`, so the backend already accepts it. Do NOT use the proposed `Q(order__isnull=True, customer=order.customer)` fallback — it would show the same appointment on every tracking link a repeat customer holds.
 
-### Stepping back and forward through wizard step 3 creates a duplicate DesignPreference row and re-uploads the same images
 `crm_api/views.py:100`
 
 **Impact.** An owner who goes back to change the design notes leaves the client's profile with two or three identical Design Files entries and duplicate copies of every reference image in storage, with no delete in the UI. 'Go with Existing Design' then prefills from the oldest duplicate rather than the current or approved one.
@@ -463,7 +409,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed, and it is a direct copy of the neighbour: in save_design_preferences (crm_api/views.py:65-105), take `customer.design_preferences.order_by('-id').first()`, create only when there is none, and guard the reference_images write with `if image_urls or created:` so a pass that uploaded no files keeps the existing ones — exactly the shape of save_fabric_selection at lines 193-204. Return 200 rather than 201 on the update path for the same reason it does.
 
-### Reassigning an order's tailor or master leaves the Available/Busy flags and the production queue on the old person
 `crm_api/views.py:308`
 
 **Impact.** After a handover the departing tailor still reads Busy with nothing on their table and the new one reads Available with a dress to sew — the exact badges the owner uses to pick staff — and /api/production/tasks/ keeps naming the old tailor for the stitching task.
@@ -472,7 +417,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In OrderViewSet.perform_update (crm_api/views.py:307), capture serializer.instance.tailor_id/master_id before save() and, when either changed, call `refresh_staff_availability(old_tailor, old_master, order.tailor, order.master)` and `ProductionTask.objects.filter(order=order, assigned_to=old_tailor).update(assigned_to=order.tailor)`.
 
-### Editing a staff member's email with any capital letter silently empties their notification feed
 `crm_api/views.py:262`
 
 **Impact.** After the owner edits a staff email with any capital letter, that person's notification bell is permanently empty — every order notification is filed under the lowercase address their queryset no longer matches.
@@ -481,7 +425,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Persist the normalisation: add `tailor.save(update_fields=['email'])` immediately before the `return` at crm_api/views.py:262. That one line covers both sub-cases of the branch.
 
-### submit_stage_review deletes the previous stage review before writing the new one, outside a transaction
 `crm_api/views.py:698`
 
 **Impact.** A staff member re-submitting a stage review with a new photograph loses the earlier review's comments and evidence photo if the write fails, with a 500 as the only feedback. The deleted rows' image files are orphaned on disk regardless, since .delete() removes rows but not files.
@@ -490,7 +433,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agree. Add `from django.db import transaction` to crm_api/views.py and decorate OrderViewSet.submit_stage_review with `@transaction.atomic` (below the @action decorator), so the delete rolls back if the create fails.
 
-### Customer spend uses SUM(DISTINCT), so repeat orders at the same price are counted once
 `domains/customers/repositories.py:42`
 
 **Impact.** A returning client with repeat orders at an identical price shows a lifetime spend equal to one order in the customer list and on the dashboard, can be mis-segmented (HVC instead of VIP at two identical orders), and her Style Profile budget line is skewed.
@@ -499,7 +441,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In CustomerRepository.summary_queryset (domains/customers/repositories.py:42-43) replace both distinct aggregates with a per-customer subquery, e.g. Subquery(Order.objects.filter(customer=OuterRef('pk')).values('customer').annotate(s=Sum('total_amount')).values('s')) for spend and the same shape with Avg — a subquery is immune to the stages-join fan-out the comment was guarding against. Count('orders', distinct=True) is correct and stays. Update the comment so the next reader does not re-add distinct.
 
-### Specialist staff never see their order notifications: write side hardcodes Master/Tailor, read side filters on the profile role
 `domains/orders/notifications.py:61`
 
 **Impact.** A specialist assigned as an order's stitching tailor receives no 'New Stitching Task' and no 'Stitching Ready' notification; the rows are filed under a role nobody holds and their bell stays empty while work waits.
@@ -508,7 +449,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In domains/orders/notifications.py, replace the two tailor literals (lines 61 and 116) with `order.tailor.role`, matching crm_api/views.py:770. Change lines 54 and 132 to `order.master.role` in the same pass for the direct-API case.
 
-### OrderSerializer reads garment_images and job materials that ORDER_PREFETCH never fetches
 `domains/orders/repositories.py:6`
 
 **Impact.** Every /api/orders/ list and every order detail pays one extra query per order for garment_images plus one per JobMaterial row that points at stock. Since /api/orders/ is unpaginated and getOrders runs on every dashboard refresh and on every stock-movement modal open, that cost repeats all day.
@@ -517,7 +457,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agree. Add 'garment_images' and 'garment_jobs__materials__inventory_item' to ORDER_PREFETCH. Every list and detail path routes through OrderRepository.base_queryset, so this tuple is the only place to change. (Note: do NOT 'fix' this by switching the list to OrderSummarySerializer -- App.jsx:322 and :8373 read garment_images and garment_jobs off list rows.)
 
-### A saree-only order stalls with "Measurements are not completed" even though a saree needs no body measurement
 `domains/orders/services.py:334`
 
 **Impact.** Saree fall/pico/finishing work is bread-and-butter for an Indian boutique, and every such order for a new client refuses to advance past Assigned to Tailor with a message naming a step the wizard never asked for. The reason given is wrong, so the natural response is to hunt for a measurement form that does not apply to a saree.
@@ -526,7 +465,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed. Lift the duplicated expression into one module-level helper in domains/orders/services.py used by both line 172 and line 334, and widen it to also return True when the order carries a garment job with a non-empty measurements dict: `order.garment_jobs.exclude(measurements={}).exists()`. That is the per-dress snapshot the wizard genuinely captured. The create-time call site has no order yet, so pass the in-flight garment jobs or keep the customer-only check there and widen only the transition guard at line 334 — the transition is the one that blocks the flow.
 
-### Completing or skipping a lagging stage after delivery walks the order backwards and re-messages the customer
 `domains/orders/services.py:446`
 
 **Impact.** A delivered order reverts to an in-production status, the customer's tracking page and WhatsApp say the finished garment is being crafted, and the order reappears in the owner's active-orders table.
@@ -535,7 +473,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Same site (domains/orders/services.py:444-446): make the write monotonic — keep a module-level ordered tuple of the client-facing statuses (the same order as OrderViewSet.CLIENT_STATUSES lists) and assign status_map[stage_key] only when its index exceeds the index of order.order_status.
 
-### Setting TAILOR_DEFAULT_PASSWORD makes the "Share credentials" screen hand staff a password that does not work
 `frontend/src/App.jsx:5757`
 
 **Impact.** An operator who follows the code's own advice and sets TAILOR_DEFAULT_PASSWORD silently breaks staff onboarding: the owner WhatsApps the printed credentials and the tailor gets 'Invalid login credentials'.
@@ -544,7 +481,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Have the server return the password it actually set (previous finding) and render that field in the modal, the copy text and the WhatsApp text; delete DESIGNER_BOOTSTRAP_PASSWORD from DesignDashboard.jsx and use the same field.
 
-### Signing out does not clear the loaded boutique data, so it can render into the next session on that machine
 `frontend/src/App.jsx:1237`
 
 **Impact.** On a shared machine used by two boutiques, one boutique's customer rows, order rows and boutique settings display to the other's owner until every refetch lands — and stay if one fails.
@@ -553,7 +489,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Make handleLogout (App.jsx:1237) drop all in-memory state in one line: `await api.logout(); window.location.reload();`.
 
-### My Account tells every staff member they are the "Boutique Owner" and offers them an editor that always fails
 `frontend/src/App.jsx:5327`
 
 **Impact.** A tailor or master opens My Account, is labelled Boutique Owner, edits the name/address/phone that print on customer invoices, and gets 'Failed to update boutique settings' with no reason, every time.
@@ -562,7 +497,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In App.jsx, print the session role at 5327 (`{currentUser.role || 'Boutique Owner'}`) and wrap the Edit Boutique Profile card at 5351 in `{(!currentUser.role || currentUser.role === 'Owner') && ( ... )}`.
 
-### Orders registry shows each order's Total Value to a Master, which the assignments card deliberately hides
 `frontend/src/App.jsx:3859`
 
 **Impact.** Every Master sees the price of every garment in the boutique on the registry they use daily, contradicting the rule the product enforces on their own assignments screen. Within-tenant disclosure to a supervisor role; no data loss.
@@ -571,7 +505,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Wrap the Total Value block at App.jsx:3858-3861 in the same guard already used at App.jsx:2566: `{!isProductionStaff(currentUser.role) && ( ... )}`. One line, consistent with how the product enforces this rule everywhere else.
 
-### The status dropdown offers production staff eight options their role can never set
 `frontend/src/App.jsx:2542`
 
 **Impact.** A tailor picking any status but 'Design & Creation' gets an alert and the dropdown snaps back; a Measurement/Pattern/Cutting/Maggam/Finishing/Pressing master gets an alert whatever they pick. Seven or eight of eight controls on the only screen these roles have produce nothing but an error.
@@ -580,7 +513,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Render the `<select>` at App.jsx:2542 only for Owner/supervisors -- `{(!currentUser.role || currentUser.role === 'Owner' || SUPERVISOR_ROLES.includes(currentUser.role)) && ( ... )}` -- leaving the read-only status badge at 2539-2541 for everyone else. Production staff keep StageTimeline (2627), which is the control the workflow engine is built around, and update_status's own comment says 'Moving an order without doing the work is a supervisor's call.'
 
-### Staff credential-share modal hardcodes a bootstrap password the server may have been configured away from
 `frontend/src/App.jsx:5757`
 
 **Impact.** On a deployment that follows its own security note and sets TAILOR_DEFAULT_PASSWORD/DESIGNER_DEFAULT_PASSWORD, every staff invitation the new owner sends carries a password that does not work; the owner has no way to see the real one and has to talk the staff member through the reset flow.
@@ -589,7 +521,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Return the bootstrap password once, at creation time: include it in the response of TailorViewSet.perform_create (crm_api/views.py:229) and DesignerViewSet.create_login (apps/design_studio/views.py:523), and render that value in the modal instead of the literals at App.jsx:5757/5769/5783 and DesignDashboard.jsx:11.
 
-### handleDeleteTailor is dead code — no staff member can be removed from the UI
 `frontend/src/App.jsx:1106`
 
 **Impact.** An owner cannot remove the four seeded fictional tailors or a real tailor who has left; they stay in every assignment dropdown and in the stage-assignment picker.
@@ -598,7 +529,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add a delete button calling handleDeleteTailor(tailor.id) next to the existing Edit button in both staff cards (frontend/src/App.jsx around 3404 and the matching Stitching block) — handler and API method already exist.
 
-### Edit Boutique Profile falls back to placeholder strings that get saved over real data
 `frontend/src/App.jsx:5394`
 
 **Impact.** An owner who opens the profile page during a transient settings-load failure and saves any change silently overwrites their boutique's real name, address, phone and email with the vendor demo strings, which then print on every invoice and every customer tracking page.
@@ -607,7 +537,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Change the four defaultValue fallbacks (frontend/src/App.jsx:5383, 5394, 5406, 5416) to `|| ''` and move the strings into `placeholder` attributes, so an unloaded form cannot submit fabricated values.
 
-### Signup step 2 asks for an OTP that is never sent and never checked
 `frontend/src/App.jsx:1202`
 
 **Impact.** A prospective owner waits for an SMS that will never arrive, on the acquisition funnel's second screen, with no resend to reveal the problem. Anyone who types arbitrary digits gets through, so the step also verifies nothing.
@@ -616,7 +545,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Remove step 2 from the wizard (frontend/src/App.jsx:2179-2204) and have handleSignupSubmit (1199) set step 3 directly, dropping the 'We have sent' claim and the handleVerifyOTP handler.
 
-### A returning customer's saved measurements are never prefilled into the new order form
 `frontend/src/App.jsx:689`
 
 **Impact.** Every repeat order forces the staff member to re-measure or hand-copy chest/waist/hip/shoulder/neck from the directory profile into the garment form, because the wizard never shows the saved values on the same screen. The "Existing Customer" card promises a time saving that does not exist, and each retype is a chance to transpose a digit the cutter then cuts to.
@@ -625,7 +553,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed. In addGarment (frontend/src/App.jsx:689), seed values from customerForm.measurements using the inverse of the CUSTOMER_KEYS map already written in saveStep2 (bust->chest, hips->hip, waist->waist, shoulder->shoulder, neck->neck), keeping only keys the just-fetched template actually defines. One function; both the wizard and the 'Go with Existing Design' entry point route through it. If the fix is not taken, delete the "Use saved measurements" tick at App.jsx:6006 so the card stops promising it.
 
-### An order whose garment specs fail to save reports "Failed to submit order" while the order exists, so retrying books a duplicate
 `frontend/src/App.jsx:1487`
 
 **Impact.** On a failed garment-job POST the owner sees a message implying nothing was saved; retrying creates a second order with its own production tasks, notifications and revenue, while the first sits on the floor with no garment spec.
@@ -634,7 +561,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In submitOrderAndConfirm (frontend/src/App.jsx:1454), wrap only the saveGarmentJobs call in its own try/catch mirroring the design-board branch below it: alert `Order ${order.order_id} was created, but its garment details could not be saved (${err.message}) — open the order and add them`, then fall through to setConfirmedOrder/setView('confirmed') so the button cannot be pressed twice.
 
-### The Stitching Tailor picker offers specialist masters who are forbidden from the stitching stages, stalling the order
 `frontend/src/App.jsx:6965`
 
 **Impact.** In a split-role studio, assigning stitching to e.g. the Finishing Master produces an order they can see but can never advance: every stitching transition 400s with a raw role message, no assignment notification reaches them, and their screen shows no completion panel.
@@ -643,7 +569,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Change both pickers (frontend/src/App.jsx:3548 and 6959/6965) from `t.role !== 'Master'` to `eligibleStaffForStage('stitching_in_progress')`, which already reads the stage's own role list from boutique settings; and in domains/orders/notifications.py:60 use `recipient_role=order.tailor.role` instead of the literal "Tailor".
 
-### "Partially Paid" in the Invoices table is a silent no-op that reverts to the previous status
 `frontend/src/App.jsx:4972`
 
 **Impact.** The owner selects 'Partially Paid' after taking a part payment, sees no error, and the row snaps back to Pending on refresh. There is no control anywhere in the product for recording a part payment against an existing order.
@@ -652,7 +577,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In the Invoices row (frontend/src/App.jsx:4966-4985) add a small amount input next to the Balance cell that PATCHes `{ amount_paid: <value> }` via api.updateOrder; _reconcile_payment already clamps it to the total and derives the label, so the payment_status dropdown can stay read-only display.
 
-### Blank advance box books half the order total as money received
 `frontend/src/App.jsx:1444`
 
 **Impact.** An owner who picks 'Pay Partially Now' and types nothing books half the total as collected: Invoices 'Total Collected', Analytics collected revenue, the tracking page balance (crm_api/tracking_views.py:82) and the Delivered WhatsApp balance (domains/orders/notifications.py:93) are all short by that amount until someone notices.
@@ -661,7 +585,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Fix both halves of the same expression or the UI starts lying instead: in submitOrderAndConfirm send `parseFloat(advancePaymentAmount) || 0` (App.jsx:1444) AND change the preview at App.jsx:7505 to `Math.max(0, getTotalPrice() - (advancePaymentAmount || 0))`, then drop the `total_amount * 0.5` default in OrderService.create_order_for_customer (domains/orders/services.py:168) so an omitted advance means zero. Sending 0 while leaving the preview on the half-fallback would only move the inconsistency.
 
-### Printed invoice shows a balance still owing on an order that is fully paid
 `frontend/src/App.jsx:8184`
 
 **Impact.** An order booked with a ₹10,000 advance on ₹33,075 and later marked Paid prints 'Payment Status: Paid' directly above 'Advance Paid ₹10,000 / Balance Due ₹23,075' — the customer is handed a bill demanding money already paid.
@@ -670,7 +593,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In the invoice payment block (frontend/src/App.jsx:8182-8189) switch the guard and both figures to amount_paid: render 'Amount Paid' from parseFloat(confirmedOrder.amount_paid) and Balance Due as Math.max(0, total_amount - amount_paid) — the same expression the Invoices table already uses at App.jsx:4936 and tracking_views.py:82.
 
-### "Partially Paid" in the Invoices dropdown is a silent no-op; a part payment cannot be recorded after creation
 `frontend/src/App.jsx:4942`
 
 **Impact.** A customer paying ₹10,000 of ₹33,075 at the counter cannot be recorded: choosing 'Partially Paid' shows no error and reverts on the refetch, leaving the owner only ₹0 or the full amount, so collected revenue, the tracking-page balance and the delivery message stay wrong until the order is fully settled.
@@ -679,7 +601,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add a number input beside the status select in the Invoices row (frontend/src/App.jsx:4938-4952) that PATCHes `{ amount_paid: value }` through api.updateOrder — endpoint, clamping and label derivation already exist in _reconcile_payment. Keeping the 'Partially Paid' option in the select without it is the part that must not ship.
 
-### Order confirmation screen always says "Paid" for the full total, even on a part-paid order
 `frontend/src/App.jsx:7895`
 
 **Impact.** An order booked with a ₹10,000 advance is presented as 'Payment Status: Paid • ₹33075.00' at handover — the moment the outstanding balance should be discussed.
@@ -688,7 +609,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In the confirmed view (frontend/src/App.jsx:7893-7896) render `{confirmedOrder.payment_status} • ₹{parseFloat(confirmedOrder.amount_paid || 0).toLocaleString('en-IN')}` and drop the hardcoded success colour when the status is not 'Paid'.
 
-### Staff credentials copied or WhatsApp-shared always say 'TailorSecure2026!', ignoring TAILOR_DEFAULT_PASSWORD
 `frontend/src/App.jsx:5734`
 
 **Impact.** Any deploy that follows its own comment and sets TAILOR_DEFAULT_PASSWORD hands every new staff member a password that does not work, with no way for the owner to see the real one; a deploy that leaves it unset WhatsApps a password published in the repository.
@@ -697,7 +617,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Stop asserting a password client-side: drop the password line from all three spots (frontend/src/App.jsx:5734, 5746, 5760) and have the modal tell the owner to share the password out of band. Returning a generated one-time password from _ensure_user_account is the better product answer but is a larger change.
 
-### Staff and designer bootstrap passwords are hardcoded in the frontend and diverge from the deployed ones
 `frontend/src/App.jsx:5734`
 
 **Impact.** On a deployment that sets the env var (or where the address already had an account), the owner WhatsApps a password that does not work and the new tailor has to go through password reset to get in.
@@ -706,7 +625,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Return the value the server actually used: add it to the TailorViewSet create/update response and to create_login's response, then render that field at App.jsx:5734/5746/5760 and DesignDashboard.jsx:216 instead of the literals.
 
-### Async CTAs with no pending guard — duplicate fabrics, tailors, designs and design boards
 `frontend/src/App.jsx:1044`
 
 **Impact.** A double-tap on Save Fabric / Save Tailor / Save Design writes two rows; two quick shortlist clicks create two design boards for one customer, so the board later attached to the order may not be the one the owner built.
@@ -715,7 +633,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Reuse the existing helper: `onClick={() => runOnce(handleSaveFabric)}` plus `disabled={ctaBusy}` on the Save Fabric / Save Tailor / Save Design buttons, and in DesignStudio.ensureBoard hold the in-flight create in a useRef promise the way DesignLibrary.jsx:109 already does.
 
-### 'Try On / Drape Fabric' shows a stock photo of an unrelated garment, and 'Confirm & Save' saves nothing
 `frontend/src/App.jsx:8894`
 
 **Impact.** Staff show the customer a photograph of a different garment as a preview of theirs, then press 'Confirm & Save' and nothing is stored — the next screen has no record of it.
@@ -724,7 +641,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Rename the button at App.jsx:8894 from 'Confirm & Save' to 'Close', which is what it does. Removing the whole modal (6817-6830, 8770-8902) and getDrapedPreviewImage (965-983) is the honest larger fix if no render service is coming.
 
-### Order review invents the assigned tailor's photo, tags and performance statistics
 `frontend/src/App.jsx:7233`
 
 **Impact.** The screen staff read back to the customer before taking payment shows a stranger's photograph as their tailor plus four fabricated performance numbers.
@@ -733,7 +649,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Swap the src at App.jsx:7233 for the dicebear initials URL used at MobileHeader.jsx:65, delete getTailorAvatarUrl/getTailorTags (166-184) and the tag row (7241-7246), and drop the fabricated blocks at 7240 and 7248-7261 and the 'Rohit Mehra' fallbacks at 7407/7827.
 
-### Order confirmation always says 'Paid' and shows the full total, even for a part payment
 `frontend/src/App.jsx:7902`
 
 **Impact.** An order taken with a ₹10,000 advance on a ₹45,000 dress confirms on screen as 'Paid • ₹45,000' — the screen staff turn to the customer — and contradicts the invoice one click later.
@@ -742,7 +657,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Render `{confirmedOrder.payment_status} • ₹{confirmedOrder.amount_paid}` at App.jsx:7900-7903, matching the invoice block.
 
-### Review step promises a delivery date that is not the one saved on the order
 `frontend/src/App.jsx:7303`
 
 **Impact.** Staff read today+15 days back to the customer while the order carries the real promised date, so the registry, tracking page and invoice all show a different date than the customer was told.
@@ -751,7 +665,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Render the same expression the payload uses — hoist `garmentJobs.map(j => j.values?.delivery_date).filter(Boolean).sort()[0]` into a `promisedDeliveryDate()` helper beside submitOrderAndConfirm and use it at App.jsx:7303, with `{deliveryMethod}` replacing the literal at 7300.
 
-### Fabric grids render nothing when empty, and the material filter can never match a real fabric
 `frontend/src/App.jsx:6774`
 
 **Impact.** A boutique whose fabrics are typed as 'Silk Blend' or 'Georgette' sees a blank area under every tab except All, with no message; a brand-new boutique sees a blank Manage Fabrics page and a blank step 4 and is blocked by 'Please select a fabric...' with nothing on screen explaining why.
@@ -760,7 +673,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Build the tab list from the data — `['All', ...new Set(fabrics.map(f => f.material).filter(Boolean))]` at App.jsx:6755 — and add an empty branch to the step-4 grid (6774) and to Manage Fabrics (3216) pointing at the Add New Fabric button.
 
-### Every save in the app refetches all ten collections, including the full orders and customers lists
 `frontend/src/App.jsx:988`
 
 **Impact.** Ticking a production stage re-downloads the entire order book, client directory, design catalogue and notification history, and the dashboard's order panel flickers to a loading line each time. On the floor a tailor advancing several stages pays that cost per tap.
@@ -769,7 +681,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Smaller than the auditor's 26-call-site rewrite: give fetchDashboardAndConfig a `{ background = false }` option that skips `setLoading(true)` (App.jsx:989), and pass it from the mutation handlers -- one flag kills the flicker. The bandwidth half of the problem belongs to the ORDER_PREFETCH and notification-pagination fixes, not here; only pursue per-handler local updates (transition_stage already returns the full serialized order at crm_api/views.py:683) if profiling still shows it after those land.
 
-### Mobile header search box is wired to nothing
 `frontend/src/components/ui/MobileHeader.jsx:20`
 
 **Impact.** On a phone, tapping the magnifier opens a field placeholdered 'Search orders, customers, designs…'; typing and pressing enter does nothing and gives no feedback.
@@ -778,7 +689,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Smaller than wiring a search: delete the search button (MobileHeader.jsx:52-54) along with the searchOpen branch, until a caller passes onSearch.
 
-### Opening the 'Uncategorised' category shows the entire library instead of the untagged designs
 `frontend/src/features/designStudio/DesignLibrary.jsx:287`
 
 **Impact.** The tile says 'Uncategorised — 3'; clicking it renders every design in the boutique with the header reading the full count. The one screen an owner would use to find and tag the untagged designs instead dumps the entire library on them — the flat grid the module's own docstring (DesignLibrary.jsx:8-19) says it exists to replace.
@@ -787,7 +697,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed. Teach DesignAssetViewSet.get_queryset one sentinel — treat `?template=__none__` as `template__isnull=True` before the DIRECT_FILTERS loop — and send it from DesignLibrary.jsx:287 when openCategory.key === '' instead of collapsing to undefined.
 
-### Edit and Delete on catalogue designs are shown to Designers and fail with an opaque error
 `frontend/src/features/designStudio/DesignLibrary.jsx:223`
 
 **Impact.** A Designer — for whom this library is the only screen the app offers — opens any catalogue design, sees Edit and Delete, fills in the form, saves, and is told 'Failed to save design: Failed to update boutique design.' Delete pops a confirmation, they confirm, and get the same shape of message. Nothing indicates it is a permissions problem rather than a bug or a lost design.
@@ -796,7 +705,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed. DesignLibrary already receives canReview (App.jsx:3635, true only for Owner); gate the Edit/Delete block at DesignLibrary.jsx:223 on it as well as on `editable`. Separately, have api.js's updateBoutiqueDesign and deleteBoutiqueDesign use describeApiError(res, data) like uploadDesign does, so any future 403 reads 'You do not have permission to do that.'
 
-### Stock movement modal downloads every order in the boutique to fill a dropdown
 `frontend/src/features/inventory/InventoryPanel.jsx:467`
 
 **Impact.** Opening the stock-movement dialog on any item pulls the boutique's whole order history with its nested stage and activity rows before the form is usable, and this dialog is the entry point for every issue, consume, waste and reserve entry.
@@ -805,7 +713,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Hoist the `api.getOrders()` call from MovementModal into InventoryPanel and pass `orders` down as a prop, so it runs once per panel mount instead of once per modal open. No backend change, and combined with adding garment_images to ORDER_PREFETCH it is the whole of the practical win.
 
-### The boutique client never handles 401/403, so a killed session leaves the user stuck on a dead dashboard
 `frontend/src/services/api.js:3`
 
 **Impact.** Owner signs out on their phone; the shop desktop still on the dashboard now fails every call with an alert, keeps showing stale rows, and never returns to the login screen without a manual refresh.
@@ -814,7 +721,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add the superadmin rule to frontend/src/services/api.js once, next to getHeaders: wrap fetch in an authedFetch that on res.status === 401 removes 'token' and 'tenant_id' and reloads, and use it throughout the file.
 
-### Order-creation failures show "Failed to submit order." and discard the server's explanation
 `frontend/src/services/api.js:358`
 
 **Impact.** An owner who mistypes a price (stray minus, extra zero) is told only 'Failed to submit order.' at the final step of the wizard, with nothing naming the field; the order cannot be placed and the message the backend wrote for this exact case is thrown away.
@@ -823,7 +729,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In api.createOrder (frontend/src/services/api.js:352-360) copy the updateOrder body: `const detail = await res.json().catch(() => ({})); throw new Error(detail.error || detail.detail || 'Failed to create order');`, and print err.message in the alert at App.jsx:1488.
 
-### Validation failures reach staff as raw JSON in a browser dialog
 `frontend/src/services/api.js:208`
 
 **Impact.** Creating a customer, a design review, a collection or a garment job with any invalid field shows staff a JSON blob they cannot act on.
@@ -832,7 +737,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Replace the nine `JSON.stringify(...)` throws in api.js (208, 260, 701, 753, 929, 961, 991, 1047, 1074) with `describeApiError(res, data)`, which already exists in that file. Leave the alert-vs-banner question alone.
 
-### seed_mock_orders.py hard-deletes every boutique's customers and orders and defaults to the hosted database
 `seed_mock_orders.py:251`
 
 **Impact.** One command run from the project root with the shipped .env destroys the client list and full order history of every boutique on the hosted database, irrecoverably, and leaves staff accounts whose password is published in this repository. seed_v2_tasks.py and seed_data.py share the same production-by-default connection.
@@ -841,7 +745,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Guard the entrypoint: at the top of seed_all() in seed_mock_orders.py, refuse unless settings.DATABASES['default']['HOST'] starts with '127.' / 'localhost' or SEED_I_MEAN_IT=1 is set, and read the staff password from os.environ instead of line 53. The same three-line guard belongs at the top of seed_data.py:seed() and seed_v2_tasks.py.
 
-### Neither login endpoint is rate limited, including the console that reads and suspends every boutique
 `superadmin/views.py:44`
 
 **Impact.** Passwords can be guessed against /api/superadmin/login/ as fast as the network allows, on an account with a known username that can read, page through and suspend every boutique on the platform; the same applies to boutique owner and staff logins at /api/auth/login/.
@@ -850,7 +753,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Do not set DEFAULT_THROTTLE_CLASSES — the comment at settings.py:376 is right about that. Copy the pattern already in the repo: add 'login': os.environ.get('LOGIN_RATE', '10/hour') to DEFAULT_THROTTLE_RATES, add a two-line AnonRateThrottle subclass with scope='login' next to _PasswordResetThrottle in crm_api/auth_views.py, and name it in throttle_classes on crm_api.auth_views.LoginView and superadmin.views.PlatformLoginView. Same LocMemCache-per-worker ceiling the existing ponytail note at auth_views.py:343-348 already documents.
 
-### The in-process tenant cache grows without bound on an unauthenticated, attacker-controlled header
 `tenants/middleware.py:37`
 
 **Impact.** An unauthenticated client looping requests with fresh random (and arbitrarily long, up to the ~8KB header limit) X-Tenant-ID values adds a permanent dict entry per request in whichever gunicorn worker it lands on, until the worker is OOM-killed — taking the API down for every boutique. The defence written to stop a query per request becomes memory per request.
@@ -860,9 +762,7 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 **Fix.** One line in _get_tenant_by_schema, before the assignment at tenants/middleware.py:37: `if len(_tenant_cache) > 1000: _tenant_cache.clear()`. Keeps the hit rate for the handful of real schemas and caps growth.
 
 
-## LOW
 
-### Customer uploads are committed to the repository; .gitignore covers only one of the upload directories
 `.gitignore:25`
 
 **Impact.** A routine `git add -A` sweeps customers' garment photos and profile pictures into version control, where they survive any deletion in the app and are readable by everyone with repo access.
@@ -871,7 +771,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Replace the `media/design_library/` line in .gitignore with `media/` plus explicit `!media/fabric_0*.jpg` / `!media/design_*.jpg` un-ignores for the seeded catalogue images, and `git rm --cached` the four already-tracked files under media/customer_profiles/ and media/fabrics/cust_*/.
 
-### DesignBoard.selected_item bypasses the prefetch cache, costing one query per board
 `apps/design_studio/models.py:330`
 
 **Impact.** One extra query per board on the boards list and on the tailor brief, on top of a prefetch that has already loaded the same rows. Small, but pure waste on an already-correct path.
@@ -880,7 +779,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agree. Change the property body to `next((i for i in self.items.all() if i.is_selected), None)` -- self.items.all() uses the prefetch cache when present and falls back to a single query when not.
 
-### The library grid returns every status while the category counts only count ACTIVE, so archived designs reappear
 `apps/design_studio/views.py:140`
 
 **Impact.** A category tile reads 4 and the grid under it reads '7 shown' (DesignLibrary.jsx:377), including rejected and draft designs. Confusing rather than harmful, and the Status filter does let the owner narrow manually.
@@ -889,7 +787,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed: in DesignAssetViewSet.get_queryset, after the DIRECT_FILTERS loop, `if not params.get('status'): queryset = queryset.exclude(status=DesignAsset.Status.ARCHIVED)` — one line, and it puts the list endpoint in step with the two read paths that already do this.
 
-### 'Trending This Week' is never driven by views, because the view counter bypasses updated_at
 `apps/design_studio/views.py:371`
 
 **Impact.** 'Trending This Week' on the design dashboard (DesignDashboard.jsx:276) is really 'designs edited in the last 7 days, ordered by lifetime views' — for most boutiques a near-duplicate of the Recent Uploads strip above it, while a design that got fifty views this week never appears. A soft signal the owner reads as customer interest and that is not one.
@@ -898,7 +795,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed and kept: in DesignAssetViewSet.retrieve (views.py:265) include the timestamp in the same atomic statement — `.update(view_count=F('view_count') + 1, updated_at=timezone.now())`; timezone is already imported at views.py:11, and this matches the intent the dashboard comment already states.
 
-### Deleting an order cascades away its material plan and the customer's material ledger, stranding the reservations on the shelf
 `apps/inventory/models.py:744`
 
 **Impact.** If an order carrying a plan is ever deleted (admin, or a direct API call), its reserved quantity stays locked on every material with no plan left to release it, and the customer's material record plus its movement history are destroyed.
@@ -907,7 +803,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** One hook at the single deletion point: add perform_destroy to OrderViewSet in crm_api/views.py that calls apps.inventory.order_materials.cancel() on any live plan before delete (or refuses while one exists). Agreed — do not touch the CASCADEs.
 
-### CustomerMaterialMovement.Type.CORRECTION has no writer, so a mis-recorded receipt can only be undone by a false RETURNED line
 `apps/inventory/order_materials.py:502`
 
 **Impact.** A quantity typed wrong on receipt can only be brought back by recording a RETURNED movement for material that was never returned, putting a false "Returned to customer" line in the ledger that exists to answer where the customer's material went.
@@ -916,7 +811,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed: add CORRECTION to the map in record_customer_material (apps/inventory/order_materials.py:502) applying a signed delta to received_quantity, bounded so remaining_quantity cannot go negative, logged through the existing _log_customer_movement. The movement type and the helper are already there.
 
-### _as_quantity() compares outside its try, so 'nan' returns a 500 instead of a 400
 `apps/inventory/services.py:24`
 
 **Impact.** A hand-crafted or buggy client posting a malformed quantity to any stock endpoint gets an opaque 500 rather than "quantity must be a number".
@@ -925,7 +819,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed and minimal: in apps/inventory/services.py, move the comparison inside the try in _as_quantity and add `if not quantity.is_finite() or quantity <= 0 or quantity >= 10**9: raise ValueError(...)`; give adjust's `counted` the same treatment (allowing 0). These two are the only entry points for every quantity in the module.
 
-### ALLOWED_HOSTS defaults to '*' and three upload paths bake the Host header into stored boutique data
 `boutique_crm/settings.py:55`
 
 **Impact.** A low-privileged staff member can plant image URLs pointing at a host they control into the boutique's own records, which the owner's browser then loads on every gallery view; and every stored reference URL breaks permanently the day the API moves to a custom domain or is reached over a second hostname.
@@ -934,7 +827,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Smaller and complete: drop request.build_absolute_uri( at crm_api/views.py:81, crm_api/views.py:184 and apps/design_studio/views.py:252 and store default_storage.url(saved_path) directly — that is what domains/orders/services.py:405 already does and what media.js already resolves, and it removes the Host dependency rather than constraining it. Defaulting ALLOWED_HOSTS to RENDER_EXTERNAL_HOSTNAME is worth doing too, but on its own it does not fix the stored-URL fragility.
 
-### No secure-cookie, HSTS or SSL-redirect settings — the superadmin session cookie has no Secure flag
 `boutique_crm/settings.py:102`
 
 **Impact.** A typed-in http:// URL or an old bookmark to the Render host sends the platform superadmin's session cookie in the clear before the edge redirect fires, and it can be stripped on a hostile network.
@@ -943,7 +835,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In boutique_crm/settings.py, gate four settings on `not DEBUG`: SESSION_COOKIE_SECURE, CSRF_COOKIE_SECURE, SECURE_SSL_REDIRECT = True and SECURE_HSTS_SECONDS = 31536000. Four lines, off under DEBUG so local http still works.
 
-### ALLOWED_HOSTS defaults to '*' while request-derived absolute URLs are persisted into stored data
 `boutique_crm/settings.py:55`
 
 **Impact.** Stored image URLs are pinned to whatever Host the uploading request carried, so images silently break for everyone once the service moves to a custom domain; the forged-Host write itself requires an authenticated boutique user.
@@ -952,7 +843,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Set DJANGO_ALLOWED_HOSTS on Render to the real service host(s) and add it to README.md's environment-variable list — that closes the forged-Host write at settings.py:55 in one place. The durability half is a separate, larger change (store default_storage.url() relative paths and let the frontend resolve them) and should not be bundled in.
 
-### Login binds an email address to whichever boutique it finds first and never tries another
 `crm_api/auth_views.py:47`
 
 **Impact.** A freelance tailor working for two boutiques can only ever sign in to one, chosen by database ordering; if the address is also an owner_email elsewhere, the owner_email match wins and the valid staff password is rejected.
@@ -961,7 +851,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Change find_tenant_for_account into a generator/list of candidates and have LoginView.post try each in turn, returning the credentials error only after all have failed. Keep the reset views on the first match.
 
-### Every new customer gets an all-blank "Version 1" row in their Sizing Version History
 `crm_api/models.py:112`
 
 **Impact.** Opening any client's profile shows a Sizing Version History whose oldest entry is "Version 1" with every measurement an em-dash, and the real first measurement is labelled Version 2. It reads as a lost record rather than an empty one.
@@ -970,7 +859,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed. In Measurement.save() (crm_api/models.py:108), skip the history write when the row carries nothing — guard the `if changed:` block with a check that at least one of the seven decimal fields is not None or additional_measurements is non-empty. One guard in the model covers CustomerSerializer.create's bare create and the get_or_create in CustomerSerializer.update alike. Note crm_api/test_data_integrity.py:90 asserts measurement_history.count() == 1 for a customer; check whether that test creates a Measurement with values before landing this.
 
-### Invoices print a placeholder studio address when signup's optional boutique address is skipped
 `crm_api/models.py:480`
 
 **Impact.** A boutique that skips the optional address field hands every customer an invoice showing a fictional street address as its own, with no on-screen warning that it is a default.
@@ -979,7 +867,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Two-line change in the frontend, not the model: drop the hardcoded fallbacks in the invoice header (frontend/src/App.jsx:8081) so a blank address renders blank, and add `required` to the boutique-address input at App.jsx:2228-2234 so the value is collected once at signup. (Settings at App.jsx:5364 shows the same placeholder as a defaultValue — harmless there, since it is an editable form field.)
 
-### preferred_communication is collected from every customer and honoured by nothing
 `crm_api/models.py:82`
 
 **Impact.** A customer who asks to be called is recorded as such and the preference changes nothing; with a transport configured she would be auto-messaged anyway.
@@ -988,7 +875,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** REPLACING the proposed fix — returning None from send_customer_message would also delete the queued row, and that row is the boutique's to-do list of what the customer is owed (messaging.py docstring, lines 84-90), so the owner would never be reminded to call either. Instead gate only automatic delivery: change messaging.py:119 to `if get_backend() is not None and order.customer.preferred_communication == 'WhatsApp':` so the message is still recorded for the owner to action by hand.
 
-### OrderStage.stage_key has no index, and refresh_staff_availability scans the whole stage table on every transition
 `crm_api/models.py:301`
 
 **Impact.** Two unindexed scans of the stage table per stage transition, growing linearly with the boutique's order history. Measurable only at high volume.
@@ -997,7 +883,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add `indexes = [models.Index(fields=['stage_key', 'status'])]` to OrderStage.Meta in crm_api/models.py and generate the migration. Prefer the composite over a bare db_index=True on stage_key -- the hot query filters on both columns.
 
-### Notification has no index on the two columns every read filters by
 `crm_api/models.py:347`
 
 **Impact.** Sequential scan plus sort on every bell open and mark-all-read. Only becomes visible once the notification table has grown for a year or more, which is the same growth the pagination finding covers.
@@ -1006,7 +891,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add a Meta to Notification with `indexes = [models.Index(fields=['recipient_role', 'recipient_email', '-created_at'])]` and migrate. Skip the second (title, is_read) index -- _raise_alerts only runs on a stock-level crossing, not on every movement, so it does not earn one.
 
-### Any signed-in staff member can POST a notification into the Owner's feed
 `crm_api/views.py:824`
 
 **Impact.** A tailor or designer can POST /api/notifications/ with recipient_role='Owner' and arbitrary title/message, and it appears in the owner's drawer indistinguishable from a system alert -- a spoofing channel inside the product.
@@ -1015,7 +899,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Notifications are only ever written server-side (assign_stage, create_order_notifications). Change the base class at crm_api/views.py:824 from `viewsets.ModelViewSet` to `mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet` -- that drops create and destroy while leaving the mark-all-read POST route intact. Do NOT set http_method_names.
 
-### customer_messaging_enabled and workflow_config cannot be changed by a boutique
 `crm_api/views.py:939`
 
 **Impact.** A boutique cannot silence its own customer-message queue or adjust its workflow/SLA hours without database access; today that means unwanted rows in a to-send list, not unwanted messages.
@@ -1024,7 +907,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Accept customer_messaging_enabled in BoutiqueSettingsViewSet.create the same way design_approval_required is handled (crm_api/views.py:957-959) and add a matching checkbox to the settings form beside the design-approval one in frontend/src/App.jsx. Leave workflow_config alone — editing it is a feature, not a fix.
 
-### Statuses that map to no stage (Shipped, Stylist Review) change the order and message the customer with no audit row at all
 `crm_api/views.py:478`
 
 **Impact.** A shipped-status change carries no record of who made it, so a delivery dispute has nothing in the order's activity log between the last stage transition and the delivery.
@@ -1033,7 +915,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In the no-stage branch of OrderViewSet.update_status (crm_api/views.py:477-481), add one `OrderActivity.objects.create(order=order, event_type='STATUS_CHANGE', user=request.user, metadata={'old_status': old, 'new_status': new_status})` beside the create_order_notifications call.
 
-### submit-stage-review accepts any stage name, deletes prior history, attributes work to whatever the caller types, and writes no audit row
 `crm_api/views.py:698`
 
 **Impact.** An authenticated production account can POST an arbitrary file and an arbitrary performer name onto an order and destroy that stage's prior history row, with nothing in the activity log; no screen currently reaches or reads it.
@@ -1042,7 +923,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In OrderViewSet.submit_stage_review (crm_api/views.py:687), add `if not order.stages.filter(stage_key=stage).exists(): return Response(..., status=404)` (the same guard assign_stage already has), set completed_by_name from request.user rather than the body, and pass the upload through OrderStageHistorySerializer instead of assigning it to the field.
 
-### A failed customer message drops out of the owner's queue and can never be retried
 `crm_api/views.py:614`
 
 **Impact.** With a transport configured, a message that fails to deliver silently disappears from the owner's to-do list and the recorded `error` is never read; the customer is never told their garment is ready.
@@ -1051,7 +931,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Change the filter in OrderViewSet.customer_messages (crm_api/views.py:614) to `status__in=('QUEUED', 'FAILED')`, and change the gate in CustomerMessageQueue (frontend/src/App.jsx:262) to `message.status !== 'SENT'` so the owner can send it by hand.
 
-### customer_messaging_enabled cannot be changed from anywhere in the product
 `crm_api/views.py:939`
 
 **Impact.** A boutique with a transport connected has no way to stop customer messaging short of a database shell.
@@ -1060,7 +939,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add one branch to BoutiqueSettingsViewSet.create (crm_api/views.py, beside the design_approval_required branch at 957-959) and one checkbox beside App.jsx:5426.
 
-### Reassigning an order's tailor or master notifies nobody
 `crm_api/views.py:308`
 
 **Impact.** A tailor reassigned mid-week is not told; they find the order only by browsing their assignments board, and the previous tailor is never told to stop.
@@ -1069,7 +947,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In OrderViewSet.perform_update (crm_api/views.py:308), capture serializer.instance.tailor_id/master_id before save() and, when either changed, write the same Notification row assign_stage already writes (crm_api/views.py:769-775) — including `recipient_role=tailor.role`, not the literal.
 
-### performed_by is never recorded for any specialist master, so their stage work is unattributed
 `domains/orders/services.py:385`
 
 **Impact.** In a split-role studio, 'Assigned Performer' stays blank on every stage a Cutting/QC/Finishing Master completes and the production task keeps naming the order's original tailor.
@@ -1078,7 +955,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In domains/orders/services.py:385, test for the profile rather than the role string, and do not clear an existing performer: `elif user and user.is_authenticated and getattr(user, 'tailor_profile', None): order_stage.performed_by = user.tailor_profile`. (The auditor's 'drop the allowlist' wording would assign None for an Owner and wipe a previously recorded performer.)
 
-### Signup step 4 asks the user to select style tags that cannot be selected and are never saved
 `frontend/src/App.jsx:2250`
 
 **Impact.** A new owner clicks the tags, nothing responds, and whatever they meant to say about their specialisation is discarded.
@@ -1087,7 +963,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Remove step 4: drop { step: 4, label: 'Preferences' } at App.jsx:2063, delete the signupStep === 4 block (2250-2280), and point step 3's button at handleCompleteRegistration.
 
-### The password field promises "min 6 characters" while the server rejects anything under 8 — four steps later
 `frontend/src/App.jsx:2136`
 
 **Impact.** An owner types the 6-character password the form asked for, walks through the OTP screen, boutique details and preferences, then gets bounced to step 1 with 'This password is too short' and redoes the wizard.
@@ -1096,7 +971,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Change the placeholder at App.jsx:2136 to 'min 8 characters', the `len < 6` threshold at 1649 to 8, and add `if (signupForm.password.length < 8) { alert('Use at least 8 characters.'); return; }` to handleSignupSubmit (1191) so the failure lands on the field.
 
-### The "Remember me" checkbox does nothing; the session is always persisted
 `frontend/src/App.jsx:1889`
 
 **Impact.** Staff on the shared boutique computer untick it expecting the session to end at browser close; the next person to open the app is signed in as them.
@@ -1105,7 +979,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Delete the checkbox and its label (App.jsx:1887-1890). Wiring it to sessionStorage means touching getHeaders, api.login, api.logout and getMe for a preference nobody asked for.
 
-### Book Appointment quick action dead-ends for a boutique with no customers
 `frontend/src/App.jsx:5577`
 
 **Impact.** A new owner exploring the dashboard opens a modal they cannot submit, with no hint about what is missing.
@@ -1114,7 +987,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In the appointment modal's Client block (frontend/src/App.jsx:5576-5586), when allCustomers.length === 0 render a line of text plus a button calling handleStartNewCustomer() instead of the empty select — the same inline-add pattern already used for missing tailors at App.jsx:6894.
 
-### Dead social-auth affordance on the signup screen
 `frontend/src/App.jsx:2169`
 
 **Impact.** Three clickable-looking icons under an 'OR CONTINUE WITH' heading on the signup screen do nothing when pressed.
@@ -1123,7 +995,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Delete the divider and the icon row at frontend/src/App.jsx:2169-2174 — the same treatment already applied to the login screen at 1907.
 
-### Signup step 4 presents style tags as selectable, but they are inert and never submitted
 `frontend/src/App.jsx:2253`
 
 **Impact.** The one onboarding step that promises to personalise the product collects nothing; the owner either thinks the app is broken or believes they configured something they did not.
@@ -1132,7 +1003,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Remove step 4 from the wizard (frontend/src/App.jsx:2247-2281) and move its 'Submit Registration' button onto step 3, so signup ends on the step that actually feeds BoutiqueSettings.
 
-### Profile page reports every boutique as registered in June 2024
 `frontend/src/App.jsx:5345`
 
 **Impact.** A boutique that signed up today is told, on its own account page, that it registered in June 2024.
@@ -1141,7 +1011,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Add the tenant's created_on to the MeView payload (crm_api/auth_views.py:329-338, alongside tenant_id) and render it at frontend/src/App.jsx:5345 — or delete the row.
 
-### Day-one Orders, Customers and Invoices all report 'nothing matching the filters' with no filters set
 `frontend/src/App.jsx:3762`
 
 **Impact.** A new owner opening the three main tabs is told three times that a search returned nothing, implying data hidden behind a filter they never set, instead of being offered the button that would create the first record.
@@ -1150,7 +1019,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In each of the three blocks (frontend/src/App.jsx:3752, 4060, 4950), branch first on the unfiltered source list being empty and render a first-run message with the existing CTA — setView('order-selector') for orders and invoices, handleStartNewCustomer() for customers.
 
-### 'Style Inspiration' dashboard panel is three hardcoded stock portraits with no behaviour
 `frontend/src/App.jsx:3184`
 
 **Impact.** Half of a prime dashboard row on a new boutique's home screen is portraits of unrelated strangers under a heading that implies curated style content, and clicking them does nothing.
@@ -1159,7 +1027,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Replace the three literal images at frontend/src/App.jsx:3185-3194 with the first three entries of allDesigns wrapped in an onClick of setDashboardTab('designs'), or delete the panel.
 
-### The tailor's "Sizing Blueprint" shows the live shared customer measurement, not the order's frozen snapshot
 `frontend/src/App.jsx:2582`
 
 **Impact.** Re-measuring a returning client for a second garment silently changes the blueprint on the tailor's card for their first, unfinished order, and it then disagrees with the frozen per-garment numbers shown in the stage-review modal.
@@ -1168,7 +1035,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In the tailor assignment card (frontend/src/App.jsx:2585-2599), prefer the frozen snapshot: read order.garment_jobs?.[0]?.measurements and fall back to order.customer_measurements. Note the key names differ — the garment job stores template keys (chest, hip) while the card renders bust/hips — so reuse the CUSTOMER_KEYS map already defined in saveStep2 (App.jsx:1384-1386) rather than indexing the snapshot directly, or the fields will render as '—'.
 
-### Invoice line item is priced tax-inclusive but sits above a Subtotal + Tax = Total block
 `frontend/src/App.jsx:8151`
 
 **Impact.** The printed bill reads line item ₹33,075 / Subtotal ₹31,500 / Taxes ₹1,575 / Total ₹33,075 — the itemised amount does not make up the subtotal it sits above, which is the first thing a customer or accountant queries.
@@ -1177,7 +1043,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In the pricing table cell (frontend/src/App.jsx:8150-8152) print the pre-tax figure using the same expression as the Subtotal row at 8167: `parseFloat(confirmedOrder.total_amount || 0) - parseFloat(confirmedOrder.taxes || 0)`.
 
-### Try-on 'Confirm & Save' saves nothing
 `frontend/src/App.jsx:8884`
 
 **Impact.** Staff press a primary button labelled 'Confirm & Save' and nothing is written; the try-on result is attached to no order and the customer never sees it.
@@ -1186,7 +1051,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Relabel the button 'Done' (frontend/src/App.jsx:8887). Persisting a colour-keyed stock photo would be worse than not persisting it — if a real composite is ever produced, persist it then.
 
-### Try-on preview is a stock photograph picked by colour keyword and ignores the selected sketch and fabric
 `frontend/src/App.jsx:958`
 
 **Impact.** A customer at the counter is shown a stock photo of an unrelated garment framed as her fabric draped on her chosen silhouette; two customers who both pick a rose-toned fabric see the identical picture.
@@ -1195,7 +1059,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Honest relabel, entirely in App.jsx: retitle 8824 to 'Colour reference' and drop the 'Mapping coordinates onto sketch layers' caption at 8818. Compositing the real fabric over the sketch is the right feature but is not the smallest fix.
 
-### 'Chat on WhatsApp' on the order-confirmation screen builds a malformed wa.me link
 `frontend/src/App.jsx:7939`
 
 **Impact.** For any number not typed as bare digits the button opens a dead wa.me link; the surrounding copy also implies it reaches the boutique when it opens the customer's chat.
@@ -1204,7 +1067,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Strip non-digits and reuse the normalisation the backend already does: `window.open('https://wa.me/' + (customerForm.mobile_number || '').replace(/\D/g,'').replace(/^0+/, '').replace(/^(?!91)/, '91'))` at frontend/src/App.jsx:7939, and reword the caption at 7937 to 'Message this client on WhatsApp'.
 
-### Staff portal 'Chat Now' opens a hardcoded placeholder phone number
 `frontend/src/App.jsx:2441`
 
 **Impact.** Every staff member in every tenant who clicks 'Chat Now' is sent to a WhatsApp chat with a number that belongs to nobody in the boutique.
@@ -1213,7 +1075,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Use the tenant's own number and hide the card when it is unset: at frontend/src/App.jsx:2441 render the button only when boutiqueSettings?.phone is set and open `'https://wa.me/' + boutiqueSettings.phone.replace(/\D/g,'')`.
 
-### Three inert sidebar nav items on the order-selector screen (the rest of this finding is stale)
 `frontend/src/App.jsx:5957`
 
 **Impact.** On the order-selector screen a user clicking My Orders / Appointments / Measurements gets nothing at all, with working links directly above and below.
@@ -1222,7 +1083,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Delete App.jsx:5957-5959, 2199-2204 and 6158-6160. Nothing else in this finding still exists.
 
-### Style DNA is presented as AI reading the boutique's sales data, but colour and style come from a hash of the customer id
 `frontend/src/App.jsx:4259`
 
 **Impact.** The owner reads 'Emerald Green 80% Pink 15%' as a fact about their client and buys fabric or pitches a design on it; it is a function of the primary key.
@@ -1231,7 +1091,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Drop the two invented rows and the 'AI reads your sales data' line from both panels (App.jsx around 4259 and 4715), leaving budget, size and visit pattern, which are real.
 
-### The designer bootstrap password is hardcoded in the frontend bundle and diverges from the server's
 `frontend/src/features/designStudio/DesignDashboard.jsx:11`
 
 **Impact.** On a deployment that sets DESIGNER_DEFAULT_PASSWORD as its own code advises, the roster banner prints the wrong password every time; the owner hands over a credential that does not work and the designer must go through password reset instead.
@@ -1240,7 +1099,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed: have DesignerViewSet.create_login include the password it actually used in its 200 response body, and have DesignerRoster (DesignDashboard.jsx:210-220) print that value instead of the local constant — then delete the constant.
 
-### No one can edit or delete a design uploaded to the library, so the Designer's own-upload rights are unreachable
 `frontend/src/features/designStudio/DesignLibrary.jsx:32`
 
 **Impact.** A designer who uploads the wrong photograph or a wrong title has no way to correct or remove it, and neither has the Owner; the library only grows. A Designer who clicks Edit or Delete on a catalogue row gets 'Failed to save design: detail: Your role does not permit this.'
@@ -1249,7 +1107,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Smallest useful change is the Designer-facing 403 first: hide the Edit/Delete pair at DesignLibrary.jsx:223 when the caller is a Designer (pass the same `canReview`-style flag App.jsx already computes at 3635). Wiring upload edit/delete is a feature, not a bug fix: if it is wanted, add `updateDesignAsset(id, payload)` / `deleteDesignAsset(id)` in services/api.js against PATCH and DELETE on /design-studio/assets/<id>/ and route source==='upload' rows to those instead of the catalogue calls -- the API side already permits exactly the right people.
 
-### Extra photographs are uploaded into `gallery` and never shown anywhere
 `frontend/src/features/designStudio/DesignUpload.jsx:148`
 
 **Impact.** A boutique photographs a garment from four angles as the modal invites them to; only the cover is ever visible afterwards. The other files sit on disk unreachable through the product.
@@ -1258,7 +1115,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Agreed: in DesignLibrary.jsx's DesignDetail, render design.gallery as a thumbnail strip under the cover image using the same resolveMediaUrl call already on line 155.
 
-### 'Add collection' in the upload modal always fails for a Designer
 `frontend/src/features/designStudio/DesignUpload.jsx:76`
 
 **Impact.** A designer uploading their own work types a collection name, clicks Add collection, and gets a raw JSON permission error. They can still complete the upload without a collection.
@@ -1267,7 +1123,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Smaller than either option offered: hide the Add-collection control in DesignUpload.jsx:217 unless the signed-in user is an Owner (the same `!role || role === 'Owner'` test App.jsx already uses), rather than widening DesignStudioPermission — opening create on CollectionViewSet to DESIGNER would also let a designer create collections for other designers, since nothing in the serializer scopes `designer` to the caller.
 
-### The order-materials lifecycle has no screen: Cost-per-order is structurally always empty and RecipesTab promises a capability the product does not have
 `frontend/src/features/inventory/InventoryPanel.jsx:186`
 
 **Impact.** The Cost-per-order panel on the Reports tab always shows its empty state, and the Recipes tab tells the owner orders reserve against a recipe when nothing in the product ever does.
@@ -1276,7 +1131,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Do not build the Materials panel as a bug fix — that is a feature. The defect-sized change is in frontend/src/features/inventory: reword RecipesTab.jsx:61 to drop the reservation claim, and drop the Cost-per-order Section from ReportsTab.jsx:138-158 (or label it "available via the materials API") so the dashboard stops implying data that cannot exist.
 
-### Recipes promise that orders reserve stock, but no screen ever creates a material plan
 `frontend/src/features/inventory/RecipesTab.jsx:61`
 
 **Impact.** An owner writes recipes with formulas and waste allowances believing orders will reserve against them; nothing is ever reserved and available stock stays unchanged for every order in flight.
@@ -1285,7 +1139,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Change the copy at RecipesTab.jsx:61 to drop the reservation claim (e.g. 'What each garment is made of. Used when planning materials.'). Do not build the plan UI as a bug fix.
 
-### Deleting a recipe line has no confirmation
 `frontend/src/features/inventory/RecipesTab.jsx:206`
 
 **Impact.** One mis-tap permanently removes a material line with its formula and waste allowance, with no confirmation and no undo.
@@ -1294,7 +1147,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** Guard inside remove (RecipesTab.jsx:129) rather than at the button: `if (!window.confirm(`Remove ${line.material_name} from this recipe?`)) return;`, matching App.jsx:1070.
 
-### A single server hiccup on page load silently signs the user out
 `frontend/src/services/api.js:132`
 
 **Impact.** An owner refreshing during a brief backend blip is thrown back to the login screen with no explanation.
@@ -1303,7 +1155,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In api.getMe (frontend/src/services/api.js:132), only clear on an auth failure: `if (res.status === 401 || res.status === 403) localStorage.removeItem('token'); if (!res.ok) return null;`.
 
-### Login and signup crash on any non-JSON error response, showing the user a JavaScript parser error
 `frontend/src/services/api.js:53`
 
 **Impact.** At the two moments a clear message matters most the user sees `Unexpected token '<' ... is not valid JSON` and cannot tell whether their boutique was created.
@@ -1312,7 +1163,6 @@ The consolidated, de-duplicated execution order is in production-readiness-plan.
 
 **Fix.** In api.js login (line 53) and signup (line 74), use `const data = await res.json().catch(() => ({}));` and keep the existing 'Failed to login' / 'Failed to sign up' fallbacks.
 
-### gunicorn and requests are unpinned while every other dependency is exact-pinned
 `requirements.txt:10`
 
 **Impact.** A redeploy with an empty diff can pull a new gunicorn major and either fail to boot or change proxy/scheme handling — an outage with no code change to attribute it to.

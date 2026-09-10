@@ -1,8 +1,3 @@
-"""Loading the shipped templates into the database.
-
-Only the global rows (tenant is null) are touched. A boutique that has forked a
-garment owns its copy outright, so a redeploy can never undo the owner's edits.
-"""
 
 from django.db import transaction
 
@@ -11,11 +6,6 @@ from .definitions import all_templates
 
 @transaction.atomic
 def sync_global_templates(models=None):
-    """Create or update the twelve defaults. Safe to run repeatedly.
-
-    `models` lets a data migration pass in its historical model classes rather
-    than importing the live ones, which is what keeps old migrations replayable.
-    """
     if models is None:
         from . import models as live
         models = {
@@ -30,22 +20,32 @@ def sync_global_templates(models=None):
     Field = models['TemplateField']
     Option = models['TemplateFieldOption']
 
+    # Migration 0003 and 0004 call this with their own historical models, which
+    # were frozen before design_parts existed (0006). Writing the column
+    # unconditionally makes those two migrations fail on any database built
+    # from scratch -- which is every test run. Ask the model what it has rather
+    # than assuming the current shape; a data migration that calls live code
+    # has to survive being replayed against an older schema.
+    has_parts = any(f.name == 'design_parts' for f in Template._meta.get_fields())
+
     created = updated = 0
     for definition in all_templates():
+        defaults = {'name': definition['name'], 'sequence': definition['sequence']}
+        if has_parts:
+            defaults['design_parts'] = definition['design_parts']
         template, was_created = Template.objects.get_or_create(
-            key=definition['key'], tenant=None,
-            defaults={'name': definition['name'], 'sequence': definition['sequence']},
+            key=definition['key'], tenant=None, defaults=defaults,
         )
         if was_created:
             created += 1
         else:
             template.name = definition['name']
             template.sequence = definition['sequence']
+            if has_parts:
+                template.design_parts = definition['design_parts']
             template.version += 1
             template.is_active = True
             template.save()
-            # Rebuilding is simpler than diffing, and safe: jobs keep their own
-            # frozen spec, they do not point at field rows.
             Section.objects.filter(template=template).delete()
             updated += 1
 
@@ -57,8 +57,6 @@ def sync_global_templates(models=None):
                 sequence=section_def['sequence'],
             )
             for order, field_def in enumerate(section_def['fields']):
-                # Copy rather than pop: the common-field dicts are module-level
-                # and shared by all twelve templates.
                 attrs = {k: v for k, v in field_def.items() if k != 'options'}
                 db_field = Field.objects.create(section=section, sequence=order, **attrs)
                 for opt_order, (value, label) in enumerate(field_def['options']):
@@ -66,4 +64,14 @@ def sync_global_templates(models=None):
                         field=db_field, value=value, label=label, sequence=opt_order,
                     )
 
-    return {'created': created, 'updated': updated}
+    # A garment dropped from definitions.py is retired, not deleted. GarmentJob
+    # points at its template with PROTECT, so a delete would fail the moment any
+    # boutique had taken an order for it -- and the orders that already exist
+    # still have to render. Deactivating hides it from the order form and the
+    # design library while leaving every past job readable.
+    retired = (Template.objects
+               .filter(tenant=None, is_active=True)
+               .exclude(key__in=[d['key'] for d in all_templates()])
+               .update(is_active=False))
+
+    return {'created': created, 'updated': updated, 'retired': retired}

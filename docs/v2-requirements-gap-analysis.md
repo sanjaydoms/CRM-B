@@ -1,4 +1,3 @@
-# Scaleezy v2 — Requirements Gap Analysis
 
 Maps the 21 workflow areas onto the system as it exists today (`main`, July 2026).
 Written to answer one question before any building starts: **what is already there, what
@@ -10,13 +9,11 @@ Job restructure lands (§A).
 
 ---
 
-## A. The load-bearing decision: Production Job per dress
 
 The closing recommendation in the notes is the right one, and it is not a nice-to-have —
 **most of the other 20 areas depend on it.** It should be decided first, because building
 anything else on the current shape means building it twice.
 
-### What the model assumes today
 
 | Today | The requirement |
 |---|---|
@@ -32,7 +29,6 @@ There is a real, present-day defect hiding in row 4: because design and fabric s
 key on the customer rather than the order, a repeat client's second order cannot be told
 apart from their first. The requirements expose it; they did not create it.
 
-### The shape it wants to be
 
 ```
 Order                     commercial envelope
@@ -52,7 +48,6 @@ Order                     commercial envelope
 Everything that currently hangs off `Order` — stages, tasks, QC records — moves down one
 level to `ProductionJob`. `Order` keeps money, delivery and the customer relationship.
 
-### Migration cost
 
 Mechanically modest, because the production data is young: every existing order becomes
 one order plus exactly one job, and the existing stage and task rows re-point at that job.
@@ -61,9 +56,7 @@ tracker and the dashboard all assume one garment per order.
 
 ---
 
-## B. Area-by-area
 
-### Customer & design
 
 | # | Area | Status | Notes |
 |---|---|---|---|
@@ -76,7 +69,6 @@ tracker and the dashboard all assume one garment per order.
 | 8 | Inspiration board | **Partial** | Reference images exist; no board concept, no external image search. |
 | 8 | AI design suggestion | **New** | Today's "AI suggestions" endpoint filters the catalogue by garment type. There is no model involved. |
 
-### Orders & measurements
 
 | # | Area | Status | Notes |
 |---|---|---|---|
@@ -87,7 +79,6 @@ tracker and the dashboard all assume one garment per order.
 | 4 | Measurement templates | **New** | `additional_measurements` is a free JSON field; no reusable templates. |
 | 4 | Owner approval step | **New** | No approval gate between measurement and production. |
 
-### Inventory — the largest new area
 
 | # | Area | Status | Notes |
 |---|---|---|---|
@@ -105,7 +96,6 @@ inventory module: stock items, batches, units of measure, reservations, issues, 
 and a movement history. Nothing in the current schema can be extended into it — fabric is
 modelled as a price list.
 
-### Production workflow
 
 | # | Area | Status | Notes |
 |---|---|---|---|
@@ -119,7 +109,6 @@ modelled as a price list.
 | 17 | Three-level approval | **Partial** | `QCRecord` supports pass/fail/rework with checklist and photographs, but has no interface and models one level, not three. |
 | 18 | Customer preview & alteration request | **New** | Customers do not log in. This needs a customer-facing surface — the single largest product addition after inventory. |
 
-### Staffing, costing, alerts
 
 | # | Area | Status | Notes |
 |---|---|---|---|
@@ -132,7 +121,6 @@ modelled as a price list.
 
 ---
 
-## C. What this adds up to
 
 Roughly grouped by cost:
 
@@ -160,7 +148,6 @@ Roughly grouped by cost:
 
 ---
 
-## D. Suggested sequence
 
 1. **Close the open API.** Every endpoint is currently unauthenticated. Nothing
    customer-facing (§18) can be built before this, and it is a live exposure regardless.

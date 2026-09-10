@@ -1,25 +1,3 @@
-"""The sixteen figures the specification asks the inventory to be able to state.
-
-All of them are read-only aggregations over what stages 1-4 record, computed in
-the database rather than by walking querysets in Python -- these run over the
-whole stock ledger, which is the one table that grows without bound.
-
-Two definitions are worth stating plainly, because a percentage is meaningless
-until you know its denominator and the specification does not give one:
-
-    waste %   = waste / (consumption + waste)
-                Of everything that left stock for production, the share that was
-                spoiled. It answers "how much of what we cut did we ruin", which
-                is a question about the workroom.
-
-    damage %  = damage / (goods received + stock in)
-                Of everything taken into stock, the share later written off as
-                damaged. It answers "how much of what we bought did we spoil in
-                handling", which is a question about storage.
-
-They deliberately have different denominators. Dividing both by the same total
-would make one of them answer a question nobody asked.
-"""
 
 from decimal import Decimal
 
@@ -39,7 +17,6 @@ QUANTITY = DecimalField(max_digits=16, decimal_places=3)
 ZERO_MONEY = Value(Decimal('0'), output_field=MONEY)
 ZERO_QUANTITY = Value(Decimal('0'), output_field=QUANTITY)
 
-#: Which of the eight legacy categories each consumption report covers.
 CONSUMPTION_SCOPES = {
     'fabric': [Category.FABRIC, Category.LINING],
     'embroidery': [Category.MAGGAM, Category.EMBELLISHMENT],
@@ -52,18 +29,13 @@ def _value_expression():
 
 
 def _percentage(part, whole):
-    """A percentage that says "no data" rather than zero when there is none.
-
-    Reporting 0% waste for a month with no production reads as a triumph; it is
-    an absence of information, and the two should not look the same.
-    """
     if not whole:
         return None
     return (Decimal(part) / Decimal(whole) * Decimal('100')).quantize(Decimal('0.01'))
 
 
 def _movement_totals(queryset, types):
-    """Total quantity per movement type, in one query."""
+
     rows = (queryset.filter(movement_type__in=types)
             .values('movement_type')
             .annotate(total=Coalesce(Sum('quantity'), ZERO_QUANTITY)))
@@ -73,14 +45,8 @@ def _movement_totals(queryset, types):
     return totals
 
 
-# --- 1-5, 13. the stock position ------------------------------------------
 
 def stock_position(queryset=None):
-    """Current, reserved, available, low stock, reorder level and value.
-
-    Six of the sixteen, in one pass, because they are all facts about the same
-    rows and nobody wants six round trips to learn them.
-    """
     items = queryset if queryset is not None else InventoryItem.objects.all()
 
     totals = items.aggregate(
@@ -91,9 +57,6 @@ def stock_position(queryset=None):
     )
     available = totals['current'] - totals['reserved']
 
-    # "At or below the reorder level" is measured on available stock, not on
-    # what is physically there: material already promised to an order will not
-    # be there when the next one needs it.
     at_reorder = items.filter(
         current_stock__lte=F('reserved_stock') + F('reorder_level'))
     below_minimum = items.filter(
@@ -113,7 +76,7 @@ def stock_position(queryset=None):
 
 
 def low_stock(queryset=None, limit=100):
-    """Everything at or below its reorder level, worst first."""
+
     items = queryset if queryset is not None else InventoryItem.objects.all()
     rows = (items
             .filter(current_stock__lte=F('reserved_stock') + F('reorder_level'))
@@ -134,14 +97,8 @@ def low_stock(queryset=None, limit=100):
     ]
 
 
-# --- 6-9. consumption -----------------------------------------------------
 
 def consumption(scope=None, *, since=None, until=None, limit=100):
-    """How much material was consumed, by item.
-
-    `scope` narrows to one of the reports the specification names separately --
-    fabric, embroidery, packaging -- or None for all material.
-    """
     movements = StockMovement.objects.filter(
         movement_type=StockMovement.Type.CONSUMPTION)
     if since:
@@ -183,15 +140,8 @@ def consumption(scope=None, *, since=None, until=None, limit=100):
             'total_value': sum((r['value'] for r in out), Decimal('0'))}
 
 
-# --- 10, 11. waste and damage ---------------------------------------------
 
 def loss_rates(*, since=None, until=None):
-    """Waste % and damage %, with the figures they are computed from.
-
-    The inputs are returned alongside the percentages deliberately: a rate with
-    no denominator beside it invites the reader to trust a number derived from
-    three metres of fabric as much as one derived from three hundred.
-    """
     movements = StockMovement.objects.all()
     if since:
         movements = movements.filter(created_at__gte=since)
@@ -220,16 +170,8 @@ def loss_rates(*, since=None, until=None):
     }
 
 
-# --- 12, 16. per order ----------------------------------------------------
 
 def cost_per_order(*, order=None, limit=100):
-    """What material each order actually cost.
-
-    Waste is counted as cost, because it was: the fabric was bought and it is
-    gone. It is reported separately as well, so the two can be told apart.
-
-    Customer-supplied material contributes nothing. The boutique did not buy it.
-    """
     lines = (OrderMaterialLine.objects
              .filter(is_customer_supplied=False, item__isnull=False)
              .select_related('plan__order', 'item'))
@@ -265,12 +207,6 @@ def cost_per_order(*, order=None, limit=100):
 
 
 def order_material_usage(order):
-    """Everything one order used, boutique and customer material side by side.
-
-    They are kept in separate lists rather than merged: one is stock the
-    boutique paid for and the other is not, and a single column of numbers would
-    invite adding them together.
-    """
     plans = (OrderMaterialPlan.objects.filter(order=order)
              .select_related('bom').prefetch_related('lines__item'))
 
@@ -310,16 +246,8 @@ def order_material_usage(order):
     }
 
 
-# --- 14. suppliers --------------------------------------------------------
 
 def supplier_performance(*, since=None, limit=50):
-    """How each supplier actually performs, not what they promised.
-
-    On-time is measured only over orders that were both promised a date and
-    received; an order still open is not late yet, and one with no promised date
-    cannot be judged either way. Counting those as failures would make a
-    supplier look worse the more work is in flight with them.
-    """
     orders = PurchaseOrder.objects.all()
     if since:
         orders = orders.filter(order_date__gte=since)
@@ -352,11 +280,10 @@ def supplier_performance(*, since=None, limit=50):
     return out
 
 
-# --- 15. movement history -------------------------------------------------
 
 def movement_history(*, item=None, order=None, movement_type=None, location=None,
                      since=None, until=None, limit=200):
-    """The stock ledger, filtered. Every transaction ever recorded is in here."""
+
     movements = (StockMovement.objects
                  .select_related('item', 'order', 'from_location', 'to_location'))
     if item is not None:
@@ -394,7 +321,7 @@ def movement_history(*, item=None, order=None, movement_type=None, location=None
 
 
 def movement_summary(*, since=None, until=None):
-    """Totals per movement type, for a period. The ledger at a glance."""
+
     movements = StockMovement.objects.all()
     if since:
         movements = movements.filter(created_at__gte=since)
@@ -410,10 +337,9 @@ def movement_summary(*, since=None, until=None):
     ]
 
 
-# --- everything at once ---------------------------------------------------
 
 def dashboard(*, since=None, until=None):
-    """The whole report set, for the module's landing screen."""
+
     return {
         'stock': stock_position(),
         'low_stock': low_stock(limit=10),

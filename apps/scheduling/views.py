@@ -11,24 +11,21 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     serializer_class = AppointmentSerializer
 
     def get_queryset(self):
-        """Only appointments for clients this caller may see.
-
-        This had no scoping at all, and RolePermission grants every non-Owner
-        staff member all SAFE_METHODS -- a blanket grant that only works because
-        crm_api's viewsets narrow their own querysets. This router never did, and
-        AppointmentSerializer nests the FULL CustomerSerializer, which in turn
-        nests that customer's orders and their money. So a tailor who is
-        correctly 404'd from a stranger's customer record read the same person's
-        name, mobile number, email and home address here instead -- and the
-        frontend loads this endpoint for every role on every login, so it
-        arrived in their browser unasked.
-
-        core/permissions.py's own docstring names this exact outcome as the thing
-        it exists to prevent: a tailor reading the whole order book is how a
-        customer list walks out of the building.
-        """
         customers = visible_customers(Customer.objects.all(), self.request.user)
-        return super().get_queryset().filter(customer__in=customers)
+        queryset = super().get_queryset().filter(customer__in=customers)
+
+        # The dashboard panel is headed "Upcoming Appointments" and was handed
+        # every appointment the boutique had ever booked, oldest first -- so a
+        # fitting from three months ago sat at the top of it, a cancelled one
+        # sat below that, and the trial happening this afternoon was somewhere
+        # further down. Asking for what the panel actually promises is one
+        # parameter; without it the panel could only ever grow more wrong.
+        if self.request.query_params.get('upcoming') == 'true':
+            from django.utils import timezone
+            queryset = queryset.filter(
+                scheduled_time__gte=timezone.now()
+            ).exclude(status='CANCELLED')
+        return queryset
 
     def perform_create(self, serializer):
         appointment = serializer.save()

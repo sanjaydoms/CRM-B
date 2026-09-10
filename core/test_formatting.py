@@ -1,11 +1,3 @@
-"""Money and time, written one way.
-
-The tracking page showed a stage completed at 09:30 UTC as "9:30 AM" to a
-customer in Chennai for whom it happened at 3:00 PM, and printed the total as
-Rs49875.00 while the invoice for the same order said Rs49,875. These pin both
-halves of that, and the contract underneath it: UTC in storage, the boutique's
-timezone at presentation, never the other way round.
-"""
 
 from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
@@ -37,8 +29,6 @@ class MoneyTests(SimpleTestCase):
         self.assertEqual(format_money(Decimal('100.50')), '₹100.50')
 
     def test_lakh_grouping_not_western(self):
-        # The difference only shows above 99,999 -- which is why an order of
-        # 49,875 could never have revealed a mismatch between the two sides.
         self.assertEqual(group_indian('100000'), '1,00,000')
         self.assertEqual(group_indian('999'), '999')
         self.assertEqual(group_indian('1000'), '1,000')
@@ -56,7 +46,6 @@ class MoneyTests(SimpleTestCase):
 
 
 class TimezoneTests(SimpleTestCase):
-    #: 09:30 UTC is 15:00 in Kolkata -- the exact gap the customer saw.
     UTC_INSTANT = datetime(2026, 8, 24, 9, 30, 17, tzinfo=dt_timezone.utc)
 
     def test_a_stored_utc_instant_renders_in_the_boutiques_time(self):
@@ -66,7 +55,6 @@ class TimezoneTests(SimpleTestCase):
                          '24 Aug 2026, 3:00 PM')
 
     def test_a_different_boutique_reads_a_different_clock(self):
-        # The reason this is per-tenant and not a global setting.
         self.assertEqual(format_time(self.UTC_INSTANT, _Tenant('Asia/Dubai')), '1:30 PM')
         self.assertEqual(format_time(self.UTC_INSTANT, _Tenant('UTC')), '9:30 AM')
 
@@ -78,14 +66,11 @@ class TimezoneTests(SimpleTestCase):
                          'the original is unmodified')
 
     def test_a_date_crossing_midnight_moves_with_the_clock(self):
-        # 20:00 UTC is already the next morning in Kolkata. Rendering the date
-        # in UTC would tell the customer the wrong day, not just the wrong hour.
         late = datetime(2026, 8, 24, 20, 0, tzinfo=dt_timezone.utc)
         self.assertEqual(format_date(late, _Tenant('Asia/Kolkata')), '25 Aug 2026')
         self.assertEqual(format_date(late, _Tenant('UTC')), '24 Aug 2026')
 
     def test_a_broken_timezone_name_falls_back_rather_than_erroring(self):
-        # A typo must not take the customer's tracking page down.
         self.assertEqual(tenant_timezone(_Tenant('Not/AZone')),
                          ZoneInfo(DEFAULT_TIMEZONE))
 

@@ -1,18 +1,8 @@
-"""Deterministic design intelligence.
-
-Scores are a weighted sum of signals the CRM already holds, normalised to a
-0-100 confidence. Two properties matter more than cleverness here: the same
-context and the same candidate always produce the same score, and every point
-awarded comes with the human-readable reason that earned it -- the gallery
-shows those reasons verbatim, so an owner can tell a customer why a design was
-suggested.
-"""
 
 from decimal import Decimal
 
 from .base import DesignIntelligence
 
-# Weight, and the reason shown when the signal fires. Weights total 100.
 WEIGHTS = {
     'garment': 25,
     'occasion': 18,
@@ -44,7 +34,6 @@ def _lower_set(values):
 class RuleBasedIntelligence(DesignIntelligence):
     key = 'rules'
 
-    # -- Query generation ------------------------------------------------
 
     def generate_queries(self, context, extra_keywords=None):
         garment = _clean(context.garment_type) or 'Outfit'
@@ -73,16 +62,10 @@ class RuleBasedIntelligence(DesignIntelligence):
 
         return queries[:8]
 
-    # -- Ranking ---------------------------------------------------------
 
     def rank(self, candidates, context):
         scored = [(candidate, *self._score(candidate, context)) for candidate in candidates]
 
-        # A signal no design in the result set could possibly supply must not
-        # drag every score down. Boutique catalogue rows carry no occasion, so
-        # scoring against the full 100 would cap a perfect catalogue match in
-        # the forties and make the whole gallery look like a poor fit. The
-        # denominator is therefore the weight that was actually in play.
         in_play = set()
         for _, points, _ in scored:
             in_play.update(points.keys())
@@ -95,18 +78,10 @@ class RuleBasedIntelligence(DesignIntelligence):
             candidate.match_reasons = reasons
             ranked.append(candidate)
 
-        # source_ref breaks ties so equal-scoring designs keep a stable order
-        # between identical searches.
         ranked.sort(key=lambda c: (-c.match_score, c.source, c.source_ref))
         return ranked
 
     def _score(self, candidate, context):
-        """Return the points earned per signal, and the reasons behind them.
-
-        A signal only appears in the returned mapping when it was evaluable for
-        this candidate -- that is what lets ``rank`` tell "scored zero" apart
-        from "could not be judged".
-        """
         points = {}
         reasons = []
         attributes = candidate.attributes or {}
@@ -123,10 +98,6 @@ class RuleBasedIntelligence(DesignIntelligence):
                 points['occasion'] = WEIGHTS['occasion']
                 reasons.append(f"Suited to a {context.occasion} occasion")
             elif candidate.occasion:
-                # The design states an occasion and it is not this one, so this
-                # is a real miss. A design that simply never declares an
-                # occasion is unjudged rather than wrong -- most catalogue rows
-                # carry no occasion at all.
                 points['occasion'] = 0
 
         style_hits, comparable = self._style_hits(attributes, context)
@@ -165,13 +136,6 @@ class RuleBasedIntelligence(DesignIntelligence):
         return points, reasons
 
     def _style_hits(self, attributes, context):
-        """Matched preferences, and how many could be compared at all.
-
-        Scoring hits against a fixed denominator punished designs for
-        attributes their source simply does not record. Only pairs where both
-        the customer stated a preference and the design declares the attribute
-        count towards the total.
-        """
         hits = []
         comparable = 0
         pairs = [
@@ -203,22 +167,12 @@ class RuleBasedIntelligence(DesignIntelligence):
         return ''
 
     def _within_budget(self, candidate, context):
-        # An unpriced reference is not evidence against it, which is why the
-        # caller only evaluates this signal when a price exists.
         budget = Decimal(context.budget or 0)
         price = Decimal(candidate.estimated_price or 0)
         return budget > 0 and 0 < price <= budget
 
-    # -- Attribute extraction --------------------------------------------
 
     def analyse(self, candidate, context=None):
-        """Fill the structured attribute set, inferring what is missing.
-
-        Internal sources already carry most of these fields. What is absent is
-        inferred from the design's own tags and title -- never from the
-        customer's preferences, which would make every design look like a
-        perfect match for the person it is being shown to.
-        """
         attributes = {
             'neck_type': '', 'sleeve': '', 'fabric': '', 'embroidery': '',
             'occasion': '', 'colour': '', 'fit': '', 'pattern': '',

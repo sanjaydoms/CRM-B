@@ -1,4 +1,3 @@
-# Scaleezy Boutique CRM — Complete User Guide
 
 **Build documented:** branch `MSK-CL`, commit `ccfed28`, captured 27 Aug 2026
 **Demo boutique used throughout:** Kanchi Threads (Chennai)
@@ -8,7 +7,6 @@ re-verify the guide.
 
 ---
 
-## Contents
 
 | # | Section |
 |---|---------|
@@ -49,9 +47,7 @@ Companion documents: **[Demo Guide](demo-guide.md)** · **[Product Coverage Matr
 
 ---
 
-## 1. Introduction
 
-### What Scaleezy Boutique CRM is
 
 Order-management and CRM software for businesses that cut and stitch every
 garment to one client's measurements — bridal boutiques, saree houses, blouse
@@ -61,7 +57,6 @@ It replaces the notebook, the WhatsApp thread and the whiteboard with one
 record per order that the owner, the master tailor, the stitching tailor, the
 designer and the customer all read from.
 
-### What it solves
 
 | Problem | What the product does |
 |---|---|
@@ -72,12 +67,10 @@ designer and the customer all read from.
 | "Has this client paid?" | Advance / balance / paid, per order, with an invoice |
 | "Any update?" (customer, daily) | A public tracking link and pre-composed WhatsApp updates |
 
-### Supported user roles
 
 Owner · Master Tailor · Stitching Tailor · seven production specialists ·
 Designer · End customer (no login) · Platform Super Admin.
 
-### High-level business flow
 
 ```text
 Boutique signs up  →  own isolated database schema created
@@ -105,9 +98,7 @@ patterns.
 
 ---
 
-## 2. Getting started
 
-### System requirements
 
 | Item | Requirement |
 |---|---|
@@ -116,7 +107,6 @@ patterns.
 | Network | Always-online. There is no offline mode. |
 | Account | One boutique account per business; staff logins are issued by the owner |
 
-### Where the application lives
 
 | Surface | Path |
 |---|---|
@@ -125,7 +115,6 @@ patterns.
 | Platform console | `/superadmin.html` |
 | Customer order tracking | `/track/<token>/` — served by Django, no sign-in |
 
-### Signing up a new boutique
 
 **Figure 1 — The public site**
 
@@ -167,7 +156,6 @@ boutique…* throughout — do not reload the page.
 
 You land on the owner dashboard.
 
-### First-time setup order
 
 Do these before taking a real order, in this sequence:
 
@@ -180,9 +168,7 @@ Do these before taking a real order, in this sequence:
 
 ---
 
-## 3. Roles and permissions
 
-### The six roles that can sign in
 
 | Role | How it is created | What it is for |
 |---|---|---|
@@ -195,7 +181,6 @@ Do these before taking a real order, in this sequence:
 
 The **end customer never signs in.** They open a signed tracking link.
 
-### What each role sees in the navigation
 
 | Menu item | Owner | Master | Tailor / specialist | Designer |
 |---|---|---|---|---|
@@ -212,7 +197,6 @@ The **end customer never signs in.** They open a signed tracking link.
 | My Assignments | — | ✅ | ✅ | — |
 | My Account | ✅ | ✅ | ✅ | ✅ |
 
-### What each role can do at the API
 
 This is enforced on the server, not only in the menu (`core/permissions.py`):
 
@@ -233,7 +217,6 @@ settings — the Design Studio has its own permission classes.
 
 ---
 
-## 4. The public website
 
 A plain static site, built separately from the app (`npm run build`), so it is
 readable by crawlers. Pages:
@@ -253,9 +236,7 @@ The two CTAs that matter: **Sign in to your atelier** → `/app.html`, and
 
 ---
 
-## 5. Authentication
 
-### Signing in
 
 1. Open `/app.html`.
 2. Enter the email address and password.
@@ -265,7 +246,6 @@ The two CTAs that matter: **Sign in to your atelier** → `/app.html`, and
 5. You land on the screen for your role — Dashboard for an owner, **My
    Assignments** for production staff, **My Work** for a designer.
 
-### Wrong credentials
 
 **Figure 6 — Rejected sign-in**
 
@@ -274,7 +254,6 @@ The two CTAs that matter: **Sign in to your atelier** → `/app.html`, and
 The message is exactly: *Invalid login credentials. Please try again.* It does
 not say whether the email or the password was wrong — deliberate.
 
-### Password recovery
 
 **Figure 7 — Reset your password**
 
@@ -284,16 +263,13 @@ not say whether the email or the password was wrong — deliberate.
 link is emailed, so the boutique needs SMTP configured (`EMAIL_HOST` and
 friends); with no mail backend configured the request still reports success.
 
-### Signing out
 
 **Logout** is the last item in the sidebar on every screen, and inside the Menu
 sheet on a phone.
 
 ---
 
-## 6. Boutique owner guide
 
-### 6.1 The dashboard
 
 **Figure 8 — Owner dashboard**
 
@@ -312,7 +288,6 @@ On a brand-new boutique the same screen is empty, with the prompt *No active
 custom orders. Click "New Custom Order" to begin!* —
 [10-owner-dashboard-empty.png](screenshots/owner/10-owner-dashboard-empty.png).
 
-### 6.2 Boutique setup — My Account
 
 **Figure 9 — My Account**
 
@@ -330,7 +305,6 @@ in the library.
 tracking page; if you leave them blank the customer sees blanks, not placeholder
 text.
 
-### 6.3 Team management — Manage Tailors
 
 **Figure 10 — Manage Tailoring Staff**
 
@@ -340,7 +314,6 @@ Two rosters — *Master Tailors (Cutting & Supervision)* and *Stitching Tailors
 (Assembly & Detailing)* — and below them **Workflow Assignment & Supervision
 Control**, a table of every order in creation with its Master and Tailor.
 
-#### Adding a staff member
 
 **Figure 11 — Add New Tailor Profile**
 
@@ -357,7 +330,6 @@ Control**, a table of every order in creation with its Master and Tailor.
 
 **Save Tailor**.
 
-#### The credentials modal — shown once
 
 **Figure 12 — Share Login Credentials**
 
@@ -372,7 +344,6 @@ Copy it before closing.
 > render Masters and Stitching Tailors — a specialist you add will not appear in
 > either list. See [§31](#31-known-gaps--not-yet-implemented).
 
-### 6.4 Customer management
 
 **Figure 13 — Customer directory**
 
@@ -401,7 +372,6 @@ boutique a customer and their first order arrive together.
 6. **Go with Existing Design / Create New Design** — start the next order for
    this customer.
 
-### 6.5 Fabric library — Manage Fabrics
 
 **Figure 14a — Manage Fabric Library**
 
@@ -421,7 +391,6 @@ Fabric Name · Material · Color · Price per Meter (₹) · Image URL (optional
 
 ---
 
-## 7. Design management
 
 **Figure 15 — Manage Designs, dashboard tab**
 
@@ -435,7 +404,6 @@ Recent Uploads, Most Viewed, Most Ordered, Trending This Week, and the
 Blouse, Lehenga, Lehenga Blouse, Dupatta, Kurti, Anarkali, Petticoat, Salwar,
 Churidar, Palazzo, Sharara, Gown, Suit (Kameez), Sherwani, Uncategorised.
 
-### Adding a designer, and giving them a login
 
 **Figure 16 — Add designer**
 
@@ -452,7 +420,6 @@ Again the password is shown once: *Shown once. Copy it now — closing this pane
 is the last time it can be read.* If the person already had an account, no new
 password is issued and the panel says so.
 
-### Adding a catalogue design
 
 **Figure 18 — Add New Design**
 
@@ -475,17 +442,14 @@ password is issued and the panel says so.
 
 ---
 
-## 8. Designer guide
 
 A designer's account exists for one thing: their own design work. There is no
 customer, order or financial navigation, and the API refuses those endpoints
 outright.
 
-### 8.1 Signing in
 
 Same sign-in page. A designer lands on **My Work**.
 
-### 8.2 My Work — the queue
 
 **Figure 19 — Designer work queue**
 
@@ -500,7 +464,6 @@ payload than it sends the owner.
 When nothing has been uploaded yet, the panel says: *Upload a design in the
 Design Studio first, then submit it here.*
 
-### 8.3 Design Studio — the library
 
 **Figure 20 — Designer's library view**
 
@@ -509,7 +472,6 @@ Design Studio first, then submit it here.*
 The same library the owner sees, grouped by garment, with an **Upload design**
 button.
 
-### 8.4 Uploading a design
 
 **Figure 21 — Upload design**
 
@@ -533,7 +495,6 @@ button.
 
 ![Design added](screenshots/designer/85-designer-design-added.png)
 
-### 8.5 Submitting the design against the work
 
 **Figure 23 — Submit design**
 
@@ -547,7 +508,6 @@ review**.
 
 ![Work submitted](screenshots/designer/87-designer-work-submitted.png)
 
-### 8.6 What the owner does with it
 
 **Figure 25 — Owner reviewing design work**
 
@@ -560,7 +520,6 @@ On **Design Work** the owner gets **Approve** or **Request changes** (with a
 
 ![Design approved](screenshots/owner/19d-owner-design-approved.png)
 
-### 8.7 Assigning design work in the first place
 
 **Figure 27 — Assign design work**
 
@@ -572,12 +531,10 @@ designer, set a due date, write the brief, **Assign**.
 
 ---
 
-## 9. Order management
 
 Orders are created through a six-step wizard reached from **New Custom Order**
 (dashboard or Manage Orders).
 
-### The lifecycle this product implements
 
 ```text
 Customer (new or existing)
@@ -600,7 +557,6 @@ Payment                   ← full, partial, or a custom advance
 ORDER CREATED             ← order id issued, stages generated, customer notified
 ```
 
-### Step 0 — who is this for
 
 **Figure 28 — New or existing customer**
 
@@ -617,7 +573,6 @@ Any unfinished order is kept as a **draft** and listed on this screen with
 
 ![Drafts](screenshots/owner/46-order-drafts.png)
 
-### Step 1 — customer and garments
 
 **Figure 30 — Customer details**
 
@@ -642,7 +597,6 @@ Kurti, Anarkali, Petticoat, Salwar, Churidar, Palazzo, Sharara, Gown, Suit
 
 **Save as Draft** at any point. **Next** to continue.
 
-### Step 2 — garment details
 
 **Figure 31 — Garment Details, two garments on one order**
 
@@ -676,7 +630,6 @@ Waist Finish / Border / Backing / Lining.
 > **Trial Date becomes required** the moment *Trial Required* is set to Yes.
 > If **Next** appears to do nothing, this is almost always why.
 
-### Step 3 — AI Design Studio
 
 **Figure 34 — Design suggestions per garment**
 
@@ -697,7 +650,6 @@ Images are listed as sources but read **not connected**.
 
 ![Design selected](screenshots/owner/36-order-design-selected.png)
 
-### Step 4 — fabric selection
 
 **Figure 36 — Fabric Selection**
 
@@ -713,7 +665,6 @@ by material. Fabric cards show name, colour and price per metre.
 Choosing a fabric reveals the **Scaleezy Live Visualizer** — see
 [§20 Try-On](#20-try-on).
 
-### Step 5 — staff and delivery
 
 **Figure 38 — Review & Staff Assignment**
 
@@ -728,7 +679,6 @@ Choosing a fabric reveals the **Scaleezy Live Visualizer** — see
 
 ![Staff assigned](screenshots/owner/40-order-staff-assigned.png)
 
-### Step 6 — cost and confirmation
 
 **Figure 40 — Review & Complete Order**
 
@@ -745,7 +695,6 @@ anything else ₹15,000. Packaging defaults to ₹500 and **GST is fixed at 5%**
 
 **Create Order & Pay** →
 
-### Payment and confirmation
 
 **Figure 41 — Payment options**
 
@@ -771,7 +720,6 @@ payment status (*Partially Paid • ₹20,000 of ₹49,875*), estimated delivery
 four customer-facing milestones, **Chat on WhatsApp**, **Back to Dashboard** and
 **View & Print Invoice**.
 
-### The orders registry
 
 **Figure 44 — Atelier Orders Registry**
 
@@ -791,7 +739,6 @@ Each order card carries:
 
 ---
 
-## 10. Multi-garment orders
 
 One order carries as many garments as the customer is having made, and the
 product keeps them separate all the way through.
@@ -829,21 +776,17 @@ Note what is **not** per-garment: production stages are order-level. A single
 
 ---
 
-## 11. Measurements
 
-### Where they are captured
 
 Inside the order wizard, on each garment's card — because which measurements are
 needed depends on the garment. A Blouse asks for six; a Lehenga asks for two,
 both required.
 
-### Where they are stored
 
 Against the **customer**, not only the order. The customer profile shows the
 current set plus **Sizing Version History** — every earlier set, dated. Taking
 new measurements adds a version; it does not overwrite.
 
-### How they reach the floor
 
 Production staff see them on their own dashboard, per garment, under
 **📏 MEASUREMENTS AS ORDERED** — and again inside every stage-update modal, so a
@@ -853,20 +796,17 @@ tailor never has to leave the stage they are working on to check a number.
 
 ![Master assignments](screenshots/master/50-master-my-assignments.png)
 
-### Reusing them
 
 Choosing **Select Existing Customer** in step 0 carries the saved measurements
 into the new order; the card is pre-filled and can be adjusted for this garment.
 
 ---
 
-## 12. Inventory management
 
 Seven panels: **Items · Catalogue · Locations · Recipes · Purchase Orders ·
 Suppliers · Reports**. Four headline figures sit above all of them — Stock
 Value, Out of Stock, Reorder Due, Dead Stock (no movement in 90 days).
 
-### Items
 
 **Figure 46 — Inventory items**
 
@@ -877,7 +817,6 @@ Material, Packaging, Maggam / Embroidery, Other — or by **Reorder due only**.
 Each row shows in stock, reserved, available, location, and the actions
 **Move**, **History** and **Edit**.
 
-#### Adding an item
 
 **Figure 47 — New inventory item**
 
@@ -891,7 +830,6 @@ Supplier.
 > not set here — they only change through recorded movements.* This is
 > deliberate; the ledger is the only source of truth for a number.
 
-#### Recording a movement
 
 **Figure 48 — Stock movement**
 
@@ -911,7 +849,6 @@ Supplier.
 Order-linked movements can name the order (needed for cost-per-order and
 consumption reports) and stock-outs can name the location they leave from.
 
-### How inventory connects to an order
 
 This is automatic, and it is one of the strongest things to demonstrate:
 
@@ -933,14 +870,12 @@ Verified on the demo order: Kanchipuram Silk went from 40.000 m to 34.300 m —
 exactly the 1.2 m and 4.5 m chosen on the two garment cards, with
 `RESERVATION` and `CONSUMPTION` rows in the ledger against order 1.
 
-### Reorder alerts
 
 When a movement takes an item to or below its reorder level, a notification is
 raised: *Reorder level reached: Aari Beads — Ruby (EMB-BD-003) is down to 18.000
 Piece, at or below its reorder level of 20.000.* The **Reorder Due** tile counts
 them.
 
-### The other panels
 
 | Panel | What it is | Screenshot |
 |---|---|---|
@@ -953,14 +888,11 @@ them.
 
 ---
 
-## 13. Master guide
 
-### Signing in
 
 The Master lands on **My Assignments Dashboard** — *Logged in as Lakshmi Iyer
 (Master).*
 
-### The assignment card
 
 **Figure 49 — Master's assignments**
 
@@ -977,7 +909,6 @@ The Master lands on **My Assignments Dashboard** — *Logged in as Lakshmi Iyer
    only), Hook or Buttons Closure, Garment Steam Pressing, Dispatch or Fit Trial
    Ready.
 
-### Updating a stage
 
 **Figure 50 — Stage update modal**
 
@@ -1001,7 +932,6 @@ SLA target, then **Manage Stage Transition**:
 
 ![Stage started](screenshots/master/57b-master-stage-started.png)
 
-### What a Master can and cannot do
 
 Can: run every stage their role owns, assign stages, read the whole floor and
 the customers behind it, upload and publish finished-garment photos, complete
@@ -1010,7 +940,6 @@ the verification checklist, view Manage Orders, Customers and Design Work.
 Cannot: create or edit customers, touch inventory, record payments, change
 prices, or open boutique settings.
 
-### The other Master screens
 
 | Screen | Screenshot |
 |---|---|
@@ -1025,9 +954,7 @@ narrowed to orders sitting on their own stage —
 
 ---
 
-## 14. Tailor guide
 
-### Signing in
 
 A Stitching Tailor lands on **My Assignments Dashboard** — *Logged in as Ravi
 Kumar (Tailor).* The sidebar has two items: **My Assignments** and **My
@@ -1037,7 +964,6 @@ Account**. That is the whole application for a tailor, by design.
 
 ![Tailor assignments](screenshots/tailor/70-tailor-my-assignments.png)
 
-### What the tailor receives from upstream
 
 Everything needed to stitch, and nothing else:
 
@@ -1052,7 +978,6 @@ Everything needed to stitch, and nothing else:
 
 No prices, no payment status, no other order on the floor.
 
-### Doing the work
 
 **Figure 53 — Tailor updating the stitching stage**
 
@@ -1074,9 +999,7 @@ not offered.
 
 ---
 
-## 15. Production workflow
 
-### The 15 stages, and who owns each
 
 | # | Stage | SLA | Who may advance it |
 |---|---|---|---|
@@ -1099,7 +1022,6 @@ not offered.
 Stage 5 is optional — use **Skip Stage** on a garment with no embroidery; a
 skipped stage does not block delivery.
 
-### Who does what
 
 ```text
                          OWNER
@@ -1120,7 +1042,6 @@ skipped stage does not block delivery.
                     CUSTOMER TRACKING LINK
 ```
 
-### Order status vs production stage
 
 Two different things, both on the order card:
 
@@ -1135,17 +1056,14 @@ touching the status dropdown.
 
 ---
 
-## 16. Payment management
 
 Payments are recorded at two points.
 
-### At order creation
 
 Full payment, partial payment, or a custom advance amount — see
 [§9](#payment-and-confirmation). The advance is marked **non-refundable** on the
 screen.
 
-### Afterwards, on the Invoices screen
 
 **Figure 55 — Invoices & Billing**
 
@@ -1173,7 +1091,6 @@ Collected revenue ₹49,875, outstanding ₹0.
 
 ---
 
-## 17. Invoices
 
 **Figure 57 — Invoice**
 
@@ -1199,7 +1116,6 @@ The invoice number **is** the order id; there is no separate invoice sequence.
 
 ---
 
-## 18. Customer communication
 
 What the product actually does — and does not do — matters here.
 
@@ -1227,7 +1143,6 @@ from the queue.
 Messages are queued automatically as the order progresses: order confirmation,
 status changes, and readiness.
 
-### Finished-garment photos
 
 **Figure 59 — Photos uploaded**
 
@@ -1248,7 +1163,6 @@ Only the Owner and the Master may upload or publish photos.
 
 ---
 
-## 19. Customer order tracking
 
 The customer never signs in. They open the link from the WhatsApp message.
 
@@ -1276,7 +1190,6 @@ and shows:
 What the customer never sees: internal notes, staff names, other orders, prices
 of individual components, or anything belonging to another boutique.
 
-### What a customer can do
 
 Read the page, and telephone the number at the bottom. There is no reply box, no
 approval button, no login, no document upload. Everything else runs through
@@ -1284,7 +1197,6 @@ WhatsApp with a human at each end.
 
 ---
 
-## 20. Try-On
 
 **Figure 62 — Scaleezy Live Visualizer**
 
@@ -1321,7 +1233,6 @@ details may vary* — is the honest framing to repeat.
 
 ---
 
-## 21. Notifications and alerts
 
 **Figure 64 — Inbox Alerts**
 
@@ -1343,7 +1254,6 @@ There is no email or push delivery of these — they are in-app only.
 
 ---
 
-## 22. Search, filters and sorting
 
 | Screen | Search | Filters | Notes |
 |---|---|---|---|
@@ -1363,7 +1273,6 @@ in the boutique workspace; lists render in the server's order.
 
 ---
 
-## 23. Reports and analytics
 
 **Figure 65 — Business Analytics & Trends**
 
@@ -1390,7 +1299,6 @@ There is no export button on Analytics.
 
 ---
 
-## 24. Settings and profile
 
 Everything is on **My Account** — see [§6.2](#62-boutique-setup--my-account).
 
@@ -1409,7 +1317,6 @@ working email; otherwise the owner reissues the account.
 
 ---
 
-## 25. Mobile experience
 
 The workspace is genuinely responsive — it is not a separate app and not a
 scaled-down desktop page. Captured at 390×844.
@@ -1456,7 +1363,6 @@ counter is more comfortable on a tablet or laptop.
 
 ---
 
-## 26. Super Admin console
 
 A separate application at `/superadmin.html`, with its own bundle, its own
 sign-in and its own API under `/api/superadmin/`. It is **not** reachable from a
@@ -1497,7 +1403,6 @@ boutique's own schema cannot get in.
 | | **Sessions & Tokens** | Session and token management |
 | Support | **Diagnostics** | Per-boutique support view |
 
-### Module gating
 
 Modules that can be switched off per boutique: Design Studio, Purchasing
 Catalogue, Inventory, Garment Templates, Appointments, Production API, Activity
@@ -1515,7 +1420,6 @@ reads them, and a switch that controls nothing is worse than no switch.
 
 ---
 
-## 27. Appointments
 
 **Figure 70 — Book an Appointment**
 
@@ -1543,7 +1447,6 @@ customer message.
 
 ---
 
-## 28. Troubleshooting
 
 Messages below are the product's own wording.
 
@@ -1565,9 +1468,7 @@ Messages below are the product's own wording.
 
 ---
 
-## 29. FAQ
 
-### Owner
 
 **Can I take one order for a blouse and a lehenga together?** Yes. Pick both in
 step 1; each gets its own measurements, design, materials and price.
@@ -1587,7 +1488,6 @@ message and hands it to WhatsApp; a person presses send.
 *Fabric Confirmed* is completed and consumed at the stitching stages — not at
 order creation.
 
-### Master
 
 **Why can I not advance the stitching stage?** Stitching belongs to the Tailor
 role. You own stages 1–6 and 9–15.
@@ -1596,7 +1496,6 @@ role. You own stages 1–6 and 9–15.
 
 **Can I see every order?** Yes — Masters see the whole floor.
 
-### Tailor
 
 **Where are the measurements?** On your assignment card under *Measurements as
 ordered*, and again inside every stage modal.
@@ -1606,7 +1505,6 @@ already the Master's.
 
 **Why can I only see some orders?** You see the orders you are assigned to.
 
-### Designer
 
 **Why can I not see the customer's name?** By design — a designer account gets
 the garment spec and the brief, not the client or the money.
@@ -1616,7 +1514,6 @@ press *Submit design*.
 
 **The owner asked for changes.** The item returns to your queue with their note.
 
-### Customer
 
 **Do I need an account?** No. Your boutique sends you a link.
 
@@ -1629,7 +1526,6 @@ WhatsApp.
 
 ---
 
-## 30. Glossary
 
 | Term | Meaning in this product |
 |---|---|
@@ -1662,12 +1558,10 @@ WhatsApp.
 
 ---
 
-## 31. Known gaps / not yet implemented
 
 Everything here was observed in the running build on 27 Aug 2026, not inferred
 from a specification. Each entry names how it was checked.
 
-### 31.1 Try-On is a mock
 
 | | |
 |---|---|
@@ -1677,7 +1571,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | Running it (Figures 62–63) and reading `getDrapedPreviewImage`; the module registry records `try_on: 'Not implemented anywhere in this product.'` |
 | **Next** | Either integrate a real garment-visualisation service, or relabel the button as a fabric/style reference board |
 
-### 31.2 No payment gateway
 
 | | |
 |---|---|
@@ -1687,7 +1580,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | Completing checkout and settling the balance; no gateway exists in the codebase |
 | **Next** | Integrate a payment provider, or remove the card-network logos |
 
-### 31.3 Designs added through *Add New Design* land in Uncategorised
 
 | | |
 |---|---|
@@ -1697,7 +1589,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | Three designs saved with types Lehenga / Lehenga / Saree; library reads *Uncategorised 3* |
 | **Next** | Make *Add New Design* set the garment template, or group the library by garment type as a fallback |
 
-### 31.4 *Add New Design* offers six garment categories, the product has fifteen
 
 | | |
 |---|---|
@@ -1707,7 +1598,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | Reading the modal's options; the order wizard and Design Studio both offer fifteen |
 | **Next** | Drive this select from the garment-template list |
 
-### 31.5 Specialist staff do not appear on Manage Tailors
 
 | | |
 |---|---|
@@ -1717,7 +1607,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | Creating *Sunita Rao — QC Master*: absent from the screen, present in the appointment staff picker and able to sign in |
 | **Next** | Render a third roster, or group by role |
 
-### 31.6 Production stages are per order, not per garment
 
 | | |
 |---|---|
@@ -1727,7 +1616,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | The demo order carries two garments and one stage ladder |
 | **Next** | Per-garment stage ladders, with the order rolling up |
 
-### 31.7 Duplicate element ids across garment cards
 
 | | |
 |---|---|
@@ -1737,7 +1625,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | Counting duplicate ids in the live DOM on the garment step |
 | **Next** | Prefix ids with the garment key |
 
-### 31.8 Tax and pricing defaults are hard-coded in the browser
 
 | | |
 |---|---|
@@ -1746,7 +1633,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | Reading `GARMENT_PRICES` and the quote calculation; confirmed on the demo order |
 | **Next** | Move rates and price lists into boutique settings |
 
-### 31.9 Customer messaging is manual
 
 | | |
 |---|---|
@@ -1755,7 +1641,6 @@ from a specification. Each entry names how it was checked.
 | **Verified by** | Sending the demo order's five queued updates |
 | **Next** | WhatsApp Business API integration |
 
-### 31.10 The invoice can tell customers they supplied their own fabric when they did not
 
 | | |
 |---|---|
@@ -1769,7 +1654,6 @@ from a specification. Each entry names how it was checked.
 field in the step-6 cost breakdown. The line then reads *Includes boutique
 fabric — ₹x*.
 
-### 31.11 Smaller gaps
 
 | Gap | Detail | Verified by |
 |---|---|---|
@@ -1786,7 +1670,6 @@ fabric — ₹x*.
 
 ---
 
-## 32. Final product workflow
 
 ```text
                         PUBLIC WEBSITE
@@ -1840,11 +1723,9 @@ fabric — ₹x*.
 
 ---
 
-## Appendix A — Screenshot index
 
 Every image in `screenshots/`, including those not embedded above.
 
-### Empty states — what a brand-new boutique looks like
 
 Useful when demonstrating onboarding, and when writing training material.
 
@@ -1867,7 +1748,6 @@ Custom Order" to begin!* · *Add your first customer* · *Create your first orde
 · *No Master Tailors registered yet.* · *No design work outstanding. Assign a
 garment above to get started.* · *No items match these filters.*
 
-### Others
 
 | Screenshot | What it shows |
 |---|---|

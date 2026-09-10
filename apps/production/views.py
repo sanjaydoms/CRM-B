@@ -10,13 +10,6 @@ from apps.activities.models import UniversalActivity
 
 
 def _visible_order_ids(user):
-    """Orders this caller may see, as a queryset of ids.
-
-    RolePermission grants every non-Owner staff member all SAFE_METHODS, which
-    is only safe because each viewset narrows its own queryset. These two never
-    did, so /api/production/tasks/ handed any signed-in tailor every order id
-    and customer name in the boutique.
-    """
     return visible_orders(Order.objects.all(), user).values('id')
 
 
@@ -37,7 +30,7 @@ class ProductionTaskViewSet(viewsets.ModelViewSet):
             entity_id=str(task.id),
             action="CREATED",
             title=f"Task Created: {task.title}",
-            description=f"Task '{task.title}' created for Order {task.order.order_id}",
+            description=f"Task '{task.title}' created for Order {task.order.reference}",
             new_value={"status": task.status, "assigned_to": task.assigned_to.name if task.assigned_to else None}
         )
 
@@ -48,7 +41,6 @@ class ProductionTaskViewSet(viewsets.ModelViewSet):
         
         task = serializer.save()
         
-        # Check if completed
         if old_status != 'COMPLETED' and task.status == 'COMPLETED':
             task.completed_at = timezone.now()
             task.save(update_fields=['completed_at'])
@@ -61,7 +53,7 @@ class ProductionTaskViewSet(viewsets.ModelViewSet):
             entity_id=str(task.id),
             action="UPDATED" if old_status == task.status else "STATUS_CHANGED",
             title=f"Task {task.title} → {task.status}",
-            description=f"Task '{task.title}' updated on Order {task.order.order_id}",
+            description=f"Task '{task.title}' updated on Order {task.order.reference}",
             old_value={"status": old_status, "assigned_to": old_assigned},
             new_value={"status": task.status, "assigned_to": task.assigned_to.name if task.assigned_to else None}
         )
@@ -83,6 +75,6 @@ class QCRecordViewSet(viewsets.ModelViewSet):
             entity_id=str(qc.id),
             action="QC_SUBMITTED",
             title=f"QC Record: {qc.status}",
-            description=f"Quality check conducted for Order {qc.order.order_id}. Result: {qc.status}",
+            description=f"Quality check conducted for Order {qc.order.reference}. Result: {qc.status}",
             new_value={"status": qc.status, "comments": qc.comments}
         )

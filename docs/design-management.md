@@ -1,4 +1,3 @@
-# Scaleezy — Design Management Module
 
 A design repository the boutique can actually run at scale: thousands of designs,
 several designers, and three audiences who need different views of the same rows.
@@ -8,7 +7,6 @@ invents a taxonomy the product already has — §2 is the load-bearing decision.
 
 ---
 
-## 1. What already exists
 
 Roughly two thirds of this module is built. The gap is narrower than it looks.
 
@@ -39,7 +37,6 @@ What is genuinely missing: **Designer as an entity** (today a free-text string),
 
 ---
 
-## 2. The taxonomy decision
 
 **Designs are tagged with garment-template vocabulary. The module does not mint
 its own.**
@@ -65,7 +62,6 @@ Tagging with template values makes "designs matching this order" a query rather
 than a fuzzy string comparison, and it means adding "Paithani" to saree types in
 the admin updates the design filters at the same time.
 
-### Three axes, not one list
 
 The proposed Categories list mixes three different things:
 
@@ -82,9 +78,7 @@ garment type, an occasion tag, an optional collection and a status.
 
 ---
 
-## 3. Data model
 
-### 3.1 New
 
 ```
 Designer                          a person who contributes designs
@@ -115,7 +109,6 @@ DesignApproval                    one row per review decision, immutable
 `DesignApproval` is a log rather than a status column so "why was this rejected
 in March" survives the next resubmission.
 
-### 3.2 Added to `DesignAsset`
 
 ```
 designer_ref       FK Designer, nullable      replaces the free-text `designer`
@@ -141,14 +134,12 @@ order_count        int, denormalised
 and it is validated by the existing `core/templates.py` engine rather than a
 second validator.
 
-### 3.3 Counters
 
 `view_count` and `order_count` are denormalised because the dashboard sorts by
 them. They are updated by the view that serves a design detail and by order
 creation respectively — never computed with a `COUNT(*)` across the library on
 page load, which is what makes a gallery of thousands slow.
 
-### 3.4 `BoutiqueDesign` — merge, do not add a third table
 
 `apps/design_studio/models.py` says catalogue entries are "projected into search
 results by their providers instead of being copied — duplicating them would leave
@@ -168,9 +159,7 @@ a copy, so it does not reintroduce the sync problem the comment warns about.
 
 ---
 
-## 4. Roles and permissions
 
-### 4.1 Fix the fallback first
 
 ✅ Done. `core/roles.py` used to read:
 
@@ -189,7 +178,6 @@ OWNER, so OWNER is a real "nothing else matched" rather than a guess.
 `core/tests.py` pins this directly, including the specific regression it
 replaces. See step 7 below for where this gets exercised by a real account.
 
-### 4.2 Matrix
 
 | Capability | Owner | Designer |
 |---|---|---|
@@ -241,7 +229,6 @@ margin, customer feedback, materials required) do not exist as fields on
 
 ---
 
-## 5. Screens
 
 ```
 Design Management
@@ -273,7 +260,6 @@ uploads go straight to ACTIVE.
 
 ---
 
-## 6. Flows
 
 **Upload:** category → collection → images → video → name → fabric → colour →
 occasion → style tags → difficulty → stitch time → references → save →
@@ -289,7 +275,6 @@ order. The only change is that filtering now runs on `spec_tags`.
 
 ---
 
-## 7. API
 
 | Method | Endpoint | Purpose |
 |---|---|---|
@@ -309,7 +294,6 @@ eight parallel calls on load; this module should not add nine more.
 
 ---
 
-## 8. Filtering
 
 Query parameters map to columns and to `spec_tags`:
 
@@ -330,7 +314,6 @@ Sorting: newest, most viewed, most ordered, name.
 
 ---
 
-## 9. Build order
 
 Each step ships working and is independently reversible.
 
@@ -396,7 +379,6 @@ security surface, and the one honest gap above is what is left of it.
 
 ---
 
-## 9b. Assignment workflow (P1.1)
 
 Steps 1–7 built the library: who *drew* a design, uploads, approval, logins.
 None of it could say who had been *asked* to draw one, for which garment, or
@@ -454,7 +436,6 @@ call-sites that each had to remember to do it by hand.
 
 ---
 
-## 10. Open questions
 
 - **Do designers need accounts now, or is attribution enough?** A `Designer` row
   with `user = null` credits work without any login surface. Steps 1–6 all work

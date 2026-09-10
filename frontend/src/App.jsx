@@ -6,13 +6,17 @@ import {
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu,
-  PenTool
+  PenTool, Settings, RotateCw, Clock, Wallet,
+  Shirt, TrendingUp, AlertCircle, CalendarDays, LayoutGrid, List, Receipt, Banknote,
+  Truck, PackageCheck, CheckCircle2, Boxes, Crown, ShoppingCart, Coins, ClipboardList,
+  Type, Tag, Layers, Palette, IndianRupee, Link as LinkIcon, Image as ImageIcon, Save,
+  Play, Pause, SkipForward, RefreshCw, Ruler, Target, Leaf, Building2, Globe, Camera, Store
 } from 'lucide-react';
 import { api } from './services/api';
 import { resolveMediaUrl } from './services/media';
 import {
   formatMoney, formatDate as fmtDate, formatDateTime as fmtDateTime,
-  formatTime as fmtTime, setBoutiqueTimeZone,
+  formatTime as fmtTime, setBoutiqueTimeZone, orderRef,
 } from './services/format';
 // The inventory panel and the design studio are whole screens behind their own
 // tabs, and together they are a sixth of the bundle. Loading them eagerly made
@@ -20,20 +24,163 @@ import {
 // never open, so they are fetched when their tab is first shown instead.
 // TemplateForm stays eager: it renders inline in the order wizard, where a
 // loading flicker mid-form would be worse than its few KB.
-const DesignStudio = lazy(() => import('./features/designStudio/DesignStudio'));
+const GarmentPartPicker = lazy(() => import('./features/designStudio/GarmentPartPicker'));
+// Named export off the same module, so it arrives with the chunk the
+// pickers already load rather than costing a second request.
+const SelectedDesignSummary = lazy(() => import('./features/designStudio/GarmentPartPicker')
+  .then(m => ({ default: m.SelectedDesignSummary })));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
 const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
+const StaffPanel = lazy(() => import('./features/staff/StaffPanel'));
+const FinancePanel = lazy(() => import('./features/finance/FinancePanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
+import OrderGarmentBrief from './features/catalog/OrderGarmentBrief';
+import OrderKanban from './features/orders/OrderKanban';
 import { MobileHeader } from './components/ui/MobileHeader';
+import {
+  PageHeader, StatCard, SectionCard, Chips, AvatarInitials, ProgressBar, SearchBox, Segmented, IconTile,
+  FormModal, Field, Dropzone, PhotoTile, AddMoreTile, InfoNote, FormSection,
+} from './components/ui/Atelier';
+import { useLanguage } from './i18n/LanguageContext.jsx';
+import LanguageSelector from './components/LanguageSelector.jsx';
+import SettingsPage from './components/SettingsPage.jsx';
 import { BottomNavigation } from './components/ui/BottomNavigation';
+
 import { BottomSheet } from './components/ui/BottomSheet';
 import { ResponsiveCard } from './components/ui/ResponsiveCard';
 import { ProgressiveAccordion } from './components/ui/ProgressiveAccordion';
 
 /** Placeholder shown while a lazily loaded screen arrives. */
+// Whole-rupee money for the dashboard, Indian digit grouping. Paise are
+// noise at a glance; the detail screens keep them.
+const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
+// One avatar for every user surface. Shows the person's uploaded photo when
+// they have one, otherwise their initial on a filled circle -- never the stock
+// stranger that used to be hardcoded here. Fills whatever circle wraps it.
+const UserAvatar = ({ user, size }) => {
+  const url = resolveMediaUrl(user?.profile_photo || '');
+  const initial = (user?.first_name || user?.name || user?.email || 'U').trim().charAt(0).toUpperCase();
+  const box = size ? { width: size, height: size } : { width: '100%', height: '100%' };
+  if (url) {
+    return <img src={url} alt="" style={{ ...box, borderRadius: '50%', objectFit: 'cover' }} />;
+  }
+  return (
+    <div style={{ ...box, borderRadius: '50%', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', background: '#0f291e', color: '#fff',
+                  fontWeight: 600, fontSize: size ? size * 0.42 : '1em' }}>
+      {initial}
+    </div>
+  );
+};
+
+// Customer value tier, as one pill. VIP and high-value carry their brand
+// colours; everyone else gets a neutral badge. One component so the directory
+// card and the profile banner cannot drift apart.
+const SEGMENT_TONES = {
+  // fg is a darker brass than --accent-text (#986a26) so 11px badge text clears
+  // WCAG AA (~4.9:1) on the --accent-color tint; bg/bd use the accent tokens.
+  VIP: { bg: 'var(--accent-color)', fg: '#7d6216', bd: 'var(--accent-border)' },
+  HVC: { bg: '#efe9f7', fg: '#6b3fa0', bd: '#dcc9ee' },
+};
+const SegmentBadge = ({ segment }) => {
+  if (!segment) return null;
+  const tone = SEGMENT_TONES[segment];
+  const skin = tone
+    ? { background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }
+    : { background: 'var(--surface-inset)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' };
+  return (
+    <span style={{
+      fontSize: 'var(--text-2xs)', fontWeight: 'var(--weight-bold)', letterSpacing: '0.06em',
+      padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase', ...skin,
+    }}>{segment}</span>
+  );
+};
+
+// The AI "Style Profile" card. Deep-forest hero surface with gold accents --
+// the same emphasis treatment as the dashboard revenue hero -- so a premium
+// insight reads as special without dropping a black card onto the light page.
+// Was two near-identical dark (#141414/#0d0d0d) blocks, one on the directory
+// card and one on the profile detail; now one component. Shows only fields the
+// AI actually filled -- the old detail card printed fabricated demo figures
+// ("premium designer", "Charcoal Black 90%") for every customer with no
+// style_dna, which read as real client data.
+const StyleProfileCard = ({ customer }) => {
+  const dna = customer?.style_dna || {};
+  const rows = [
+    ['Budget', dna.budget, Wallet], ['Colours', dna.colors, Palette], ['Style', dna.style, Shirt],
+    ['Size', dna.size, Ruler], ['Visit pattern', dna.visit_pattern, CalendarDays],
+  ].filter(([, v]) => v);
+  const riskColor = dna.risk_level === 'danger' ? 'var(--danger-color)'
+    : dna.risk_level === 'warning' ? 'var(--warning-color)' : 'var(--success-color)';
+  // "Dusty Rose 60% Ivory 30% Gold 10%" -> a swatch per named colour, read
+  // through the same name-to-shade map the fabric cards use.
+  const swatches = typeof dna.colors === 'string'
+    ? dna.colors.split(/\d+%/).map((n) => n.trim()).filter(Boolean) : [];
+  const hasAny = rows.length || dna.risk_status || dna.next_action;
+  return (
+    <SectionCard icon={Sparkles} tone="amber"
+                 title={customer?.first_name ? `${customer.first_name}'s style profile` : 'Style Profile'}>
+      {!hasAny && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>No AI style profile for this customer yet.</div>
+      )}
+      {rows.map(([label, value, Icon]) => (
+        <div key={label} className="at-dna-row">
+          <span className="at-dna-label"><Icon size={16} /> {label}</span>
+          <strong>
+            {label === 'Colours' && swatches.length > 0 && (
+              <span className="at-swatches">
+                {swatches.map((name) => <i key={name} title={name} style={{ background: getColorCircleStyle(name) }} />)}
+              </span>
+            )}
+            {value}
+          </strong>
+        </div>
+      ))}
+      {dna.risk_status && (
+        <div className="at-dna-row">
+          <span className="at-dna-label"><ShieldCheck size={16} /> Risk status</span>
+          <strong style={{ color: riskColor, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: riskColor }} />
+            {dna.risk_status}
+          </strong>
+        </div>
+      )}
+      {dna.next_action && (
+        <div className="at-dna-row">
+          <span className="at-dna-label"><Target size={16} /> Next action</span>
+          <strong style={{ color: 'var(--accent-text)', fontStyle: 'italic' }}>&ldquo;{dna.next_action}&rdquo;</strong>
+        </div>
+      )}
+      {hasAny && (
+        <InfoNote tone="green" icon={Leaf} style={{ marginTop: 'var(--space-3)', padding: '10px 14px' }}>
+          <em>Read automatically from your sales data — not entered by hand.</em>
+        </InfoNote>
+      )}
+    </SectionCard>
+  );
+};
+
+// Live date + time for the dashboard header. Ticks once a minute -- seconds add
+// motion nobody reads and a re-render every second for no reason.
+const HeaderClock = () => {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
+  const date = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return (
+    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+      {date} · <b style={{ color: 'var(--text-primary)' }}>{time}</b>
+    </span>
+  );
+};
+
 const ScreenLoading = () => (
   <div style={{ padding: '48px', textAlign: 'center', color: '#8a8a8a' }}>Loading...</div>
 );
@@ -47,14 +194,13 @@ const SUPERVISOR_ROLES = ['Master'];
 
 // Everyone who works on garments. resolve_user_role returns the Tailor
 // profile's role verbatim, so a boutique that has split its floor produces
-// seven role strings beyond 'Tailor' and 'Master' -- and get_default_workflow
+// role strings beyond 'Tailor' and 'Master' -- and get_default_workflow
 // permits each of them on a specific stage. Comparing against the two literal
 // names stranded every specialist: routed to a tab their own nav does not
 // contain, and shown an order's money that the permission matrix says
 // production staff must not see.
 const PRODUCTION_ROLES = [
-  'Tailor', 'Master', 'Measurement Master', 'Pattern Master', 'Cutting Master',
-  'Maggam Master', 'Finishing Master', 'Pressing Staff', 'QC Master',
+  'Tailor', 'Master', 'Maggam Master', 'Karigar', 'Packaging Staff', 'QC Staff',
 ];
 const isProductionStaff = (role) => PRODUCTION_ROLES.includes(role);
 
@@ -94,6 +240,15 @@ const waLink = (raw) => `https://wa.me/${String(raw || '').replace(/\D/g, '')}`;
 
 
 // Mirrors Appointment.TYPE_CHOICES in apps/scheduling/models.py.
+// Mirrors Appointment.STATUS_CHOICES in apps/scheduling/models.py.
+const APPOINTMENT_STATUS_LABELS = {
+  SCHEDULED: 'Scheduled',
+  CONFIRMED: 'Confirmed',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+  RESCHEDULED: 'Rescheduled',
+};
+
 const APPOINTMENT_TYPE_LABELS = {
   CONSULTATION: 'Design Consultation',
   MEASUREMENT: 'Measurement Fitting',
@@ -106,13 +261,10 @@ const APPOINTMENT_TYPE_LABELS = {
 const STAFF_ROLES = [
   { value: 'Tailor', label: 'Stitching Tailor', hint: 'Stitches the garment.' },
   { value: 'Master', label: 'Master Tailor (generalist)', hint: 'Can work on every stage.' },
-  { value: 'Measurement Master', label: 'Measurement Master', hint: 'Takes and verifies client measurements.' },
-  { value: 'Pattern Master', label: 'Pattern Master', hint: 'Drafts the paper pattern.' },
-  { value: 'Cutting Master', label: 'Cutting Master', hint: 'Cuts fabric from the pattern.' },
   { value: 'Maggam Master', label: 'Maggam Master', hint: 'Runs embroidery before stitching.' },
-  { value: 'Finishing Master', label: 'Finishing Master', hint: 'Hemming and final shaping.' },
-  { value: 'Pressing Staff', label: 'Pressing Staff', hint: 'Presses the garment before dispatch.' },
-  { value: 'QC Master', label: 'QC Master', hint: 'Runs the quality inspection.' },
+  { value: 'Karigar', label: 'Karigar', hint: 'Handwork on the frame, alongside the Maggam Master.' },
+  { value: 'Packaging Staff', label: 'Packaging Staff', hint: 'Packs the garment before dispatch.' },
+  { value: 'QC Staff', label: 'QC Staff', hint: 'Runs the quality inspection.' },
 ];
 
 // Where a design came from. Mirrors DesignPreference.SOURCE_CHOICES.
@@ -189,16 +341,6 @@ const getColorCircleStyle = (colorName) => {
 const humaniseSpecKey = (key) => {
   const words = String(key).replace(/_/g, ' ').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
-};
-
-// A stored spec value as a person reads it. Stored values are the template's own
-// option keys -- 'a_line', 'hr2', 'hand_made' -- and booleans, both of which
-// reached the shop floor raw.
-const humaniseSpecValue = (value) => {
-  if (value === true) return 'Yes';
-  if (value === false) return 'No';
-  if (Array.isArray(value)) return value.map(humaniseSpecValue).join(', ');
-  return humaniseSpecKey(value);
 };
 
 // Every garment on an order, for screens that only need to name them.
@@ -393,6 +535,7 @@ const GARMENT_VIEWS = [
  * costs no extra request.
  */
 function GarmentGallery({ order, onChanged }) {
+  const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [view, setView] = useState('FRONT');
@@ -431,9 +574,9 @@ function GarmentGallery({ order, onChanged }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
         <Package size={14} />
-        <span style={{ fontSize: '13px', fontWeight: 600 }}>Finished garment photos</span>
+        <span style={{ fontSize: '13px', fontWeight: 600 }}>{t('ordersPage.finishedGarmentPhotos', 'Finished garment photos')}</span>
         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-          {published ? 'visible to the customer' : `${images.length} uploaded, not yet shared`}
+          {published ? t('ordersPage.visibleToCustomer', 'visible to the customer') : t('ordersPage.uploadedNotShared', '{count} uploaded, not yet shared', { count: images.length })}
         </span>
       </div>
 
@@ -468,7 +611,7 @@ function GarmentGallery({ order, onChanged }) {
                   borderRadius: '4px', cursor: 'pointer', width: '100%'
                 }}
               >
-                Remove
+                {t('ordersPage.remove', 'Remove')}
               </button>
             </figure>
           ))}
@@ -506,7 +649,7 @@ function GarmentGallery({ order, onChanged }) {
           disabled={busy}
           onClick={() => fileRef.current?.click()}
         >
-          {busy ? 'Working…' : 'Choose from gallery'}
+          {busy ? 'Working…' : t('common.chooseFromGallery', 'Choose from gallery')}
         </button>
 
         <button
@@ -517,12 +660,12 @@ function GarmentGallery({ order, onChanged }) {
           title={missing.length ? `Still needs: ${missing.join(', ')}` : ''}
           onClick={() => run(() => api.publishGarmentImages(order.id, !published))}
         >
-          {published ? 'Hide from customer' : 'Share with customer'}
+          {published ? 'Hide from customer' : t('ordersPage.shareWithCustomer', 'Share with customer')}
         </button>
 
         {!published && missing.length > 0 && (
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            needs {missing.map((m) => m.toLowerCase()).join(' and ')}
+            {t('ordersPage.needsFrontAndBack', 'needs front and back')}
           </span>
         )}
       </div>
@@ -531,6 +674,7 @@ function GarmentGallery({ order, onChanged }) {
 }
 
 function StageTimeline({ stages, onSelectStage }) {
+  const { t } = useLanguage();
   // Fifteen stages in a strip about three-and-a-half stages wide: opening an
   // order on a phone put "Created" on screen and whatever actually needs doing
   // several swipes away. Centre the live stage (or the last one finished) so
@@ -562,7 +706,7 @@ function StageTimeline({ stages, onSelectStage }) {
         borderRadius: '8px', border: '1px solid var(--border-color)',
         fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center'
       }}>
-        No production stages recorded for this order.
+        {t('ordersPage.noProductionStages', 'No production stages recorded for this order.')}
       </div>
     );
   }
@@ -835,6 +979,156 @@ function NetworkActivityBar() {
   );
 }
 
+/* ── NAVIGATION ─────────────────────────────────────────────────────────────
+   One table, three surfaces: the dashboard sidebar, the order-selector sidebar
+   and the phone bottom bar. They were three hand-kept lists and had already
+   drifted -- the selector sidebar never gained the Staff entry the dashboard
+   sidebar has, and the bottom bar had no Designer branch at all, so a designer
+   on a phone was offered "My Assignments", a tab their own sidebar does not
+   contain. Read from one place they cannot drift again. */
+
+/* The server module behind each tab, keyed by the dashboardTab VALUE rather
+   than by its label -- a renamed tab must not quietly lose its gate.
+
+   `null` means nothing on the server can switch it off: overview, orders,
+   customers, assignments, account and settings ride ALWAYS_ON or STRUCTURAL
+   prefixes (core/modules.py). Invoices and Analytics are computed in the
+   browser out of orders already fetched -- CLIENT_ONLY, no endpoint of their
+   own -- so there is no module key to invent for them and they stay visible
+   for everyone. */
+const NAV_MODULE = {
+  overview: null,
+  orders: null,
+  customers: null,
+  assignments: null,
+  invoices: null,
+  analytics: null,
+  account: null,
+  settings: null,
+  designs: 'design_studio',
+  designWork: 'design_studio',
+  fabrics: 'fabrics',
+  inventory: 'inventory',
+  staff: 'staff',
+  finance: 'finance',
+};
+
+/* Hiding a tab is a courtesy; the server is the control and refuses the call
+   either way. So a user object carrying no `modules` -- an older token, a
+   login cached before the field existed -- sees everything: a workspace that
+   blanks its own navigation because one field is absent is worse than one
+   offering a tab the server will turn down. */
+const hasModule = (user, key) =>
+  !key || !Array.isArray(user?.modules) || user.modules.includes(key);
+
+/* `tab in NAV_MODULE`, not a truthy lookup on it. A tab MISSING from the table
+   read exactly like one deliberately set to `null`, so a tab added later
+   without a NAV_MODULE row was silently visible to every role -- a Tailor
+   offered a screen nobody decided to give them, and no way to notice.
+   A dev-time warning rather than a second UNGATED set: the table above already
+   enumerates the deliberate ones as explicit nulls, and a parallel list is one
+   more thing to forget. Still fails open, for the reason in the paragraph
+   above -- the point is that the mistake now says so out loud. */
+const canSeeTab = (user, tab) => {
+  if (import.meta.env.DEV && !(tab in NAV_MODULE)) {
+    console.warn(`canSeeTab: no NAV_MODULE row for "${tab}" -- showing it to every role. Add a module key, or an explicit null if that is meant.`);
+  }
+  return hasModule(user, NAV_MODULE[tab]);
+};
+
+/* Grouped by what the owner is DOING, not by the order the screens were built
+   in. `phone` marks the few entries the bottom bar carries, `phoneLabel` the
+   shorter wording it uses where the sidebar's would wrap. */
+const navSectionsFor = (user, t) => {
+  const role = user?.role;
+  const sections =
+    (!role || role === 'Owner') ? [
+      { key: 'daily', label: t('nav.groups.daily', 'Daily'), items: [
+        { tab: 'overview', icon: Users, label: t('nav.dashboard'), phone: true },
+        { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
+        { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
+      ] },
+      { key: 'design', label: t('nav.groups.design', 'Design'), items: [
+        { tab: 'designs', icon: Sparkles, label: t('nav.manageDesigns') },
+        { tab: 'designWork', icon: PenTool, label: t('nav.designWork') },
+      ] },
+      // Fabrics used to sit apart from Inventory in one flat list of eleven,
+      // and the roster apart from the employment screen that extends it, so
+      // finding anything meant reading all eleven.
+      { key: 'stock', label: t('nav.groups.stock', 'Stock'), items: [
+        { tab: 'fabrics', icon: Compass, label: t('nav.manageFabrics') },
+        { tab: 'inventory', icon: Package, label: t('nav.inventory'), phone: true },
+      ] },
+      // Manage Tailors is WHO works here; Staff Management is their
+      // employment, time and pay. The pairing is the point of the group.
+      { key: 'people', label: t('nav.groups.people', 'People'), items: [
+        { tab: 'staff', icon: Landmark, label: t('nav.staffManagement') },
+      ] },
+      { key: 'business', label: t('nav.groups.business', 'Business'), items: [
+        { tab: 'finance', icon: Wallet, label: t('nav.finance', 'Cost & P&L') },
+        { tab: 'invoices', icon: FileText, label: t('nav.invoices') },
+        { tab: 'analytics', icon: BarChart2, label: t('nav.analytics') },
+      ] },
+    ] : role === 'Master' ? [
+      { key: 'master', items: [
+        { tab: 'assignments', icon: Scissors, label: t('nav.myAssignments'), phone: true },
+        { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
+        { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
+        // A Master supervises the floor, so they get the team roster. The
+        // screen hides every management control for them and the API strips
+        // colleagues' pay from the response -- see StaffSelfOrOwner.
+        { tab: 'staff', icon: Landmark, label: t('nav.staffManagement') },
+        { tab: 'designWork', icon: PenTool, label: t('nav.designWork') },
+      ] },
+    ] : role === 'Designer' ? [
+      { key: 'designer', items: [
+        { tab: 'designWork', icon: PenTool, label: t('nav.myWork'), phone: true },
+        { tab: 'designs', icon: Sparkles, label: t('nav.designStudio') },
+      ] },
+    ] : [
+      { key: 'production', items: [
+        { tab: 'assignments', icon: Scissors, label: t('nav.myAssignments'), phone: true },
+        // Production staff record their own hours here. Labelled for what it
+        // is to them -- the screen opens on Attendance and shows only their
+        // own record. Without this entry a tailor cannot check in at all.
+        { tab: 'staff', icon: Clock, label: t('nav.myAttendance') },
+      ] },
+    ];
+
+  // A rule rather than a heading: these are the way OUT of the workspace, not
+  // another room in it. Shared by every role, so a tailor with two entries
+  // gets the same separation as the owner with eleven. Account takes a slot on
+  // the bottom bar only for the roles whose own section cannot fill it.
+  const roomy = !role || role === 'Owner' || role === 'Master';
+  return [...sections, { key: 'session', divider: true, items: [
+    { tab: 'account', icon: User, label: t('nav.account'), phone: !roomy },
+    { tab: 'settings', icon: Settings, label: t('nav.settings') },
+  ] }];
+};
+
+/* Drop what this user cannot reach, then drop any group left with nothing
+   under it -- otherwise the sidebar grows headings over empty space. */
+const visibleNav = (user, t) => navSectionsFor(user, t)
+  .map((section) => ({ ...section, items: section.items.filter((i) => canSeeTab(user, i.tab)) }))
+  .filter((section) => section.items.length);
+
+/** The sidebar list. `onPick` differs by view: the order selector has to leave
+    itself for the dashboard before a tab means anything. */
+function PortalMenu({ sections, activeTab, onPick }) {
+  return sections.map((section) => (
+    <React.Fragment key={section.key}>
+      {section.divider && <div className="portal-menu-divider" />}
+      {section.label && <div className="portal-menu-group">{section.label}</div>}
+      {section.items.map(({ tab, icon: Icon, label }) => (
+        <a key={tab} className={`portal-menu-item ${activeTab === tab ? 'active' : ''}`} onClick={() => onPick(tab)}>
+          <Icon size={16} /> {label}
+        </a>
+      ))}
+    </React.Fragment>
+  ));
+}
+
+
 function App() {
   // The marketing site is static HTML at / and no longer a view in here -- see
   // frontend/index.html. This bundle is the workspace, served from /app, so it
@@ -848,8 +1142,24 @@ function App() {
   // swallow the link without ever showing the form.
   const [view, setView] = useState(
     () => new URLSearchParams(window.location.search).get('reset') ? 'reset' : 'login');
-  const [dashboardTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs'
+  const [requestedTab, setDashboardTab] = useState('overview'); // 'overview', 'fabrics', 'tailors', 'designs' -- resolved into dashboardTab below
   const [currentUser, setCurrentUser] = useState(null);
+  const { t, language } = useLanguage();
+  const currentUserName = currentUser?.first_name || currentUser?.name || currentUser?.email?.split('@')[0] || 'User';
+
+  // Every navigation surface reads this one list -- see NAV_MODULE above.
+  const navSections = visibleNav(currentUser, t);
+
+  // The tab actually shown, which is not always the tab that was asked for.
+  // The opening tab is picked from the role alone (checkAuthSession,
+  // handleLoginSubmit) and a restored session is where that goes stale: the
+  // owner may have closed that module for the role since, leaving a screen
+  // that 403s on every call it makes. Hiding the sidebar entry does not help
+  // on its own -- nothing stops a stale requestedTab from still pointing at
+  // it -- so resolve it here, where a hidden tab simply never renders.
+  const navTabs = navSections.flatMap((s) => s.items.map((i) => i.tab));
+  const dashboardTab = (!navTabs.length || navTabs.includes(requestedTab)) ? requestedTab : navTabs[0];
+
   
   // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
@@ -989,35 +1299,32 @@ function App() {
   // Fabrics CRUD State
   const [showFabricModal, setShowFabricModal] = useState(false);
   const [editingFabric, setEditingFabric] = useState(null);
+  // Library filters: one predicate over the fabrics already loaded.
+  const [fabricQuery, setFabricQuery] = useState({ search: '', material: 'All', colour: 'All', availability: 'All', sort: 'newest' });
   const [fabricSaving, setFabricSaving] = useState(false);
   const [fabricForm, setFabricForm] = useState({
     name: '',
     material: '',
     color: '',
+    color_hex: '#c8a97e',
     price_per_meter: '',
     image_url: '',
+    image_urls: [],
     is_available: true
   });
+  // Photos chosen in the modal but not yet uploaded: the fabric may not exist
+  // yet, so they travel with the save rather than ahead of it.
+  const [fabricPhotoFiles, setFabricPhotoFiles] = useState([]);
+  const [fabricPhotoPreviews, setFabricPhotoPreviews] = useState([]);
+  const [fabricPhotoBusy, setFabricPhotoBusy] = useState(false);
 
   // Tailors CRUD State
-  const [showTailorModal, setShowTailorModal] = useState(false);
-  const [editingTailor, setEditingTailor] = useState(null);
-  const [tailorSaving, setTailorSaving] = useState(false);
-  const [shareCredsTailor, setShareCredsTailor] = useState(null);
   // Recording a payment: which row is in flight, and what went wrong. Shown in
   // the Invoices header rather than through alert() -- a modal dialog over a
   // ledger the owner is reading down is the wrong shape for "that did not save".
   const [wizardError, setWizardError] = useState(null);
   const [savingPaymentId, setSavingPaymentId] = useState(null);
   const [paymentError, setPaymentError] = useState(null);
-  const [tailorForm, setTailorForm] = useState({
-    name: '',
-    email: '',
-    specialty: '',
-    rating: 5.0,
-    status: 'Available',
-    role: 'Tailor'
-  });
 
   // Designs CRUD State
   const [showDesignModal, setShowDesignModal] = useState(false);
@@ -1071,11 +1378,7 @@ function App() {
     try {
       const template = await api.getGarmentTemplate(key);
       setGarmentJobs(prev => [...prev, {
-        key, template, values: {}, quantities: {},
-        // A starting quote, not a price list: the owner edits these on the
-        // review step and the server persists what was confirmed. Add-ons
-        // start at zero -- pre-filling ₹7,500 of embroidery on every dress was
-        // the flat model's habit, and it billed work nobody had asked for.
+        key, template, values: {}, quantities: {}, sources: {}, brought: {},
         pricing: { base: GARMENT_PRICES[template.name] || 15000, fabric: 0,
                    embroidery: 0, customization: 0, tailoring: 0 },
       }]);
@@ -1086,6 +1389,12 @@ function App() {
       setAddingGarmentKey(null);
     }
   };
+
+  useEffect(() => {
+    if (view === 'wizard' && garmentJobs.length === 0 && garmentTemplates.length > 0) {
+      addGarment(garmentTemplates[0].key);
+    }
+  }, [view, garmentJobs.length, garmentTemplates]);
 
   // Pricing, the dashboard and the stage tracker still read the single
   // garment_type on the customer, so it follows the first dress on the order
@@ -1124,16 +1433,76 @@ function App() {
     )));
   };
 
+  /** Where one material comes from: boutique stock, or the customer's own. */
+  const updateGarmentSource = (key, fieldKey, source) => {
+    setGarmentJobs(prev => prev.map(job => (
+      job.key === key
+        ? { ...job, sources: { ...(job.sources || {}), [fieldKey]: source } }
+        : job
+    )));
+  };
+
+  /** What the customer brought for one material -- its name and its unit. */
+  const updateGarmentBrought = (key, fieldKey, entry) => {
+    setGarmentJobs(prev => prev.map(job => (
+      job.key === key
+        ? { ...job, brought: { ...(job.brought || {}), [fieldKey]: entry } }
+        : job
+    )));
+  };
+
+  /** What the order's Material Source answer means for a line nobody has
+   *  spoken for yet. "Mixed" deliberately defaults to stock and waits to be
+   *  told, because mixed means the answer differs line by line. */
+  const defaultMaterialSource = (job) =>
+    (job.values?.material_source === 'customer' ? 'CUSTOMER' : 'STORE');
+
   /** The material fields on a template, with the item chosen for each.
    *
    *  Read off the template rather than off a hardcoded list, so a garment that
    *  gains a material field gains a material line with it. */
-  const garmentMaterialFields = (job) => (
-    (job.template?.sections || [])
+  const garmentMaterialFields = (job) => {
+    const fallback = defaultMaterialSource(job);
+    return (job.template?.sections || [])
       .flatMap(section => section.fields || [])
       .filter(field => field.field_type === 'inventory_ref')
-      .map(field => ({ field, itemId: job.values?.[field.key] }))
-      .filter(entry => entry.itemId)
+      .map(field => {
+        const source = job.sources?.[field.key] || fallback;
+        const brought = job.brought?.[field.key] || {};
+        return {
+          field,
+          source,
+          itemId: job.values?.[field.key],
+          name: (brought.name || '').trim(),
+          unit: brought.unit,
+        };
+      })
+      // A line counts once it names something: a roll off the rack, or the
+      // cloth the customer handed over. Nothing named, nothing to plan.
+      .filter(entry => (entry.source === 'CUSTOMER' ? entry.name : entry.itemId));
+  };
+
+  /** One material line, in the shape the API stores.
+   *
+   *  Customer material carries its own name and never an inventory item -- the
+   *  serializer rejects the combination, because their cloth is not stock and
+   *  must never be reserved or deducted from it.
+   */
+  const materialLine = (job) => ({ field, source, itemId, name, unit }) => (
+    source === 'CUSTOMER'
+      ? {
+        field_key: field.key,
+        free_text: name,
+        quantity: job.quantities?.[field.key],
+        unit,
+        source: 'CUSTOMER',
+      }
+      : {
+        field_key: field.key,
+        inventory_item: itemId,
+        quantity: job.quantities?.[field.key],
+        source: 'STORE',
+      }
   );
 
   /** Validate every dress on the order; returns true when all of them pass. */
@@ -1157,6 +1526,20 @@ function App() {
           jobQuantityErrors[field.key] = 'Enter how much of this material this garment needs.';
         }
       });
+      // A quantity typed against a customer material nobody named would be
+      // dropped on the way out, silently. Say so instead.
+      const fallbackSource = defaultMaterialSource(job);
+      (job.template?.sections || [])
+        .flatMap(section => section.fields || [])
+        .filter(field => field.field_type === 'inventory_ref')
+        .forEach(field => {
+          const source = job.sources?.[field.key] || fallbackSource;
+          const name = (job.brought?.[field.key]?.name || '').trim();
+          const raw = job.quantities?.[field.key];
+          if (source === 'CUSTOMER' && !name && raw !== undefined && raw !== '') {
+            jobQuantityErrors[field.key] = 'Name what the customer brought for this.';
+          }
+        });
       if (Object.keys(jobQuantityErrors).length) quantityErrors[job.key] = jobQuantityErrors;
     });
     setGarmentErrors(errors);
@@ -1200,12 +1583,9 @@ function App() {
       quantities: job.quantities || {},
       pricing: job.pricing || {},
       design: job.design || {},
-      materials: garmentMaterialFields(job).map(({ field, itemId }) => ({
-        field_key: field.key,
-        inventory_item: itemId,
-        quantity: job.quantities?.[field.key],
-        source: 'STORE',
-      })),
+      sources: job.sources || {},
+      brought: job.brought || {},
+      materials: garmentMaterialFields(job).map(materialLine(job)),
     })),
     design: {
       notes: designNotes, links: designLinks, source: designSource,
@@ -1247,6 +1627,8 @@ function App() {
           template,
           values: garment.values || {},
           quantities: garment.quantities || {},
+          sources: garment.sources || {},
+          brought: garment.brought || {},
           pricing: garment.pricing || {},
           design: garment.design || {},
         });
@@ -1320,45 +1702,6 @@ function App() {
     }
   };
 
-  /** Persist one GarmentJob per dress once the order exists to hang them on.
-   *
-   *  Materials go with the job rather than after it. A material selection used
-   *  to survive only as a bare item id inside `spec`, which no part of the
-   *  inventory system reads -- so an order could name six materials, reach
-   *  Delivered, and leave stock untouched. As JobMaterial rows with a quantity
-   *  they become a material plan, and the plan is what reserves and consumes.
-   */
-  const saveGarmentJobs = async (orderId) => {
-    for (const job of garmentJobs) {
-      const { spec, measurements } = splitSpec(job.template, job.values);
-      const materials = garmentMaterialFields(job).map(({ field, itemId }) => ({
-        field_key: field.key,
-        inventory_item: itemId,
-        quantity: job.quantities?.[field.key],
-        // Always STORE: these lines exist only because an inventory item was
-        // picked off the boutique's own racks. A garment marked "customer
-        // provided fabric" is the common case where the client brings the cloth
-        // and the boutique still supplies the lining, hooks and thread -- those
-        // trims are boutique stock and must be deducted. The customer's own
-        // material is not a line here at all; it lives in CustomerMaterial,
-        // which is a separate ledger and never touches boutique stock.
-        source: 'STORE',
-      }));
-      try {
-        await api.createGarmentJob({
-          order: orderId,
-          template: job.template.id,
-          spec,
-          measurements,
-          materials,
-        });
-      } catch (err) {
-        console.error(`Could not save the ${job.template.name} on this order`, err);
-        throw err;
-      }
-    }
-  };
-
   // Active Selected Dashboard Order for progress tracker
   const [selectedDashboardOrder, setSelectedDashboardOrder] = useState(null);
   const [updatingOrderStatusId, setUpdatingOrderStatusId] = useState(null);
@@ -1382,6 +1725,12 @@ function App() {
     customer: '', appointment_type: 'TRIAL', scheduled_time: '', assigned_staff: '', notes: '',
   });
   const [savingAppointment, setSavingAppointment] = useState(false);
+  // The appointment the modal is looking at. Null means the modal is booking a
+  // new one -- same form either way, because it is the same five fields.
+  const [editingAppointment, setEditingAppointment] = useState(null);
+  // Cancelled and past appointments are the record, and the owner has to be
+  // able to open one. Off by default: the panel is about the day ahead.
+  const [showAllAppointments, setShowAllAppointments] = useState(false);
   const [fabrics, setFabrics] = useState([]);
   const [allDesigns, setAllDesigns] = useState([]);
   const [customersList, setCustomersList] = useState([]);
@@ -1402,11 +1751,33 @@ function App() {
   const [customerTypeFilter, setCustomerTypeFilter] = useState('All');
   const [ordersSearch, setOrdersSearch] = useState('');
   const [ordersFilterTab, setOrdersFilterTab] = useState('All');
+  const [ordersView, setOrdersView] = useState('kanban');
+
+  // One predicate for the order registry, whichever way it is drawn: the list
+  // and the board show the same orders under the same filter and search.
+  const orderMatchesFilters = (order) => {
+    if (ordersFilterTab === 'Active') {
+      if (['Shipped', 'Delivered'].includes(order.order_status)) return false;
+    } else if (ordersFilterTab === 'Shipped') {
+      if (order.order_status !== 'Shipped') return false;
+    } else if (ordersFilterTab === 'Delivered') {
+      if (order.order_status !== 'Delivered') return false;
+    }
+    if (ordersSearch.trim()) {
+      const query = ordersSearch.toLowerCase();
+      const matchesId = order.order_id.toLowerCase().includes(query)
+        || orderRef(order).toLowerCase().includes(query);
+      const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
+      return matchesId || matchesClient;
+    }
+    return true;
+  };
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceFilter, setInvoiceFilter] = useState('All');
   const [loading, setLoading] = useState(true);
   const [boutiqueSettings, setBoutiqueSettings] = useState(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [logoFile, setLogoFile] = useState(null);
   const [drapingLoading, setDrapingLoading] = useState(false);
   const [drapingCompleted, setDrapingCompleted] = useState(false);
   const [drapedImage, setDrapedImage] = useState('');
@@ -1599,52 +1970,60 @@ function App() {
     setLoading(true);
     setLoadErrors([]);
 
-    const load = (label, request, apply) =>
-      request().then(apply, (err) => {
+    const load = async (label, request, apply) => {
+      try {
+        const data = await request();
+        if (apply && data !== undefined) apply(data);
+      } catch (err) {
         console.error(`Failed to load ${label}`, err);
         setLoadErrors((prev) => (prev.includes(label) ? prev : [...prev, label]));
-      });
+      }
+    };
 
-    const requests = [
-      load('dashboard', api.getDashboard, (data) => {
-        setDashboardData(data);
-        if (data.recent_orders?.length > 0) {
-          // Keep the user's chosen order selected, but re-read it from the fresh
-          // payload -- holding on to the old object left the stage tracker showing
-          // pre-change data after every refresh.
-          setSelectedDashboardOrder((current) => {
-            if (!current) return data.recent_orders[0];
-            return data.recent_orders.find(o => o.id === current.id) || current;
-          });
-        }
-      }),
-      load('customers', api.getCustomers, (data) => {
-        setCustomersList(data);
-        setAllCustomers(data);
-      }),
-      load('orders', api.getOrders, setOrdersList),
-      load('tailors', api.getTailors, setTailors),
-      load('appointments', api.getAppointments, setAppointments),
-      load('fabrics', api.getFabrics, setFabrics),
-      load('designs', api.getAllBoutiqueDesigns, setAllDesigns),
-      load('settings', api.getBoutiqueSettings, (data) => {
-        setBoutiqueSettings(data);
-        // Every date and time this session renders now uses the boutique's own
-        // clock, matching what the server prints on the customer's page.
-        setBoutiqueTimeZone(data?.timezone);
-      }),
-      load('notifications', () => fetchNotifications(user), () => {})
-    ];
+    await load('dashboard', api.getDashboard, (data) => {
+      setDashboardData(data);
+      if (data.recent_orders?.length > 0) {
+        setSelectedDashboardOrder((current) => {
+          if (!current) return data.recent_orders[0];
+          return data.recent_orders.find(o => o.id === current.id) || current;
+        });
+      }
+    });
 
-    // Owner-only endpoint: each queued message carries the order's tracking
-    // link, which reaches the order's totals without signing in. Asking for it
-    // as anyone else is a guaranteed 403 and would show them a load error for
-    // something they are not missing.
+    await load('customers', api.getCustomers, (data) => {
+      setCustomersList(data);
+      setAllCustomers(data);
+    });
+
+    await load('orders', api.getOrders, setOrdersList);
+
+    // Dashboard, customers, orders and settings above and below ride ALWAYS_ON
+    // or STRUCTURAL prefixes and always answer. These do not: /api/tailors/,
+    // /api/scheduling/, /api/fabrics/, /api/boutique-designs/ and
+    // /api/notifications/ each sit behind a module, and this ran them
+    // unconditionally for every signed-in role -- so a Tailor, whose defaults
+    // carry none of the first four, took four 403s on every single boot and
+    // got four collections named in `loadErrors` as "could not load" for data
+    // they were never meant to have. Same list the nav gates on, so a fetch
+    // and its screen can no longer disagree about what this user has.
+    if (hasModule(user, 'tailors')) await load('tailors', api.getTailors, setTailors);
+    // The panel this fills says Upcoming, so it asks for upcoming: past
+    // bookings and cancelled ones are history, not the day ahead.
+    if (hasModule(user, 'scheduling')) await load('appointments', () => api.getAppointments({ upcoming: 'true' }), setAppointments);
+    if (hasModule(user, 'fabrics')) await load('fabrics', api.getFabrics, setFabrics);
+    if (hasModule(user, 'design_studio')) await load('designs', api.getAllBoutiqueDesigns, setAllDesigns);
+    await load('settings', api.getBoutiqueSettings, (data) => {
+      setBoutiqueSettings(data);
+      setBoutiqueTimeZone(data?.timezone);
+    });
+    // Gateable like the four above, and the bell is on every screen -- but a
+    // boutique that has switched notifications off has no bell to fill.
+    if (hasModule(user, 'notifications')) await load('notifications', () => fetchNotifications(user), () => {});
+
     if (!user?.role || user.role === 'Owner') {
-      requests.push(load('customer messages', api.getQueuedCustomerMessages, setQueuedMessages));
+      await load('customer messages', api.getQueuedCustomerMessages, setQueuedMessages);
     }
 
-    await Promise.all(requests);
     setLoading(false);
   };
 
@@ -1656,13 +2035,39 @@ function App() {
   };
 
   // Catalog Management Handlers
+  // Photos picked in the modal, whether from the gallery or straight off the
+  // camera, land here. Same handler for both inputs -- a capture and a pick
+  // arrive as the same File.
+  const handleFabricPhotosChange = (e) => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = '';           // so the same shot can be re-picked
+    if (!picked.length) return;
+    const room = 10 - (fabricPhotoFiles.length + (fabricForm.image_urls?.length || 0));
+    const files = picked.slice(0, Math.max(room, 0));
+    if (!files.length) return;
+    setFabricPhotoFiles(prev => [...prev, ...files]);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => setFabricPhotoPreviews(prev => [...prev, reader.result]);
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleSaveFabric = async (e) => {
     e.preventDefault();
     if (fabricSaving) return;
     setFabricSaving(true);
     try {
+      let imageUrls = [...(fabricForm.image_urls || [])];
+      if (fabricPhotoFiles.length) {
+        setFabricPhotoBusy(true);
+        const { image_urls: uploaded } = await api.uploadFabricImages(fabricPhotoFiles);
+        imageUrls = [...imageUrls, ...uploaded];
+      }
       const payload = {
         ...fabricForm,
+        image_urls: imageUrls,
+        image_url: fabricForm.image_url || imageUrls[0] || '',
         price_per_meter: parseFloat(fabricForm.price_per_meter) || 0.00
       };
       if (editingFabric) {
@@ -1676,11 +2081,14 @@ function App() {
       }
       setShowFabricModal(false);
       setEditingFabric(null);
-      setFabricForm({ name: '', material: '', color: '', price_per_meter: '', image_url: '', is_available: true });
+      setFabricForm({ name: '', material: '', color: '', color_hex: '#c8a97e', price_per_meter: '', image_url: '', image_urls: [], is_available: true });
+      setFabricPhotoFiles([]);
+      setFabricPhotoPreviews([]);
       fetchDashboardAndConfig();
     } catch (err) {
       alert("Failed to save fabric: " + err.message);
     } finally {
+      setFabricPhotoBusy(false);
       setFabricSaving(false);
     }
   };
@@ -1700,67 +2108,85 @@ function App() {
     }
   };
 
+  const blankAppointmentForm = {
+    customer: '', appointment_type: 'TRIAL', scheduled_time: '',
+    assigned_staff: '', notes: '', status: 'SCHEDULED',
+  };
+
+  /** Reload the panel under whichever view it is showing. */
+  const reloadAppointments = async () => {
+    const fresh = await api.getAppointments(
+      showAllAppointments ? {} : { upcoming: 'true' });
+    setAppointments(fresh);
+  };
+
+  /** Open one to look at it. A datetime-local input wants the boutique's own
+   *  wall clock with no zone on the end, so the ISO string is trimmed to the
+   *  minute after being read in local time. */
+  const openAppointment = (appt) => {
+    const when = new Date(appt.scheduled_time);
+    const local = new Date(when.getTime() - when.getTimezoneOffset() * 60000)
+      .toISOString().slice(0, 16);
+    setEditingAppointment(appt);
+    setAppointmentForm({
+      customer: appt.customer,
+      appointment_type: appt.appointment_type,
+      scheduled_time: local,
+      assigned_staff: appt.assigned_staff || '',
+      notes: appt.notes || '',
+      status: appt.status,
+    });
+    setShowAppointmentModal(true);
+  };
+
+  const closeAppointmentModal = () => {
+    setShowAppointmentModal(false);
+    setEditingAppointment(null);
+    setAppointmentForm(blankAppointmentForm);
+  };
+
   const handleSaveAppointment = async (e) => {
     e.preventDefault();
     if (savingAppointment) return;
     setSavingAppointment(true);
     try {
-      await api.createAppointment({
+      const payload = {
         ...appointmentForm,
         assigned_staff: appointmentForm.assigned_staff || null,
         scheduled_time: new Date(appointmentForm.scheduled_time).toISOString(),
-      });
-      const fresh = await api.getAppointments();
-      setAppointments(fresh);
-      setShowAppointmentModal(false);
-      setAppointmentForm({
-        customer: '', appointment_type: 'TRIAL', scheduled_time: '', assigned_staff: '', notes: '',
-      });
+      };
+      if (editingAppointment) {
+        // The client cannot be moved to another person's appointment: that is
+        // a different booking, not an edit of this one.
+        delete payload.customer;
+        await api.updateAppointment(editingAppointment.id, payload);
+      } else {
+        await api.createAppointment(payload);
+      }
+      await reloadAppointments();
+      closeAppointmentModal();
     } catch (err) {
-      alert("Could not book the appointment: " + err.message);
+      alert((editingAppointment ? "Could not save the appointment: "
+                                : "Could not book the appointment: ") + err.message);
     } finally {
       setSavingAppointment(false);
     }
   };
 
-  const handleSaveTailor = async (e) => {
-    e.preventDefault();
-    if (tailorSaving) return;
-    setTailorSaving(true);
+  /** Cancelling keeps the record and the reason it existed; it does not delete
+   *  the customer's history. */
+  const handleCancelAppointment = async () => {
+    if (!editingAppointment) return;
+    if (!window.confirm('Cancel this appointment? The customer keeps the record of it.')) return;
+    setSavingAppointment(true);
     try {
-      const payload = {
-        ...tailorForm,
-        rating: parseFloat(tailorForm.rating) || 5.0
-      };
-      const saved = editingTailor
-        ? await api.updateTailor(editingTailor.id, payload)
-        : await api.createTailor(payload);
-      setShowTailorModal(false);
-      setEditingTailor(null);
-      setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
-      fetchDashboardAndConfig();
-      // The server generates this account's password and returns it on this one
-      // response, never again -- so if it is here, show it now. Opening the
-      // share panel straight away is the point: closing this without reading it
-      // means the only way to give them a password is a reset link.
-      if (saved && saved.bootstrap_password) {
-        setShareCredsTailor(saved);
-      }
+      await api.updateAppointment(editingAppointment.id, { status: 'CANCELLED' });
+      await reloadAppointments();
+      closeAppointmentModal();
     } catch (err) {
-      alert("Failed to save tailor: " + err.message);
+      alert("Could not cancel the appointment: " + err.message);
     } finally {
-      setTailorSaving(false);
-    }
-  };
-
-  const handleDeleteTailor = async (id) => {
-    if (window.confirm("Are you sure you want to delete this tailor?")) {
-      try {
-        await api.deleteTailor(id);
-        fetchDashboardAndConfig();
-      } catch (err) {
-        alert("Failed to delete tailor: " + err.message);
-      }
+      setSavingAppointment(false);
     }
   };
 
@@ -1994,10 +2420,17 @@ function App() {
   };
 
   const saveStep1 = async () => {
-    // Name, email, phone and address are what the boutique needs to reach the
-    // customer and deliver to them. Everything else on this form is optional --
-    // city and source used to be starred but were never actually enforced, so
-    // the asterisks were telling staff something untrue.
+    // Step 1: AI Design Studio. Design choices & references ride on the draft.
+    return persistDraft({ step: 2 });
+  };
+
+  const saveStep2 = async () => {
+    // Step 2: Fabric Selection. Fabric choices ride on the draft.
+    return persistDraft({ step: 3 });
+  };
+
+  const saveStep3 = async () => {
+    // Step 3: Personal Details. Validate required contact information.
     const missing = [
       [!customerForm.first_name, 'First Name'],
       [!customerForm.last_name, 'Last Name'],
@@ -2010,28 +2443,12 @@ function App() {
       alert(`Please fill in: ${missing.join(', ')}.`);
       throw new Error("Validation failed");
     }
-    
-    // No customer is written here any more.
-    //
-    // This used to POST the client at step one, so abandoning at step four --
-    // which the step-four empty state actively invited, by offering "Add
-    // fabrics" as its only way forward -- left a customer nobody had asked
-    // for, with no order attached and no route back to the work. The details
-    // live in the draft until Confirm, which creates the client and the order
-    // together or neither.
-    return persistDraft({ step: 2 });
+
+    return persistDraft({ step: 4 });
   };
 
-  const saveStep2 = async () => {
-    // No customerId guard. There is deliberately no customer yet for a new
-    // client -- one is created at Confirm -- and returning early here meant
-    // step two never wrote to the draft at all, so every measurement and
-    // garment detail a new customer's order collected was still living only in
-    // this tab. The draft persisted at step one and then silently stopped.
-    // The customer record keeps the body measurements, which is what the
-    // directory, the measurement history and the design studio read. Per-dress
-    // numbers live on the garment job; these are the ones that describe the
-    // person, so the newest dress that carries them wins.
+  const saveStep4 = async () => {
+    // Step 4: Measurements & Garments. Collect body measurements.
     const body = { ...(customerForm.measurements || {}) };
     const CUSTOMER_KEYS = {
       chest: 'bust', waist: 'waist', hip: 'hips', shoulder: 'shoulder', neck: 'neck',
@@ -2043,19 +2460,7 @@ function App() {
         }
       });
     });
-    // Held on the draft; written to the customer at Confirm, along with
-    // everything else, in one transaction.
     setCustomerForm(prev => ({ ...prev, measurements: body }));
-    return persistDraft({ step: 3 });
-  };
-
-  const saveStep3 = async () => {
-    // Design choices ride on the draft. There is no customer to hang them on
-    // yet, and inventing one is the bug this replaced.
-    return persistDraft({ step: 4 });
-  };
-
-  const saveStep4 = async () => {
     return persistDraft({ step: 5 });
   };
 
@@ -2141,25 +2546,12 @@ function App() {
 
   const performNext = async () => {
     try {
-      // Checked on every step, not only the first. 'Reorder Style' drops the
-      // owner straight into step 3 without ever setting garmentJobs, so the
-      // step-1 guard was skipped entirely and the wizard happily booked an
-      // order with no dress on it -- saveGarmentJobs iterated an empty array
-      // and nobody found out until production. Guarding at the point of
-      // submission is the choke point; no entry point can route around it.
-      if (garmentJobs.length === 0) {
-        alert("Please choose at least one garment for this order.");
-        if (currentStep !== 1) setCurrentStep(1);
-        return;
-      }
       if (currentStep === 1) {
         await saveStep1();
         setCurrentStep(2);
       } else if (currentStep === 2) {
-        // The server validates this again on save; failing here first means the
-        // staff member sees which field is wrong instead of a rejected order.
-        if (!validateGarments()) {
-          alert("Some garment details are missing or invalid — see the highlighted fields.");
+        if (fabricTab === 'boutique' && !selectedFabric) {
+          alert("Please select a fabric from the catalog or upload your own fabric.");
           return;
         }
         await saveStep2();
@@ -2168,8 +2560,12 @@ function App() {
         await saveStep3();
         setCurrentStep(4);
       } else if (currentStep === 4) {
-        if (fabricTab === 'boutique' && !selectedFabric) {
-          alert("Please select a fabric from the catalog or upload your own fabric.");
+        if (garmentJobs.length === 0) {
+          alert("Please choose at least one garment for this order.");
+          return;
+        }
+        if (!validateGarments()) {
+          alert("Some garment details are missing or invalid — see the highlighted fields.");
           return;
         }
         await saveStep4();
@@ -2325,13 +2721,25 @@ function App() {
    *  price already live. After Confirm the board is real and this just tracks
    *  which board the order carries.
    */
-  const handleGarmentBoardChange = (garmentKey, state) => {
-    if (state?.items !== undefined) {
-      setGarmentJobs(prev => prev.map(job => job.key === garmentKey
-        ? { ...job, design: { items: state.items, selected: state.selected || null } }
-        : job));
-    }
-    setDesignBoard(state);
+  /** The parts a customer has chosen for one dress: {part_key: image}.
+   *
+   *  Kept on the garment job's own `design`, not in a state of its own. That is
+   *  already what serialiseWizard writes to the draft and what the resume path
+   *  reads back, so the selection persists, survives a refresh and comes back
+   *  on resume without a second copy to keep in step.
+   *
+   *  Per garment, so a saree's Pallu and a blouse's Neck can never share a
+   *  slot -- the parts are the garment's own, and mixing them across dresses is
+   *  exactly the bug this shape prevents.
+   */
+  const partSelection = React.useMemo(
+    () => Object.fromEntries(garmentJobs.map(job => [job.key, job.design?.parts || {}])),
+    [garmentJobs]);
+
+  const handlePartSelection = (garmentKey, next) => {
+    setGarmentJobs(prev => prev.map(job => job.key === garmentKey
+      ? { ...job, design: { ...(job.design || {}), parts: next } }
+      : job));
   };
 
   /** The stage this order is actually sitting on: the first one nobody has
@@ -2353,7 +2761,7 @@ function App() {
 
     // Work that has reached a stage this role performs, which nobody had to
     // hand over first. The three clauses above are all personal attachment: a
-    // QC Master is never order.tailor (the stitcher) or order.master (the
+    // QC Staff is never order.tailor (the stitcher) or order.master (the
     // supervisor), so before this the dashboard re-filtered the server's queue
     // straight back out and showed them nothing.
     //
@@ -2424,11 +2832,11 @@ function App() {
 
   // Who may actually be given the stitching.
   //
-  // These pickers filtered `t.role !== 'Master'`, which passes all SEVEN
-  // specialist roles -- Measurement, Pattern, Cutting, Maggam, Finishing,
-  // Pressing and QC Master -- while get_default_workflow restricts both
+  // These pickers filtered `t.role !== 'Master'`, which passes every
+  // specialist role -- Maggam, Karigar, Pressing and QC -- while
+  // get_default_workflow restricts both
   // stitching stages to ["Owner", "Tailor"]. So the owner could hand the
-  // stitching to the Finishing Master, the order was accepted, and that person
+  // stitching to the Maggam Master, the order was accepted, and that person
   // could see it and never advance it: transition_order_stage refuses their
   // role. The order sat until the owner worked out what had happened.
   //
@@ -2523,15 +2931,21 @@ function App() {
     { key: 'boutique', label: 'Create your boutique', done: true },
     { key: 'customer', label: 'Add your first customer', done: customersList.length > 0, go: () => setView('order-selector') },
     { key: 'order', label: 'Create your first order', done: ordersList.length > 0, go: () => setView('order-selector') },
-    { key: 'staff', label: 'Add your staff (tailors & designers)', done: tailors.length > 0, go: () => setDashboardTab('tailors') },
-    { key: 'fabrics', label: 'Set up your fabric library', done: fabrics.length > 0, go: () => setDashboardTab('fabrics') },
-    { key: 'production', label: 'Move an order through production', done: ordersList.some(o => o.order_status && o.order_status !== 'Received'), go: () => setDashboardTab('orders') },
-  ];
+    { key: 'staff', label: 'Add your staff (tailors & designers)', done: tailors.length > 0, tab: 'staff', go: () => setDashboardTab('staff') },
+    { key: 'fabrics', label: 'Set up your fabric library', done: fabrics.length > 0, tab: 'fabrics', go: () => setDashboardTab('fabrics') },
+    { key: 'production', label: 'Move an order through production', done: ordersList.some(o => o.order_status && o.order_status !== 'Received'), tab: 'orders', go: () => setDashboardTab('orders') },
+    // A step whose screen this boutique cannot open is not a step it can ever
+    // finish: `done` stays false forever, so the checklist never completes and
+    // never stops nagging, and the arrow does nothing when clicked -- the
+    // requested tab is gated, the derived dashboardTab keeps the old one, and
+    // the row just sits there. Drop the instruction rather than give an
+    // instruction that cannot be followed.
+  ].filter((step) => !step.tab || canSeeTab(currentUser, step.tab));
   const showOnboarding = !loading && !onboardingDismissed && onboardingSteps.some(step => !step.done);
   return (
     <div className="app-container">
-
       {/* 2. SIGN IN SCREEN (Image 2) */}
+
       {view === 'login' && (
         <div className="auth-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#faf9f6', padding: '88px 16px 40px' }}>
           
@@ -2609,13 +3023,6 @@ function App() {
               </div>
 
               <div className="auth-remember-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', margin: '6px 0 10px 0' }}>
-                {/* "Remember me" was uncontrolled, defaultChecked and read by
-                    nothing -- the token goes to localStorage either way, so the
-                    session always persisted and the box was decoration that
-                    implied a choice. Wiring it to sessionStorage would mean
-                    touching four api functions for a preference nobody asked
-                    for; saying nothing is more honest than a control that does
-                    not control anything. */}
                 <span />
                 <button
                   type="button"
@@ -2638,20 +3045,17 @@ function App() {
               </button>
             </form>
 
-            {/* "Continue with Google" and "Continue with Apple" used to sit
-                here. Neither had an onClick, and there is no OAuth anywhere in
-                this product -- no client id, no callback route, no social
-                account model. Two buttons that do nothing on the first screen
-                a new owner sees. Deleted rather than wired up: adding a second
-                identity provider is a feature with its own account-linking
-                questions, not a fix for a dead button. */}
-
             <div className="auth-card-footer" style={{ borderTop: '1px solid #eaecef', marginTop: '32px', paddingTop: '20px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
-              Don't have a boutique account? <a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600, textDecoration: 'none' }} onClick={() => { setSignupStep(1); setView('signup'); }}>Signup</a>
+              Don't have a boutique account?{' '}
+              <a href="#" style={{ color: 'var(--accent-text, #b07c40)', fontWeight: 600, textDecoration: 'none' }} onClick={() => { setSignupStep(1); setView('signup'); }}>
+                Signup
+              </a>
             </div>
           </div>
         </div>
       )}
+
+
 
       {/* 3. SIGN UP SCREEN (Image 3) */}
       {/* Ask for a reset link. Reached from the login screen; leaves back to
@@ -3005,7 +3409,15 @@ function App() {
       {view === 'dashboard' && currentUser && (
         <div className="portal-layout">
           <MobileHeader
-            title={dashboardTab === 'overview' ? 'Dashboard' : dashboardTab.charAt(0).toUpperCase() + dashboardTab.slice(1)}
+            title={t(
+              dashboardTab === 'overview' ? 'nav.dashboard' :
+              dashboardTab === 'orders' ? 'nav.manageOrders' :
+              dashboardTab === 'fabrics' ? 'nav.manageFabrics' :
+              dashboardTab === 'tailors' ? 'nav.manageTailors' :
+              dashboardTab === 'designs' ? 'nav.manageDesigns' :
+              `nav.${dashboardTab}`,
+              dashboardTab.charAt(0).toUpperCase() + dashboardTab.slice(1)
+            )}
             currentUser={currentUser}
             notificationsCount={notifications.filter(n => !n.is_read).length}
             onOpenMenu={() => setMobileNavOpen(!mobileNavOpen)}
@@ -3077,116 +3489,17 @@ function App() {
               <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             </div>
 
-            <div className="desktop-inbox-alert-btn" style={{ padding: '0 20px', marginBottom: '16px', marginTop: '16px' }}>
-              <button
-                disabled={markingNotificationsRead}
-                onClick={() => {
-                  setShowNotificationsDrawer(true);
-                  if (markingNotificationsRead) return;
-                  setMarkingNotificationsRead(true);
-                  api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
-                    .then(() => fetchNotifications())
-                    // Never let the bell take the app down: a refused or failed
-                    // mark-read is not worth losing the session over.
-                    .catch(() => {})
-                    .finally(() => setMarkingNotificationsRead(false));
-                }}
-                className="btn-secondary"
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px',
-                  position: 'relative',
-                  padding: '10px 16px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border-color)',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: 'var(--text-primary)',
-                  backgroundColor: 'rgba(0,0,0,0.02)'
-                }}
-              >
-                <Bell size={16} />
-                <span>Inbox Alerts</span>
-                {notifications.filter(n => !n.is_read).length > 0 && (
-                  <span style={{
-                    backgroundColor: '#ff4d4d',
-                    color: '#fff',
-                    borderRadius: '10px',
-                    padding: '2px 8px',
-                    fontSize: '10px',
-                    fontWeight: 700
-                  }}>
-                    {notifications.filter(n => !n.is_read).length}
-                  </span>
-                )}
-              </button>
-            </div>
 
             <nav className="portal-menu">
-              {(!currentUser.role || currentUser.role === 'Owner') ? (
-                <>
-                  <a className={`portal-menu-item ${dashboardTab === 'overview' ? 'active' : ''}`} onClick={() => { setDashboardTab('overview'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Dashboard</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'invoices' ? 'active' : ''}`} onClick={() => { setDashboardTab('invoices'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><FileText size={16} /> Invoices</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'analytics' ? 'active' : ''}`} onClick={() => { setDashboardTab('analytics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><BarChart2 size={16} /> Analytics</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'fabrics' ? 'active' : ''}`} onClick={() => { setDashboardTab('fabrics'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Compass size={16} /> Manage Fabrics</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'inventory' ? 'active' : ''}`} onClick={() => { setDashboardTab('inventory'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Package size={16} /> Inventory</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'tailors' ? 'active' : ''}`} onClick={() => { setDashboardTab('tailors'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> Manage Tailors</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Manage Designs</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
-                </>
-              ) : currentUser.role === 'Master' ? (
-                <>
-                  <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'orders' ? 'active' : ''}`} onClick={() => { setDashboardTab('orders'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><ShoppingBag size={16} /> Manage Orders</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'customers' ? 'active' : ''}`} onClick={() => { setDashboardTab('customers'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Users size={16} /> Customers</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> Design Work</a>
-                </>
-              ) : currentUser.role === 'Designer' ? (
-                // A designer's account exists for exactly one thing: their own
-                // uploads and portfolio. No customer, order or financial nav
-                // item is offered, matching the module's permission matrix --
-                // see docs/design-management.md section 4 for the caveat that
-                // this is a UI restriction, not an API-level one.
-                <>
-                  {/* The work queue leads: a designer signs in to find what has
-                      been asked of them, not to browse their own upload folder.
-                      It carries no customer or financial data -- the API sends a
-                      designer a narrower payload than it sends the owner. */}
-                  <a className={`portal-menu-item ${dashboardTab === 'designWork' ? 'active' : ''}`} onClick={() => { setDashboardTab('designWork'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><PenTool size={16} /> My Work</a>
-                  <a className={`portal-menu-item ${dashboardTab === 'designs' ? 'active' : ''}`} onClick={() => { setDashboardTab('designs'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Sparkles size={16} /> Design Studio</a>
-                </>
-              ) : (
-                <a className={`portal-menu-item ${dashboardTab === 'assignments' ? 'active' : ''}`} onClick={() => { setDashboardTab('assignments'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><Scissors size={16} /> My Assignments</a>
-              )}
-              <a className={`portal-menu-item ${dashboardTab === 'account' ? 'active' : ''}`} onClick={() => { setDashboardTab('account'); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}><User size={16} /> My Account</a>
-              <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> Logout</a>
+              <PortalMenu
+                sections={navSections}
+                activeTab={dashboardTab}
+                onPick={(tab) => { setDashboardTab(tab); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}
+              />
+              <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
             </nav>
 
-            <div className="portal-sidebar-footer">
-              {/* Opened wa.me/919876543210 -- an invented number belonging to
-                  a real stranger, offered to boutique staff as their "style
-                  concierge". Rendered only when the boutique has given its own
-                  number, and pointed at that. */}
-              {boutiqueSettings?.phone && (
-                <div className="portal-sidebar-help">
-                  <h4 style={{ fontSize: '12px', fontWeight: 700 }}>Need Help?</h4>
-                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Message your boutique directly.</p>
-                  <button
-                    className="whatsapp-btn"
-                    style={{ width: '100%', padding: '6px', fontSize: '11px' }}
-                    onClick={() => window.open(`https://wa.me/${String(boutiqueSettings.phone).replace(/\D/g, '')}`)}
-                  >
-                    <MessageSquare size={12} />
-                    Chat Now
-                  </button>
-                </div>
-              )}
-            </div>
+
           </aside>
 
           {/* Main Content Area */}
@@ -3200,16 +3513,16 @@ function App() {
                         My Assignments Dashboard
                       </h1>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        Logged in as {currentUser.first_name} ({currentUser.role}). View and manage your active orders.
+                        Logged in as {currentUserName} ({currentUser.role}). View and manage your active orders.
                       </p>
                     </div>
                   </div>
                   <div className="portal-header-right">
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(currentUser.first_name)}`} alt="Avatar" />
+                        <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(currentUserName)}`} alt="Avatar" />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
                   </div>
                 </header>
@@ -3248,7 +3561,7 @@ function App() {
                             {/* Order Header */}
                             <div className="assignment-card-header">
                               <div>
-                                <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</span>
+                                <span style={{ fontWeight: 700, fontSize: '16px', color: 'var(--text-primary)' }}>Order ID: {orderRef(order)}</span>
                                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                                   Client: {order.customer_name} | Est. Delivery: {order.estimated_delivery ? fmtDate(order.estimated_delivery) : 'TBD'}
                                 </div>
@@ -3576,28 +3889,65 @@ function App() {
 
             {dashboardTab === 'overview' && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Welcome back, {currentUser.first_name}! 👋
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Your custom creation journey starts here.</p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right">
-                    <button className="btn-primary" onClick={() => setView('order-selector')}>
-                      <Sparkles size={16} />
-                      New Custom Order
-                    </button>
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                <PageHeader
+                  title={t('dashboard.welcomeBackUser', `Welcome back, ${currentUserName}! 👋`, { name: currentUserName })}
+                  subtitle={t('dashboard.subtitle')}
+                  meta={<HeaderClock />}
+                  aside={(
+                    <>
+                      <button
+                        type="button"
+                        className="btn-secondary at-btn-sm"
+                        disabled={markingNotificationsRead}
+                        title={t('common.inboxAlerts', 'Inbox Alerts')}
+                        aria-label={t('common.inboxAlerts', 'Inbox Alerts')}
+                        onClick={() => {
+                          setShowNotificationsDrawer(true);
+                          if (markingNotificationsRead) return;
+                          setMarkingNotificationsRead(true);
+                          api.markNotificationsAsRead(currentUser.role || 'Owner', currentUser.email)
+                            .then(() => fetchNotifications())
+                            .catch(() => {})
+                            .finally(() => setMarkingNotificationsRead(false));
+                        }}
+                        style={{ position: 'relative', borderRadius: '999px' }}
+                      >
+                        <Bell size={16} />
+                        {notifications.filter(n => !n.is_read).length > 0 && (
+                          <span style={{ backgroundColor: 'var(--danger-color)', color: '#fff', borderRadius: '10px',
+                                         padding: '1px 7px', fontSize: '10px', fontWeight: 700 }}>
+                            {notifications.filter(n => !n.is_read).length}
+                          </span>
+                        )}
+                      </button>
+                      <div className="user-profile-widget">
+                        <div className="user-avatar-circle">
+                          <UserAvatar user={currentUser} />
+                        </div>
+                        <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
-                    </div>
-                  </div>
-                </header>
+                    </>
+                  )}
+                  actions={(
+                    <>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={loading}
+                        onClick={() => fetchDashboardAndConfig()}
+                        style={{ padding: '10px 16px', fontSize: '13px' }}
+                        title="Refresh Dashboard Data"
+                      >
+                        {!loading && <RotateCw size={15} />}
+                        <span>{loading ? t('common.loading', 'Loading...') : t('common.refresh', 'Refresh')}</span>
+                      </button>
+                      <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={() => setView('order-selector')}>
+                        <Plus size={16} />
+                        {t('dashboard.newOrder')}
+                      </button>
+                    </>
+                  )}
+                />
 
                 {showOnboarding && (
                   <section className="content-card" style={{ padding: '20px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
@@ -3652,407 +4002,212 @@ function App() {
                   </section>
                 )}
 
-                {/* Quick Action Grid */}
-                <section className="quick-action-button-grid">
-                  <div className="quick-action-item" onClick={() => setView('order-selector')}>
-                    <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
-                    <h4>New Order</h4>
-                    <p>Start custom order</p>
-                  </div>
-                  <div className="quick-action-item" onClick={() => setDashboardTab('tailors')}>
-                    <div className="quick-action-icon-box"><Scissors size={18} /></div>
-                    <h4>Manage Staff</h4>
-                    <p>Tailors & status</p>
-                  </div>
-                  <div className="quick-action-item" onClick={() => setDashboardTab('designs')}>
-                    <div className="quick-action-icon-box"><Heart size={18} /></div>
-                    <h4>Design Catalog</h4>
-                    <p>Style collections</p>
-                  </div>
-                  <div className="quick-action-item" onClick={() => setDashboardTab('fabrics')}>
-                    <div className="quick-action-icon-box"><Compass size={18} /></div>
-                    <h4>Fabric Library</h4>
-                    <p>Explore fabrics</p>
-                  </div>
-                  {/* This tile was the one of five with no onClick at all --
-                      it looked identical to its four working siblings and did
-                      nothing when pressed. Booking now opens a real
-                      appointment against apps/scheduling. */}
-                  <div className="quick-action-item" onClick={() => setShowAppointmentModal(true)}>
-                    <div className="quick-action-icon-box"><Calendar size={18} /></div>
-                    <h4>Book Appointment</h4>
-                    <p>Consult with stylist</p>
-                  </div>
-                </section>
+                {/* The money reads first, then what needs acting on, then today,
+                    then detail. All figures from /api/dashboard/ (dashboardData). */}
+                {(() => {
+                  const s = dashboardData?.stats || {};
+                  const outstanding = Number(s.outstanding) || 0;
+                  const overdue = Number(s.overdue) || 0;
+                  return (
+                    <section className="at-stat-grid" style={{ marginBottom: 'var(--space-5)' }}>
+                      <StatCard icon={TrendingUp} tone="green" label="Revenue this month"
+                                value={inr(s.revenue_month)} sub={`${inr(s.revenue_total)} all time`} />
+                      <StatCard icon={Wallet} tone="amber" label="To collect" value={inr(outstanding)}
+                                sub={outstanding > 0 ? 'across active orders' : 'all settled'}
+                                onClick={() => setDashboardTab('orders')} />
+                      <StatCard icon={ClipboardList} tone="violet" label="Active orders" value={s.active_orders ?? 0}
+                                sub={`${s.due_soon ?? 0} due this week${overdue ? ` · ${overdue} overdue` : ''}`}
+                                onClick={() => setDashboardTab('orders')} />
+                      <StatCard icon={Users} tone="blue" label="Customers" value={s.total_customers ?? 0}
+                                sub={`${s.total_orders ?? 0} orders total`}
+                                onClick={() => setDashboardTab('customers')} />
+                    </section>
+                  );
+                })()}
 
-                {/* Row Layout: Orders & Progress Tracker */}
-                <div className="dashboard-row-layout">
-                  {/* Active Orders List */}
-                  <div className="orders-list-panel">
-                    <div className="panel-header-row">
-                      <h3 style={{ fontSize: '16px', fontWeight: 600 }}>My Orders</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>VIEW ALL ORDERS →</a>
-                    </div>
+                {/* Production pipeline: one tile per customer-facing status,
+                    in the order an order moves through them. */}
+                {(() => {
+                  const dist = dashboardData?.stats?.status_distribution || {};
+                  const ORDER = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation',
+                                 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
+                  const LOOK = {
+                    'Received': ['amber', Clock], 'Confirmed': ['amber', CheckCircle2],
+                    'Stylist Review': ['violet', PenTool], 'Design & Creation': ['rose', Scissors],
+                    'Quality Check': ['blue', ShieldCheck], 'Ready for Dispatch': ['violet', PackageCheck],
+                    'Shipped': ['neutral', Truck], 'Delivered': ['green', CheckCircle2],
+                  };
+                  const rank = (st) => (ORDER.indexOf(st) === -1 ? 99 : ORDER.indexOf(st));
+                  const entries = Object.entries(dist).sort((a, b) => rank(a[0]) - rank(b[0]));
+                  const jump = (st) => {
+                    setOrdersFilterTab(st === 'Shipped' || st === 'Delivered' ? st : 'Active');
+                    setDashboardTab('orders');
+                  };
+                  return (
+                    <SectionCard icon={Boxes} tone="green" title="Production Pipeline"
+                                 action={() => setDashboardTab('orders')} actionLabel="View All Orders"
+                                 style={{ marginBottom: 'var(--space-5)' }}>
+                      {entries.length === 0 ? (
+                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                          No orders yet. Create the first one to see it move through the floor.
+                        </div>
+                      ) : (
+                        <div className="at-pipeline">
+                          {entries.map(([st, count]) => {
+                            const [tone, Icon] = LOOK[st] || ['neutral', Package];
+                            return (
+                              <button key={st} type="button" className={`at-pipeline-tile at-stat--${tone}`} onClick={() => jump(st)}>
+                                <IconTile icon={Icon} tone={tone} size={34} iconSize={16} />
+                                <span className="at-pipeline-value">{count}</span>
+                                <span className="at-pipeline-label">{t(`status.${st}`, st)}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </SectionCard>
+                  );
+                })()}
 
-                    {loading ? (
-                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                        Loading active orders...
-                      </div>
-                    ) : !dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
-                      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                        No active custom orders. Click "New Custom Order" to begin!
+                {/* Needs attention | Today */}
+                <div className="at-grid-2" style={{ marginBottom: 'var(--space-5)' }}>
+                  <SectionCard icon={AlertCircle} tone="rose" title="Needs Attention"
+                               action={() => setDashboardTab('orders')} actionLabel="View All">
+                    {(() => {
+                      const att = dashboardData?.attention || {};
+                      const due = att.due || [];
+                      const unpaid = att.unpaid || [];
+                      if (!due.length && !unpaid.length && !att.low_stock && !att.pending_designs) {
+                        return <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                          Nothing needs you right now — no overdue orders, balances or low stock.
+                        </div>;
+                      }
+                      const row = (key, onClick, ref, label, badge) => (
+                        <div key={key} className="at-row at-row--tap" onClick={onClick}>
+                          {ref && <span className="at-row-title" style={{ minWidth: '44px' }}>{ref}</span>}
+                          <span className="at-row-main" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>{label}</span>
+                          {badge}
+                          <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                        </div>
+                      );
+                      return (
+                        <div>
+                          {due.map((o) => row(`due-${o.id}`, () => setDashboardTab('orders'), orderRef(o), o.customer || 'Customer',
+                            <span className={`ui-badge ui-badge--${o.overdue ? 'danger' : 'warning'}`}>
+                              {o.overdue ? 'Overdue' : 'Due'} {o.due ? new Date(o.due).toLocaleDateString([], { day: 'numeric', month: 'short' }) : ''}
+                            </span>))}
+                          {unpaid.map((o) => row(`bal-${o.id}`, () => setDashboardTab('orders'), orderRef(o), o.customer || 'Customer',
+                            <span className="ui-badge ui-badge--warning">{inr(o.balance)} due</span>))}
+                          {att.low_stock > 0 && row('stock', () => setDashboardTab('inventory'), null, 'Low stock',
+                            <span className="ui-badge ui-badge--warning">{att.low_stock} item{att.low_stock === 1 ? '' : 's'}</span>)}
+                          {att.pending_designs > 0 && row('designs', () => setDashboardTab('designWork'), null, 'Designs awaiting review',
+                            <span className="ui-badge ui-badge--info">{att.pending_designs}</span>)}
+                        </div>
+                      );
+                    })()}
+                  </SectionCard>
+
+                  <SectionCard icon={CalendarDays} tone="green" title="Today">
+                    {(() => {
+                      const today = dashboardData?.today || {};
+                      const appts = today.appointments || [];
+                      return (
+                        <>
+                          <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+                            <button type="button" className="at-pipeline-tile at-stat--green" style={{ flex: 1 }}
+                                    onClick={() => setDashboardTab('staff')}>
+                              <span className="at-pipeline-value" style={{ color: 'var(--tone-green-fg)' }}>{today.staff_working ?? 0}</span>
+                              <span className="at-pipeline-label">on the floor now</span>
+                            </button>
+                            <div className="at-pipeline-tile at-stat--neutral" style={{ flex: 1, cursor: 'default' }}>
+                              <span className="at-pipeline-value">{today.staff_present ?? 0}</span>
+                              <span className="at-pipeline-label">present today</span>
+                            </div>
+                          </div>
+                          {appts.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: 'var(--space-2) 0' }}>
+                              <IconTile icon={Calendar} tone="neutral" size={40} iconSize={18} />
+                              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 'var(--space-2) 0 var(--space-3)' }}>
+                                No appointments booked for today.
+                              </div>
+                              <button type="button" className="btn-primary at-btn-sm" style={{ margin: '0 auto' }}
+                                      onClick={() => { setEditingAppointment(null); setAppointmentForm(blankAppointmentForm); setShowAppointmentModal(true); }}>
+                                <Plus size={14} /> {t('dashboard.bookAppointment', 'Book Appointment')}
+                              </button>
+                            </div>
+                          ) : (
+                            <div>
+                              {appts.map((a) => (
+                                <div key={a.id} className="at-row">
+                                  <span className="at-row-main" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                                    <b>{a.time}</b> · {a.customer || 'Customer'}</span>
+                                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{a.type}{a.with ? ` · ${a.with}` : ''}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </SectionCard>
+                </div>
+
+                {/* Recent orders | Quick actions */}
+                <div className="at-grid-2">
+                  <SectionCard icon={ShoppingBag} tone="blue" title="Recent Orders"
+                               action={() => setDashboardTab('orders')} actionLabel={t('dashboard.viewAll', 'View all')}>
+                    {!dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
+                      <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                        No orders yet.
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {dashboardData.recent_orders.map(order => (
-                          <div 
-                            key={order.id} 
-                            className={`order-row-card ${selectedDashboardOrder?.id === order.id ? 'active-border' : ''}`}
-                            onClick={() => setSelectedDashboardOrder(order)}
-                            style={{
-                              borderColor: selectedDashboardOrder?.id === order.id ? 'var(--text-primary)' : 'var(--border-color)'
-                            }}
-                          >
-                            <div className="order-row-thumbnail">
-                              <img 
-                                src="https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=100" 
-                                alt="Garment Thumbnail" 
-                              />
-                            </div>
-                            <div className="order-row-desc">
-                              <div className="order-row-id">Order ID: {order.order_id}</div>
-                              <div className="order-row-name">{order.customer_name} • {order.order_status}</div>
-                              <div className="order-row-fabric">Tailor: {order.tailor_name || 'Unassigned'}</div>
-                            </div>
-                            <div className="order-row-status-box">
-                              {/* Show the status the order is actually in. This
-                                  used to be a two-way test -- 'Confirmed', or
-                                  else the words "In Progress" -- so a dress that
-                                  had been finished, shipped and handed over
-                                  still read "In Progress" on the owner's
-                                  dashboard, directly beside the word Delivered.
-                                  Green for the settled states, amber while the
-                                  garment is still moving. */}
-                              <span className={`order-row-badge ${['Confirmed', 'Shipped', 'Delivered'].includes(order.order_status) ? 'confirmed' : 'in_progress'}`}>
-                                {order.order_status || 'In Progress'}
-                              </span>
-                              <span className="order-row-date">Est. {new Date(order.estimated_delivery).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
-                            </div>
+                      <div>
+                        {dashboardData.recent_orders.map((order) => (
+                          <div key={order.id || order.order_id} className="at-row at-row--tap"
+                               onClick={() => setDashboardTab('orders')}>
+                            <span className="at-row-title" style={{ minWidth: '44px' }}>{orderRef(order)}</span>
+                            <span className="at-row-main">
+                              <span className="at-row-title" style={{ fontWeight: 500 }}>{order.customer_name || order.customer || 'Customer'}</span>
+                              <span className="at-row-sub">{order.garment_label || ''}</span>
+                            </span>
+                            <span style={{ textAlign: 'right' }}>
+                              <div className="at-row-title at-num">{order.total_amount != null ? inr(order.total_amount) : ''}</div>
+                              <div className="at-row-sub">{t(`status.${order.order_status}`, order.order_status || order.status || '')}</div>
+                            </span>
                           </div>
                         ))}
                       </div>
                     )}
-                  </div>
+                  </SectionCard>
 
-                  {/* Order Live Tracker Sidebar */}
-                  <div className="order-detail-progress-card">
-                    <div className="panel-header-row">
-                      <h3 style={{ fontSize: '15px', fontWeight: 600 }}>Order Progress</h3>
-                      <a className="view-all-link" style={{ cursor: 'pointer' }} onClick={() => setDashboardTab('orders')}>VIEW ALL</a>
-                    </div>
-
-                    {selectedDashboardOrder ? (
-                      <>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div style={{ fontSize: '13px', fontWeight: 600 }}>{selectedDashboardOrder.customer_name}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Order ID: {selectedDashboardOrder.order_id}</div>
-                        </div>
-
-                        <div style={{ marginTop: '12px', marginBottom: '16px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
-                            <span>PRODUCTION PROGRESS</span>
-                            <span>{(() => {
-                              const stages = selectedDashboardOrder.stages || [];
-                              const completed = stages.filter(s => s.status === 'COMPLETED').length;
-                              const pct = stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
-                              return `${pct}% (${completed}/${stages.length} Stages)`;
-                            })()}</span>
-                          </div>
-                          <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
-                            <div style={{
-                              height: '100%',
-                              width: `${(() => {
-                                const stages = selectedDashboardOrder.stages || [];
-                                const completed = stages.filter(s => s.status === 'COMPLETED').length;
-                                return stages.length > 0 ? Math.round((completed / stages.length) * 100) : 0;
-                              })()}%`,
-                              background: 'linear-gradient(90deg, #d4af37, #b07c40)',
-                              transition: 'width 0.3s ease'
-                            }}></div>
-                          </div>
-                        </div>
-
-                        <div className="order-progress-steps-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                          {(() => {
-                            const stages = selectedDashboardOrder.stages || [];
-                            return stages.map((stage, idx) => {
-                              const isCompleted = stage.status === 'COMPLETED';
-                              const isInProgress = stage.status === 'IN_PROGRESS';
-                              const isPaused = stage.status === 'PAUSED';
-                              const isSkipped = stage.status === 'SKIPPED';
-                              
-                              let statusColor = '#555'; // NOT_STARTED
-                              let statusText = 'Not Started';
-                              if (isCompleted) { statusColor = '#10b981'; statusText = 'Completed'; }
-                              else if (isInProgress) { statusColor = '#3b82f6'; statusText = 'In Progress'; }
-                              else if (isPaused) { statusColor = '#f59e0b'; statusText = 'Paused'; }
-                              else if (isSkipped) { statusColor = '#9ca3af'; statusText = 'Skipped'; }
-                              
-                              return (
-                                <div 
-                                  key={stage.id || stage.stage_key} 
-                                  className={`progress-step-item ${isCompleted ? 'completed' : isInProgress ? 'active' : ''}`}
-                                  style={{
-                                    cursor: 'pointer',
-                                    padding: '10px 12px',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-                                    background: isInProgress ? 'rgba(59, 130, 246, 0.05)' : 'rgba(255,255,255,0.01)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    margin: 0
-                                  }}
-                                  onClick={() => {
-                                    setActiveReviewStage(stage.stage_name);
-                                    setActiveReviewOrder(selectedDashboardOrder);
-                                    setSelectedStageObj(stage);
-                                    setStageReviewComments(stage.comments || '');
-                                    setStageReviewImage(null);
-                                  }}
-                                >
-                                  <div className="progress-step-dot" style={{ backgroundColor: statusColor, width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 }}></div>
-                                  <div className="progress-step-info" style={{ flex: 1, marginLeft: '12px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <span className="progress-step-title" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{stage.stage_name}</span>
-                                      <span style={{
-                                        fontSize: '8px',
-                                        padding: '1px 5px',
-                                        borderRadius: '3px',
-                                        backgroundColor: `${statusColor}1c`,
-                                        color: statusColor,
-                                        fontWeight: 700
-                                      }}>{statusText.toUpperCase()}</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
-                                      <span>{stage.performed_by_name ? `By: ${stage.performed_by_name}` : ''}</span>
-                                      <span>
-                                        {stage.completed_at ? new Date(stage.completed_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}) :
-                                         stage.started_at ? `Started: ${new Date(stage.started_at).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}` : ''}
-                                      </span>
-                                    </div>
-
-                                    {/* Who should do this stage, ahead of the work starting.
-                                        Only staff whose role the stage permits are offered. */}
-                                    {!isCompleted && currentUser.role === 'Owner' && (
-                                      <div
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}
-                                        onClick={e => e.stopPropagation()}
-                                      >
-                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>Assign:</span>
-                                        <select
-                                          className="form-control"
-                                          style={{ fontSize: '10px', padding: '2px 4px', height: 'auto' }}
-                                          value={stage.assigned_to || ''}
-                                          disabled={assigningStageKey === stage.stage_key}
-                                          onChange={e => handleAssignStage(
-                                            selectedDashboardOrder.id, stage.stage_key, e.target.value
-                                          )}
-                                        >
-                                          <option value="">Unassigned</option>
-                                          {eligibleStaffForStage(stage.stage_key).map(t => (
-                                            <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-
-                        {/* Delivery Information */}
-                        <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '12px' }}>
-                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>Delivery Method: {selectedDashboardOrder.delivery_method}</div>
-                          {selectedDashboardOrder.delivery_method === 'Courier' && (
-                            <div style={{ color: 'var(--text-secondary)' }}>
-                              <strong>Carrier:</strong> {selectedDashboardOrder.courier_service || 'TBD'}<br />
-                              <strong>Tracking:</strong> {selectedDashboardOrder.tracking_number || 'TBD'}<br />
-                              {selectedDashboardOrder.delivery_address && (
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-line' }}><strong>Address:</strong> {selectedDashboardOrder.delivery_address}</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Tailor Stitching Completion details */}
-                        {(selectedDashboardOrder.tailor_comments || selectedDashboardOrder.completed_garment_image) && (
-                          <div style={{
-                            marginTop: '12px',
-                            background: 'rgba(212,175,55,0.02)',
-                            border: '1px solid rgba(212,175,55,0.15)',
-                            borderRadius: '8px',
-                            padding: '12px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px',
-                            fontSize: '12px'
-                          }}>
-                            <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <Scissors size={12} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                              <span>Tailor Completion Notes</span>
-                            </div>
-                            {selectedDashboardOrder.tailor_comments && (
-                              <p style={{ color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
-                                "{selectedDashboardOrder.tailor_comments}"
-                              </p>
-                            )}
-                            {selectedDashboardOrder.completed_garment_image && (
-                              <div style={{ marginTop: '2px' }}>
-                                <a href={selectedDashboardOrder.completed_garment_image} target="_blank" rel="noreferrer">
-                                  <img 
-                                    src={selectedDashboardOrder.completed_garment_image} 
-                                    alt="Completed Garment" 
-                                    style={{
-                                      width: '80px',
-                                      height: '80px',
-                                      objectFit: 'cover',
-                                      borderRadius: '4px',
-                                      border: '1px solid var(--border-color)'
-                                    }} 
-                                  />
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.08))', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '12px', fontWeight: 600 }}>Update Status:</span>
-                            <select
-                              value={selectedDashboardOrder.order_status}
-                              disabled={updatingOrderStatusId === selectedDashboardOrder.id}
-                              onChange={async (e) => {
-                                if (updatingOrderStatusId) return;
-                                const newStatus = e.target.value;
-                                setUpdatingOrderStatusId(selectedDashboardOrder.id);
-                                try {
-                                  await api.updateOrderStatus(selectedDashboardOrder.id, newStatus);
-                                  setSelectedDashboardOrder(prev => ({ ...prev, order_status: newStatus }));
-                                  fetchDashboardAndConfig();
-                                } catch (err) {
-                                  alert("Failed to update status: " + err.message);
-                                } finally {
-                                  setUpdatingOrderStatusId(null);
-                                }
-                              }}
-                              style={{
-                                background: 'rgba(255,255,255,0.05)',
-                                color: 'var(--text-primary)',
-                                border: '1px solid rgba(255,255,255,0.15)',
-                                borderRadius: '6px',
-                                padding: '4px 8px',
-                                fontSize: '12px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
-                                <option key={status} value={status} style={{ background: '#222', color: '#fff' }}>{status}</option>
-                              ))}
-                            </select>
-                          </div>
-                          
-                          {selectedDashboardOrder.order_status !== 'Delivered' && (
-                            <button
-                              className="btn-primary"
-                              style={{ fontSize: '12px', padding: '8px 12px', justifyContent: 'center', width: '100%' }}
-                              disabled={updatingOrderStatusId === selectedDashboardOrder.id}
-                              onClick={async () => {
-                                if (updatingOrderStatusId) return;
-                                const stages = ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'];
-                                const currentIndex = stages.indexOf(selectedDashboardOrder.order_status);
-                                if (currentIndex !== -1 && currentIndex < stages.length - 1) {
-                                  const nextStatus = stages[currentIndex + 1];
-                                  setUpdatingOrderStatusId(selectedDashboardOrder.id);
-                                  try {
-                                    await api.updateOrderStatus(selectedDashboardOrder.id, nextStatus);
-                                    setSelectedDashboardOrder(prev => ({ ...prev, order_status: nextStatus }));
-                                    fetchDashboardAndConfig();
-                                  } catch (err) {
-                                    alert("Failed to update status: " + err.message);
-                                  } finally {
-                                    setUpdatingOrderStatusId(null);
-                                  }
-                                }
-                              }}
-                            >
-                              {updatingOrderStatusId === selectedDashboardOrder.id ? 'Updating…' : 'Advance to Next Stage'}
-                            </button>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        Select an order on the left to see progress details.
+                  <SectionCard icon={Sparkles} tone="amber" title="Quick Actions">
+                    <section className="quick-action-button-grid" style={{ marginBottom: 0 }}>
+                      <div className="quick-action-item" onClick={() => setView('order-selector')}>
+                        <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
+                        <h4>{t('dashboard.newOrder')}</h4>
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Upcoming Appointments & Style Inspiration Row */}
-                <div className="dashboard-row-layout">
-                  <div>
-                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Upcoming Appointments</h3>
-                    {/* Real appointments. These were two literal cards naming
-                        "Anya (Stylist)" and "Rohit (Master Tailor)" on fixed
-                        dates -- shown to every boutique including one created
-                        a minute ago, whose owner has no such staff and no such
-                        bookings. apps/scheduling has always been able to
-                        answer this; nothing had ever asked it. An empty panel
-                        is better than an invented one. */}
-                    <div className="appointments-section-panel">
-                      {appointments.length === 0 ? (
-                        <div style={{ padding: '16px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                          No appointments booked.
-                        </div>
-                      ) : appointments.map(appt => {
-                        const when = new Date(appt.scheduled_time);
-                        return (
-                          <div className="appt-card" key={appt.id}>
-                            <div className="appt-date-box">
-                              <span className="appt-day">{when.toLocaleDateString(undefined, { day: '2-digit' })}</span>
-                              <span className="appt-month">{when.toLocaleDateString(undefined, { month: 'short' })}</span>
-                            </div>
-                            <div className="appt-info">
-                              <span className="appt-title">
-                                {APPOINTMENT_TYPE_LABELS[appt.appointment_type] || 'Appointment'}
-                              </span>
-                              <span className="appt-sub">
-                                {appt.customer_detail
-                                  ? `${appt.customer_detail.first_name} ${appt.customer_detail.last_name}`
-                                  : 'Client'}
-                                {appt.assigned_staff_detail ? ` · with ${appt.assigned_staff_detail.name}` : ''}
-                              </span>
-                              <span className="appt-time">
-                                {when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* "Style Inspiration" was three hardcoded Unsplash
-                      portraits of strangers with no behaviour and no
-                      relationship to this boutique's work -- stock photography
-                      presented on the owner's own dashboard as if it were
-                      theirs. Deleted rather than repointed at real designs: the
-                      Design Catalogue quick-action above already goes there,
-                      and a second silent route to the same screen is not worth
-                      a panel. */}
+                      <div className="quick-action-item" onClick={() => setDashboardTab('staff')}>
+                        <div className="quick-action-icon-box"><Scissors size={18} /></div>
+                        <h4>{t('dashboard.manageStaff', 'Manage Staff')}</h4>
+                      </div>
+                      <div className="quick-action-item" onClick={() => setDashboardTab('designs')}>
+                        <div className="quick-action-icon-box"><Heart size={18} /></div>
+                        <h4>{t('dashboard.designCatalog', 'Design Catalog')}</h4>
+                      </div>
+                      <div className="quick-action-item" onClick={() => setDashboardTab('fabrics')}>
+                        <div className="quick-action-icon-box"><Compass size={18} /></div>
+                        <h4>{t('dashboard.fabricLibrary', 'Fabric Library')}</h4>
+                      </div>
+                      <div className="quick-action-item" onClick={() => { setEditingAppointment(null); setAppointmentForm(blankAppointmentForm); setShowAppointmentModal(true); }}>
+                        <div className="quick-action-icon-box"><Calendar size={18} /></div>
+                        <h4>{t('dashboard.bookAppointment', 'Book Appointment')}</h4>
+                      </div>
+                      <div className="quick-action-item" onClick={() => setDashboardTab('finance')}>
+                        <div className="quick-action-icon-box"><Wallet size={18} /></div>
+                        <h4>{t('dashboard.costPnl', 'Cost & P&L')}</h4>
+                      </div>
+                    </section>
+                  </SectionCard>
                 </div>
               </>
             )}
@@ -4064,383 +4219,195 @@ function App() {
               </Suspense>
             )}
 
+            {dashboardTab === 'staff' && (
+              <Suspense fallback={<ScreenLoading />}>
+                <StaffPanel currentUser={currentUser} />
+              </Suspense>
+            )}
+
+            {dashboardTab === 'finance' && (
+              <Suspense fallback={<ScreenLoading />}>
+                <FinancePanel />
+              </Suspense>
+            )}
+
             {/* 2. MANAGE FABRICS TAB */}
-            {dashboardTab === 'fabrics' && (
-              <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Fabric Library
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Configure, add, or edit boutique catalog fabrics.</p>
-                    </div>
+            {dashboardTab === 'fabrics' && (() => {
+              const q = fabricQuery;
+              const materials = [...new Set(fabrics.map(f => f.material).filter(Boolean))].sort();
+              const colours = [...new Set(fabrics.map(f => f.color).filter(Boolean))].sort();
+              const filtered = fabrics.filter(f => {
+                if (q.material !== 'All' && f.material !== q.material) return false;
+                if (q.colour !== 'All' && f.color !== q.colour) return false;
+                if (q.availability === 'Available' && !f.is_available) return false;
+                if (q.availability === 'Out of Stock' && f.is_available) return false;
+                if (q.search.trim()) {
+                  const needle = q.search.toLowerCase();
+                  return [f.name, f.material, f.color].some(v => (v || '').toLowerCase().includes(needle));
+                }
+                return true;
+              }).sort((a, b) => (
+                q.sort === 'name' ? String(a.name).localeCompare(String(b.name))
+                  : q.sort === 'price_asc' ? Number(a.price_per_meter) - Number(b.price_per_meter)
+                  : q.sort === 'price_desc' ? Number(b.price_per_meter) - Number(a.price_per_meter)
+                  : (b.id || 0) - (a.id || 0)));
+              const available = fabrics.filter(f => f.is_available).length;
+              const avg = fabrics.length
+                ? fabrics.reduce((sum, f) => sum + Number(f.price_per_meter || 0), 0) / fabrics.length : 0;
+              const openNew = () => {
+                setEditingFabric(null);
+                setFabricForm({ name: '', material: '', color: '', color_hex: '#c8a97e', price_per_meter: '', image_url: '', image_urls: [], is_available: true });
+                // Clear any photos staged in a modal that was opened and
+                // abandoned -- the Edit path already does this, so without
+                // it those photos would ride onto the new fabric on save.
+                setFabricPhotoFiles([]);
+                setFabricPhotoPreviews([]);
+                setShowFabricModal(true);
+              };
+              const openEdit = (fabric) => {
+                setEditingFabric(fabric);
+                setFabricForm({
+                  name: fabric.name,
+                  material: fabric.material,
+                  color: fabric.color,
+                  color_hex: fabric.color_hex || '#c8a97e',
+                  price_per_meter: fabric.price_per_meter.toString(),
+                  image_url: fabric.image_url || '',
+                  image_urls: fabric.image_urls || [],
+                  is_available: fabric.is_available
+                });
+                setFabricPhotoFiles([]);
+                setFabricPhotoPreviews([]);
+                setShowFabricModal(true);
+              };
+              const pick = (key, label, options) => (
+                <label className="at-field" style={{ minWidth: '140px' }}>
+                  <span className="at-field-hint" style={{ fontWeight: 600 }}>{label}</span>
+                  <div className="at-field-control" style={{ minHeight: '42px' }}>
+                    <select className="form-control" value={q[key]} onChange={(e) => setFabricQuery({ ...q, [key]: e.target.value })}>
+                      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
                   </div>
-                  <div className="portal-header-right">
-                    <button className="btn-primary" onClick={() => {
-                      setEditingFabric(null);
-                      setFabricForm({ name: '', material: '', color: '', price_per_meter: '', image_url: '', is_available: true });
-                      setShowFabricModal(true);
-                    }}>
-                      <Plus size={16} />
-                      Add New Fabric
-                    </button>
+                </label>
+              );
+              return (
+              <>
+                <PageHeader
+                  title={t('fabricsPage.title')}
+                  subtitle={t('fabricsPage.subtitle')}
+                  aside={(
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
-                  </div>
-                </header>
+                  )}
+                  actions={(
+                    <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={openNew}>
+                      <Plus size={16} />
+                      {t('fabricsPage.addNewFabric')}
+                    </button>
+                  )}
+                />
 
-                <div className="fabric-manager-content" style={{ marginTop: '24px' }}>
-                  <div className="fabrics-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
-                    {fabrics.map(fabric => (
-                      <div key={fabric.id} className="fabric-manage-card" style={{
-                        background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                        border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                        borderRadius: '12px',
-                        padding: '16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        gap: '16px'
-                      }}>
-                        <div style={{ display: 'flex', gap: '16px' }}>
-                          <div className="fabric-image-swatch" style={{
-                            width: '80px',
-                            height: '80px',
-                            borderRadius: '8px',
-                            overflow: 'hidden',
-                            background: fabric.color ? fabric.color.toLowerCase() : '#ccc',
-                            flexShrink: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            border: '1px solid rgba(255,255,255,0.1)'
-                          }}>
-                            {fabric.image_url ? (
-                              <img src={resolveMediaUrl(fabric.image_url)} alt={fabric.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            ) : (
-                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: '#fff', fontWeight: 600, textShadow: '1px 1px 2px rgba(0,0,0,0.5)' }}>
-                                {fabric.color}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <h4 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>{fabric.name}</h4>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Material: {fabric.material}</span>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Color: {fabric.color}</span>
-                            <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--accent-text, #b07c40)', marginTop: '4px' }}>
-                              {formatMoney(fabric.price_per_meter)}/mtr
+                <div className="at-toolbar" style={{ marginTop: 0, alignItems: 'flex-end' }}>
+                  <SearchBox value={q.search} onChange={(v) => setFabricQuery({ ...q, search: v })}
+                             placeholder="Search fabrics by name, material, colour…" />
+                  <div className="at-toolbar-right" style={{ alignItems: 'flex-end' }}>
+                    {pick('material', 'Material', [['All', 'All'], ...materials.map(m => [m, m])])}
+                    {pick('colour', 'Colour', [['All', 'All'], ...colours.map(c => [c, c])])}
+                    {pick('availability', 'Availability', [['All', 'All'], ['Available', 'Available'], ['Out of Stock', 'Out of Stock']])}
+                    {pick('sort', 'Sort by', [['newest', 'Newest First'], ['name', 'Name A–Z'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low']])}
+                  </div>
+                </div>
+
+                <section className="at-stat-grid" style={{ marginBottom: 'var(--space-5)' }}>
+                  <StatCard icon={Layers} tone="amber" label="Total Fabrics" value={fabrics.length} />
+                  <StatCard icon={CheckCircle2} tone="green" label="Available" value={available} />
+                  <StatCard icon={Package} tone="rose" label="Out of Stock" value={fabrics.length - available} />
+                  <StatCard icon={Tag} tone="amber" label="Average Price / mtr" value={formatMoney(avg)} />
+                </section>
+
+                {fabrics.length === 0 ? (
+                  <div className="ui-card" style={{ padding: '48px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                    <div style={{ fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)', marginBottom: '6px' }}>
+                      {t('fabricsPage.noFabricsYet', 'No fabrics in your library yet')}
+                    </div>
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', maxWidth: '44ch', margin: '0 auto 16px', lineHeight: 'var(--leading-normal)' }}>
+                      {t('fabricsPage.noFabricsHint', 'Add the cloths you keep in stock — their colour, material and price per metre — so they can be picked when you take an order.')}
+                    </div>
+                    <button className="btn-primary" style={{ margin: '0 auto' }} onClick={openNew}><Plus size={16} /> {t('fabricsPage.addNewFabric')}</button>
+                  </div>
+                ) : (
+                  <div className="at-fabric-grid">
+                    {filtered.length === 0 && (
+                      <div className="ui-card" style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-muted)', gridColumn: '1 / -1' }}>
+                        No fabrics match these filters.
+                      </div>
+                    )}
+                    {filtered.map(fabric => (
+                      <article key={fabric.id} className="ui-card at-fabric">
+                        {/* "Aqua Blue" is not a CSS colour, so the tile fell back
+                            to grey for every fabric named the way a boutique
+                            names one. The swatch the owner picked is exact; the
+                            name map is the honest second choice. */}
+                        <div className="at-fabric-media" style={{ background: fabric.color_hex || getColorCircleStyle(fabric.color) }}>
+                          {fabric.image_url
+                            ? <img src={resolveMediaUrl(fabric.image_url)} alt={fabric.name} />
+                            : <span className="at-fabric-swatch-name">{fabric.color}</span>}
+                          <span className={`ui-badge at-fabric-pill ${fabric.is_available ? 'ui-badge--success' : 'ui-badge--neutral'}`}>
+                            ● {fabric.is_available ? 'Available' : 'Out of Stock'}
+                          </span>
+                        </div>
+                        <div className="at-fabric-body">
+                          <h4 className="at-fabric-name">{fabric.name}</h4>
+                          <div className="at-fabric-meta">
+                            <span><Layers size={13} /> Material: {fabric.material}</span>
+                            <span className="at-fabric-price">{formatMoney(fabric.price_per_meter)}/mtr</span>
+                            <span>
+                              <Palette size={13} /> Colour: {fabric.color}
+                              {fabric.color_hex && (
+                                <i title={fabric.color_hex} style={{ width: '12px', height: '12px', borderRadius: '3px', background: fabric.color_hex, border: '1px solid var(--border-color)', display: 'inline-block' }} />
+                              )}
                             </span>
                           </div>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }}>
-                          <span className={`order-row-badge ${fabric.is_available ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                            {fabric.is_available ? 'Available' : 'Out of Stock'}
-                          </span>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
-                              setEditingFabric(fabric);
-                              setFabricForm({
-                                name: fabric.name,
-                                material: fabric.material,
-                                color: fabric.color,
-                                price_per_meter: fabric.price_per_meter.toString(),
-                                image_url: fabric.image_url || '',
-                                is_available: fabric.is_available
-                              });
-                              setShowFabricModal(true);
-                            }}>
+                          <div className="at-fabric-actions">
+                            <button className="btn-secondary at-btn-sm" onClick={() => openEdit(fabric)}>
                               <Edit2 size={12} /> Edit
                             </button>
-                            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }} disabled={deletingFabricId === fabric.id} onClick={() => handleDeleteFabric(fabric.id)}>
+                            <button className="btn-secondary at-btn-sm at-btn-danger" disabled={deletingFabricId === fabric.id} onClick={() => handleDeleteFabric(fabric.id)}>
                               {deletingFabricId === fabric.id ? 'Deleting…' : <><Trash2 size={12} /> Delete</>}
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </article>
                     ))}
+                    <button type="button" className="at-fabric--add" onClick={openNew}>
+                      <span className="at-photo-plus" style={{ width: 56, height: 56 }}><Plus size={22} /></span>
+                      <span className="at-section-title">Add New Fabric</span>
+                      <span className="at-section-sub">Expand your collection with new fabrics.</span>
+                      <span className="btn-primary" style={{ marginTop: '8px' }}><Plus size={16} /> Add Fabric</span>
+                    </button>
                   </div>
-                </div>
+                )}
               </>
-            )}
+              );
+            })()}
 
             {/* 3. MANAGE TAILORS TAB */}
-            {dashboardTab === 'tailors' && (
-              <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Tailoring Staff
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Add, configure, or review in-house custom tailors.</p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right">
-                    <button className="btn-primary" onClick={() => {
-                      setEditingTailor(null);
-                      setTailorForm({ name: '', email: '', specialty: '', rating: 5.0, status: 'Available', role: 'Tailor' });
-                      setShowTailorModal(true);
-                    }}>
-                      <Plus size={16} />
-                      Add New Tailor
-                    </button>
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
-                      </div>
-                      <span>Hi, {currentUser.first_name}</span>
-                    </div>
-                  </div>
-                </header>
-
-                <div className="tailor-manager-content" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                  {/* Two separate panels for Master and Stitching staff */}
-                  <div className="responsive-profile-grid" style={{ gap: '24px' }}>
-                    
-                    {/* Master Tailors Column */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                        <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Master Tailors (Cutting & Supervision)</h3>
-                      </div>
-                      
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {tailors.filter(t => t.role === 'Master').length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors registered yet.</p>
-                        ) : (
-                          tailors.filter(t => t.role === 'Master').map(tailor => (
-                            <div key={tailor.id} style={{
-                              background: 'rgba(0,0,0,0.015)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: '8px',
-                              padding: '16px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center'
-                            }}>
-                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden' }}>
-                                  <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailor.name)}`} alt="Avatar" style={{ width: '100%', height: '100%' }} />
-                                </div>
-                                <div>
-                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailor.name}</div>
-                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailor.specialty}</div>
-                                </div>
-                              </div>
-                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                  {tailor.status}
-                                </span>
-                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
-                                  if (!tailor.email) {
-                                    alert("Please edit this tailor's profile to add their email address first.");
-                                    return;
-                                  }
-                                  setShareCredsTailor(tailor);
-                                }}>
-                                  <Lock size={12} /> Share
-                                </button>
-                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
-                                  setEditingTailor(tailor);
-                                  setTailorForm({
-                                    name: tailor.name,
-                                    email: tailor.email || '',
-                                    specialty: tailor.specialty,
-                                    rating: tailor.rating.toString(),
-                                    status: tailor.status,
-                                    role: tailor.role || 'Tailor'
-                                  });
-                                  setShowTailorModal(true);
-                                }}>Edit</button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Stitching Tailors Column */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                        <Scissors size={20} />
-                        <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Stitching Tailors (Assembly & Detailing)</h3>
-                      </div>
-                      
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {stitchingStaff().length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors registered yet.</p>
-                        ) : (
-                          stitchingStaff().map(tailor => (
-                            <div key={tailor.id} style={{
-                              background: 'rgba(0,0,0,0.015)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: '8px',
-                              padding: '16px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center'
-                            }}>
-                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden' }}>
-                                  <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailor.name)}`} alt="Avatar" style={{ width: '100%', height: '100%' }} />
-                                </div>
-                                <div>
-                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailor.name}</div>
-                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailor.specialty}</div>
-                                </div>
-                              </div>
-                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <span className={`order-row-badge ${tailor.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                  {tailor.status}
-                                </span>
-                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => {
-                                  if (!tailor.email) {
-                                    alert("Please edit this tailor's profile to add their email address first.");
-                                    return;
-                                  }
-                                  setShareCredsTailor(tailor);
-                                }}>
-                                  <Lock size={12} /> Share
-                                </button>
-                                <button className="btn-secondary" style={{ padding: '6px 10px', fontSize: '11px' }} onClick={() => {
-                                  setEditingTailor(tailor);
-                                  setTailorForm({
-                                    name: tailor.name,
-                                    email: tailor.email || '',
-                                    specialty: tailor.specialty,
-                                    rating: tailor.rating.toString(),
-                                    status: tailor.status,
-                                    role: tailor.role || 'Tailor'
-                                  });
-                                  setShowTailorModal(true);
-                                }}>Edit</button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                  </div>
-
-                  {/* Boutique Workflow Supervision Table */}
-                  <div style={{
-                    background: 'var(--surface-color)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '12px',
-                    padding: '24px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                      <Sparkles size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Workflow Assignment & Supervision Control</h3>
-                    </div>
-                    
-                    <div style={{ overflowX: 'auto' }}>
-                      <table className="portal-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr style={{ textAlign: 'left', borderBottom: '1.5px solid var(--border-color)' }}>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Order / Client</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Status</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Supervising Master</th>
-                            <th style={{ padding: '12px 16px', fontSize: '13px', fontWeight: 600 }}>Stitching Tailor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ordersList.filter(o => ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped'].includes(o.order_status)).length === 0 ? (
-                            <tr>
-                              <td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                                No active orders in creation phase.
-                              </td>
-                            </tr>
-                          ) : (
-                            ordersList.filter(o => ['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped'].includes(o.order_status)).map(order => (
-                              <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                <td style={{ padding: '16px', fontSize: '14px' }}>
-                                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{order.order_id}</div>
-                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{order.customer_name}</div>
-                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>
-                                    {order.delivery_method} {order.delivery_method === 'Courier' && `(${order.courier_service || 'TBD'})`}
-                                  </div>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                  <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                    {order.order_status}
-                                  </span>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                  <select
-                                    className="form-control"
-                                    style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
-                                    value={order.master || ''}
-                                    disabled={assigningWorkflowOrderId === order.id}
-                                    onChange={(e) => handleAssignWorkflow(order.id, { master: e.target.value || null })}
-                                  >
-                                    <option value="">Unassigned</option>
-                                    {tailors.filter(t => t.role === 'Master').map(m => (
-                                      <option key={m.id} value={m.id}>{m.name}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                  <select
-                                    className="form-control"
-                                    style={{ fontSize: '13px', padding: '6px 12px', width: '200px' }}
-                                    value={order.tailor || ''}
-                                    disabled={assigningWorkflowOrderId === order.id}
-                                    onChange={(e) => handleAssignWorkflow(order.id, { tailor: e.target.value || null })}
-                                  >
-                                    <option value="">Unassigned</option>
-                                    {stitchingStaff().map(s => (
-                                      <option key={s.id} value={s.id}>{s.name}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                </div>
-              </>
-            )}
 
             {/* 4b. DESIGN WORK TAB -- assign, submit, review. One component for
                  both ends of the loop; see features/designStudio/DesignWork. */}
             {dashboardTab === 'designWork' && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Design Work
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        {currentUser?.role === 'Designer'
-                          ? 'The garments you have been asked to design.'
-                          : 'Assign a garment to a designer, and review what comes back.'}
-                      </p>
-                    </div>
-                  </div>
-                </header>
+                <PageHeader
+                  icon={PenTool} tone="neutral"
+                  title={t('designWorkPage.title', 'Design Work')}
+                  subtitle={currentUser?.role === 'Designer'
+                    ? t('designWorkPage.subtitleDesigner', 'The garments you have been asked to design.')
+                    : t('designWorkPage.subtitleSupervisor', 'Assign a garment to a designer, and review what comes back.')}
+                />
                 <div className="portal-content">
                   <Suspense fallback={<ScreenLoading />}>
                     <DesignWork currentUser={currentUser} />
@@ -4452,23 +4419,19 @@ function App() {
             {/* 4. MANAGE DESIGNS TAB */}
             {dashboardTab === 'designs' && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Manage Design Collections
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Add, edit, or remove catalog designs and AI suggestions.</p>
+                <PageHeader
+                  title={t('designsPage.title')}
+                  subtitle={t('designsPage.subtitle')}
+                  aside={(
+                    <div className="user-profile-widget">
+                      <div className="user-avatar-circle">
+                        <UserAvatar user={currentUser} />
+                      </div>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
-                  </div>
-                  <div className="portal-header-right">
-                    {/* This posts through the catalogue's own endpoint, which
-                        (unlike DesignAssetViewSet) has no per-design ownership
-                        check -- so it stays Owner-only rather than opened to a
-                        Designer the way the library's own upload flow below
-                        already is. */}
-                    {(!currentUser?.role || currentUser.role === 'Owner') && (
-                      <button className="btn-primary" onClick={() => {
+                  )}
+                  actions={(!currentUser?.role || currentUser.role === 'Owner') && (
+                      <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={() => {
                         setEditingDesign(null);
                         setDesignForm({
                           name: '',
@@ -4483,19 +4446,12 @@ function App() {
                         setShowDesignModal(true);
                       }}>
                         <Plus size={16} />
-                        Add New Design
+                        {t('designsPage.addNewDesign')}
                       </button>
-                    )}
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
-                      </div>
-                      <span>Hi, {currentUser.first_name}</span>
-                    </div>
-                  </div>
-                </header>
+                  )}
+                />
 
-                <div className="design-manager-content" style={{ marginTop: '24px' }}>
+                <div className="design-manager-content">
                   {/* Dashboard first: stats before images, so opening the module
                       answers "how is the library doing" rather than dropping
                       straight into a grid. */}
@@ -4546,150 +4502,104 @@ function App() {
             {/* Manage Orders Tab */}
             {dashboardTab === 'orders' && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Atelier Orders Registry
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        Search, filter, and track all custom creations and dispatch logistics.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right">
-                    {/* Owner-only. A Master reaches this registry -- they
-                        supervise the whole floor -- and was shown this button
-                        too, but taking an order means creating a customer and
-                        RolePermission refuses every non-Owner write outside the
-                        order actions. The wizard therefore 403'd on step 1,
-                        after the Master had filled the form in. */}
-                    {(!currentUser?.role || currentUser.role === 'Owner') && (
-                      <button className="btn-primary" onClick={handleStartNewCustomer}>
-                        <Plus size={16} /> New Custom Order
-                      </button>
-                    )}
-                  </div>
-                </header>
+                <PageHeader
+                  title={t('ordersPage.title')}
+                  subtitle={t('ordersPage.subtitle')}
+                  aside={<SearchBox value={ordersSearch} onChange={setOrdersSearch} placeholder={t('ordersPage.searchPlaceholder')} />}
+                  actions={(!currentUser?.role || currentUser.role === 'Owner') && (
+                    <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={handleStartNewCustomer}>
+                      <Plus size={16} /> {t('ordersPage.newOrder')}
+                    </button>
+                  )}
+                />
 
-                <div className="orders-registry-content" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  {/* Filters & Search */}
-                  <div style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '16px',
-                    background: 'var(--surface-color)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '12px',
-                    padding: '16px'
-                  }}>
-                    {/* Filter Tabs. Wrapping, not nowrap: four pills do not fit
-                        one 320px row and "Delivered" was clipped off the end. */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                      {['All', 'Active', 'Shipped', 'Delivered'].map(statusTab => (
-                        <button 
-                          key={statusTab}
-                          onClick={() => setOrdersFilterTab(statusTab)}
-                          className={ordersFilterTab === statusTab ? 'btn-primary' : 'btn-secondary'}
-                          style={{ padding: '6px 16px', fontSize: '13px' }}
-                        >
-                          {statusTab}
-                        </button>
-                      ))}
-                    </div>
+                {(() => {
+                  const total = ordersList.length;
+                  const shipped = ordersList.filter(o => o.order_status === 'Shipped').length;
+                  const delivered = ordersList.filter(o => o.order_status === 'Delivered').length;
+                  const active = total - shipped - delivered;
+                  return (
+                    <>
+                      <section className="at-stat-grid">
+                        <StatCard icon={ShoppingCart} tone="green" label="Total Orders" value={total} sub="all time"
+                                  onClick={() => setOrdersFilterTab('All')} />
+                        <StatCard icon={Clock} tone="amber" label="Active Orders" value={active} sub="in progress"
+                                  onClick={() => setOrdersFilterTab('Active')} />
+                        <StatCard icon={Truck} tone="blue" label="Shipped" value={shipped} sub="on their way"
+                                  onClick={() => setOrdersFilterTab('Shipped')} />
+                        <StatCard icon={CheckCircle2} tone="green" label="Delivered" value={delivered} sub="handed over"
+                                  onClick={() => setOrdersFilterTab('Delivered')} />
+                      </section>
+                      <div className="at-toolbar">
+                        <Chips value={ordersFilterTab} onChange={setOrdersFilterTab} options={[
+                          { key: 'All', label: t('ordersPage.filterAll'), count: total },
+                          { key: 'Active', label: t('ordersPage.filterActive'), count: active },
+                          { key: 'Shipped', label: t('ordersPage.filterShipped'), count: shipped },
+                          { key: 'Delivered', label: t('ordersPage.filterDelivered'), count: delivered },
+                        ]} />
+                        <div className="at-toolbar-right">
+                          {/* List / Board: two drawings of the same filtered orders. */}
+                          <Segmented ariaLabel="Orders view" value={ordersView} onChange={setOrdersView} options={[
+                            { key: 'kanban', label: 'Board', icon: LayoutGrid },
+                            { key: 'list', label: 'List', icon: List },
+                          ]} />
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
 
-                    {/* Search Input */}
-                    <div className="search-bar-container" style={{ width: '100%', maxWidth: '300px', margin: 0 }}>
-                      <Search className="search-icon" size={16} />
-                      <input 
-                        type="text" 
-                        placeholder="Search by Order ID or Client..."
-                        className="search-input"
-                        value={ordersSearch}
-                        onChange={(e) => setOrdersSearch(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Orders List Grid */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="orders-registry-content" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                  {ordersView === 'kanban' ? (
+                    <OrderKanban
+                      orders={ordersList.filter(orderMatchesFilters)}
+                      workflow={boutiqueSettings?.workflow_config}
+                      onOpen={(order, stage) => openStageReview(order, stage)}
+                      onChanged={fetchDashboardAndConfig}
+                    />
+                  ) : (
+                  /* Orders list */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
                     {(() => {
-                      const filtered = ordersList.filter(order => {
-                        // Status filter
-                        if (ordersFilterTab === 'Active') {
-                          if (['Shipped', 'Delivered'].includes(order.order_status)) return false;
-                        } else if (ordersFilterTab === 'Shipped') {
-                          if (order.order_status !== 'Shipped') return false;
-                        } else if (ordersFilterTab === 'Delivered') {
-                          if (order.order_status !== 'Delivered') return false;
-                        }
-
-                        // Search text filter
-                        if (ordersSearch.trim()) {
-                          const query = ordersSearch.toLowerCase();
-                          const matchesId = order.order_id.toLowerCase().includes(query);
-                          const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
-                          return matchesId || matchesClient;
-                        }
-
-                        return true;
-                      });
+                      const statusTone = (st) =>
+                        st === 'Delivered' ? 'success'
+                          : st === 'Cancelled' ? 'neutral'
+                          : (st === 'Shipped' || st === 'Ready for Dispatch') ? 'info'
+                          : 'warning';
+                      const filtered = ordersList.filter(orderMatchesFilters);
 
                       if (filtered.length === 0) {
                         return (
-                          <div style={{
-                            background: 'var(--surface-color)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '12px',
-                            padding: '40px',
-                            textAlign: 'center',
-                            color: 'var(--text-muted)'
-                          }}>
-                            {/* Distinguish "no results for your filters" from
-                                "you have not made an order yet". On day one no
-                                filter is set and there is nothing to filter, so
-                                telling a new owner their filters matched
-                                nothing is both wrong and a dead end. The
-                                dashboard's own orders panel already gets this
-                                right. */}
+                          <div className="ui-card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-muted)' }}>
                             {ordersList.length === 0 ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>No orders yet</div>
-                                <div style={{ fontSize: '13px', maxWidth: '44ch', lineHeight: 1.5 }}>
-                                  Orders you create will appear here, with their production stage and who is working on them.
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', alignItems: 'center' }}>
+                                <div style={{ fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)', fontSize: 'var(--text-md)' }}>{t('ordersPage.noOrdersYet', 'No orders yet')}</div>
+                                <div style={{ fontSize: 'var(--text-sm)', maxWidth: '44ch', lineHeight: 'var(--leading-normal)' }}>
+                                  {t('ordersPage.noOrdersYetDesc', 'Orders you create will appear here, with their production stage and who is working on them.')}
                                 </div>
                                 <button className="btn-primary" onClick={() => setView('order-selector')}>
-                                  Create your first order
+                                  {t('ordersPage.createFirstOrder', 'Create your first order')}
                                 </button>
                               </div>
-                            ) : 'No orders found matching the criteria.'}
+                            ) : t('ordersPage.noOrdersMatching', 'No orders found matching the criteria.')}
                           </div>
                         );
                       }
 
                       return filtered.map(order => (
-                        <div key={order.id} style={{
-                          background: 'var(--surface-color)',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: '12px',
-                          padding: '24px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '16px'
-                        }}>
-                          {/* Top Row: Order Header */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                        <div key={order.id} className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-6)' }}>
+                          {/* Header: id + status read first; client/date meta; verification note */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
                             <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <span style={{ fontWeight: 700, fontSize: '18px', color: 'var(--text-primary)' }}>{order.order_id}</span>
-                                <span className={`order-row-badge ${order.order_status.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')}`} style={{ fontSize: '11px', padding: '3px 10px' }}>
-                                  {order.order_status}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 'var(--weight-bold)', fontSize: 'var(--text-lg)', color: 'var(--text-primary)', fontFamily: 'var(--font-serif)' }}>{orderRef(order)}</span>
+                                <span className={`ui-badge ui-badge--${statusTone(order.order_status)}`}>
+                                  {order.order_status_display || t(`status.${order.order_status}`, order.order_status)}
                                 </span>
                               </div>
-                              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                Client: <strong>{order.customer_name}</strong> | Created: {fmtDate(order.order_date)}
+                              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
+                                {t('ordersPage.client', 'Client:')} <strong style={{ color: 'var(--text-primary)' }}>{order.customer_name}</strong>
+                                {'  ·  '}{t('ordersPage.created', 'Created:')} {fmtDate(order.order_date)}
                               </div>
                               {(() => {
                                 const v = order.master_verification || {};
@@ -4697,20 +4607,19 @@ function App() {
                                 const checked = Object.values(v).filter(Boolean).length;
                                 if (checked > 0) {
                                   return (
-                                    <div style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(212,175,55,0.08)', padding: '2px 8px', borderRadius: '4px', marginTop: '4px' }}>
-                                      <span>👑 Master Verified: {checked}/{total} items ({Math.round((checked/total)*100)}%)</span>
-                                    </div>
+                                    <span className="ui-badge ui-badge--success" style={{ marginTop: 'var(--space-2)' }}>
+                                      👑 {t('ordersPage.masterVerified', 'Master Verified:')} {checked}/{total} ({Math.round((checked/total)*100)}%)
+                                    </span>
                                   );
                                 }
                                 return null;
                               })()}
                             </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <span style={{ fontSize: '13px', fontWeight: 600 }}>Update Status:</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                              <span className="ui-eyebrow">{t('ordersPage.updateStatus', 'Update status')}</span>
                               <select
                                 className="form-control"
-                                style={{ fontSize: '13px', padding: '6px 12px', width: '180px', margin: 0 }}
+                                style={{ fontSize: 'var(--text-sm)', padding: '6px 12px', width: '180px', margin: 0 }}
                                 value={order.order_status}
                                 disabled={updatingStatusOrderId === order.id}
                                 onChange={(e) => {
@@ -4723,22 +4632,43 @@ function App() {
                                 }}
                               >
                                 {['Received', 'Confirmed', 'Stylist Review', 'Design & Creation', 'Quality Check', 'Ready for Dispatch', 'Shipped', 'Delivered'].map(status => (
-                                  <option key={status} value={status}>{status}</option>
+                                  <option key={status} value={status}>{t(`status.${status}`, status)}</option>
                                 ))}
                               </select>
                             </div>
                           </div>
 
-                          {/* Horizontal Progress Timeline */}
+                          {/* Key facts strip: the four numbers/people to scan */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                               gap: 'var(--space-4)', padding: 'var(--space-4)', background: 'var(--surface-2)',
+                               borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                            <div>
+                              <div className="ui-eyebrow">{t('ordersPage.supervisingMaster', 'Supervising Master')}</div>
+                              <div style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)', marginTop: '2px', color: order.master_name ? 'var(--accent-text)' : 'var(--text-muted)' }}>{order.master_name || t('ordersPage.unassigned', 'Unassigned')}</div>
+                            </div>
+                            <div>
+                              <div className="ui-eyebrow">{t('ordersPage.stitchingTailor', 'Stitching Tailor')}</div>
+                              <div style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)', marginTop: '2px', color: order.tailor_name ? 'var(--text-primary)' : 'var(--text-muted)' }}>{order.tailor_name || t('ordersPage.unassigned', 'Unassigned')}</div>
+                            </div>
+                            {!isProductionStaff(currentUser.role) && (
+                              <div>
+                                <div className="ui-eyebrow">{t('ordersPage.totalValue', 'Total Value')}</div>
+                                <div className="ui-stat-value" style={{ fontSize: 'var(--text-lg)', marginTop: '2px' }}>{inr(order.total_amount)}</div>
+                              </div>
+                            )}
+                            <div>
+                              <div className="ui-eyebrow">{t('ordersPage.estDelivery', 'Est. Delivery')}</div>
+                              <div style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--weight-semibold)', marginTop: '2px', color: 'var(--text-primary)' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : t('ordersPage.tbd', 'TBD')}</div>
+                            </div>
+                          </div>
+
+                          {/* Production timeline */}
                           <StageTimeline
                             stages={order.stages}
                             onSelectStage={(stage) => openStageReview(order, stage)}
                           />
 
-                          <GarmentGallery
-                            order={order}
-                            onChanged={fetchDashboardAndConfig}
-                          />
+                          <GarmentGallery order={order} onChanged={fetchDashboardAndConfig} />
 
                           <CustomerMessageQueue
                             orderId={order.id}
@@ -4746,70 +4676,18 @@ function App() {
                             onMarkSent={handleMarkMessageSent}
                           />
 
-                          {/* Middle Row: Assignment & Financials */}
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                            gap: '16px',
-                            background: 'rgba(0,0,0,0.015)',
-                            padding: '16px',
-                            borderRadius: '8px',
-                            border: '1px solid var(--border-color)'
-                          }}>
-                            <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Supervising Master</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px', color: 'var(--accent-text, #b07c40)' }}>{order.master_name || 'Unassigned'}</div>
-                            </div>
-                            <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Stitching Tailor</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.tailor_name || 'Unassigned'}</div>
-                            </div>
-                            {/* The same guard the assignment card one screen
-                                earlier already applies to the identical figure.
-                                isProductionStaff includes 'Master', and the
-                                Master's nav routes to this registry -- so the
-                                one screen that was left ungated showed every
-                                order's value to the roles the rule exists to
-                                keep it from. Guarded here rather than by
-                                popping the field from OrderSerializer, which is
-                                also the read path for the invoice modal, the
-                                customer tracking page and the whole registry. */}
-                            {!isProductionStaff(currentUser.role) && (
-                              <div>
-                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Value</span>
-                                <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px', color: 'var(--text-primary)' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
-                              </div>
-                            )}
-                            <div>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Est. Delivery</span>
-                              <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : 'TBD'}</div>
-                            </div>
-                          </div>
-
-                          {/* The gathering checklist: what the store room owes
-                              this order, who had it in hand, and the photos
-                              that ride down the roadmap. */}
-                          <div style={{ padding: '14px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'left' }}>
-                            <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              🧵 Raw Materials Checklist
-                            </h4>
+                          {/* Raw materials checklist */}
+                          <div style={{ padding: 'var(--space-4)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
+                            <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-2)' }}>🧵 Raw materials checklist</div>
                             <MaterialsChecklist orderId={order.id} role={currentUser.role} />
                           </div>
 
-                          {/* Master Verification Checklist in Orders Tab */}
+                          {/* Master verification checklist */}
                           {currentUser.role === 'Master' && (
-                            <div style={{
-                              padding: '16px',
-                              background: 'rgba(212,175,55,0.03)',
-                              border: '1px solid rgba(212,175,55,0.15)',
-                              borderRadius: '8px',
-                              textAlign: 'left'
-                            }}>
-                              <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                👑 Master Production Verification Checklist
-                              </h4>
-                              
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px 16px' }}>
+                            <div style={{ padding: 'var(--space-4)', background: 'var(--accent-color)',
+                                 border: '1px solid var(--accent-border)', borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
+                              <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)', color: 'var(--accent-text)' }}>👑 Master production verification</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-2) var(--space-4)' }}>
                                 {[
                                   { key: 'dress_cutting', label: 'Dress & Pattern Cutting' },
                                   { key: 'thread', label: 'Matching Thread & Accents' },
@@ -4821,17 +4699,14 @@ function App() {
                                 ].map(item => {
                                   const isChecked = order.master_verification?.[item.key] || false;
                                   return (
-                                    <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                                    <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', cursor: 'pointer' }}>
                                       <input
                                         type="checkbox"
                                         checked={isChecked}
                                         disabled={savingVerificationOrderId === order.id}
                                         onChange={async (e) => {
                                           if (savingVerificationOrderId) return;
-                                          const updatedVerification = {
-                                            ...(order.master_verification || {}),
-                                            [item.key]: e.target.checked
-                                          };
+                                          const updatedVerification = { ...(order.master_verification || {}), [item.key]: e.target.checked };
                                           setSavingVerificationOrderId(order.id);
                                           try {
                                             await api.saveMasterVerification(order.id, updatedVerification);
@@ -4853,21 +4728,14 @@ function App() {
                             </div>
                           )}
 
-                          {/* Bottom Row: Delivery details */}
-                          <div style={{
-                            background: 'rgba(0,0,0,0.01)',
-                            border: '1px dashed var(--border-color)',
-                            borderRadius: '8px',
-                            padding: '16px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px'
-                          }}>
-                            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              Delivery Method: {order.delivery_method}
+                          {/* Delivery */}
+                          <div style={{ background: 'var(--surface-2)', border: '1px dashed var(--border-strong)',
+                               borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)' }}>
+                              {t('ordersPage.deliveryMethodLabel', 'Delivery Method:')} {order.delivery_method_display || t(`deliveryMethod.${order.delivery_method}`, order.delivery_method)}
                             </div>
                             {order.delivery_method === 'Courier' && (
-                              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                                 <div><strong>Courier Service Provider:</strong> {order.courier_service || 'TBD'}</div>
                                 <div><strong>Tracking Reference:</strong> {order.tracking_number || 'TBD'}</div>
                                 <div style={{ gridColumn: 'span 2', marginTop: '4px' }}>
@@ -4877,42 +4745,24 @@ function App() {
                             )}
                           </div>
 
-                          {/* Tailor Stitching Completion details */}
+                          {/* Tailor completion report */}
                           {(order.tailor_comments || order.completed_garment_image) && (
-                            <div style={{
-                              background: 'rgba(212,175,55,0.02)',
-                              border: '1px solid rgba(212,175,55,0.15)',
-                              borderRadius: '8px',
-                              padding: '16px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '10px'
-                            }}>
-                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Scissors size={14} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                                <span>Stitching Completion Report (Tailor Feedback)</span>
+                            <div style={{ background: 'var(--accent-color)', border: '1px solid var(--accent-border)',
+                                 borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                              <div className="ui-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--accent-text)' }}>
+                                <Scissors size={13} /> Stitching completion report
                               </div>
                               {order.tailor_comments && (
-                                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
+                                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
                                   "{order.tailor_comments}"
                                 </p>
                               )}
                               {order.completed_garment_image && (
                                 <div style={{ marginTop: '4px' }}>
-                                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Garment Photo:</span>
+                                  <span className="ui-eyebrow" style={{ display: 'block', marginBottom: '6px' }}>Garment photo</span>
                                   <a href={order.completed_garment_image} target="_blank" rel="noreferrer">
-                                    <img 
-                                      src={order.completed_garment_image} 
-                                      alt="Completed Garment" 
-                                      style={{
-                                        width: '100px',
-                                        height: '100px',
-                                        objectFit: 'cover',
-                                        borderRadius: '6px',
-                                        border: '1px solid var(--border-color)',
-                                        cursor: 'pointer'
-                                      }} 
-                                    />
+                                    <img src={order.completed_garment_image} alt="Completed Garment"
+                                      style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', cursor: 'pointer' }} />
                                   </a>
                                 </div>
                               )}
@@ -4922,6 +4772,7 @@ function App() {
                       ));
                     })()}
                   </div>
+                  )}
                 </div>
               </>
             )}
@@ -4929,844 +4780,452 @@ function App() {
             {/* 5. CUSTOMERS TAB */}
             {dashboardTab === 'customers' && !selectedDirectoryCustomer && (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Customer Directory
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>View client profiles, style files, and body measurements.</p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right">
-                    <div className="search-input-wrapper" style={{ margin: 0 }}>
-                      <Search size={18} />
-                      <input 
-                        type="text" 
-                        placeholder="Search customers..." 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="form-control"
-                        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
-                      />
-                    </div>
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                <PageHeader
+                  title={t('customersPage.title')}
+                  subtitle={t('customersPage.subtitle')}
+                  aside={(
+                    <>
+                      <SearchBox value={searchQuery} onChange={setSearchQuery} placeholder={t('customersPage.searchPlaceholder')} />
+                      <div className="user-profile-widget">
+                        <div className="user-avatar-circle">
+                          <UserAvatar user={currentUser} />
+                        </div>
+                        <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
-                    </div>
-                  </div>
-                </header>
-
-                {/* Customer Type Filters */}
-                <div style={{ display: 'flex', gap: '12px', marginTop: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                  {['All', 'Women', 'Men', 'Kids'].map(type => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setCustomerTypeFilter(type)}
-                      style={{
-                        padding: '8px 16px',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        borderRadius: '6px',
-                        border: '1px solid',
-                        borderColor: customerTypeFilter === type ? 'var(--accent-text, #b07c40)' : 'var(--border-color)',
-                        background: customerTypeFilter === type ? 'var(--accent-color, #fcf6ee)' : 'transparent',
-                        color: customerTypeFilter === type ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      {type}
+                    </>
+                  )}
+                  actions={(!currentUser?.role || currentUser.role === 'Owner') && (
+                    <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={handleStartNewCustomer}>
+                      <Plus size={16} /> Add Customer
                     </button>
-                  ))}
-                </div>
+                  )}
+                />
 
-                <div className="customers-list-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {(() => {
+                  const now = new Date();
+                  const thisMonth = customersList.filter(c => {
+                    const d = new Date(c.created_at);
+                    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+                  }).length;
+                  const vip = customersList.filter(c => c.segment === 'VIP').length;
+                  const withOrders = customersList.filter(c => (c.order_count ?? c.orders?.length ?? 0) > 0).length;
+                  const typeCount = (type) => type === 'All'
+                    ? customersList.length
+                    : customersList.filter(c => (c.customer_type || '').toLowerCase() === type.toLowerCase()).length;
+                  return (
+                    <>
+                      <section className="at-stat-grid">
+                        <StatCard icon={Users} tone="green" label="Total Customers" value={customersList.length}
+                                  sub={`${withOrders} have ordered`} />
+                        <StatCard icon={Crown} tone="amber" label="VIP Customers" value={vip} sub="by spend and orders" />
+                        <StatCard icon={CalendarDays} tone="violet" label="New This Month" value={thisMonth} sub="registered" />
+                        <StatCard icon={ShoppingBag} tone="blue" label="With Orders" value={withOrders} sub="at least one order" />
+                      </section>
+                      <div className="at-toolbar">
+                        <Chips value={customerTypeFilter} onChange={setCustomerTypeFilter} options={[
+                          { key: 'All', label: t('customersPage.filterAll'), count: typeCount('All') },
+                          { key: 'Women', label: t('customersPage.filterWomen'), count: typeCount('Women') },
+                          { key: 'Men', label: t('customersPage.filterMen'), count: typeCount('Men') },
+                          { key: 'Kids', label: t('customersPage.filterKids'), count: typeCount('Kids') },
+                        ]} />
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                          Showing {directoryCustomers.length} of {customersList.length}
+                        </span>
+                      </div>
+                    </>
+                  );
+                })()}
+
+                <div className="customers-list-container at-stack">
                   {loading && customersList.length === 0 ? (
-                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Loading customer directory…</span>
+                    <div className="ui-card" style={{ padding: '48px', textAlign: 'center' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>{t('common.loading')}</span>
                     </div>
                   ) : loadErrors.includes('customers') ? (
-                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(127,29,29,0.15)', borderRadius: '12px', border: '1px solid rgba(220,38,38,0.3)' }}>
-                      <div style={{ color: '#fca5a5', marginBottom: '12px' }}>Could not load the customer directory.</div>
+                    <div style={{ padding: '48px', textAlign: 'center', background: 'var(--danger-bg)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--danger-color)' }}>
+                      <div style={{ color: 'var(--danger-color)', marginBottom: '12px' }}>Could not load the customer directory.</div>
                       <button type="button" className="btn-secondary" onClick={() => fetchDashboardAndConfig()}>Retry</button>
                     </div>
                   ) : directoryCustomers.length === 0 ? (
-                    <div style={{ padding: '48px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div className="ui-card" style={{ padding: '48px', textAlign: 'center' }}>
                       {customersList.length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                          <div style={{ fontWeight: 600 }}>No customers yet</div>
-                          <div style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '44ch', lineHeight: 1.5 }}>
+                          <div style={{ fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)' }}>{t('customersPage.noCustomersYet')}</div>
+                          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', maxWidth: '44ch', lineHeight: 'var(--leading-normal)' }}>
                             Everyone you take an order for is kept here, with their measurements, past orders and preferences.
                           </div>
                           <button className="btn-primary" onClick={handleStartNewCustomer}>
-                            Add your first customer
+                            {t('customersPage.addFirstCustomer')}
                           </button>
                         </div>
                       ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>No customers found matching current filters</span>
+                        <span style={{ color: 'var(--text-muted)' }}>{t('customersPage.noMatchingCustomers')}</span>
                       )}
                     </div>
                   ) : (
-                    directoryCustomers.map(cust => (
-                      <div key={cust.id} className="customer-detail-card responsive-customer-card" style={{
-                        background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                        border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                        borderRadius: '12px',
-                        padding: '24px'
-                      }}>
-                        {/* Profile Info */}
-                        <div 
-                          style={{ display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer' }}
-                          onClick={() => openDirectoryCustomer(cust)}
-                        >
-                          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                            <div className="user-avatar-circle" style={{ width: '56px', height: '56px' }}>
-                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cust.first_name)}`} alt="Profile" />
-                            </div>
-                            <div>
-                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                 <h4 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{cust.first_name} {cust.last_name}</h4>
-                                 <span style={{
-                                   fontSize: '9px',
-                                   fontWeight: 700,
-                                   padding: '2px 6px',
-                                   borderRadius: '4px',
-                                   background: cust.segment === 'VIP' ? 'rgba(212, 175, 55, 0.15)' : cust.segment === 'HVC' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(156, 163, 175, 0.15)',
-                                   color: cust.segment === 'VIP' ? '#d4af37' : cust.segment === 'HVC' ? '#a855f7' : '#9ca3af',
-                                   border: cust.segment === 'VIP' ? '1px solid rgba(212, 175, 55, 0.3)' : cust.segment === 'HVC' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)',
-                                   textTransform: 'uppercase'
-                                 }}>
-                                   {cust.segment}
-                                 </span>
-                               </div>
-                               <span style={{ fontSize: '12px', color: 'var(--accent-text, #b07c40)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>{cust.customer_type}</span>
-                             </div>
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                            <div>📞 {formatMobile(cust.mobile_number)}</div>
-                            {cust.email_address && <div>✉️ {cust.email_address}</div>}
-                            {cust.address && <div>📍 {cust.address}, {cust.city_region}</div>}
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Registered: {fmtDate(cust.created_at)}</div>
-                          </div>
-                        </div>
-
-                        {/* Measurements */}
-                        <div style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', paddingLeft: '24px' }}>
-                          <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Body Measurements</h5>
-                          {cust.measurements ? (
-                            <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '13px' }}>
-                              {(() => {
-                                const parts = cust.measurements.additional_measurements?.stitch_parts || [];
-                                const visible = getVisibleMeasurementFields(parts);
-                                return (
-                                  <>
-                                    {visible.includes('bust') && <div>Bust: <span style={{ fontWeight: 600 }}>{cust.measurements.bust || '—'} in</span></div>}
-                                    {visible.includes('waist') && <div>Waist: <span style={{ fontWeight: 600 }}>{cust.measurements.waist || '—'} in</span></div>}
-                                    {visible.includes('hips') && <div>Hips: <span style={{ fontWeight: 600 }}>{cust.measurements.hips || '—'} in</span></div>}
-                                    {visible.includes('shoulder') && <div>Shoulder: <span style={{ fontWeight: 600 }}>{cust.measurements.shoulder || '—'} in</span></div>}
-                                    {visible.includes('arm_length') && <div>Arm: <span style={{ fontWeight: 600 }}>{cust.measurements.arm_length || '—'} in</span></div>}
-                                    {visible.includes('neck') && <div>Neck: <span style={{ fontWeight: 600 }}>{cust.measurements.neck || '—'} in</span></div>}
-                                    {visible.includes('length') && <div>Length: <span style={{ fontWeight: 600 }}>{cust.measurements.length || '—'} in</span></div>}
-                                  </>
-                                );
-                              })()}
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No size measurements logged yet.</span>
-                          )}
-                        </div>
-
-                        {/* Preferences */}
-                        <div style={{ borderLeft: '1px solid rgba(255,255,255,0.05)', paddingLeft: '24px' }}>
-                          <h5 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Bespoke Profile</h5>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '12px' }}>
-                            <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Garment: {cust.garment_type}{cust.measurements?.additional_measurements?.stitch_parts?.length > 0 ? ` (${cust.measurements.additional_measurements.stitch_parts.join(', ')})` : ''}</span>
-                            {cust.neckline_style && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Neck: {cust.neckline_style}</span>}
-                            {cust.sleeve_style && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Sleeve: {cust.sleeve_style}</span>}
-                            {cust.silhouette && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Silhouette: {cust.silhouette}</span>}
-                            {cust.occasion && <span style={{ background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '4px' }}>Occasion: {cust.occasion}</span>}
-                          </div>
-                          {cust.custom_requirements && (
-                            <div style={{ marginTop: '12px' }}>
-                              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Special Requests:</span>
-                              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0 0', lineHeight: 1.4 }}>{cust.custom_requirements}</p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Style DNA Expand Button */}
-                        <div style={{ gridColumn: 'span 3', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Sparkles size={16} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>AI Customer Intelligence has analyzed {cust.order_count ?? cust.orders?.length ?? 0} order(s) and preferences.</span>
-                          </div>
-                          <button 
-                            onClick={() => setExpandedDna(prev => ({ ...prev, [cust.id]: !prev[cust.id] }))}
-                            style={{
-                              padding: '8px 16px',
-                              fontSize: '12px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              border: '1px solid var(--accent-text, #b07c40)',
-                              color: 'var(--accent-text, #b07c40)',
-                              background: expandedDna[cust.id] ? 'var(--accent-color, #fcf6ee)' : 'transparent',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              fontWeight: '600',
-                              transition: 'all 0.2s ease'
-                            }}
+                    directoryCustomers.map(cust => {
+                      const m = cust.measurements;
+                      const parts = m?.additional_measurements?.stitch_parts || [];
+                      const visible = m ? getVisibleMeasurementFields(parts) : [];
+                      const FIELDS = [['bust', 'Bust'], ['waist', 'Waist'], ['hips', 'Hips'], ['shoulder', 'Shoulder'],
+                                      ['arm_length', 'Arm'], ['neck', 'Neck'], ['length', 'Length']];
+                      const shown = FIELDS.filter(([k]) => visible.includes(k)).slice(0, 4);
+                      const tags = [
+                        `${cust.garment_type || ''}${parts.length ? ` (${parts.join(', ')})` : ''}`.trim(),
+                        cust.neckline_style && `Neck: ${cust.neckline_style}`,
+                        cust.sleeve_style && `Sleeve: ${cust.sleeve_style}`,
+                        cust.silhouette && `Silhouette: ${cust.silhouette}`,
+                        cust.occasion && `${t('customersPage.occasion')} ${cust.occasion}`,
+                      ].filter(Boolean);
+                      const open = () => openDirectoryCustomer(cust);
+                      const orders = cust.order_count ?? cust.orders?.length ?? 0;
+                      return (
+                        <div key={cust.id} className="ui-card" style={{ padding: 0 }}>
+                          <div
+                            className="at-customer"
+                            role="button"
+                            tabIndex={0}
+                            onClick={open}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
                           >
-                            <Sparkles size={14} />
-                            {expandedDna[cust.id] ? 'Hide Style DNA' : 'View Style DNA'}
-                          </button>
-                        </div>
-
-                        {/* Expandable Style DNA Section */}
-                        {expandedDna[cust.id] && (
-                          <div style={{
-                            gridColumn: 'span 3',
-                            background: '#0d0d0d',
-                            border: '1px solid rgba(212, 175, 55, 0.25)',
-                            borderRadius: '8px',
-                            padding: '24px',
-                            marginTop: '12px',
-                            display: 'flex',
-                            justifyContent: 'center'
-                          }}>
-                            {/* Left Column: Priya's Style Profile (Mockup Left Card) */}
-                            <div style={{
-                              background: '#141414',
-                              borderRadius: '8px',
-                              border: '1px solid rgba(255, 255, 255, 0.05)',
-                              overflow: 'hidden',
-                              width: '100%',
-                              maxWidth: '550px'
-                            }}>
-                              {/* Title Header */}
-                              <div style={{
-                                background: '#e05a10',
-                                padding: '12px 20px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px'
-                              }}>
-                                <User size={18} style={{ color: '#fff' }} />
-                                <span style={{
-                                  color: '#fff',
-                                  fontWeight: 700,
-                                  fontSize: '14px',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '1px'
-                                }}>
-                                  {cust.first_name}'s Style Profile
-                                </span>
-                              </div>
-                              
-                              {/* Details Table */}
-                              <div style={{ padding: '8px 20px' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                                  <tbody>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600, width: '40%' }}>BUDGET</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.budget}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>COLORS</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>
-                                        {cust.style_dna?.colors.split(' ').map((word, idx) => {
-                                          if (word.includes('%')) return <span key={idx} style={{ color: 'var(--text-muted)', marginRight: '12px', fontWeight: 400 }}>{word} </span>;
-                                          // Color highlights
-                                          let color = '#fff';
-                                          if (word.toLowerCase().includes('blue')) color = '#60a5fa';
-                                          else if (word.toLowerCase().includes('green')) color = '#34d399';
-                                          else if (word.toLowerCase().includes('red') || word.toLowerCase().includes('maroon')) color = '#f87171';
-                                          else if (word.toLowerCase().includes('gold')) color = '#fbbf24';
-                                          else if (word.toLowerCase().includes('rose')) color = '#f472b6';
-                                          else if (word.toLowerCase().includes('ivory') || word.toLowerCase().includes('white')) color = '#f3f4f6';
-                                          else if (word.toLowerCase().includes('black') || word.toLowerCase().includes('charcoal')) color = '#9ca3af';
-                                          return <span key={idx} style={{ color }}>{word} </span>;
-                                        })}
-                                      </td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>STYLE</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.style}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>SIZE</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.size}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>VISIT PATTERN</td>
-                                      <td style={{ padding: '12px 0', color: '#fff', fontWeight: 600 }}>{cust.style_dna?.visit_pattern}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>RISK STATUS</td>
-                                      <td style={{ padding: '12px 0', fontWeight: 600, color: cust.style_dna?.risk_level === 'danger' ? '#f87171' : cust.style_dna?.risk_level === 'warning' ? '#fbbf24' : '#34d399' }}>
-                                        {cust.style_dna?.risk_status.includes('Active') ? '🟢 ' : '⚠️ '}
-                                        {cust.style_dna?.risk_status}
-                                      </td>
-                                    </tr>
-                                    <tr>
-                                      <td style={{ padding: '12px 0', color: 'var(--text-muted)', fontWeight: 600 }}>NEXT ACTION</td>
-                                      <td style={{ padding: '12px 0', color: 'var(--accent-text, #b07c40)', fontWeight: 600 }}>"{cust.style_dna?.next_action}"</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                                
-                                <div style={{
-                                  padding: '12px 0 16px 0',
-                                  fontSize: '11px',
-                                  color: 'var(--text-muted)',
-                                  fontStyle: 'italic',
-                                  borderTop: '1px solid rgba(255,255,255,0.05)',
-                                  marginTop: '8px'
-                                }}>
-                                  This is NOT manual entry. AI reads your sales data automatically.
+                            <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', minWidth: 0 }}>
+                              <AvatarInitials name={`${cust.first_name} ${cust.last_name}`} size={48} />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                    {cust.first_name} {cust.last_name}
+                                  </span>
+                                  <SegmentBadge segment={cust.segment} />
+                                </div>
+                                <div className="ui-eyebrow" style={{ color: 'var(--accent-text)', marginTop: '2px' }}>{cust.customer_type}</div>
+                                <div className="at-contact">
+                                  <span><Phone size={12} /> {formatMobile(cust.mobile_number)}</span>
+                                  {cust.email_address && <span><Mail size={12} /> {cust.email_address}</span>}
+                                  {(cust.city_region || cust.address) && <span><MapPin size={12} /> {cust.city_region || cust.address}</span>}
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
 
-                    ))
+                            <div className="at-customer-cell">
+                              <div className="ui-eyebrow">{t('customersPage.bodyMeasurements')}</div>
+                              {m && shown.length > 0 ? (
+                                <div className="at-measure-grid">
+                                  {shown.map(([k, label]) => (
+                                    <div key={k}>
+                                      <div className="at-measure-label">{label}</div>
+                                      <div className="at-measure-value">{m[k] || '—'}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>No size measurements logged yet.</span>
+                              )}
+                            </div>
+
+                            <div className="at-customer-cell">
+                              <div className="ui-eyebrow">{t('customersPage.bespokeProfile')}</div>
+                              <div className="at-tags">
+                                {tags.map(tag => <span key={tag} className="at-tag">{tag}</span>)}
+                              </div>
+                              {cust.custom_requirements && (
+                                <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.4 }}>
+                                  {cust.custom_requirements}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="at-customer-cell">
+                              <div className="ui-eyebrow">Orders</div>
+                              <div style={{ fontSize: 'var(--text-md)', fontWeight: 700, color: 'var(--text-primary)' }}>{orders}</div>
+                              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                                {inr(cust.total_spend)} spent · {t('customersPage.registered')} {fmtDate(cust.created_at)}
+                              </div>
+                              <button
+                                type="button"
+                                className="at-link"
+                                style={{ marginTop: '6px', fontSize: 'var(--text-xs)', color: 'var(--accent-text)' }}
+                                onClick={(e) => { e.stopPropagation(); setExpandedDna(prev => ({ ...prev, [cust.id]: !prev[cust.id] })); }}
+                              >
+                                <Sparkles size={12} /> {expandedDna[cust.id] ? t('common.cancel') : t('customersPage.viewStyleDna')}
+                              </button>
+                            </div>
+
+                            <ChevronRight className="at-customer-chevron" size={18} style={{ color: 'var(--text-muted)' }} />
+                          </div>
+
+                          {expandedDna[cust.id] && (
+                            <div style={{ borderTop: '1px solid var(--border-color)', padding: 'var(--space-4) var(--space-5)', display: 'flex', justifyContent: 'center' }}>
+                              <div style={{ width: '100%', maxWidth: '550px' }}>
+                                <StyleProfileCard customer={cust} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </>
             )}
 
             {/* 5b. CUSTOMER DETAIL VIEW (Image 5/6 extension) */}
-            {dashboardTab === 'customers' && selectedDirectoryCustomer && (
-              <div className="customer-detail-view-container" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                {/* Back Navigation & Main Header */}
-                <div className="customer-detail-header-row">
-                  <button 
-                    onClick={() => setSelectedDirectoryCustomer(null)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--accent-text, #b07c40)',
-                      fontSize: '14px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: 0
-                    }}
-                  >
+            {dashboardTab === 'customers' && selectedDirectoryCustomer && (() => {
+              const c = selectedDirectoryCustomer;
+              const isOwner = !currentUser?.role || currentUser.role === 'Owner';
+              const parts = c.measurements?.additional_measurements?.stitch_parts || [];
+              const visible = c.measurements ? getVisibleMeasurementFields(parts) : [];
+              const FIELDS = [['bust', 'Bust'], ['waist', 'Waist'], ['hips', 'Hips'], ['shoulder', 'Shoulder'],
+                              ['arm_length', 'Arm Length'], ['neck', 'Neck'], ['length', 'Length']];
+              const shown = FIELDS.filter(([k]) => visible.includes(k));
+              const orders = c.orders || [];
+              const orderCount = c.order_count ?? orders.length;
+              // Both routes land in the order wizard, whose first step PATCHes
+              // the customer, and RolePermission refuses partial_update for
+              // anyone but the Owner -- so the buttons are the owner's.
+              const goExisting = () => {
+                setCustomerId(c.id);
+                setCustomerForm({
+                  ...DEFAULT_CUSTOMER_DATA,
+                  ...c,
+                  measurements: c.measurements || DEFAULT_CUSTOMER_DATA.measurements
+                });
+                if (c.design_preferences?.length > 0) {
+                  setDesignNotes(c.design_preferences[0].notes || '');
+                }
+                setCurrentStep(3);
+                setView('wizard');
+              };
+              const reorder = (order) => {
+                setCustomerId(c.id);
+                setCustomerForm({
+                  ...DEFAULT_CUSTOMER_DATA,
+                  ...c,
+                  measurements: c.measurements || DEFAULT_CUSTOMER_DATA.measurements
+                });
+                // Garment prices are per garment now and the dresses are
+                // re-added on step 3, so they re-quote there; only the
+                // order-level money carries over.
+                setQuotePrices({ packaging: order.packaging_handling, discount: order.discount || 0 });
+                setCurrentStep(3);
+                setView('wizard');
+              };
+              const statusTone = (st) => st === 'Delivered' ? 'success' : st === 'Cancelled' ? 'neutral' : 'warning';
+              return (
+              <div className="customer-detail-view-container at-stack">
+                <div className="at-toolbar" style={{ margin: 0 }}>
+                  <button type="button" className="at-link" onClick={() => setSelectedDirectoryCustomer(null)}>
                     <ArrowLeft size={16} /> Back to Customer Directory
                   </button>
-
-                  {/* Owner only, the same gate the Orders registry already
-                      puts on the identical button -- and for the reason its
-                      comment there records. Both of these routes land in the
-                      order wizard, whose first step PATCHes the customer, and
-                      RolePermission refuses partial_update for anyone but the
-                      Owner. A Master reached here from the Customers tab (which
-                      their nav includes), filled the form in, and got "Your
-                      role does not permit this" with everything they had typed
-                      thrown away and no route onward. */}
-                  {(!currentUser?.role || currentUser.role === 'Owner') && (
-                  <div className="customer-detail-header-actions">
-                    {/* Flow Option 1: Re-use Existing Design */}
-                    <button 
-                      className="btn-outline" 
-                      onClick={() => {
-                        // Load customer and skip steps straight to design review
-                        setCustomerId(selectedDirectoryCustomer.id);
-                        setCustomerForm({
-                          ...DEFAULT_CUSTOMER_DATA,
-                          ...selectedDirectoryCustomer,
-                          measurements: selectedDirectoryCustomer.measurements || DEFAULT_CUSTOMER_DATA.measurements
-                        });
-                        // Prefill design notes if any
-                        if (selectedDirectoryCustomer.design_preferences?.length > 0) {
-                          setDesignNotes(selectedDirectoryCustomer.design_preferences[0].notes || '');
-                        }
-                        // Set view to wizard, starting at Step 3 (Design Preferences)
-                        setCurrentStep(3);
-                        setView('wizard');
-                      }}
-                      style={{
-                        padding: '10px 18px',
-                        fontSize: '13px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        borderColor: 'var(--accent-text, #b07c40)',
-                        color: 'var(--accent-text, #b07c40)',
-                        cursor: 'pointer',
-                        borderRadius: '6px',
-                        background: 'transparent'
-                      }}
-                    >
-                      <Copy size={16} />
-                      Go with Existing Design
-                    </button>
-
-                    {/* Flow Option 2: Create New Design */}
-                    <button 
-                      className="btn-primary" 
-                      onClick={() => {
-                        handleSelectExistingCustomer(selectedDirectoryCustomer);
-                      }}
-                      style={{
-                        padding: '10px 18px',
-                        fontSize: '13px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        cursor: 'pointer',
-                        borderRadius: '6px'
-                      }}
-                    >
-                      <Sparkles size={16} />
-                      Create New Design
-                    </button>
-                  </div>
+                  {isOwner && (
+                    <div className="at-toolbar-right">
+                      <button className="btn-secondary" style={{ color: 'var(--accent-text)', borderColor: 'var(--accent-border)', background: 'var(--surface-color)' }} onClick={goExisting}>
+                        <Copy size={16} /> Go with Existing Design
+                      </button>
+                      <button className="btn-primary" onClick={() => handleSelectExistingCustomer(c)}>
+                        <Sparkles size={16} /> Create New Design
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                {/* Customer Main Banner */}
-                <div className="customer-detail-banner-card">
-                  <div className="user-avatar-circle" style={{ width: '80px', height: '80px', fontSize: '24px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                    <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(selectedDirectoryCustomer.first_name)}`} alt="Profile" />
+                <div className="ui-card at-profile-head">
+                  <div className="at-profile-id">
+                    <AvatarInitials name={`${c.first_name} ${c.last_name}`} size={96} tone="rose" />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <h2 className="at-page-title" style={{ fontSize: 'var(--text-2xl)' }}>{c.first_name} {c.last_name}</h2>
+                        <SegmentBadge segment={c.segment} />
+                      </div>
+                      <div className="at-page-sub">{c.customer_type}{c.source ? ` · ${c.source}` : ''}</div>
+                      <div className="at-contact" style={{ fontSize: 'var(--text-sm)', marginTop: '12px' }}>
+                        <span><Phone size={14} /> {formatMobile(c.mobile_number)}</span>
+                        {c.email_address && <span><Mail size={14} /> {c.email_address}</span>}
+                        {(c.address || c.city_region) && (
+                          <span><MapPin size={14} /> {[c.address, c.city_region].filter(Boolean).join(', ')}</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                   <div>
-                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '0 0 6px 0' }}>
-                       <h2 style={{ fontSize: '24px', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>
-                         {selectedDirectoryCustomer.first_name} {selectedDirectoryCustomer.last_name}
-                       </h2>
-                       <span style={{
-                         fontSize: '11px',
-                         fontWeight: 700,
-                         padding: '3px 10px',
-                         borderRadius: '12px',
-                         background: selectedDirectoryCustomer.segment === 'VIP' ? 'rgba(212, 175, 55, 0.15)' : selectedDirectoryCustomer.segment === 'HVC' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(156, 163, 175, 0.15)',
-                         color: selectedDirectoryCustomer.segment === 'VIP' ? '#d4af37' : selectedDirectoryCustomer.segment === 'HVC' ? '#a855f7' : '#9ca3af',
-                         border: selectedDirectoryCustomer.segment === 'VIP' ? '1px solid rgba(212, 175, 55, 0.3)' : selectedDirectoryCustomer.segment === 'HVC' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)',
-                         textTransform: 'uppercase'
-                       }}>
-                         {selectedDirectoryCustomer.segment}
-                       </span>
-                     </div>
-                    <div style={{ display: 'flex', gap: '20px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                      <span>📞 {formatMobile(selectedDirectoryCustomer.mobile_number)}</span>
-                      {selectedDirectoryCustomer.email_address && <span>✉️ {selectedDirectoryCustomer.email_address}</span>}
-                      {selectedDirectoryCustomer.address && <span>📍 {selectedDirectoryCustomer.address}, {selectedDirectoryCustomer.city_region}</span>}
+                  <div className="at-profile-stats">
+                    <div className="at-profile-stat">
+                      <IconTile icon={CalendarDays} tone="blue" size={36} iconSize={16} />
+                      <div><div className="at-measure-label">Customer since</div><div className="at-measure-value">{fmtDate(c.created_at)}</div></div>
+                    </div>
+                    <div className="at-profile-stat">
+                      <IconTile icon={ShoppingBag} tone="amber" size={36} iconSize={16} />
+                      <div><div className="at-measure-label">Total orders</div><div className="at-measure-value">{orderCount}</div></div>
+                    </div>
+                    <div className="at-profile-stat">
+                      <IconTile icon={Heart} tone="rose" size={36} iconSize={16} />
+                      <div><div className="at-measure-label">Preference</div><div className="at-measure-value">{c.occasion || c.garment_type || '—'}</div></div>
                     </div>
                   </div>
                 </div>
 
-                {/* Detailed Grid layout */}
                 <div className="responsive-profile-grid">
-                  
-                  {/* Left Column */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    
-                    {/* Measurements & Info */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>Body Measurements & Sizing</span>
-                        {(() => {
-                          const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
-                          return parts.length > 0 && (
-                            <span style={{ fontSize: '12px', background: 'rgba(176,124,64,0.1)', color: 'var(--accent-text, #b07c40)', padding: '4px 10px', borderRadius: '4px', fontWeight: 600 }}>
-                              Stitching: {parts.join(', ')}
-                            </span>
-                          );
-                        })()}
-                      </h3>
-                      {selectedDirectoryCustomer.measurements ? (
+                  <div className="at-stack">
+                    <SectionCard icon={Ruler} tone="amber" title="Body Measurements & Sizing"
+                                 subtitle={parts.length > 0 ? `Stitching: ${parts.join(', ')}` : undefined}>
+                      {c.measurements ? (
                         <>
-                          <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                            {(() => {
-                              const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
-                              const visible = getVisibleMeasurementFields(parts);
-                              return (
-                                <>
-                                  {visible.includes('bust') && <div>Bust: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.bust || '—'} in</span></div>}
-                                  {visible.includes('waist') && <div>Waist: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.waist || '—'} in</span></div>}
-                                  {visible.includes('hips') && <div>Hips: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.hips || '—'} in</span></div>}
-                                  {visible.includes('shoulder') && <div>Shoulder: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.shoulder || '—'} in</span></div>}
-                                  {visible.includes('arm_length') && <div>Arm Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.arm_length || '—'} in</span></div>}
-                                  {visible.includes('neck') && <div>Neck: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.neck || '—'} in</span></div>}
-                                  {visible.includes('length') && <div>Length: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.measurements.length || '—'} in</span></div>}
-                                </>
-                              );
-                            })()}
-                            <div>Occasion Preference: <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedDirectoryCustomer.occasion || '—'}</span></div>
+                          <div className="at-measure-cols">
+                            {shown.map(([k, label]) => (
+                              <div key={k} className="at-measure-row">
+                                <span>{label}</span>
+                                <strong>{c.measurements[k] ? `${c.measurements[k]} in` : '—'}</strong>
+                              </div>
+                            ))}
+                            <div className="at-measure-row">
+                              <span>Occasion Preference</span>
+                              <strong>{c.occasion || '—'}</strong>
+                            </div>
                           </div>
-                          {selectedDirectoryCustomer.measurement_history && selectedDirectoryCustomer.measurement_history.length > 0 && (
-                            <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                              <h4 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent-text, #b07c40)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '0.5px' }}>
-                                <History size={14} /> Sizing Version History
-                              </h4>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
-                                {[...selectedDirectoryCustomer.measurement_history].reverse().map((hist, idx, arr) => {
-                                  const dateStr = new Date(hist.changed_at).toLocaleDateString('en-US', {
-                                    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                                  });
-                                  const parts = selectedDirectoryCustomer.measurements?.additional_measurements?.stitch_parts || [];
-                                  const visible = getVisibleMeasurementFields(parts);
-                                  return (
-                                    <div key={hist.id || idx} style={{
-                                      background: 'rgba(0,0,0,0.015)',
-                                      borderRadius: '8px',
-                                      padding: '12px',
-                                      borderLeft: '3px solid var(--accent-text, #b07c40)',
-                                      fontSize: '12.5px'
-                                    }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: 'var(--text-muted)' }}>
-                                        <span style={{ fontWeight: 600 }}>Version {arr.length - idx}</span>
-                                        <span>{dateStr}</span>
-                                      </div>
-                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', color: 'var(--text-secondary)' }}>
-                                        {visible.includes('bust') && <div>Bust: <strong style={{ color: 'var(--text-primary)' }}>{hist.bust || '—'}</strong></div>}
-                                        {visible.includes('waist') && <div>Waist: <strong style={{ color: 'var(--text-primary)' }}>{hist.waist || '—'}</strong></div>}
-                                        {visible.includes('hips') && <div>Hips: <strong style={{ color: 'var(--text-primary)' }}>{hist.hips || '—'}</strong></div>}
-                                        {visible.includes('shoulder') && <div>Shoulder: <strong style={{ color: 'var(--text-primary)' }}>{hist.shoulder || '—'}</strong></div>}
-                                        {visible.includes('arm_length') && <div>Arm: <strong style={{ color: 'var(--text-primary)' }}>{hist.arm_length || '—'}</strong></div>}
-                                        {visible.includes('neck') && <div>Neck: <strong style={{ color: 'var(--text-primary)' }}>{hist.neck || '—'}</strong></div>}
-                                        {visible.includes('length') && <div>Length: <strong style={{ color: 'var(--text-primary)' }}>{hist.length || '—'}</strong></div>}
-                                      </div>
+                          {c.measurement_history && c.measurement_history.length > 0 && (
+                            <div style={{ marginTop: 'var(--space-4)' }}>
+                              <div className="ui-eyebrow" style={{ color: 'var(--accent-text)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: 'var(--space-3)' }}>
+                                <History size={13} /> Sizing Version History
+                              </div>
+                              <div className="at-stack" style={{ gap: 'var(--space-2)', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
+                                {[...c.measurement_history].reverse().map((hist, idx, arr) => (
+                                  <div key={hist.id || idx} className="at-version">
+                                    <div className="at-version-head">
+                                      <strong style={{ color: 'var(--text-primary)' }}>Version {arr.length - idx}</strong>
+                                      <span style={{ color: 'var(--text-secondary)' }}>{fmtDateTime(hist.changed_at)}</span>
                                     </div>
-                                  );
-                                })}
+                                    <div className="at-version-grid">
+                                      {FIELDS.filter(([k]) => visible.includes(k)).map(([k, label]) => (
+                                        <span key={k}>{label.replace(' Length', '')} <strong>{hist[k] || '—'}</strong></span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           )}
                         </>
                       ) : (
-                        <p style={{ color: 'var(--text-muted)' }}>No measurements saved yet.</p>
+                        <p style={{ color: 'var(--text-muted)', margin: 0 }}>No measurements saved yet.</p>
                       )}
-                    </div>
+                    </SectionCard>
 
-                    {/* Order History */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
-                        Order History
-                      </h3>
-                      {directoryDetailLoading && !selectedDirectoryCustomer.orders ? (
-                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading order history…</p>
-                      ) : !selectedDirectoryCustomer.orders || selectedDirectoryCustomer.orders.length === 0 ? (
-                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No orders have been placed by this customer yet.</p>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {selectedDirectoryCustomer.orders.map(order => {
-                            // The row opens the order's production progress.
-                            // It used to jump straight into the new-order
-                            // wizard, so a client asking "where is my dress?"
-                            // could not be answered from their own profile.
-                            const isOpen = expandedCustomerOrderId === order.id;
-                            const stages = order.stages || [];
-                            const done = stages.filter(s => s.status === 'COMPLETED').length;
-                            const current = stages.find(s => s.status === 'IN_PROGRESS');
-                            return (
-                            <div key={order.id} style={{
-                              background: 'rgba(0,0,0,0.015)',
-                              border: `1px solid ${isOpen ? 'var(--accent-text, #b07c40)' : 'var(--border-color)'}`,
-                              borderRadius: '8px',
-                              padding: '16px'
-                            }}>
-                              <div
-                                onClick={() => setExpandedCustomerOrderId(isOpen ? null : order.id)}
-                                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', gap: '12px' }}
-                              >
-                                <div>
-                                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>Order ID: {order.order_id}</div>
-                                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                    Date: {fmtDate(order.order_date)} | Tailor: {order.tailor_name || 'Not assigned'}
-                                  </div>
-                                  {stages.length > 0 && (
-                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                      Progress: {done}/{stages.length} stages
-                                      {current ? ` · currently ${current.stage_name}` : ''}
-                                    </div>
-                                  )}
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                  <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontWeight: 700, color: 'var(--accent-text, #b07c40)', fontSize: '14px' }}>₹{parseFloat(order.total_amount).toLocaleString()}</div>
-                                    <span style={{
-                                      display: 'inline-block',
-                                      padding: '2px 8px',
-                                      borderRadius: '12px',
-                                      fontSize: '11px',
-                                      marginTop: '4px',
-                                      background: order.order_status === 'Delivered' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(251, 191, 36, 0.15)',
-                                      color: order.order_status === 'Delivered' ? '#34d399' : '#fbbf24'
-                                    }}>
-                                      {order.order_status}
-                                    </span>
-                                  </div>
-                                  <ChevronRight
-                                    size={16}
-                                    style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', color: 'var(--text-muted)' }}
-                                  />
+                    <SectionCard icon={ShoppingBag} tone="amber" title="Order History"
+                                 action={orders.length > 0 ? () => setDashboardTab('orders') : undefined} actionLabel="View All">
+                      {directoryDetailLoading && !c.orders ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>Loading order history…</p>
+                      ) : orders.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>No orders have been placed by this customer yet.</p>
+                      ) : orders.map(order => {
+                        // The row opens the order's production progress, so
+                        // "where is my dress?" is answered from the profile.
+                        const isOpen = expandedCustomerOrderId === order.id;
+                        const stages = order.stages || [];
+                        const done = stages.filter(st => st.status === 'COMPLETED').length;
+                        const current = stages.find(st => st.status === 'IN_PROGRESS');
+                        const toggle = () => setExpandedCustomerOrderId(isOpen ? null : order.id);
+                        return (
+                          <div key={order.id} className={`at-order-row${isOpen ? ' at-order-row--open' : ''}`}>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              className="at-order-row-head"
+                              onClick={toggle}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
+                            >
+                              <div className="at-thumb at-tile--amber">
+                                {order.completed_garment_image ? <img src={order.completed_garment_image} alt="" /> : <Shirt size={18} />}
+                              </div>
+                              <div className="at-row-main">
+                                <div className="at-row-title">Order {orderRef(order)}</div>
+                                <div className="at-row-sub">
+                                  {order.garment_label || orderGarmentLabel(order)} · {order.tailor_name || 'Tailor not assigned'}
+                                  {stages.length > 0 ? ` · ${done}/${stages.length} stages${current ? ` · ${current.stage_name}` : ''}` : ''}
                                 </div>
                               </div>
-
-                              {isOpen && (
-                                <div style={{ marginTop: '16px', borderTop: '1px dashed var(--border-color)', paddingTop: '12px' }}>
-                                  <StageTimeline
-                                    stages={stages}
-                                    onSelectStage={(stage) => openStageReview(order, stage)}
-                                  />
-
-                                  {stages.length > 0 && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '8px', marginTop: '12px' }}>
-                                      {stages.map(stage => (
-                                        <div key={stage.stage_key} style={{
-                                          fontSize: '11px',
-                                          padding: '8px 10px',
-                                          borderRadius: '6px',
-                                          background: 'var(--surface-color)',
-                                          border: '1px solid var(--border-color)'
-                                        }}>
-                                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{stage.stage_name}</div>
-                                          <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
-                                            {stage.status.replace('_', ' ').toLowerCase()}
-                                            {stage.assigned_to_name ? ` · ${stage.assigned_to_name}` : ''}
-                                          </div>
-                                          {stage.completed_at && (
-                                            <div style={{ color: 'var(--text-muted)' }}>
-                                              {fmtDate(stage.completed_at)}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12px', color: 'var(--text-muted)', marginTop: '12px' }}>
-                                    <span>Payment: <strong style={{ color: 'var(--text-primary)' }}>{order.payment_status}</strong></span>
-                                    <span>Delivery: <strong style={{ color: 'var(--text-primary)' }}>{order.delivery_method}</strong></span>
-                                    {order.estimated_delivery && (
-                                      <span>Expected: <strong style={{ color: 'var(--text-primary)' }}>{fmtDate(order.estimated_delivery)}</strong></span>
-                                    )}
-                                  </div>
-
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setCustomerId(selectedDirectoryCustomer.id);
-                                      setCustomerForm({
-                                        ...DEFAULT_CUSTOMER_DATA,
-                                        ...selectedDirectoryCustomer,
-                                        measurements: selectedDirectoryCustomer.measurements || DEFAULT_CUSTOMER_DATA.measurements
-                                      });
-                                      // Garment prices are per garment now and
-                                      // the dresses are re-added on step 3, so
-                                      // they re-quote there; only the order-level
-                                      // money carries over.
-                                      setQuotePrices({
-                                        packaging: order.packaging_handling,
-                                        discount: order.discount || 0,
-                                      });
-                                      setCurrentStep(3);
-                                      setView('wizard');
-                                    }}
-                                    style={{
-                                      background: 'rgba(212, 175, 55, 0.1)',
-                                      border: '1px solid rgba(212, 175, 55, 0.3)',
-                                      color: 'var(--accent-text, #b07c40)',
-                                      borderRadius: '6px',
-                                      padding: '6px 12px',
-                                      fontSize: '11px',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      marginTop: '12px'
-                                    }}
-                                  >
-                                    <Copy size={12} />
-                                    Reorder Style
-                                  </button>
-                                </div>
-                              )}
+                              <span className={`ui-badge ui-badge--${statusTone(order.order_status)}`}>{order.order_status}</span>
+                              <span className="at-row-sub" style={{ whiteSpace: 'nowrap' }}>{fmtDate(order.order_date)}</span>
+                              <strong className="at-num" style={{ color: 'var(--accent-text)' }}>{inr(order.total_amount)}</strong>
+                              <ChevronRight size={16} style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', color: 'var(--text-muted)' }} />
                             </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
 
+                            {isOpen && (
+                              <div className="at-order-row-body">
+                                <StageTimeline
+                                  stages={stages}
+                                  onSelectStage={(stage) => openStageReview(order, stage)}
+                                />
+                                {stages.length > 0 && (
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '8px', marginTop: '12px' }}>
+                                    {stages.map(stage => (
+                                      <div key={stage.stage_key} style={{ fontSize: 'var(--text-2xs)', padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-color)' }}>
+                                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{stage.stage_name}</div>
+                                        <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>
+                                          {stage.status.replace('_', ' ').toLowerCase()}
+                                          {stage.assigned_to_name ? ` · ${stage.assigned_to_name}` : ''}
+                                        </div>
+                                        {stage.completed_at && <div style={{ color: 'var(--text-muted)' }}>{fmtDate(stage.completed_at)}</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: '12px' }}>
+                                  <span>Payment: <strong style={{ color: 'var(--text-primary)' }}>{order.payment_status}</strong></span>
+                                  <span>Delivery: <strong style={{ color: 'var(--text-primary)' }}>{order.delivery_method}</strong></span>
+                                  {order.estimated_delivery && (
+                                    <span>Expected: <strong style={{ color: 'var(--text-primary)' }}>{fmtDate(order.estimated_delivery)}</strong></span>
+                                  )}
+                                </div>
+                                {isOwner && (
+                                  <button type="button" className="btn-secondary at-btn-sm"
+                                          style={{ marginTop: '12px', color: 'var(--accent-text)', borderColor: 'var(--accent-border)', background: 'var(--accent-color)' }}
+                                          onClick={(e) => { e.stopPropagation(); reorder(order); }}>
+                                    <Copy size={12} /> Reorder Style
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </SectionCard>
                   </div>
 
-                  {/* Right Column */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    
-                    {/* Style Profile Card */}
-                    <div style={{
-                      background: '#141414',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      color: '#ffffff',
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
-                    }}>
-                      {/* Header */}
-                      <div style={{
-                        background: '#d35400',
-                        backgroundImage: 'linear-gradient(135deg, #d35400, #e67e22)',
-                        padding: '16px 20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}>
-                        <User size={16} style={{ color: '#fff' }} />
-                        <span style={{
-                          fontWeight: 700,
-                          fontSize: '13px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                          color: '#fff'
-                        }}>
-                          {selectedDirectoryCustomer.first_name}'S STYLE PROFILE
-                        </span>
-                      </div>
+                  <div className="at-stack">
+                    <StyleProfileCard customer={c} />
 
-                      {/* Content Rows */}
-                      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>BUDGET</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.budget || '₹26,250 (premium designer)'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>COLORS</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.colors || 'Charcoal Black 90% | Silver 10%'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>STYLE</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.style || 'Contemporary 80% | Traditional 20%'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>SIZE</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.size || 'S (consistent)'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>VISIT PATTERN</span>
-                          <strong style={{ color: '#fff' }}>{selectedDirectoryCustomer.style_dna?.visit_pattern || 'Every 15-30 days'}</strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>RISK STATUS</span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
-                            <span style={{
-                              width: '8px',
-                              height: '8px',
-                              borderRadius: '50%',
-                              backgroundColor: selectedDirectoryCustomer.style_dna?.risk_level === 'danger' ? '#ff7675' : '#55efc4',
-                              display: 'inline-block'
-                            }} />
-                            <span style={{ color: selectedDirectoryCustomer.style_dna?.risk_level === 'danger' ? '#ff7675' : '#55efc4' }}>
-                              {selectedDirectoryCustomer.style_dna?.risk_status || 'Active — Last visit 0 days ago'}
-                            </span>
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>NEXT ACTION</span>
-                          <strong style={{ color: '#fff' }}>"{selectedDirectoryCustomer.style_dna?.next_action || 'Share seasonal lookbook'}"</strong>
-                        </div>
-
-                        {/* Footer Disclaimer */}
-                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', marginTop: '4px', textAlign: 'left' }}>
-                          This is NOT manual entry. AI reads your sales data automatically.
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Saved Designs Gallery */}
-                    <div style={{
-                      background: 'var(--surface-color)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '24px'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', color: 'var(--text-primary)' }}>
-                        Saved Designs & Inspiration
-                      </h3>
-                      {!selectedDirectoryCustomer.design_preferences || selectedDirectoryCustomer.design_preferences.length === 0 ? (
-                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No saved designs or reference images.</p>
+                    <SectionCard icon={ImageIcon} tone="green" title="Saved Designs & Inspiration">
+                      {!c.design_preferences || c.design_preferences.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>No saved designs or reference images.</p>
                       ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {selectedDirectoryCustomer.design_preferences.map((pref, i) => (
-                            <div key={pref.id || i} style={{
-                              border: pref.is_approved ? '1px solid rgba(16,185,129,0.5)' : '1px solid var(--border-color)',
-                              borderRadius: '8px',
-                              padding: '14px'
-                            }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                        <div className="at-stack">
+                          {c.design_preferences.map((pref, i) => (
+                            <div key={pref.id || i} className="at-form-section" style={{ borderColor: pref.is_approved ? 'var(--success-color)' : undefined, gap: 'var(--space-3)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-                                    {pref.source_display || 'Boutique catalogue'}
-                                  </span>
-                                  {pref.is_approved && (
-                                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
-                                      APPROVED FOR PRODUCTION
-                                    </span>
-                                  )}
+                                  <span className="ui-eyebrow">{pref.source_display || 'Boutique catalogue'}</span>
+                                  {pref.is_approved && <span className="ui-badge ui-badge--success">Approved for production</span>}
                                 </div>
                                 {!pref.is_approved && pref.id && (
-                                  <button
-                                    type="button"
-                                    className="btn-secondary"
-                                    style={{ fontSize: '12px', padding: '5px 12px' }}
-                                    disabled={approvingDesignId === pref.id}
-                                    onClick={() => handleApproveDesign(pref.id, pref.reference_images?.[0])}
-                                  >
+                                  <button type="button" className="btn-secondary at-btn-sm"
+                                          disabled={approvingDesignId === pref.id}
+                                          onClick={() => handleApproveDesign(pref.id, pref.reference_images?.[0])}>
                                     {approvingDesignId === pref.id ? 'Approving…' : 'Approve for production'}
                                   </button>
                                 )}
                               </div>
-
-                              {pref.notes && (
-                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px 0' }}>{pref.notes}</p>
-                              )}
-
+                              {pref.notes && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0 }}>{pref.notes}</p>}
                               {pref.reference_images?.length > 0 && (
-                                <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                <div className="at-photos">
                                   {pref.reference_images.map((url, j) => (
-                                    <div key={`${i}-${j}`} style={{
-                                      borderRadius: '6px',
-                                      overflow: 'hidden',
-                                      height: '120px',
-                                      border: pref.approved_image === url ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)'
-                                    }}>
-                                      <img src={url} alt="Design Ref" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                    </div>
+                                    <span key={`${i}-${j}`} className="at-photo" style={{ width: 96, height: 120, borderColor: pref.approved_image === url ? 'var(--success-color)' : undefined, borderWidth: pref.approved_image === url ? 2 : 1 }}>
+                                      <img src={url} alt="Design reference" />
+                                    </span>
                                   ))}
                                 </div>
                               )}
-
                               {pref.reference_links?.length > 0 && (
-                                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                                   {pref.reference_links.map((link, j) => (
-                                    <a key={j} href={link} target="_blank" rel="noreferrer"
-                                       style={{ fontSize: '11px', color: 'var(--accent-text, #b07c40)', wordBreak: 'break-all' }}>
+                                    <a key={j} href={link} target="_blank" rel="noreferrer" className="at-link" style={{ fontSize: 'var(--text-xs)', overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
                                       {link}
                                     </a>
                                   ))}
@@ -5776,287 +5235,230 @@ function App() {
                           ))}
                         </div>
                       )}
-                    </div>
-
+                    </SectionCard>
                   </div>
-
                 </div>
               </div>
-            )}
-            
+              );
+            })()}
+
             {/* 6. INVOICES TAB */}
 
-            {dashboardTab === 'invoices' && (
+            {dashboardTab === 'invoices' && (() => {
+              // Collected is what has actually been received, and outstanding
+              // is the same (total - paid) expression the Balance Due cell in
+              // every row below uses, so the header agrees with its own table.
+              const paidTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
+              const pendingTotal = ordersList.reduce((sum, o) => sum + Math.max(0, parseFloat(o.total_amount || 0) - parseFloat(o.amount_paid || 0)), 0);
+              const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+              const paidCount = ordersList.filter(o => o.payment_status === 'Paid').length;
+              const pendingCount = ordersList.length - paidCount;
+              const filtered = ordersList.filter(order => {
+                if (invoiceFilter === 'Paid' && order.payment_status !== 'Paid') return false;
+                if (invoiceFilter === 'Pending' && order.payment_status === 'Paid') return false;
+                if (invoiceSearch.trim()) {
+                  const query = invoiceSearch.toLowerCase();
+                  const matchesId = order.order_id.toLowerCase().includes(query)
+                    || orderRef(order).toLowerCase().includes(query);
+                  const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
+                  return matchesId || matchesClient;
+                }
+                return true;
+              });
+              const statusTone = (st) => st === 'Paid' ? 'success' : st === 'Partially Paid' ? 'warning' : 'danger';
+              return (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        Invoices & Billing
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Manage invoices, verify billing payments, and print receipts.</p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right">
+                <PageHeader
+                  title={t('invoicesPage.title', 'Invoices & Billing')}
+                  subtitle={t('invoicesPage.subtitle', 'Manage invoices, verify billing payments, and print receipts.')}
+                  aside={(
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                     </div>
-                  </div>
-                </header>
+                  )}
+                />
 
-                {/* Finance Overview widgets */}
-                {(() => {
-                  // Collected is what has actually been received, and
-                  // outstanding is the same (total - paid) expression the
-                  // Balance Due cell in every row below uses. These two used to
-                  // count the FULL total_amount of each order -- collected
-                  // counted a part-paid order at zero, outstanding counted it
-                  // in full -- so the header disagreed with its own table in
-                  // both directions on the same screen.
-                  const paidTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
-                  const pendingTotal = ordersList.reduce((sum, o) => sum + Math.max(0, parseFloat(o.total_amount || 0) - parseFloat(o.amount_paid || 0)), 0);
-                  const grandTotal = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
-                  
-                  return (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginTop: '24px' }}>
-                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Collected Revenue</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#107c41', marginTop: '8px' }}>{formatMoney(paidTotal)}</div>
-                      </div>
-                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Outstanding Balance</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: '#d4af37', marginTop: '8px' }}>{formatMoney(pendingTotal)}</div>
-                      </div>
-                      <div className="stat-card" style={{ padding: '20px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total Invoiced Volume</span>
-                        <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>{formatMoney(grandTotal)}</div>
-                      </div>
-                    </div>
-                  );
-                })()}
+                <section className="at-stat-grid">
+                  <StatCard icon={Banknote} tone="green" label={t('invoicesPage.totalCollectedRevenue', 'Total Collected Revenue')}
+                            value={formatMoney(paidTotal)} sub={`${paidCount} settled in full`} />
+                  <StatCard icon={Wallet} tone="amber" label={t('invoicesPage.outstandingBalance', 'Outstanding Balance')}
+                            value={formatMoney(pendingTotal)} sub={`across ${pendingCount} invoice${pendingCount === 1 ? '' : 's'}`} />
+                  <StatCard icon={Receipt} tone="blue" label={t('invoicesPage.totalInvoicedVolume', 'Total Invoiced Volume')}
+                            value={formatMoney(grandTotal)} sub={`${ordersList.length} invoice${ordersList.length === 1 ? '' : 's'}`} />
+                </section>
 
-                {/* Filters & Search */}
-                <div style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '16px',
-                  background: 'var(--surface-color)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  marginTop: '24px'
-                }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {['All', 'Paid', 'Pending'].map(option => (
-                      <button 
-                        key={option}
-                        onClick={() => setInvoiceFilter(option)}
-                        className={invoiceFilter === option ? 'btn-primary' : 'btn-secondary'}
-                        style={{ padding: '6px 16px', fontSize: '13px' }}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="search-bar-container" style={{ width: '100%', maxWidth: '300px', margin: 0 }}>
-                    <Search className="search-icon" size={16} />
-                    <input 
-                      type="text" 
-                      placeholder="Search Invoice ID or Client..."
-                      className="search-input"
-                      value={invoiceSearch}
-                      onChange={(e) => setInvoiceSearch(e.target.value)}
-                    />
+                <div className="at-toolbar">
+                  <Chips value={invoiceFilter} onChange={setInvoiceFilter} options={[
+                    { key: 'All', label: t('common.all', 'All'), count: ordersList.length },
+                    { key: 'Paid', label: t('invoicesPage.paid', 'Paid'), count: paidCount },
+                    { key: 'Pending', label: t('invoicesPage.pending', 'Pending'), count: pendingCount },
+                  ]} />
+                  <div className="at-toolbar-right">
+                    <SearchBox value={invoiceSearch} onChange={setInvoiceSearch}
+                               placeholder={t('invoicesPage.searchPlaceholder', 'Search Invoice ID or Client...')} />
                   </div>
                 </div>
 
                 {paymentError && (
-                  <div role="alert" style={{ marginTop: '16px', background: '#fdf2f2', border: '1px solid #f5c6c6', color: '#8a2020', borderRadius: '8px', padding: '12px 14px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                  <div role="alert" style={{ marginBottom: '16px', background: 'var(--danger-bg)', border: '1px solid var(--danger-color)', color: 'var(--danger-color)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
                     <span>{paymentError}</span>
                     <button type="button" onClick={() => setPaymentError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700 }}>Dismiss</button>
                   </div>
                 )}
 
-                <div className="invoices-content" style={{ marginTop: '24px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', background: 'var(--surface-color)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <div className="invoices-content at-table-wrap">
+                  <table className="at-table">
                     <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.015)' }}>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Invoice ID</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Billing Client</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Date</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Total Price</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Advance Paid</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Total Paid</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Balance Due</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Payment Status</th>
-                        <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600 }}>Action</th>
+                      <tr>
+                        <th>{t('invoicesPage.invoiceId', 'Invoice ID')}</th>
+                        <th>{t('invoicesPage.billingClient', 'Billing Client')}</th>
+                        <th>{t('common.date', 'Date')}</th>
+                        <th>{t('invoicesPage.totalPrice', 'Total Price')}</th>
+                        <th>{t('invoicesPage.advancePaid', 'Advance Paid')}</th>
+                        <th>{t('invoicesPage.totalPaid', 'Total Paid')}</th>
+                        <th>{t('invoicesPage.balanceDue', 'Balance Due')}</th>
+                        <th>{t('common.status', 'Payment Status')}</th>
+                        <th>{t('common.actions', 'Action')}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(() => {
-                        const filtered = ordersList.filter(order => {
-                          if (invoiceFilter === 'Paid' && order.payment_status !== 'Paid') return false;
-                          if (invoiceFilter === 'Pending' && order.payment_status === 'Paid') return false;
-
-                          if (invoiceSearch.trim()) {
-                            const query = invoiceSearch.toLowerCase();
-                            const matchesId = order.order_id.toLowerCase().includes(query);
-                            const matchesClient = (order.customer_name || '').toLowerCase().includes(query);
-                            return matchesId || matchesClient;
-                          }
-                          return true;
-                        });
-
-                        if (filtered.length === 0) {
-                          return (
-                            <tr>
-                              <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                {ordersList.length === 0
-                                  ? 'Invoices appear here once you have created an order.'
-                                  : 'No invoices matching the criteria.'}
-                              </td>
-                            </tr>
-                          );
-                        }
-
-                        return filtered.map(order => (
-                          <tr key={order.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
-                            <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 600 }}>{order.order_id}</td>
-                            <td style={{ padding: '16px' }}>{order.customer_name}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{fmtDate(order.order_date)}</td>
-                            <td style={{ padding: '16px', fontWeight: 600 }}>{formatMoney(order.total_amount)}</td>
-                            <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatMoney(order.advance_paid)}</td>
-                            {/* Editable, because until now there was no screen
-                                anywhere that could record a part payment. The
-                                only control was the status dropdown beside it,
-                                and picking "Partially Paid" sent no amount, so
-                                _reconcile_payment re-derived the label from the
-                                unchanged number and it snapped straight back to
-                                Pending. A customer paying an instalment at the
-                                counter could not be recorded at all: only zero
-                                and paid-in-full were expressible, which made
-                                the ledger, the tracking page's balance and the
-                                Analytics totals wrong for every part-paid
-                                order. The backend already accepted amount_paid
-                                and derives the label, clamps to the total and
-                                caps the advance -- only the input was missing. */}
-                            <td style={{ padding: '16px', color: '#107c41', fontWeight: 600 }}>
-                              <span style={{ marginRight: '2px' }}>₹</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                max={order.total_amount}
-                                defaultValue={parseFloat(order.amount_paid || 0)}
-                                disabled={savingPaymentId === order.id}
-                                aria-label={`Amount paid for invoice ${order.order_id}`}
-                                onBlur={async (e) => {
-                                  const next = parseFloat(e.target.value);
-                                  const current = parseFloat(order.amount_paid || 0);
-                                  // Blur fires on every tab-through; only write
-                                  // when the number actually moved.
-                                  if (isNaN(next) || next === current) {
-                                    e.target.value = current;
-                                    return;
-                                  }
-                                  setSavingPaymentId(order.id);
-                                  try {
-                                    await api.updateOrder(order.id, { amount_paid: next });
-                                    await fetchDashboardAndConfig();
-                                  } catch (err) {
-                                    e.target.value = current;
-                                    setPaymentError(`Could not record that payment for ${order.order_id} — ${err.message}`);
-                                  } finally {
-                                    setSavingPaymentId(null);
-                                  }
-                                }}
-                                onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-                                style={{ width: '110px', padding: '4px 6px', fontSize: '13px', fontWeight: 600, color: '#107c41', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'transparent' }}
-                              />
+                      {filtered.length === 0 ? (
+                        <tr>
+                          <td colSpan="9" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            {ordersList.length === 0
+                              ? t('invoicesPage.emptyState', 'Invoices appear here once you have created an order.')
+                              : t('invoicesPage.noMatchingInvoices', 'No invoices matching the criteria.')}
+                          </td>
+                        </tr>
+                      ) : filtered.map(order => {
+                        const total = Number(order.total_amount) || 0;
+                        const paid = Number(order.amount_paid || 0);
+                        const balance = Math.max(0, total - paid);
+                        const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
+                        return (
+                          <tr key={order.id}>
+                            <td style={{ fontWeight: 700 }}>{orderRef(order)}</td>
+                            <td>
+                              <span className="at-cell-person">
+                                <AvatarInitials name={order.customer_name} size={32} />
+                                <span style={{ fontWeight: 500 }}>{order.customer_name}</span>
+                              </span>
                             </td>
-                            <td style={{ padding: '16px', color: '#ff4d4d', fontWeight: 600 }}>{formatMoney(Math.max(0, Number(order.total_amount) - Number(order.amount_paid || 0)))}</td>
-                            <td style={{ padding: '16px' }}>
-                              <select
-                                value={order.payment_status}
-                                disabled={savingPaymentId === order.id}
-                                onChange={async (e) => {
-                                  setSavingPaymentId(order.id);
-                                  try {
-                                    await api.updateOrder(order.id, { payment_status: e.target.value });
-                                    fetchDashboardAndConfig();
-                                  } catch (err) {
-                                    e.target.value = order.payment_status;
-                                    setPaymentError(`Could not update ${order.order_id} — ${err.message}`);
-                                  } finally {
-                                    setSavingPaymentId(null);
-                                  }
-                                }}
-                                className="form-control"
-                                style={{ padding: '4px 8px', fontSize: '12px', width: '130px', margin: 0 }}
-                              >
-                                {/* "Partially Paid" is not offered here on
-                                    purpose: it is a *derived* label, not a
-                                    thing to choose. Selecting it sent no
-                                    amount, so the server recomputed the same
-                                    label from the same number and the control
-                                    snapped back -- a dropdown that visibly
-                                    refused its own option. It still appears as
-                                    the current value when the amount beside it
-                                    puts the order there. Pending and Paid stay
-                                    because both are unambiguous shortcuts:
-                                    nothing received, and settled in full. */}
-                                <option value="Pending">Pending</option>
-                                {order.payment_status === 'Partially Paid' && (
-                                  <option value="Partially Paid">Partially Paid</option>
-                                )}
-                                <option value="Paid">Paid</option>
-                              </select>
+                            <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(order.order_date)}</td>
+                            <td className="at-num" style={{ fontWeight: 600 }}>{formatMoney(order.total_amount)}</td>
+                            <td className="at-num" style={{ color: 'var(--text-secondary)' }}>{formatMoney(order.advance_paid)}</td>
+                            {/* Editable: the one place a part payment is recorded. The
+                                backend derives the label, clamps to the total and caps
+                                the advance -- only the input lives here. */}
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--success-color)', fontWeight: 600 }}>
+                                <span>₹</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  max={order.total_amount}
+                                  defaultValue={parseFloat(order.amount_paid || 0)}
+                                  disabled={savingPaymentId === order.id}
+                                  aria-label={`Amount paid for invoice ${orderRef(order)}`}
+                                  onBlur={async (e) => {
+                                    const next = parseFloat(e.target.value);
+                                    const current = parseFloat(order.amount_paid || 0);
+                                    // Blur fires on every tab-through; only write
+                                    // when the number actually moved.
+                                    if (isNaN(next) || next === current) {
+                                      e.target.value = current;
+                                      return;
+                                    }
+                                    setSavingPaymentId(order.id);
+                                    try {
+                                      await api.updateOrder(order.id, { amount_paid: next });
+                                      await fetchDashboardAndConfig();
+                                    } catch (err) {
+                                      e.target.value = current;
+                                      setPaymentError(`Could not record that payment for ${orderRef(order)} — ${err.message}`);
+                                    } finally {
+                                      setSavingPaymentId(null);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                                  style={{ width: '100px', padding: '4px 6px', fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--success-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', background: 'transparent' }}
+                                />
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', minWidth: '120px' }}>
+                                <span style={{ flex: 1 }}><ProgressBar pct={pct} tone="green" /></span>
+                                <span className="at-num" style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-secondary)' }}>{pct}%</span>
+                              </div>
                             </td>
-                            <td style={{ padding: '16px' }}>
-                              <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
+                            <td className="at-num" style={{ color: balance > 0 ? 'var(--danger-color)' : 'var(--text-secondary)', fontWeight: 600 }}>
+                              {formatMoney(balance)}
+                            </td>
+                            <td>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                <span className={`ui-badge ui-badge--${statusTone(order.payment_status)}`}>{order.payment_status}</span>
+                                <select
+                                  value={order.payment_status}
+                                  disabled={savingPaymentId === order.id}
+                                  aria-label={`Payment status for invoice ${orderRef(order)}`}
+                                  onChange={async (e) => {
+                                    setSavingPaymentId(order.id);
+                                    try {
+                                      await api.updateOrder(order.id, { payment_status: e.target.value });
+                                      fetchDashboardAndConfig();
+                                    } catch (err) {
+                                      e.target.value = order.payment_status;
+                                      setPaymentError(`Could not update ${orderRef(order)} — ${err.message}`);
+                                    } finally {
+                                      setSavingPaymentId(null);
+                                    }
+                                  }}
+                                  className="form-control"
+                                  style={{ padding: '4px 8px', fontSize: '12px', width: '110px', margin: 0 }}
+                                >
+                                  {/* "Partially Paid" is a *derived* label, not a thing to
+                                      choose; it appears only as the current value. */}
+                                  <option value="Pending">{t('invoicesPage.pending', 'Pending')}</option>
+                                  {order.payment_status === 'Partially Paid' && (
+                                    <option value="Partially Paid">{t('invoicesPage.partiallyPaid', 'Partially Paid')}</option>
+                                  )}
+                                  <option value="Paid">{t('invoicesPage.paid', 'Paid')}</option>
+                                </select>
+                              </span>
+                            </td>
+                            <td>
+                              <button className="btn-secondary at-btn-sm" onClick={() => {
                                 setConfirmedOrder(order);
                                 setShowInvoiceModal(true);
                               }}>
-                                <FileText size={12} /> View Invoice
+                                <FileText size={12} /> {t('invoicesPage.viewInvoice', 'View Invoice')}
                               </button>
                             </td>
                           </tr>
-                        ));
-                      })()}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </>
-            )}
+              );
+            })()}
 
             {/* 7. ANALYTICS TAB */}
             {dashboardTab === 'analytics' && (() => {
               // Same definition as the Invoices header and the Balance Due
               // cells: collected is money received, not the face value of
-              // orders that happen to be labelled Paid. Counting a part-paid
-              // order as zero collected and its full value as outstanding was
-              // wrong in both directions at once.
+              // orders that happen to be labelled Paid.
               const paidRevenue = ordersList.reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0);
               const totalBilling = ordersList.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
               const pendingBill = Math.max(0, totalBilling - paidRevenue);
               const aov = ordersList.length > 0 ? (totalBilling / ordersList.length) : 0;
 
-              // Counted per garment ordered, not per customer.
-              //
-              // These three panels read Customer.garment_type, neckline_style and
-              // sleeve_style -- one value per person, set by whichever dress was
-              // entered last. So a customer who ordered a blouse and a lehenga
-              // counted once, and the neckline and sleeve panels were permanently
-              // empty because the order wizard writes those onto the garment job
-              // and never onto the customer. Read the garment jobs, and take the
-              // percentage against the number of garments rather than the number
-              // of clients.
+              // Counted per garment ordered, not per customer: the order wizard
+              // writes neckline and sleeve onto the garment job, never onto the
+              // customer, and a blouse-and-lehenga order is two garments.
               const garmentDist = {};
               const necklineDist = {};
               const sleeveDist = {};
@@ -6084,571 +5486,541 @@ function App() {
               const busyTailors = tailors.filter(t => t.status === 'Busy').length;
               const avgTailorRating = tailors.length > 0 ? (tailors.reduce((sum, t) => sum + parseFloat(t.rating), 0) / tailors.length) : 5.0;
 
+              const segments = (() => {
+                const total = customersList.length || 1;
+                const rows = [
+                  { name: t('analyticsPage.hvcCustomer', 'HVC (High Value Customer)'), count: customersList.filter(c => c.segment === 'HVC').length, color: '#6b4fd6' },
+                  { name: t('analyticsPage.vipCustomer', 'VIP (Very Important Customer)'), count: customersList.filter(c => c.segment === 'VIP').length, color: '#d4af37' },
+                  { name: t('analyticsPage.generalCustomers', 'General Customers'), count: customersList.filter(c => c.segment === 'General').length, color: '#9ca3af' },
+                ].map(r => ({ ...r, pct: Math.round((r.count / total) * 100) }));
+                let acc = 0;
+                const stops = rows.map(r => { const from = acc; acc += (r.count / total) * 100; return `${r.color} ${from}% ${acc}%`; });
+                return { rows, gradient: `conic-gradient(${stops.join(', ')}${acc < 100 ? `, var(--surface-inset) ${acc}% 100%` : ''})` };
+              })();
+
+              const bar = (label, count, total, tone) => {
+                const pct = Math.round((count / (total || 1)) * 100) || 0;
+                return (
+                  <div key={label} className="at-bar-row">
+                    <div className="at-bar-head">
+                      <span>{label}</span>
+                      <span className="at-num" style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
+                    </div>
+                    <ProgressBar pct={pct} tone={tone} />
+                  </div>
+                );
+              };
+
               return (
                 <>
-                  <header className="portal-header">
-                    <div className="portal-header-left">
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                          Business Analytics & Trends
-                        </h1>
-                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Summary of revenues, style preferences, and operations workload.</p>
-                      </div>
-                    </div>
-                    <div className="portal-header-right">
+                  <PageHeader
+                    title={t('analyticsPage.title', 'Business Analytics & Trends')}
+                    subtitle={t('analyticsPage.subtitle', 'Summary of revenues, style preferences, and operations workload.')}
+                    aside={(
                       <div className="user-profile-widget">
                         <div className="user-avatar-circle">
-                          <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                          <UserAvatar user={currentUser} />
                         </div>
-                        <span>Hi, {currentUser.first_name}</span>
+                        <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
                       </div>
-                    </div>
-                  </header>
+                    )}
+                  />
 
-                  <div className="analytics-metrics-grid" style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                    gap: '24px',
-                    marginTop: '24px'
-                  }}>
-                    {/* Revenue Card */}
-                    <div className="metric-panel-card" style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Collected Revenue</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: 'var(--accent-text, #b07c40)' }}>
-                        ₹{paidRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>From paid customer orders</span>
-                    </div>
+                  <section className="at-stat-grid" style={{ marginBottom: 'var(--space-5)' }}>
+                    <StatCard icon={Coins} tone="green" label={t('analyticsPage.collectedRevenue', 'Collected Revenue')}
+                              value={inr(paidRevenue)} sub={t('analyticsPage.fromPaidOrders', 'From paid customer orders')} />
+                    <StatCard icon={Receipt} tone="amber" label={t('analyticsPage.pendingInvoices', 'Pending Invoices')}
+                              value={inr(pendingBill)} sub={t('analyticsPage.awaitingPayment', 'Awaiting full or partial payment')} />
+                    <StatCard icon={BarChart2} tone="blue" label={t('analyticsPage.avgTicketSize', 'Average Ticket Size')}
+                              value={inr(aov)} sub={t('analyticsPage.perBespokeOrder', 'Per bespoke order')} />
+                    <StatCard icon={Users} tone="violet" label={t('analyticsPage.clientBase', 'Client Base')}
+                              value={`${customersList.length} ${customersList.length === 1 ? t('analyticsPage.clientSingle', 'Client') : t('analyticsPage.clientPlural', 'Clients')}`}
+                              sub={t('analyticsPage.totalDirectoryProfiles', 'Total boutique directory profiles')} />
+                  </section>
 
-                    {/* Pending Bills Card */}
-                    <div className="metric-panel-card" style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Pending Invoices</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#ffc107' }}>
-                        ₹{pendingBill.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Awaiting full or partial payment</span>
-                    </div>
+                  <div className="at-grid-2">
+                    <div className="at-stack">
+                      <SectionCard icon={Shirt} tone="green" title={t('analyticsPage.popularGarmentTypes', 'Popular Garment Types')}
+                                   subtitle="Most ordered garment categories" action={() => setDashboardTab('orders')}>
+                        {topGarmentsList.length === 0 ? (
+                          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>No garments ordered yet.</div>
+                        ) : (
+                          <div className="at-stack" style={{ gap: 'var(--space-3)' }}>
+                            {topGarmentsList.map(([garment, count]) => bar(garment, count, garmentTotal, 'forest'))}
+                          </div>
+                        )}
+                      </SectionCard>
 
-                    {/* Average Order Value Card */}
-                    <div className="metric-panel-card" style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Average Ticket Size</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#4a90e2' }}>
-                        ₹{aov.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Per bespoke order</span>
-                    </div>
-
-                    {/* Total Registered Clients */}
-                    <div className="metric-panel-card" style={{
-                      background: 'var(--card-bg, rgba(255, 255, 255, 0.03))',
-                      border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Client Base</span>
-                      <span style={{ fontSize: '24px', fontWeight: 700, fontFamily: 'var(--font-serif)', color: '#2ec4b6' }}>
-                        {customersList.length} Clients
-                      </span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total boutique directory profiles</span>
-                    </div>
-                  </div>
-
-                  {/* Operational and Trend Columns */}
-                  <div className="analytics-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '32px' }}>
-                    
-                    {/* Left side: Styles & Design Trends */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Popular Garment Types</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {topGarmentsList.map(([garment, count], idx) => {
-                            const pct = Math.round((count / garmentTotal) * 100) || 0;
-                            return (
-                              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
-                                  <span>{garment}</span>
-                                  <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
-                                </div>
-                                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent-text, #b07c40)', borderRadius: '3px' }}></div>
-                                </div>
+                      <SectionCard icon={Users} tone="violet" title={t('analyticsPage.customerSegmentation', 'Customer Segmentation')}
+                                   subtitle="Client distribution by value" action={() => setDashboardTab('customers')}>
+                        <div style={{ display: 'flex', gap: 'var(--space-6)', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div className="at-donut" style={{ background: segments.gradient }}>
+                            <div className="at-donut-label">
+                              <span className="at-donut-value">{customersList.length}</span>
+                              <span className="at-donut-sub">Clients</span>
+                            </div>
+                          </div>
+                          <div className="at-legend">
+                            {segments.rows.map(seg => (
+                              <div key={seg.name} className="at-legend-row">
+                                <span className="at-legend-dot" style={{ background: seg.color }} />
+                                <span style={{ flex: 1 }}>{seg.name}</span>
+                                <span className="at-num" style={{ fontWeight: 600 }}>{seg.count} ({seg.pct}%)</span>
                               </div>
-                            );
-                          })}
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      </SectionCard>
 
-                      <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Customer Segmentation</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {(() => {
-                            const vipCount = customersList.filter(c => c.segment === 'VIP').length;
-                            const hvcCount = customersList.filter(c => c.segment === 'HVC').length;
-                            const generalCount = customersList.filter(c => c.segment === 'General').length;
-                            const total = customersList.length || 1;
-
-                            return [
-                              { name: 'VIP (Very Important Customer)', count: vipCount, color: '#d4af37' },
-                              { name: 'HVC (High Value Customer)', count: hvcCount, color: '#a855f7' },
-                              { name: 'General Customers', count: generalCount, color: '#9ca3af' }
-                            ].map((seg, idx) => {
-                              const pct = Math.round((seg.count / total) * 100);
-                              return (
-                                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: seg.color }}></span>
-                                      {seg.name}
-                                    </span>
-                                    <span style={{ fontWeight: 600 }}>{seg.count} ({pct}%)</span>
-                                  </div>
-                                  <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                                    <div style={{ width: `${pct}%`, height: '100%', background: seg.color, borderRadius: '3px' }}></div>
-                                  </div>
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-                      </div>
-
-                      <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Neckline & Sleeve Trends</h3>
+                      <SectionCard icon={PenTool} tone="amber" title={t('analyticsPage.necklineSleeveTrends', 'Neckline & Sleeve Trends')}
+                                   subtitle="What is being asked for at the counter">
                         <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                           <div>
-                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Top Necklines</h4>
-                            {topNecklinesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifycontent: 'space-between', padding: '4px 0' }}>
+                            <div className="ui-eyebrow" style={{ marginBottom: '8px' }}>{t('analyticsPage.topNecklines', 'Top Necklines')}</div>
+                            {topNecklinesList.length === 0 && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>None recorded yet.</div>}
+                            {topNecklinesList.map(([style, count]) => (
+                              <div key={style} style={{ fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
-                                <span style={{ fontWeight: 600 }}>{count}</span>
+                                <span className="at-num" style={{ fontWeight: 600 }}>{count}</span>
                               </div>
                             ))}
                           </div>
                           <div>
-                            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Top Sleeves</h4>
-                            {topSleevesList.map(([style, count], idx) => (
-                              <div key={idx} style={{ fontSize: '13px', display: 'flex', justifycontent: 'space-between', padding: '4px 0' }}>
+                            <div className="ui-eyebrow" style={{ marginBottom: '8px' }}>{t('analyticsPage.topSleeves', 'Top Sleeves')}</div>
+                            {topSleevesList.length === 0 && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>None recorded yet.</div>}
+                            {topSleevesList.map(([style, count]) => (
+                              <div key={style} style={{ fontSize: 'var(--text-sm)', display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                                 <span>{style}</span>
-                                <span style={{ fontWeight: 600 }}>{count}</span>
+                                <span className="at-num" style={{ fontWeight: 600 }}>{count}</span>
                               </div>
                             ))}
                           </div>
                         </div>
-                      </div>
+                      </SectionCard>
                     </div>
 
-                    {/* Right side: Staff & Internal Metrics */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Staff & Workload Overview</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Total Tailoring Team</span>
-                            <span style={{ fontWeight: 600 }}>{tailors.length} Tailors</span>
+                    <div className="at-stack">
+                      <SectionCard icon={Scissors} tone="blue" title={t('analyticsPage.staffWorkloadOverview', 'Staff & Workload Overview')}
+                                   subtitle="Current team status and capacity" action={() => setDashboardTab('staff')} actionLabel="Manage Staff">
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 'var(--space-3)' }}>
+                          <div className="at-pipeline-tile at-stat--blue" style={{ cursor: 'default' }}>
+                            <span className="at-pipeline-label">{t('analyticsPage.totalTailoringTeam', 'Total Tailoring Team')}</span>
+                            <span className="at-pipeline-value">{tailors.length} <small style={{ fontSize: 'var(--text-xs)', fontWeight: 500 }}>{tailors.length === 1 ? t('analyticsPage.tailorSingle', 'Tailor') : t('analyticsPage.tailorPlural', 'Tailors')}</small></span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Busy / Assigned Tailors</span>
-                            <span style={{ fontWeight: 600, color: '#ffc107' }}>{busyTailors} Busy</span>
+                          <div className="at-pipeline-tile at-stat--amber" style={{ cursor: 'default' }}>
+                            <span className="at-pipeline-label">{t('analyticsPage.busyAssignedTailors', 'Busy / Assigned Tailors')}</span>
+                            <span className="at-pipeline-value" style={{ color: 'var(--tone-amber-fg)' }}>{busyTailors} <small style={{ fontSize: 'var(--text-xs)', fontWeight: 500 }}>{t('analyticsPage.busyStatus', 'Busy')}</small></span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Available Staff capacity</span>
-                            <span style={{ fontWeight: 600, color: '#2ec4b6' }}>{tailors.length - busyTailors} Free</span>
+                          <div className="at-pipeline-tile at-stat--green" style={{ cursor: 'default' }}>
+                            <span className="at-pipeline-label">{t('analyticsPage.availableStaffCapacity', 'Available Staff capacity')}</span>
+                            <span className="at-pipeline-value" style={{ color: 'var(--tone-green-fg)' }}>{tailors.length - busyTailors} <small style={{ fontSize: 'var(--text-xs)', fontWeight: 500 }}>{t('analyticsPage.freeStatus', 'Free')}</small></span>
                           </div>
-                          <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center' }}>
-                            <span>Atelier Average Rating</span>
-                            <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              ⭐ {avgTailorRating.toFixed(2)}
-                            </span>
+                          <div className="at-pipeline-tile at-stat--violet" style={{ cursor: 'default' }}>
+                            <span className="at-pipeline-label">{t('analyticsPage.atelierAvgRating', 'Atelier Average Rating')}</span>
+                            <span className="at-pipeline-value">⭐ {avgTailorRating.toFixed(2)} <small style={{ fontSize: 'var(--text-xs)', fontWeight: 500 }}>out of 5</small></span>
                           </div>
                         </div>
-                      </div>
+                      </SectionCard>
 
-                      <div className="analytics-card-section" style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '12px',
-                        padding: '24px'
-                      }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Order Status Breakdown</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {Object.entries(dashboardData?.stats?.status_distribution || {}).map(([status, count], idx) => {
-                            const pct = Math.round((count / ordersList.length) * 100) || 0;
-                            return (
-                              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ display: 'flex', justifycontent: 'space-between', fontSize: '13px' }}>
-                                  <span>{status}</span>
-                                  <span style={{ fontWeight: 600 }}>{count} ({pct}%)</span>
-                                </div>
-                                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${pct}%`, height: '100%', background: '#4a90e2', borderRadius: '3px' }}></div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                      <SectionCard icon={FileText} tone="green" title={t('analyticsPage.orderStatusBreakdown', 'Order Status Breakdown')}
+                                   subtitle="Current order distribution" action={() => setDashboardTab('orders')}>
+                        <div className="at-stack" style={{ gap: 'var(--space-3)' }}>
+                          {Object.entries(dashboardData?.stats?.status_distribution || {})
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([status, count]) => bar(t(`status.${status}`, status), count, ordersList.length, 'forest'))}
                         </div>
-                      </div>
+                      </SectionCard>
                     </div>
-
                   </div>
                 </>
               );
             })()}
 
             {/* 8. MY ACCOUNT SETTINGS TAB */}
-            {dashboardTab === 'account' && (
+            {dashboardTab === 'account' && (() => {
+              const isOwner = !currentUser?.role || currentUser.role === 'Owner';
+              const tenant = localStorage.getItem('tenant_id') || '--';
+              const copyText = (text) => navigator.clipboard?.writeText(text);
+              return (
               <>
-                <header className="portal-header">
-                  <div className="portal-header-left">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>
-                        My Account Settings
-                      </h1>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Manage your boutique profile and atelier details.</p>
-                    </div>
-                  </div>
-                  <div className="portal-header-right">
+                <PageHeader
+                  title={t('accountPage.title')}
+                  subtitle={t('accountPage.subtitle')}
+                  aside={(
                     <div className="user-profile-widget">
                       <div className="user-avatar-circle">
-                        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100" alt="Avatar" />
+                        <UserAvatar user={currentUser} />
                       </div>
-                      <span>Hi, {currentUser.first_name}</span>
+                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
+                    </div>
+                  )}
+                />
+
+                <div className="account-settings-container at-account">
+                  <div className="ui-card at-account-card">
+                    <div className="at-cover" />
+                    <div className="at-account-avatar">
+                      <div className="at-account-avatar-ring">
+                        <UserAvatar user={currentUser} />
+                      </div>
+                      {/* Editable by any signed-in user -- the photo is stored
+                          per-user (UserAvatar), so the owner can set theirs too. */}
+                      <label className="at-account-camera" title="Change photo">
+                        <Camera size={16} />
+                        <input type="file" accept="image/*" hidden
+                               onChange={async (e) => {
+                                 const f = e.target.files?.[0];
+                                 if (!f) return;
+                                 try {
+                                   const updated = await api.updateMyPhoto(f);
+                                   setCurrentUser(updated);
+                                 } catch (err) {
+                                   alert(err.message || 'Could not update your photo.');
+                                 }
+                               }} />
+                      </label>
+                    </div>
+                    <h3 className="at-account-name">{currentUser.first_name} {currentUser.last_name}</h3>
+                    {/* The signed-in role, not a hardcoded claim. */}
+                    <span className="ui-badge ui-badge--neutral">{currentUser.role || 'Boutique Owner'}</span>
+
+                    <div className="at-account-rows">
+                      <div className="at-account-row">
+                        <Globe size={16} />
+                        <div>
+                          <div className="at-measure-label">{t('accountPage.tenantDomain', 'Tenant Domain')}</div>
+                          <div className="at-measure-value" style={{ overflowWrap: 'anywhere' }}>{tenant}</div>
+                        </div>
+                        {tenant !== '--' && (
+                          <button type="button" className="at-modal-close" style={{ width: 30, height: 30 }} onClick={() => copyText(tenant)} aria-label="Copy tenant domain">
+                            <Copy size={13} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="at-account-row">
+                        <Mail size={16} />
+                        <div>
+                          <div className="at-measure-label">{t('accountPage.atelierEmail', 'Atelier Email')}</div>
+                          <div className="at-measure-value" style={{ overflowWrap: 'anywhere' }}>{currentUser.email}</div>
+                        </div>
+                        {currentUser.email && (
+                          <button type="button" className="at-modal-close" style={{ width: 30, height: 30 }} onClick={() => copyText(currentUser.email)} aria-label="Copy email">
+                            <Copy size={13} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="at-account-row">
+                        <ShieldCheck size={16} />
+                        <div>
+                          <div className="at-measure-label">Role</div>
+                          <div className="at-measure-value">{currentUser.role || 'Owner'}</div>
+                        </div>
+                      </div>
+                      {/* No "Member since": nothing in the API carries the
+                          tenant's created_on, and an absent fact beats a
+                          confident wrong one. */}
                     </div>
                   </div>
-                </header>
 
-                <div className="account-settings-container" style={{ marginTop: '24px', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '32px' }}>
-                  {/* Left profile summary */}
-                  <div className="content-card" style={{ alignItems: 'center', textAlign: 'center', gap: '16px' }}>
-                    <div className="profile-large-avatar" style={{
-                      width: '120px',
-                      height: '120px',
-                      borderRadius: '50%',
-                      overflow: 'hidden',
-                      border: '3px solid var(--accent-text, #b07c40)'
-                    }}>
-                      <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200" alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    </div>
-                    <div>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{currentUser.first_name} {currentUser.last_name}</h3>
-                      {/* The signed-in role, not a hardcoded claim. This said
-                          "Boutique Owner" to every account -- tailors, masters
-                          and designers included -- on the one screen whose job
-                          is telling you who you are signed in as. */}
-                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>{currentUser.role || 'Boutique Owner'}</p>
-                    </div>
-                    
-                    <div style={{ width: '100%', height: '1px', background: 'var(--border-color, rgba(255,255,255,0.08))' }}></div>
-                    
-                    <div style={{ alignSelf: 'stretch', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
-                      <div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Tenant Domain</div>
-                        <div style={{ fontWeight: 600, color: 'var(--accent-text, #b07c40)' }}>
-                          {localStorage.getItem('tenant_id') || '--'}
+                  {/* Owner only: submitting POSTs /boutique-settings/, which
+                      RolePermission refuses for every other role. A form that
+                      cannot succeed should not be drawn. */}
+                  {isOwner && (
+                    <SectionCard icon={Store} tone="green" title={t('accountPage.editProfile', 'Edit Boutique Profile')}
+                                 subtitle="Keep your boutique information up to date. This will be visible across the platform.">
+                      <form
+                        className="at-stack"
+                        onReset={() => setLogoFile(null)}
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (settingsSaving) return;
+                          const form = e.target;
+                          const formData = new FormData();
+                          formData.append('name', form.boutiqueName.value);
+                          formData.append('address', form.boutiqueAddress.value);
+                          formData.append('phone', form.boutiquePhone.value);
+                          formData.append('email', form.boutiqueEmail.value);
+                          if (logoFile) {
+                            formData.append('logo', logoFile);
+                          }
+                          formData.append('design_approval_required', form.designApprovalRequired.checked);
+                          setSettingsSaving(true);
+                          try {
+                            const updated = await api.updateBoutiqueSettings(formData);
+                            setBoutiqueSettings(updated);
+                            setLogoFile(null);
+                            alert("Boutique settings updated successfully!");
+                          } catch (err) {
+                            console.error(err);
+                            alert("Failed to update boutique settings");
+                          } finally {
+                            setSettingsSaving(false);
+                          }
+                        }}
+                      >
+                        <Field label={t('accountPage.boutiqueName', 'Boutique Name')} required icon={Building2}>
+                          <input type="text" name="boutiqueName" className="form-control"
+                                 defaultValue={boutiqueSettings?.name || ''} placeholder="e.g. Aditi's Atelier" required />
+                        </Field>
+                        <Field label={t('accountPage.boutiqueAddress', 'Boutique Address')} required icon={MapPin}>
+                          <textarea name="boutiqueAddress" className="form-control" rows={3}
+                                    defaultValue={boutiqueSettings?.address || ''} placeholder="Street, area, city, PIN" required />
+                        </Field>
+                        <div className="at-form-grid">
+                          <Field label={t('accountPage.boutiquePhone', 'Boutique Phone')} required icon={Phone}>
+                            <input type="text" name="boutiquePhone" className="form-control"
+                                   defaultValue={boutiqueSettings?.phone || ''} placeholder="+91 98765 43210" required />
+                          </Field>
+                          <Field label={t('accountPage.boutiqueEmail', 'Boutique Email')} required icon={Mail}>
+                            <input type="email" name="boutiqueEmail" className="form-control"
+                                   defaultValue={boutiqueSettings?.email || ''} placeholder="you@yourboutique.com" required />
+                          </Field>
                         </div>
-                      </div>
-                      <div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Atelier Email</div>
-                        <div style={{ fontWeight: 600 }}>{currentUser.email}</div>
-                      </div>
-                      {/* "Registered Since: June 2024" was a literal, shown to
-                          every boutique whatever date they actually signed up.
-                          Nothing in the API carries the tenant's created_on, so
-                          the row is gone rather than invented -- an absent fact
-                          beats a confident wrong one. Restore it by adding
-                          created_on to the MeView payload. */}
-                    </div>
-                  </div>
 
-                  {/* Owner only. Every role saw this form, and submitting it
-                      POSTs /boutique-settings/ -- whose `create` action is on
-                      neither the safe-method list nor the named-action list in
-                      RolePermission, so a Master, Tailor or Designer got a
-                      certain 403 rendered as "Failed to update boutique
-                      settings" with no reason given. A form that cannot
-                      succeed should not be drawn. */}
-                  {(!currentUser?.role || currentUser.role === 'Owner') && (
-                  <div className="content-card">
-                    <h3 className="card-title">Edit Boutique Profile</h3>
-                    <form 
-                      style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} 
-                      onSubmit={async (e) => {
-                        e.preventDefault();
-                        if (settingsSaving) return;
-                        const form = e.target;
-                        const formData = new FormData();
-                        formData.append('name', form.boutiqueName.value);
-                        formData.append('address', form.boutiqueAddress.value);
-                        formData.append('phone', form.boutiquePhone.value);
-                        formData.append('email', form.boutiqueEmail.value);
-                        const logoFile = form.boutiqueLogo.files[0] || form.boutiqueLogoCamera.files[0];
-                        if (logoFile) {
-                          formData.append('logo', logoFile);
-                        }
-                        formData.append('design_approval_required', form.designApprovalRequired.checked);
-                        setSettingsSaving(true);
-                        try {
-                          const updated = await api.updateBoutiqueSettings(formData);
-                          setBoutiqueSettings(updated);
-                          alert("Boutique settings updated successfully!");
-                        } catch (err) {
-                          console.error(err);
-                          alert("Failed to update boutique settings");
-                        } finally {
-                          setSettingsSaving(false);
-                        }
-                      }}
-                    >
-                      <div className="form-group">
-                        <label className="form-label">Boutique Name</label>
-                        <input 
-                          type="text" 
-                          name="boutiqueName"
-                          className="form-control" 
-                          defaultValue={boutiqueSettings?.name || ''}
-                          placeholder="e.g. Aditi's Atelier" 
-                          required
-                        />
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-label">Boutique Address</label>
-                        <textarea 
-                          name="boutiqueAddress"
-                          className="form-control" 
-                          style={{ minHeight: '80px', resize: 'vertical' }}
-                          defaultValue={boutiqueSettings?.address || ''}
-                          placeholder="Street, area, city, PIN" 
-                          required
-                        />
-                      </div>
-
-                      <div className="form-grid-2">
-                        <div className="form-group">
-                          <label className="form-label">Boutique Phone</label>
-                          <input 
-                            type="text" 
-                            name="boutiquePhone"
-                            className="form-control" 
-                            defaultValue={boutiqueSettings?.phone || ''}
-                            placeholder="+91 98765 43210" 
-                            required
-                          />
+                        <div className="at-field">
+                          <span className="at-field-label">{t('accountPage.boutiqueLogo', 'Boutique Logo')}</span>
+                          <div className="at-side-by-side">
+                            {(logoFile || boutiqueSettings?.logo) ? (
+                              <div className="at-form-section" style={{ flexDirection: 'row', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                                <img src={logoFile ? URL.createObjectURL(logoFile) : boutiqueSettings.logo} alt="Boutique logo"
+                                     style={{ width: 56, height: 56, objectFit: 'contain', borderRadius: '8px', background: 'var(--surface-inset)', border: '1px solid var(--border-color)' }} />
+                                <div className="at-row-main">
+                                  <div className="at-row-title">{logoFile ? logoFile.name : 'Current logo'}</div>
+                                  <div className="at-row-sub">{logoFile ? 'Saved when you press Save Changes.' : 'Choose a file to replace it.'}</div>
+                                </div>
+                                <button type="button" className="btn-secondary at-btn-sm" onClick={() => document.getElementById('boutique-logo-file').click()}>
+                                  <Upload size={14} /> Choose file
+                                </button>
+                                {logoFile && (
+                                  <button type="button" className="btn-secondary at-btn-sm" onClick={() => setLogoFile(null)}>Remove</button>
+                                )}
+                                <input id="boutique-logo-file" type="file" accept="image/*" hidden
+                                       onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
+                              </div>
+                            ) : (
+                              <Dropzone camera
+                                        title="Drag & drop your logo here" subtitle="or choose a file from your device"
+                                        chooseLabel="Choose File" cameraLabel="Take photo"
+                                        onFiles={(files) => setLogoFile(files[0] || null)} />
+                            )}
+                            <InfoNote tone="green" icon={ShieldCheck} title="Logo Guidelines"
+                                      items={['Recommended size: 512 × 512 px', 'Formats: PNG, JPG (Max 2MB)', 'Square image works best', 'This logo will appear on invoices and customer communication.']} />
+                          </div>
                         </div>
-                        <div className="form-group">
-                          <label className="form-label">Boutique Email</label>
-                          <input 
-                            type="email" 
-                            name="boutiqueEmail"
-                            className="form-control" 
-                            defaultValue={boutiqueSettings?.email || ''}
-                            placeholder="you@yourboutique.com" 
-                            required
-                          />
-                        </div>
-                      </div>
 
-                      <div className="form-group">
-                        <label className="form-label">Boutique Logo</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '4px' }}>
-                          {boutiqueSettings?.logo && (
-                            <img 
-                              src={boutiqueSettings.logo} 
-                              alt="Boutique Logo" 
-                              style={{ width: '48px', height: '48px', borderRadius: '4px', objectFit: 'contain', background: '#f8fafc', border: '1px solid var(--border-color)' }} 
-                            />
-                          )}
-                          <input
-                            type="file"
-                            name="boutiqueLogo"
-                            accept="image/*"
-                            className="form-control"
-                          />
-                          <input
-                            type="file"
-                            name="boutiqueLogoCamera"
-                            id="boutique-logo-camera"
-                            accept="image/*"
-                            capture="environment"
-                            style={{ display: 'none' }}
-                          />
-                          <label
-                            htmlFor="boutique-logo-camera"
-                            className="btn-secondary"
-                            style={{ display: 'inline-block', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                          >
-                            📷 Take photo
-                          </label>
-                        </div>
-                      </div>
-
-                      <div className="form-group">
                         {/* Off by default: a small team is usually the owner and
                             one or two designers, and a queue with nobody to clear
                             it is friction with no benefit. */}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            name="designApprovalRequired"
-                            defaultChecked={!!boutiqueSettings?.design_approval_required}
-                          />
-                          <span>
-                            <span style={{ fontWeight: 600 }}>Require approval for new designs</span>
-                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                              When on, uploads from staff other than you wait for your review before appearing in the library.
-                            </div>
+                        <label className="at-switch-row">
+                          <IconTile icon={Settings} tone="neutral" size={36} iconSize={16} />
+                          <span className="at-row-main">
+                            <span className="at-row-title">{t('accountPage.requireApproval', 'Require approval for new designs')}</span>
+                            <span className="at-row-sub" style={{ display: 'block' }}>
+                              {t('accountPage.approvalHelp', 'When on, uploads from staff other than you wait for your review before appearing in the library.')}
+                            </span>
+                          </span>
+                          <span className="at-switch">
+                            <input type="checkbox" name="designApprovalRequired" defaultChecked={!!boutiqueSettings?.design_approval_required} />
+                            <i />
                           </span>
                         </label>
-                      </div>
 
-                      <button type="submit" className="btn-primary" disabled={settingsSaving} style={{ alignSelf: 'flex-start', marginTop: '8px' }}>
-                        {settingsSaving ? 'Saving…' : 'Save Changes'}
-                      </button>
-                    </form>
-                  </div>
+                        <div className="at-form-foot">
+                          <button type="reset" className="btn-secondary">{t('common.cancel', 'Cancel')}</button>
+                          <button type="submit" className="btn-primary" disabled={settingsSaving}>
+                            <Save size={16} /> {settingsSaving ? t('common.saving', 'Saving…') : t('accountPage.saveChanges', 'Save Changes')}
+                          </button>
+                        </div>
+                      </form>
+                    </SectionCard>
                   )}
                 </div>
               </>
+              );
+            })()}
+
+            {/* 9. SETTINGS TAB */}
+            {dashboardTab === 'settings' && (
+              <SettingsPage currentUser={currentUser} boutiqueSettings={boutiqueSettings} />
             )}
           </main>
 
           {/* Fabrics CRUD Modal Overlay */}
           {showFabricModal && (
-            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
-                <div className="search-modal-header">
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingFabric ? 'Edit Fabric Details' : 'Add New Fabric to Catalog'}
-                  </h3>
-                  <button className="close-btn" onClick={() => setShowFabricModal(false)}><X size={20} /></button>
+            <FormModal
+              icon={Layers} tone="green" zIndex={1100} width="720px"
+              title={editingFabric ? t('fabricsPage.editFabricDetails', 'Edit Fabric Details') : t('fabricsPage.addNewFabricTitle', 'Add New Fabric to Catalog')}
+              subtitle="Add fabric details to your catalog for easy selection and reuse."
+              onClose={() => setShowFabricModal(false)}
+              footer={(
+                <>
+                  <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                  <button type="submit" form="fabric-form" className="btn-primary" disabled={fabricSaving || fabricPhotoBusy}>
+                    <Save size={16} />
+                    {fabricPhotoBusy
+                      ? t('common.uploading', 'Uploading…')
+                      : fabricSaving ? t('common.saving', 'Saving…') : t('fabricsPage.saveFabric', 'Save Fabric')}
+                  </button>
+                </>
+              )}
+            >
+              <form id="fabric-form" onSubmit={handleSaveFabric} className="at-stack">
+                <Field label={t('fabricsPage.fabricName', 'Fabric Name')} required icon={Type}>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    aria-label={t('fabricsPage.fabricName', 'Fabric Name')}
+                    placeholder="e.g. Chanderi Silk"
+                    value={fabricForm.name}
+                    onChange={e => setFabricForm({...fabricForm, name: e.target.value})}
+                  />
+                </Field>
+
+                <div className="at-form-grid">
+                  <Field label={t('fabricsPage.material', 'Material')} required icon={Layers}>
+                    <input
+                      type="text"
+                      required
+                      className="form-control"
+                      aria-label={t('fabricsPage.material', 'Material')}
+                      placeholder="e.g. Silk Blend"
+                      value={fabricForm.material}
+                      onChange={e => setFabricForm({...fabricForm, material: e.target.value})}
+                    />
+                  </Field>
+                  <Field label={t('fabricsPage.color', 'Color')} required icon={Palette}>
+                    <input
+                      type="text"
+                      required
+                      className="form-control"
+                      aria-label={t('fabricsPage.color', 'Color')}
+                      placeholder="e.g. Aqua Blue"
+                      value={fabricForm.color}
+                      onChange={e => setFabricForm({...fabricForm, color: e.target.value})}
+                    />
+                  </Field>
                 </div>
-                
-                <form onSubmit={handleSaveFabric} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Fabric Name</label>
-                    <input 
-                      type="text" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. Chanderi Silk" 
-                      value={fabricForm.name}
-                      onChange={e => setFabricForm({...fabricForm, name: e.target.value})}
-                    />
-                  </div>
 
-                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Material</label>
-                      <input 
-                        type="text" 
-                        required 
-                        className="form-control" 
-                        placeholder="e.g. Silk Blend" 
-                        value={fabricForm.material}
-                        onChange={e => setFabricForm({...fabricForm, material: e.target.value})}
+                {/* The wheel is the browser's own -- <input type="color">
+                    opens the OS picker, wheel and eyedropper included, and
+                    the box beside it takes a code straight off a shade card.
+                    They are the same value, edited from either end. */}
+                <div className="at-field">
+                  <label className="at-field-label">{t('fabricsPage.colorCode', 'Colour Code')}</label>
+                  <div className="at-field-inline">
+                    <label className="at-swatch" title={t('fabricsPage.colorWheel', 'Colour wheel')} style={{ position: 'relative', cursor: 'pointer' }}>
+                      <i style={{ background: /^#[0-9a-fA-F]{6}$/.test(fabricForm.color_hex) ? fabricForm.color_hex : '#c8a97e' }} />
+                      <input
+                        id="fabric-colour-wheel"
+                        type="color"
+                        aria-label={t('fabricsPage.colorWheel', 'Colour wheel')}
+                        value={/^#[0-9a-fA-F]{6}$/.test(fabricForm.color_hex) ? fabricForm.color_hex : '#c8a97e'}
+                        onChange={e => setFabricForm({...fabricForm, color_hex: e.target.value})}
+                        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, left: 0, bottom: 0 }}
+                      />
+                    </label>
+                    <div className="at-field-control" style={{ width: '160px' }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        aria-label={t('fabricsPage.colorCode', 'Colour Code')}
+                        placeholder="#c8a97e"
+                        maxLength={7}
+                        pattern="#[0-9a-fA-F]{6}"
+                        title="#1a2b3c"
+                        value={fabricForm.color_hex}
+                        onChange={e => {
+                          const v = e.target.value.trim();
+                          setFabricForm({...fabricForm, color_hex: v && !v.startsWith('#') ? `#${v}` : v});
+                        }}
+                        style={{ fontFamily: 'monospace' }}
                       />
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Color</label>
-                      <input 
-                        type="text" 
-                        required 
-                        className="form-control" 
-                        placeholder="e.g. Aqua Blue" 
-                        value={fabricForm.color}
-                        onChange={e => setFabricForm({...fabricForm, color: e.target.value})}
-                      />
+                    <button type="button" className="btn-secondary at-btn-sm" style={{ borderStyle: 'dashed' }}
+                            onClick={() => document.getElementById('fabric-colour-wheel').click()}>
+                      <Palette size={14} /> {t('fabricsPage.pickFromWheel', 'Pick from color wheel')}
+                    </button>
+                    <span className="at-field-hint">
+                      {t('fabricsPage.colorCodeHint', 'Pick from the wheel or type the code')}
+                    </span>
+                  </div>
+                </div>
+
+                <Field label={t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')} required icon={IndianRupee}
+                       hint="Enter the selling price per meter for this fabric.">
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="0.01"
+                    className="form-control"
+                    aria-label={t('fabricsPage.pricePerMeterLabel', 'Price per Meter (₹)')}
+                    placeholder="e.g. 1250"
+                    value={fabricForm.price_per_meter}
+                    onChange={e => setFabricForm({...fabricForm, price_per_meter: e.target.value})}
+                  />
+                </Field>
+
+                {/* Two inputs, one list: capture="environment" opens the
+                    phone's rear camera, the other the gallery. A boutique
+                    photographing a roll on the shelf never types a URL. */}
+                <FormSection icon={ImageIcon} tone="green" title={t('fabricsPage.fabricPhotos', 'Fabric Photos')}
+                             subtitle="Add clear, high-quality photos of the fabric."
+                             aside={<span className="at-field-hint">Recommended: JPG, PNG (Max 5MB each)</span>}>
+                  <div className="at-side-by-side">
+                    <Dropzone
+                      multiple camera
+                      title="Drag & drop photos here"
+                      subtitle="or choose an option"
+                      chooseLabel={t('common.chooseFromGallery', 'Choose from gallery')}
+                      cameraLabel={t('common.takePhoto', 'Take photo')}
+                      onFiles={(files) => handleFabricPhotosChange({ target: { files, value: '' } })}
+                    />
+                    <div className="at-photos">
+                      {(fabricForm.image_urls || []).map((src, i) => (
+                        <PhotoTile key={`saved-${i}`} src={src}
+                                   onRemove={() => setFabricForm({...fabricForm, image_urls: fabricForm.image_urls.filter((_, idx) => idx !== i)})} />
+                      ))}
+                      {fabricPhotoPreviews.map((src, i) => (
+                        <PhotoTile key={`new-${i}`} src={src}
+                                   onRemove={() => {
+                                     setFabricPhotoPreviews(prev => prev.filter((_, idx) => idx !== i));
+                                     setFabricPhotoFiles(prev => prev.filter((_, idx) => idx !== i));
+                                   }} />
+                      ))}
+                      <AddMoreTile onClick={() => document.getElementById('fabric-photo-gallery').click()} />
+                      <input type="file" id="fabric-photo-gallery" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFabricPhotosChange} />
                     </div>
                   </div>
+                </FormSection>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Price per Meter (₹)</label>
-                    <input 
-                      type="number" 
-                      required 
-                      min="0"
-                      step="0.01"
-                      className="form-control" 
-                      placeholder="e.g. 1250" 
-                      value={fabricForm.price_per_meter}
-                      onChange={e => setFabricForm({...fabricForm, price_per_meter: e.target.value})}
-                    />
-                  </div>
+                <Field label={t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')} icon={LinkIcon}
+                       hint="Add a link if the image is hosted online.">
+                  <input
+                    type="url"
+                    className="form-control"
+                    aria-label={t('fabricsPage.imageUrlOptional', 'Image URL (Optional)')}
+                    placeholder="e.g. https://images.unsplash.com/photo-..."
+                    value={fabricForm.image_url}
+                    onChange={e => setFabricForm({...fabricForm, image_url: e.target.value})}
+                  />
+                </Field>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Image URL (Optional)</label>
-                    <input 
-                      type="url" 
-                      className="form-control" 
-                      placeholder="e.g. https://images.unsplash.com/photo-..." 
-                      value={fabricForm.image_url}
-                      onChange={e => setFabricForm({...fabricForm, image_url: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-                    <input 
-                      type="checkbox" 
-                      id="fabricAvailable"
-                      checked={fabricForm.is_available}
-                      onChange={e => setFabricForm({...fabricForm, is_available: e.target.checked})}
-                    />
-                    <label htmlFor="fabricAvailable" style={{ fontSize: '13px', cursor: 'pointer' }}>Available in Inventory</label>
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary" disabled={fabricSaving}>{fabricSaving ? 'Saving…' : 'Save Fabric'}</button>
-                  </div>
-                </form>
-              </div>
-            </div>
+                <label className="at-check-card" htmlFor="fabricAvailable">
+                  <input
+                    type="checkbox"
+                    id="fabricAvailable"
+                    checked={fabricForm.is_available}
+                    onChange={e => setFabricForm({...fabricForm, is_available: e.target.checked})}
+                  />
+                  <span>
+                    <span className="at-check-card-title" style={{ display: 'block' }}>{t('fabricsPage.availableInInventory', 'Available in Inventory')}</span>
+                    <span className="at-check-card-sub" style={{ display: 'block' }}>Make this fabric available for inventory and purchase orders.</span>
+                  </span>
+                </label>
+              </form>
+            </FormModal>
           )}
 
           {/* Appointment booking. apps/scheduling has always accepted these and
@@ -6659,14 +6031,18 @@ function App() {
               <div className="search-modal-card" style={{ maxWidth: '460px', width: '100%' }}>
                 <div className="search-modal-header">
                   <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    Book an Appointment
+                    {editingAppointment
+                      ? t('dashboard.appointmentDetails', 'Appointment Details')
+                      : t('dashboard.bookAppointment', 'Book an Appointment')}
                   </h3>
-                  <button className="close-btn" onClick={() => setShowAppointmentModal(false)}><X size={20} /></button>
+                  <button className="close-btn" onClick={closeAppointmentModal}><X size={20} /></button>
                 </div>
                 <form onSubmit={handleSaveAppointment} style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
                     <label className="form-label">Client *</label>
-                    <select className="form-control" required
+                    {/* Whose appointment this is cannot be edited -- moving it
+                        to another person is a different booking. */}
+                    <select className="form-control" required disabled={!!editingAppointment}
                             value={appointmentForm.customer}
                             onChange={(e) => setAppointmentForm({ ...appointmentForm, customer: e.target.value })}>
                       <option value="">Select a client</option>
@@ -6700,6 +6076,18 @@ function App() {
                       {tailors.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>
+                  {editingAppointment && (
+                    <div>
+                      <label className="form-label">Status</label>
+                      <select className="form-control"
+                              value={appointmentForm.status}
+                              onChange={(e) => setAppointmentForm({ ...appointmentForm, status: e.target.value })}>
+                        {Object.entries(APPOINTMENT_STATUS_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="form-label">Notes</label>
                     <textarea className="form-control" rows={2}
@@ -6707,9 +6095,22 @@ function App() {
                               onChange={(e) => setAppointmentForm({ ...appointmentForm, notes: e.target.value })} />
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowAppointmentModal(false)}>Cancel</button>
+                    {editingAppointment && appointmentForm.status !== 'CANCELLED' && (
+                      <button type="button" className="btn-secondary" disabled={savingAppointment}
+                              style={{ marginRight: 'auto', color: '#c0392b', borderColor: 'rgba(192,57,43,0.3)' }}
+                              onClick={handleCancelAppointment}>
+                        {t('dashboard.cancelAppointment', 'Cancel appointment')}
+                      </button>
+                    )}
+                    <button type="button" className="btn-secondary" onClick={closeAppointmentModal}>
+                      {t('common.close', 'Close')}
+                    </button>
                     <button type="submit" className="btn-primary" disabled={savingAppointment}>
-                      {savingAppointment ? 'Booking…' : 'Book appointment'}
+                      {savingAppointment
+                        ? t('common.saving', 'Saving…')
+                        : editingAppointment
+                          ? t('common.saveChanges', 'Save changes')
+                          : t('dashboard.bookAppointmentBtn', 'Book appointment')}
                     </button>
                   </div>
                 </form>
@@ -6717,312 +6118,121 @@ function App() {
             </div>
           )}
 
-          {/* Tailors CRUD Modal Overlay */}
-          {showTailorModal && (
-            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
-                <div className="search-modal-header">
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingTailor ? 'Edit Tailor Details' : 'Add New Tailor Profile'}
-                  </h3>
-                  <button className="close-btn" onClick={() => setShowTailorModal(false)}><X size={20} /></button>
-                </div>
-                
-                <form onSubmit={handleSaveTailor} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Tailor Name</label>
-                    <input 
-                      type="text" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. Master Shabbir" 
-                      value={tailorForm.name}
-                      onChange={e => setTailorForm({...tailorForm, name: e.target.value})}
-                    />
-                  </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Email Address (for login)</label>
-                    <input 
-                      type="email" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. shabbir@boutique.com" 
-                      value={tailorForm.email || ''}
-                      onChange={e => setTailorForm({...tailorForm, email: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Specialty</label>
-                    <input 
-                      type="text" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. Lehenga Specialist, Gowns" 
-                      value={tailorForm.specialty}
-                      onChange={e => setTailorForm({...tailorForm, specialty: e.target.value})}
-                    />
-                  </div>
-
-                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Rating (1.0 — 5.0)</label>
-                      <input 
-                        type="number" 
-                        required 
-                        min="1"
-                        max="5"
-                        step="0.1"
-                        className="form-control" 
-                        placeholder="5.0" 
-                        value={tailorForm.rating}
-                        onChange={e => setTailorForm({...tailorForm, rating: e.target.value})}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Status</label>
-                      <select 
-                        className="form-control"
-                        value={tailorForm.status}
-                        onChange={e => setTailorForm({...tailorForm, status: e.target.value})}
-                      >
-                        <option value="Available">Available</option>
-                        <option value="Busy">Busy</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Staff Role</label>
-                    <select 
-                      className="form-control"
-                      value={tailorForm.role}
-                      onChange={e => setTailorForm({...tailorForm, role: e.target.value})}
-                    >
-                      {STAFF_ROLES.map(r => (
-                        <option key={r.value} value={r.value}>{r.label}</option>
-                      ))}
-                    </select>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                      {STAFF_ROLES.find(r => r.value === tailorForm.role)?.hint || ''}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowTailorModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary" disabled={tailorSaving}>{tailorSaving ? 'Saving…' : 'Save Tailor'}</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* Share Tailor Credentials Modal Overlay */}
-          {shareCredsTailor && (
-            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
-                <div className="search-modal-header">
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    Share Login Credentials
-                  </h3>
-                  <button className="close-btn" onClick={() => setShareCredsTailor(null)}><X size={20} /></button>
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Provide these credentials to <strong>{shareCredsTailor.name}</strong> so they can log in to view and manage their assignments.
-                  </p>
-
-                  <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Login Portal URL</span>
-                      <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{window.location.origin}</div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Username / Email</span>
-                      <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', wordBreak: 'break-all' }}>{shareCredsTailor.email}</div>
-                    </div>
-                    {/* The password is generated per account and returned on
-                        the one response that created it -- it is never stored
-                        in readable form, so this panel can only show it in the
-                        moment it was made. Opened from the roster later, there
-                        is nothing to show, and saying so is the honest answer:
-                        this used to print a fixed literal that was in the
-                        repository and in this bundle, and which stopped being
-                        the real password the moment anyone set the override
-                        environment variable the code recommended. */}
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Temporary Password</span>
-                      {shareCredsTailor.bootstrap_password ? (
-                        <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px', fontFamily: 'ui-monospace, monospace', letterSpacing: '.5px' }}>{shareCredsTailor.bootstrap_password}</div>
-                      ) : (
-                        <div style={{ fontSize: '13px', marginTop: '2px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                          Shown only once, when the account was created. Ask {shareCredsTailor.name} to use
-                          <strong> Forgot password?</strong> on the sign-in screen to set a new one.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShareCredsTailor(null)}>Close</button>
-                    
-                    {/* Copy to Clipboard */}
-                    <button 
-                      type="button" 
-                      className="btn-secondary" 
-                      onClick={() => {
-                        const txt = shareCredsTailor.bootstrap_password
-                          ? `Atelier Staff Login Credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: ${shareCredsTailor.bootstrap_password}`
-                          : `Atelier Staff Login:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nUse "Forgot password?" on the sign-in screen to set your password.`;
-                        navigator.clipboard.writeText(txt);
-                        alert("Credentials copied to clipboard!");
-                      }}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <Copy size={14} /> Copy
-                    </button>
-
-                    {/* Share via WhatsApp */}
-                    <button 
-                      type="button" 
-                      className="btn-primary" 
-                      onClick={() => {
-                        const msg = encodeURIComponent(shareCredsTailor.bootstrap_password
-                          ? `Hello ${shareCredsTailor.name},\nHere are your Atelier login credentials:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\nPassword: ${shareCredsTailor.bootstrap_password}\n\nPlease log in to view your supervised/stitch tasks.`
-                          : `Hello ${shareCredsTailor.name},\nYour Atelier login is ready:\nPortal: ${window.location.origin}\nEmail: ${shareCredsTailor.email}\n\nUse "Forgot password?" on the sign-in screen to set your password, then log in to view your tasks.`);
-                        window.open(`https://wa.me/?text=${msg}`);
-                      }}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <MessageSquare size={14} /> Share WhatsApp
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Designs CRUD Modal Overlay */}
           {showDesignModal && (
-            <div className="existing-customer-search-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="search-modal-card" style={{ maxWidth: '500px', width: '100%' }}>
-                <div className="search-modal-header">
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, fontFamily: 'var(--font-serif)' }}>
-                    {editingDesign ? 'Edit Design Details' : 'Add New Design to Collection'}
-                  </h3>
-                  <button className="close-btn" onClick={() => setShowDesignModal(false)}><X size={20} /></button>
+            <FormModal
+              icon={Shirt} tone="amber" zIndex={1100} width="720px"
+              title={editingDesign ? t('designsPage.editDesignDetails', 'Edit Design Details') : t('designsPage.addNewDesignTitle', 'Add New Design to Collection')}
+              subtitle="Add garment details to your boutique collection."
+              onClose={() => setShowDesignModal(false)}
+              footer={(
+                <>
+                  <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>{t('common.cancel', 'Cancel')}</button>
+                  <button type="submit" form="design-form" className="btn-primary" disabled={designSaving}>
+                    <Save size={16} /> {designSaving ? t('common.saving', 'Saving…') : t('designsPage.saveDesign', 'Save Design')}
+                  </button>
+                </>
+              )}
+            >
+              <form id="design-form" onSubmit={handleSaveDesign} className="at-stack">
+                <Field label={t('designsPage.designName', 'Design Name')} required icon={Type}>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    placeholder="e.g. Royal Maroon Velvet Lehenga"
+                    value={designForm.name}
+                    onChange={e => setDesignForm({...designForm, name: e.target.value})}
+                  />
+                </Field>
+
+                <div className="at-form-grid">
+                  <Field label={t('designsPage.garmentCategory', 'Garment Category')} required icon={Shirt}>
+                    <select
+                      className="form-control"
+                      value={designForm.garment_type}
+                      onChange={e => setDesignForm({...designForm, garment_type: e.target.value})}
+                    >
+                      <option value="Lehenga">{t('designsPage.lehenga', 'Lehenga')}</option>
+                      <option value="Gown">{t('designsPage.gown', 'Gown')}</option>
+                      <option value="Saree">{t('designsPage.saree', 'Saree')}</option>
+                      <option value="Kurti">{t('designsPage.kurti', 'Kurti')}</option>
+                      <option value="Sherwani">{t('designsPage.sherwani', 'Sherwani')}</option>
+                      <option value="Anarkali">{t('designsPage.anarkali', 'Anarkali')}</option>
+                    </select>
+                  </Field>
+                  <Field label={t('designsPage.designType', 'Design Type')} required icon={Tag}>
+                    <select
+                      className="form-control"
+                      value={designForm.is_boutique}
+                      onChange={e => setDesignForm({...designForm, is_boutique: e.target.value === 'true' || e.target.value === true})}
+                    >
+                      <option value="true">{t('designsPage.boutiqueCatalogCollection', 'Boutique Catalog Collection')}</option>
+                      <option value="false">{t('designsPage.aiSuggestionTemplate', 'AI Suggestion Template')}</option>
+                    </select>
+                  </Field>
+                  <Field label={t('designsPage.necklineStyleOptional', 'Neckline Style (Optional)')} icon={Sparkles}>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="e.g. Sweetheart Neck"
+                      value={designForm.neckline_style}
+                      onChange={e => setDesignForm({...designForm, neckline_style: e.target.value})}
+                    />
+                  </Field>
+                  <Field label={t('designsPage.sleeveStyleOptional', 'Sleeve Style (Optional)')} icon={Shirt}>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="e.g. Cap Sleeve"
+                      value={designForm.sleeve_style}
+                      onChange={e => setDesignForm({...designForm, sleeve_style: e.target.value})}
+                    />
+                  </Field>
                 </div>
-                
-                <form onSubmit={handleSaveDesign} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Design Name</label>
-                    <input 
-                      type="text" 
-                      required 
-                      className="form-control" 
-                      placeholder="e.g. Royal Maroon Velvet Lehenga" 
-                      value={designForm.name}
-                      onChange={e => setDesignForm({...designForm, name: e.target.value})}
-                    />
-                  </div>
 
-                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Garment Category</label>
-                      <select 
-                        className="form-control"
-                        value={designForm.garment_type}
-                        onChange={e => setDesignForm({...designForm, garment_type: e.target.value})}
-                      >
-                        <option value="Lehenga">Lehenga</option>
-                        <option value="Gown">Gown</option>
-                        <option value="Saree">Saree</option>
-                        <option value="Kurti">Kurti</option>
-                        <option value="Sherwani">Sherwani</option>
-                        <option value="Anarkali">Anarkali</option>
-                      </select>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Design Type</label>
-                      <select 
-                        className="form-control"
-                        value={designForm.is_boutique}
-                        onChange={e => setDesignForm({...designForm, is_boutique: e.target.value === 'true' || e.target.value === true})}
-                      >
-                        <option value="true">Boutique Catalog Collection</option>
-                        <option value="false">AI Suggestion Template</option>
-                      </select>
-                    </div>
-                  </div>
+                <Field label={t('designsPage.catalogPriceLabel', 'Catalog Price (₹) - Only for Boutique Catalog')} icon={IndianRupee}>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="form-control"
+                    placeholder="e.g. 45000"
+                    value={designForm.price}
+                    onChange={e => setDesignForm({...designForm, price: e.target.value})}
+                    disabled={designForm.is_boutique === false || designForm.is_boutique === 'false'}
+                  />
+                </Field>
 
-                  <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Neckline Style (Optional)</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="e.g. Sweetheart Neck" 
-                        value={designForm.neckline_style}
-                        onChange={e => setDesignForm({...designForm, neckline_style: e.target.value})}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600 }}>Sleeve Style (Optional)</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="e.g. Cap Sleeve" 
-                        value={designForm.sleeve_style}
-                        onChange={e => setDesignForm({...designForm, sleeve_style: e.target.value})}
-                      />
-                    </div>
-                  </div>
+                <Field label={t('designsPage.imageUrlOptional', 'Image URL (Optional)')} icon={LinkIcon}
+                       hint="Add a link if the image is hosted online.">
+                  <input
+                    type="url"
+                    className="form-control"
+                    placeholder="e.g. https://images.unsplash.com/photo-..."
+                    value={designForm.image_url}
+                    onChange={e => setDesignForm({...designForm, image_url: e.target.value})}
+                  />
+                </Field>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Catalog Price (₹) - Only for Boutique Catalog</label>
-                    <input 
-                      type="number" 
-                      min="0"
-                      step="0.01"
-                      className="form-control" 
-                      placeholder="e.g. 45000" 
-                      value={designForm.price}
-                      onChange={e => setDesignForm({...designForm, price: e.target.value})}
-                      disabled={designForm.is_boutique === false || designForm.is_boutique === 'false'}
-                    />
-                  </div>
+                <Field label={t('designsPage.descriptionOptional', 'Description (Optional)')} icon={FileText}>
+                  <textarea
+                    className="form-control"
+                    placeholder="e.g. Hand-embroidered with gold thread, georgette base..."
+                    rows="3"
+                    value={designForm.description}
+                    onChange={e => setDesignForm({...designForm, description: e.target.value})}
+                  />
+                </Field>
+                <div className="at-field-counter" style={{ marginTop: '-8px' }}>{(designForm.description || '').length} characters</div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Image URL (Optional)</label>
-                    <input 
-                      type="url" 
-                      className="form-control" 
-                      placeholder="e.g. https://images.unsplash.com/photo-..." 
-                      value={designForm.image_url}
-                      onChange={e => setDesignForm({...designForm, image_url: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600 }}>Description (Optional)</label>
-                    <textarea 
-                      className="form-control" 
-                      placeholder="e.g. Hand-embroidered with gold thread, georgette base..." 
-                      rows="3"
-                      value={designForm.description}
-                      onChange={e => setDesignForm({...designForm, description: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '16px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={() => setShowDesignModal(false)}>Cancel</button>
-                    <button type="submit" className="btn-primary" disabled={designSaving}>{designSaving ? 'Saving…' : 'Save Design'}</button>
-                  </div>
-                </form>
-              </div>
-            </div>
+                <InfoNote tone="amber" title="Tip">
+                  High quality images and detailed descriptions help showcase your designs better.
+                </InfoNote>
+              </form>
+            </FormModal>
           )}
 
           {/* Bottom navigation, phones only.
@@ -7030,26 +6240,13 @@ function App() {
               written into: its tabs drive dashboardTab, which only the dashboard
               renders, so from anywhere else every tab was inert. */}
           <BottomNavigation
-            tabs={
-              (!currentUser.role || currentUser.role === 'Owner') ? [
-                { key: 'overview', label: 'Dashboard', icon: Users },
-                { key: 'orders', label: 'Orders', icon: ShoppingBag },
-                { key: 'customers', label: 'Customers', icon: Users },
-                { key: 'inventory', label: 'Inventory', icon: Package },
-                { key: 'more', label: 'Menu', icon: Menu }
-              ] : currentUser.role === 'Master' ? [
-                { key: 'assignments', label: 'Assignments', icon: Scissors },
-                { key: 'orders', label: 'Orders', icon: ShoppingBag },
-                { key: 'customers', label: 'Customers', icon: Users },
-                { key: 'more', label: 'Menu', icon: Menu }
-              ] : [
-                { key: 'assignments', label: 'Assignments', icon: Scissors },
-                { key: 'account', label: 'Account', icon: User },
-                { key: 'more', label: 'Menu', icon: Menu }
-              ]
-            }
+            tabs={[
+              ...navSections.flatMap((s) => s.items).filter((i) => i.phone)
+                .map((i) => ({ key: i.tab, label: i.phoneLabel || i.label, icon: i.icon })),
+              { key: 'more', label: t('nav.menu', 'Menu'), icon: Menu }
+            ]}
             activeTab={dashboardTab}
-            onChangeTab={(t) => { setDashboardTab(t); setSelectedDirectoryCustomer(null); }}
+            onChangeTab={(tab) => { setDashboardTab(tab); setSelectedDirectoryCustomer(null); }}
             onOpenMore={() => setMobileNavOpen(true)}
           />
         </div>
@@ -7090,21 +6287,20 @@ function App() {
             <div className="portal-sidebar-logo-sub">THE ATELIER EXPERIENCE</div>
             
             <nav className="portal-menu">
-              <a className="portal-menu-item" onClick={() => { setMobileNavOpen(false); setView('dashboard'); }}><Users size={16} /> Dashboard</a>
-              {/* My Orders / Appointments / Measurements sat here with no
-                  onClick and no href, between two links that work -- so on the
-                  order-selector sidebar three of five items silently did
-                  nothing. Deleted rather than wired: each already has a real
-                  home on the dashboard this screen returns to. */}
-              <a className="portal-menu-item" onClick={() => setShowLogoutConfirm(true)}><User size={16} /> Logout</a>
+              <PortalMenu
+                sections={navSections}
+                activeTab={dashboardTab}
+                onPick={(tab) => { setView('dashboard'); setDashboardTab(tab); setSelectedDirectoryCustomer(null); setMobileNavOpen(false); }}
+              />
+              <a className="portal-menu-item" onClick={() => { setShowLogoutConfirm(true); setMobileNavOpen(false); }}><LogOut size={16} /> {t('nav.logout')}</a>
             </nav>
           </aside>
 
           <main className="portal-main">
             <div className="selector-container">
               <div className="selector-header">
-                <h1 className="selector-title" style={{ fontFamily: 'var(--font-serif)', fontSize: '32px' }}>Create New Custom Order</h1>
-                <p className="selector-subtitle" style={{ color: 'var(--text-secondary)' }}>Choose how you would like to initiate this bespoke order creation.</p>
+                <h1 className="selector-title" style={{ fontFamily: 'var(--font-serif)', fontSize: '32px' }}>{t('entry.createOrderTitle', 'Create New Custom Order')}</h1>
+                <p className="selector-subtitle" style={{ color: 'var(--text-secondary)' }}>{t('entry.createOrderSubtitle', 'Choose how you would like to initiate this bespoke order creation.')}</p>
               </div>
 
               {/* Orders already being written. Offered, never resumed
@@ -7114,10 +6310,12 @@ function App() {
               {resumableDrafts.length > 0 && (
                 <div className="content-card" style={{ marginBottom: '20px' }}>
                   <div style={{ fontWeight: 600, marginBottom: '4px' }}>
-                    You have {resumableDrafts.length === 1 ? 'an order' : `${resumableDrafts.length} orders`} in progress
+                    {resumableDrafts.length === 1
+                      ? t('entry.orderInProgressOne', 'You have an order in progress')
+                      : t('entry.orderInProgressMany', `You have ${resumableDrafts.length} orders in progress`, { count: resumableDrafts.length })}
                   </div>
                   <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                    Saved automatically. Pick one up where you left it, or discard it.
+                    {t('entry.savedAutomaticallySub', 'Saved automatically. Pick one up where you left it, or discard it.')}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {resumableDrafts.map(draft => {
@@ -7129,26 +6327,25 @@ function App() {
                                                      paddingTop: '10px' }}>
                           <div style={{ flex: '1 1 260px' }}>
                             <div style={{ fontWeight: 600 }}>
-                              {draft.customer_name || 'Unnamed customer'}
+                              {draft.customer_name || t('entry.unnamedCustomer', 'Unnamed customer')}
                             </div>
                             <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                              {garments.length ? garments.join(', ') : 'No garment chosen yet'}
-                              {' · '}Step {draft.current_step} of 6
-                              {' · '}last saved {new Date(draft.updated_at).toLocaleString()}
+                              {garments.length ? garments.join(', ') : t('wizard.noGarmentChosen', 'No garment chosen yet')}
+                              {' · '}{t('entry.stepXofY', `Step ${draft.current_step} of 6`, { step: draft.current_step })}
+                              {' · '}{t('entry.lastSaved', 'last saved')} {new Date(draft.updated_at).toLocaleString()}
                             </div>
                           </div>
                           <button type="button" className="btn-primary" onClick={() => hydrateWizard(draft)}>
-                            Resume
+                            {t('entry.resume', 'Resume')}
                           </button>
                           {discardingDraftId === draft.id ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                                Discard this order? Nothing has been booked, but everything
-                                entered on it will be lost.
+                                {t('entry.discardConfirmDesc', 'Discard this order? Nothing has been booked, but everything entered on it will be lost.')}
                               </span>
                               <button type="button" className="btn-secondary"
                                       onClick={() => setDiscardingDraftId(null)}>
-                                Keep it
+                                {t('entry.keepIt', 'Keep it')}
                               </button>
                               <button type="button" className="btn-primary" disabled={deletingDraftId === draft.id} onClick={async () => {
                                 if (deletingDraftId) return;
@@ -7164,13 +6361,15 @@ function App() {
                                   setDeletingDraftId(null);
                                 }
                               }}>
-                                {deletingDraftId === draft.id ? 'Discarding…' : 'Discard permanently'}
+                                {deletingDraftId === draft.id
+                                  ? t('common.discarding', 'Discarding…')
+                                  : t('entry.discardPermanently', 'Discard permanently')}
                               </button>
                             </div>
                           ) : (
                             <button type="button" className="btn-secondary"
                                     onClick={() => setDiscardingDraftId(draft.id)}>
-                              Discard
+                              {t('entry.discard', 'Discard')}
                             </button>
                           )}
                         </div>
@@ -7188,26 +6387,26 @@ function App() {
                   <div className="selector-option-icon">
                     <Users size={32} />
                   </div>
-                  <h3 className="selector-option-title">Existing Customer</h3>
-                  <p className="selector-option-desc">Select a client profile from your database and retrieve their measurements.</p>
+                  <h3 className="selector-option-title">{t('entry.existingCustomerTitle', 'Existing Customer')}</h3>
+                  <p className="selector-option-desc">{t('entry.existingCustomerDesc', 'Select a client profile from your database and retrieve their measurements.')}</p>
                   
                   <div className="selector-features-list">
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Use saved measurements</span>
+                      <span>{t('entry.useSavedMeasurements', 'Use saved measurements')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>View past orders & prefs</span>
+                      <span>{t('entry.viewPastOrdersPrefs', 'View past orders & prefs')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Faster order creation</span>
+                      <span>{t('entry.fasterOrderCreation', 'Faster order creation')}</span>
                     </div>
                   </div>
 
                   <button className="selector-card-btn">
-                    Select Existing Customer
+                    {t('entry.selectExistingCustomerBtn', 'Select Existing Customer')}
                     <ArrowRight size={14} />
                   </button>
                 </div>
@@ -7218,26 +6417,32 @@ function App() {
                   <div className="selector-option-icon">
                     <User size={32} />
                   </div>
-                  <h3 className="selector-option-title">{customersList.length === 0 ? 'Create Your First Customer' : 'New Customer'}</h3>
-                  <p className="selector-option-desc">Create a new customer profile and input their measurements from scratch.</p>
+                  <h3 className="selector-option-title">
+                    {customersList.length === 0
+                      ? t('entry.firstCustomerTitle', 'Create Your First Customer')
+                      : t('entry.newCustomerTitle', 'New Customer')}
+                  </h3>
+                  <p className="selector-option-desc">{t('entry.newCustomerDesc', 'Create a new customer profile and input their measurements from scratch.')}</p>
 
                   <div className="selector-features-list">
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Add customer details</span>
+                      <span>{t('entry.addCustomerDetails', 'Add customer details')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Capture measurements</span>
+                      <span>{t('entry.captureMeasurements', 'Capture measurements')}</span>
                     </div>
                     <div className="selector-feature-item">
                       <Check size={14} />
-                      <span>Start custom journey</span>
+                      <span>{t('entry.startCustomJourney', 'Start custom journey')}</span>
                     </div>
                   </div>
 
                   <button className="selector-card-btn">
-                    {customersList.length === 0 ? 'Create Your First Customer' : 'Create New Customer'}
+                    {customersList.length === 0
+                      ? t('entry.firstCustomerTitle', 'Create Your First Customer')
+                      : t('entry.createNewCustomerBtn', 'Create New Customer')}
                     <ArrowRight size={14} />
                   </button>
                 </div>
@@ -7245,65 +6450,65 @@ function App() {
 
               {/* Explanatory Flow Diagrams at the bottom */}
               <div className="selector-flow-explain-box">
-                <h4 className="selector-flow-explain-title">How the creation process works</h4>
+                <h4 className="selector-flow-explain-title">{t('entry.howProcessWorksTitle', 'How the creation process works')}</h4>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                   {/* Flow with Existing Customer */}
                   <div>
-                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>FLOW WITH EXISTING CUSTOMER:</h5>
+                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>{t('entry.flowExistingCustomerHeader', 'FLOW WITH EXISTING CUSTOMER:')}</h5>
                     <div className="flow-steps-visual">
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Users size={16} /></div>
-                        <span className="flow-step-node-title">Select Customer</span>
-                        <span className="flow-step-node-desc">Search and select client from database</span>
+                        <span className="flow-step-node-title">{t('entry.flowSelectCustomer', 'Select Customer')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowSelectCustomerDesc', 'Search and select client from database')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><FileText size={16} /></div>
-                        <span className="flow-step-node-title">Review Profile</span>
-                        <span className="flow-step-node-desc">Check sizes and preferences</span>
+                        <span className="flow-step-node-title">{t('entry.flowReviewProfile', 'Review Profile')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowReviewProfileDesc', 'Check sizes and preferences')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Sparkles size={16} /></div>
-                        <span className="flow-step-node-title">Create Order</span>
-                        <span className="flow-step-node-desc">Define styles, fabrics and details</span>
+                        <span className="flow-step-node-title">{t('entry.flowCreateOrder', 'Create Order')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowCreateOrderDesc', 'Define styles, fabrics and details')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node completed">
                         <div className="flow-step-icon-circle"><Check size={16} /></div>
-                        <span className="flow-step-node-title">Proceed to Journey</span>
-                        <span className="flow-step-node-desc">Stitching and fitting commences</span>
+                        <span className="flow-step-node-title">{t('entry.flowProceedJourney', 'Proceed to Journey')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowProceedJourneyDesc', 'Stitching and fitting commences')}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Flow with New Customer */}
                   <div>
-                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>FLOW WITH NEW CUSTOMER:</h5>
+                    <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '16px' }}>{t('entry.flowNewCustomerHeader', 'FLOW WITH NEW CUSTOMER:')}</h5>
                     <div className="flow-steps-visual">
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><User size={16} /></div>
-                        <span className="flow-step-node-title">Add Personal Details</span>
-                        <span className="flow-step-node-desc">Input names and contact credentials</span>
+                        <span className="flow-step-node-title">{t('entry.flowAddPersonalDetails', 'Add Personal Details')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowAddPersonalDetailsDesc', 'Input names and contact credentials')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><Scissors size={16} /></div>
-                        <span className="flow-step-node-title">Capture Sizes</span>
-                        <span className="flow-step-node-desc">Log exact body dimensions</span>
+                        <span className="flow-step-node-title">{t('entry.flowCaptureSizes', 'Capture Sizes')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowCaptureSizesDesc', 'Log exact body dimensions')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><Compass size={16} /></div>
-                        <span className="flow-step-node-title">Style Preferences</span>
-                        <span className="flow-step-node-desc">Choose fabrics, cuts, necklines</span>
+                        <span className="flow-step-node-title">{t('entry.flowStylePreferences', 'Style Preferences')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowStylePreferencesDesc', 'Choose fabrics, cuts, necklines')}</span>
                       </div>
                       <div className="flow-step-arrow"></div>
                       <div className="flow-step-node">
                         <div className="flow-step-icon-circle"><ArrowRight size={16} /></div>
-                        <span className="flow-step-node-title">Proceed to Journey</span>
-                        <span className="flow-step-node-desc">Submit for creation workflow</span>
+                        <span className="flow-step-node-title">{t('entry.flowProceedJourney', 'Proceed to Journey')}</span>
+                        <span className="flow-step-node-desc">{t('entry.flowSubmitCreationWorkflowDesc', 'Submit for creation workflow')}</span>
                       </div>
                     </div>
                   </div>
@@ -7319,7 +6524,7 @@ function App() {
             <div className="existing-customer-search-modal">
               <div className="search-modal-card">
                 <div className="search-modal-header">
-                  <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Select Existing Customer</h3>
+                  <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{t('entry.selectExistingCustomerModalTitle', 'Select Existing Customer')}</h3>
                   <button className="close-btn" onClick={() => setShowSearchModal(false)}><X size={20} /></button>
                 </div>
                 
@@ -7327,7 +6532,7 @@ function App() {
                   <Search size={18} />
                   <input 
                     type="text" 
-                    placeholder="Search by customer name or mobile number..." 
+                    placeholder={t('entry.searchCustomerPlaceholder', 'Search by customer name or mobile number...')} 
                     value={searchModalQuery}
                     onChange={(e) => setSearchModalQuery(e.target.value)}
                     className="form-control"
@@ -7338,7 +6543,7 @@ function App() {
                 <div className="search-results-list">
                   {filteredSearchModalCustomers.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                      No customers found matching "{searchModalQuery}"
+                      {t('entry.noCustomersFoundMatching', 'No customers found matching')} "{searchModalQuery}"
                     </div>
                   ) : (
                     filteredSearchModalCustomers.map(cust => (
@@ -7370,22 +6575,14 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', maxWidth: '1280px', margin: '0 auto 16px' }}>
               <div className="brand-logo" style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '1px', color: 'var(--text-primary)' }}>SCALEEZY</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                {/* "Need help?" carried cursor:pointer and no handler --
-                    the wizard's own header inviting a click that does nothing.
-                    There is no help surface to point it at. */}
-                {/* Whether the work is safe. The wizard writes to a draft on
-                    the server as the owner moves through it, and they need to
-                    know that without being told to trust it. A conflict is
-                    called out separately because it needs a different action:
-                    not "try again" but "reload, someone else moved this on". */}
                 {draftSaveState !== 'idle' && (
                   <span style={{ fontSize: '12.5px',
                                  color: draftSaveState === 'conflict' || draftSaveState === 'failed'
                                         ? '#c0392b' : 'var(--text-secondary)' }}>
-                    {draftSaveState === 'saving' && 'Saving…'}
-                    {draftSaveState === 'saved' && '✓ Saved'}
-                    {draftSaveState === 'failed' && 'Could not save — your last change is not stored'}
-                    {draftSaveState === 'conflict' && 'Changed in another tab — reload before continuing'}
+                    {draftSaveState === 'saving' && t('wizard.saving')}
+                    {draftSaveState === 'saved' && t('wizard.saved')}
+                    {draftSaveState === 'failed' && t('wizard.couldNotSave')}
+                    {draftSaveState === 'conflict' && t('wizard.conflict')}
                   </span>
                 )}
                 <span style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} onClick={() => setView('dashboard')}>
@@ -7397,13 +6594,14 @@ function App() {
             {/* Stepper progress bar */}
             <div className="stepper-progress-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1000px', margin: '0 auto', position: 'relative' }}>
               {[
-                { number: 1, label: 'Personal details', sub: 'Completed' },
-                { number: 2, label: 'Measurements', sub: 'Completed' },
-                { number: 3, label: 'AI Design Studio', sub: 'Discover & approve design' },
-                { number: 4, label: 'Fabric Selection', sub: 'Choose fabrics' },
-                { number: 5, label: 'Tailor Assignment', sub: 'Assign tailor' },
-                { number: 6, label: 'Complete & Create Order', sub: 'review & confirm' }
+                { number: 1, label: t('wizard.aiDesignStudio'), sub: t('wizard.subDiscoverDesign', 'Discover & approve design') },
+                { number: 2, label: t('wizard.fabricSelection'), sub: t('wizard.subChooseFabrics', 'Choose fabrics') },
+                { number: 3, label: t('wizard.personalDetails'), sub: t('wizard.reviewAndConfirm', 'review & confirm') },
+                { number: 4, label: t('wizard.measurements'), sub: t('wizard.completed', 'Completed') },
+                { number: 5, label: t('wizard.tailorAssignment'), sub: t('wizard.subAssignTailor', 'Assign tailor') },
+                { number: 6, label: t('wizard.completeOrder'), sub: t('wizard.reviewAndConfirm', 'review & confirm') }
               ].map((step, index) => {
+
                 const stepNum = index + 1;
                 const isCompleted = currentStep > stepNum;
                 const isActive = currentStep === stepNum;
@@ -7430,7 +6628,7 @@ function App() {
                         {step.label}
                       </span>
                       <span style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                        {isActive ? 'review & confirm' : (isCompleted ? 'Completed' : step.sub)}
+                        {isActive ? t('wizard.reviewAndConfirm', 'review & confirm') : (isCompleted ? t('wizard.completed', 'Completed') : step.sub)}
                       </span>
                     </div>
                     {index < 5 && (
@@ -7450,18 +6648,18 @@ function App() {
           </div>
           <div className="main-content" style={{ padding: '40px 24px 100px', maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
             <div className="workspace-panel">
-            {/* STEP 1: Personal Details */}
-            {currentStep === 1 && (
+            {/* STEP 3: Personal Details */}
+            {currentStep === 3 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Create Customer</h1>
-                  <p className="page-subtitle">Onboard new clients into the Scaleezy ecosystem. Capture style preferences and measurements for a personalized atelier experience.</p>
+                  <h1 className="page-title">{t('wizard.createCustomerTitle', 'Create Customer')}</h1>
+                  <p className="page-subtitle">{t('wizard.createCustomerSubtitle', 'Onboard new clients into the Scaleezy ecosystem. Capture style preferences and measurements for a personalized atelier experience.')}</p>
                 </div>
 
                 <div className="content-card">
                   <div className="card-title">
                     <Users size={20} />
-                    Customer Profile
+                    {t('wizard.customerProfile', 'Customer Profile')}
                   </div>
 
                   <div className="profile-upload-widget">
@@ -7474,7 +6672,7 @@ function App() {
                     </div>
                     <div className="photo-upload-actions">
                       <label className="upload-btn-label">
-                        📷 Take photo
+                        📷 {t('common.takePhoto', 'Take photo')}
                         <input
                           type="file"
                           id="profile-picker-camera"
@@ -7485,7 +6683,7 @@ function App() {
                         />
                       </label>
                       <label className="upload-btn-label">
-                        Choose from gallery
+                        {t('common.chooseFromGallery', 'Choose from gallery')}
                         <input
                           type="file"
                           id="profile-picker"
@@ -7494,13 +6692,13 @@ function App() {
                           onChange={handleProfilePhotoChange}
                         />
                       </label>
-                      <span className="upload-btn-sub">JPG, PNG up to 5MB</span>
+                      <span className="upload-btn-sub">{t('wizard.uploadPhotoSub', 'JPG, PNG up to 5MB')}</span>
                     </div>
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">First Name <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.firstName', 'First Name')} <span className="required">*</span></label>
                       <input 
                         type="text" 
                         value={customerForm.first_name}
@@ -7510,7 +6708,7 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Last Name <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.lastName', 'Last Name')} <span className="required">*</span></label>
                       <input 
                         type="text" 
                         value={customerForm.last_name}
@@ -7523,7 +6721,7 @@ function App() {
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Mobile Number <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.mobileNumber', 'Mobile Number')} <span className="required">*</span></label>
                       <div className="input-wrapper">
                         <span className="input-icon-left" style={{ fontSize: '14px', left: '12px' }}>🇮🇳 +91</span>
                         <input 
@@ -7536,7 +6734,7 @@ function App() {
                       </div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Email Address <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.emailAddress', 'Email Address')} <span className="required">*</span></label>
                       <input 
                         type="email" 
                         value={customerForm.email_address || ''}
@@ -7548,19 +6746,19 @@ function App() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Address <span className="required">*</span></label>
+                    <label className="form-label">{t('wizard.address', 'Address')} <span className="required">*</span></label>
                     <input 
                       type="text" 
                       value={customerForm.address || ''}
                       onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})}
                       className="form-control" 
-                      placeholder="Street name, Apartment, City, State, PIN code"
+                      placeholder={t('wizard.addressPlaceholder', 'Street name, Apartment, City, State, PIN code')}
                     />
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">City / Region</label>
+                      <label className="form-label">{t('wizard.cityRegion', 'City / Region')}</label>
                       <input 
                         type="text" 
                         value={customerForm.city_region || ''}
@@ -7570,31 +6768,31 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Source</label>
+                      <label className="form-label">{t('wizard.source', 'Source')}</label>
                       <select 
                         value={customerForm.source}
                         onChange={(e) => setCustomerForm({...customerForm, source: e.target.value})}
                         className="form-control"
                       >
-                        <option value="Walk In">Walk In</option>
-                        <option value="Instagram">Instagram</option>
-                        <option value="Referral">Referral</option>
-                        <option value="Website">Website</option>
+                        <option value="Walk In">{t('wizard.walkIn', 'Walk In')}</option>
+                        <option value="Instagram">{t('wizard.instagram', 'Instagram')}</option>
+                        <option value="Referral">{t('wizard.referral', 'Referral')}</option>
+                        <option value="Website">{t('wizard.website', 'Website')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Customer Type</label>
+                      <label className="form-label">{t('wizard.customerType', 'Customer Type')}</label>
                       <select 
                         value={customerForm.customer_type}
                         onChange={(e) => setCustomerForm({...customerForm, customer_type: e.target.value})}
                         className="form-control"
                       >
-                        <option value="Women">Women</option>
-                        <option value="Men">Men</option>
-                        <option value="Kids">Kids</option>
+                        <option value="Women">{t('wizard.women', 'Women')}</option>
+                        <option value="Men">{t('wizard.men', 'Men')}</option>
+                        <option value="Kids">{t('wizard.kids', 'Kids')}</option>
                       </select>
                     </div>
                   </div>
@@ -7611,10 +6809,10 @@ function App() {
                       each one opens its own form in the next step. */}
                   <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
                     <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                      Dresses in this Order <span className="required">*</span>
+                      {t('wizard.dressesInOrder', 'Dresses in this Order')} <span className="required">*</span>
                     </label>
                     <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                      Pick every garment being stitched. Each one gets its own measurements and options.
+                      {t('wizard.dressesInOrderSub', 'Pick every garment being stitched. Each one gets its own measurements and options.')}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       {garmentTemplates.map(template => {
@@ -7634,10 +6832,6 @@ function App() {
                         );
                       })}
                     </div>
-                    {/* An empty picker used to render as a blank box with no
-                        explanation, which looks identical to "the boutique has
-                        no garments" and leaves the order form unusable. Say what
-                        went wrong and offer the retry. */}
                     {garmentTemplates.length === 0 && (
                       <div style={{ fontSize: '12.5px', color: garmentTemplatesError ? '#c0392b' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span>
@@ -7651,55 +6845,55 @@ function App() {
                           style={{ padding: '4px 10px', fontSize: '12px' }}
                           onClick={loadGarmentTemplates}
                         >
-                          Retry
+                          {t('common.retry', 'Retry')}
                         </button>
                       </div>
                     )}
                     {garmentTemplates.length > 0 && garmentJobs.length === 0 && (
                       <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '12px' }}>
-                        No garment chosen yet.
+                        {t('wizard.noGarmentChosen', 'No garment chosen yet.')}
                       </div>
                     )}
                   </div>
 
                   <div className="form-grid-2">
                     <div className="form-group">
-                      <label className="form-label">Pattern Style</label>
+                      <label className="form-label">{t('wizard.patternStyle', 'Pattern Style')}</label>
                       <select 
                         value={customerForm.pattern_style || ''}
                         onChange={(e) => setCustomerForm({...customerForm, pattern_style: e.target.value})}
                         className="form-control"
                       >
-                        <option value="">Select Pattern Style</option>
-                        <option value="Floral Prints">Floral Prints</option>
-                        <option value="Traditional Brocade">Traditional Brocade</option>
-                        <option value="Solid Plain">Solid Plain</option>
-                        <option value="Geometrical">Geometrical</option>
+                        <option value="">{t('wizard.selectPatternStyle', 'Select Pattern Style')}</option>
+                        <option value="Floral Prints">{t('wizard.floralPrints', 'Floral Prints')}</option>
+                        <option value="Traditional Brocade">{t('wizard.traditionalBrocade', 'Traditional Brocade')}</option>
+                        <option value="Solid Plain">{t('wizard.solidPlain', 'Solid Plain')}</option>
+                        <option value="Geometrical">{t('wizard.geometrical', 'Geometrical')}</option>
                       </select>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Occasion</label>
+                      <label className="form-label">{t('wizard.occasion', 'Occasion')}</label>
                       <select 
                         value={customerForm.occasion || ''}
                         onChange={(e) => setCustomerForm({...customerForm, occasion: e.target.value})}
                         className="form-control"
                       >
-                        <option value="">Select Occasion</option>
-                        <option value="Wedding / Bridal">Wedding / Bridal</option>
-                        <option value="Festive wear">Festive wear</option>
-                        <option value="Formal Event">Formal Event</option>
-                        <option value="Casual wear">Casual wear</option>
+                        <option value="">{t('wizard.selectOccasion', 'Select Occasion')}</option>
+                        <option value="Wedding / Bridal">{t('wizard.weddingBridal', 'Wedding / Bridal')}</option>
+                        <option value="Festive wear">{t('wizard.festiveWear', 'Festive wear')}</option>
+                        <option value="Formal Event">{t('wizard.formalEvent', 'Formal Event')}</option>
+                        <option value="Casual wear">{t('wizard.casualWear', 'Casual wear')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Custom Requirements</label>
+                    <label className="form-label">{t('wizard.customRequirements', 'Custom Requirements')}</label>
                     <textarea 
                       value={customerForm.custom_requirements || ''}
                       onChange={(e) => setCustomerForm({...customerForm, custom_requirements: e.target.value})}
                       className="form-control"
-                      placeholder="Specify custom preferences (e.g. padding, side zippers, extra margin)"
+                      placeholder={t('wizard.customReqPlaceholder', 'Specify custom preferences (e.g. padding, side zippers, extra margin)')}
                     />
                   </div>
                 </div>
@@ -7708,12 +6902,12 @@ function App() {
                 <div className="content-card">
                   <div className="card-title">
                     <FolderOpen size={20} />
-                    Additional Information
+                    {t('wizard.additionalInformation', 'Additional Information')}
                   </div>
 
                   <div className="form-grid-3">
                     <div className="form-group">
-                      <label className="form-label">Date of Birth</label>
+                      <label className="form-label">{t('wizard.dateOfBirth', 'Date of Birth')}</label>
                       <input 
                         type="date" 
                         value={customerForm.date_of_birth || ''}
@@ -7722,7 +6916,7 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Occupation</label>
+                      <label className="form-label">{t('wizard.occupation', 'Occupation')}</label>
                       <input 
                         type="text" 
                         value={customerForm.occupation || ''}
@@ -7732,34 +6926,34 @@ function App() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Preferred Communication</label>
+                      <label className="form-label">{t('wizard.preferredCommunication', 'Preferred Communication')}</label>
                       <select 
                         value={customerForm.preferred_communication}
                         onChange={(e) => setCustomerForm({...customerForm, preferred_communication: e.target.value})}
                         className="form-control"
                       >
                         <option value="WhatsApp">WhatsApp</option>
-                        <option value="Call">Phone Call</option>
+                        <option value="Call">{t('wizard.phoneCall', 'Phone Call')}</option>
                         <option value="Email">Email</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Notes</label>
+                    <label className="form-label">{t('wizard.notes', 'Notes')}</label>
                     <textarea 
                       value={customerForm.notes || ''}
                       onChange={(e) => setCustomerForm({...customerForm, notes: e.target.value})}
                       className="form-control"
-                      placeholder="Any additional notes about the customer..."
+                      placeholder={t('wizard.customerNotesPlaceholder', 'Any additional notes about the customer...')}
                     />
                   </div>
                 </div>
               </>
             )}
 
-            {/* STEP 2: Measurements */}
-            {currentStep === 2 && (
+            {/* STEP 4: Measurements */}
+            {currentStep === 4 && (
               <>
                 <div className="page-title-group">
                   <h1 className="page-title">Garment Details</h1>
@@ -7814,7 +7008,23 @@ function App() {
                             quantityErrors={garmentQuantityErrors[job.key] || {}}
                             onQuantityChange={(fieldKey, quantity) =>
                               updateGarmentQuantity(job.key, fieldKey, quantity)}
-                            onGoToInventory={() => { setView('dashboard'); setDashboardTab('inventory'); }}
+                            sources={job.sources || {}}
+                            brought={job.brought || {}}
+                            defaultSource={defaultMaterialSource(job)}
+                            onSourceChange={(fieldKey, source) =>
+                              updateGarmentSource(job.key, fieldKey, source)}
+                            onBroughtChange={(fieldKey, entry) =>
+                              updateGarmentBrought(job.key, fieldKey, entry)}
+                            /* null when Inventory is gated off: TemplateForm
+                               already drops its whole "Set up inventory"
+                               banner when this is missing, which is what we
+                               want -- offering the button navigated to a tab
+                               the sidebar no longer has, so it left the wizard
+                               for the dashboard and then sat on whatever tab
+                               was already showing. */
+                            onGoToInventory={canSeeTab(currentUser, 'inventory')
+                              ? () => { setView('dashboard'); setDashboardTab('inventory'); }
+                              : null}
                           />
                         </div>
                       );
@@ -7824,11 +7034,11 @@ function App() {
               </>
             )}
 
-            {/* STEP 3: AI Design Studio */}
-            {currentStep === 3 && (
+            {/* STEP 1: AI Design Studio */}
+            {currentStep === 1 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">AI Design Studio</h1>
+                  <h1 className="page-title">Design Studio</h1>
                   <p className="page-subtitle">Designs matched to this client's measurements, occasion, budget and order history — searched across your catalogue, past orders and saved library, and ranked with the reason for every suggestion.</p>
                 </div>
 
@@ -7852,44 +7062,64 @@ function App() {
 
                   {designSourceTab === 'studio' && (
                     <Suspense fallback={<ScreenLoading />}>
-                      {/* One studio per dress. The order-level
-                          customerForm.garment_type used to drive this, so a
-                          Blouse + Lehenga order searched twice for whichever
-                          garment the profile happened to name and both dresses
-                          got the same suggestions. Each garment now carries its
-                          own context, keyed on its own spec.
+                      {/* Garment Selector on Step 1 */}
+                      <div style={{ background: 'rgba(0,0,0,0.015)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '14px 16px', marginBottom: '20px', textAlign: 'left' }}>
+                        <label className="form-label" style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                          {t('wizard.dressesInOrder', 'Dresses in this Order')}
+                        </label>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                          Pick every garment being stitched. Each one opens its own design parts below.
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {garmentTemplates.map(template => {
+                            const chosen = garmentJobs.some(job => job.key === template.key);
+                            return (
+                              <button
+                                key={template.key}
+                                type="button"
+                                className={chosen ? 'btn-primary' : 'btn-secondary'}
+                                style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '999px', gap: '6px' }}
+                                onClick={() => (chosen ? (garmentJobs.length > 1 && removeGarment(template.key)) : addGarment(template.key))}
+                              >
+                                {chosen ? <Check size={12} /> : <Plus size={12} />}
+                                {template.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
 
-                          `customerId` is null for a new customer and that is
-                          correct: the studio personalises from the draft until
-                          Confirm mints the customer. Nothing here creates one. */}
                       {garmentJobs.length === 0 ? (
                         <p style={{ color: 'var(--text-secondary)', padding: '20px 0' }}>
-                          Choose a garment on step one to see designs matched to it.
+                          Select a garment above to browse its designs, part by part.
                         </p>
                       ) : garmentJobs.map(job => (
-                        <div key={job.key} style={{ marginBottom: '28px' }}>
-                          {garmentJobs.length > 1 && (
-                            <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '10px' }}>
-                              {job.template?.name || job.key}
-                            </h3>
-                          )}
-                          <DesignStudio
-                            customerId={customerId}
-                            draftId={customerId ? null : draftId}
-                            garmentKey={job.key}
+                        <div key={job.key} style={{ marginBottom: '20px' }}>
+                          {/* One picker per dress, each reading its own
+                              garment's parts. Selections are kept per garment
+                              so a saree's pallu and a blouse's neck never share
+                              a slot. */}
+                          <GarmentPartPicker
+                            garmentKey={job.template?.key || job.key}
                             garmentName={job.template?.name || job.key}
-                            initialItems={job.design?.items}
-                            orderInput={{
-                              garment_type: job.template?.key || job.key,
-                              occasion: customerForm.occasion,
-                              budget: jobSubtotal(job),
-                            }}
-                            notes={designNotes}
-                            onNotesChange={setDesignNotes}
-                            onBoardChange={(state) => handleGarmentBoardChange(job.key, state)}
+                            selection={partSelection[job.key] || {}}
+                            onChange={(next) => handlePartSelection(job.key, next)}
                           />
                         </div>
                       ))}
+
+                      {/* Everything chosen so far, garment by garment. A choice
+                          made under Saree scrolls out of sight as soon as the
+                          customer opens Blouse, so the whole outfit is
+                          gathered here at the foot of the screen. */}
+                      <SelectedDesignSummary
+                        garmentJobs={garmentJobs}
+                        onClear={(garmentKey, part) => {
+                          const next = { ...(partSelection[garmentKey] || {}) };
+                          delete next[part];
+                          handlePartSelection(garmentKey, next);
+                        }}
+                      />
                     </Suspense>
                   )}
 
@@ -7981,8 +7211,8 @@ function App() {
               </>
             )}
 
-            {/* STEP 4: Fabric Selection */}
-            {currentStep === 4 && (
+            {/* STEP 2: Fabric Selection */}
+            {currentStep === 2 && (
               <>
                 <div className="page-title-group">
                   <h1 className="page-title">Fabric Selection</h1>
@@ -8037,6 +7267,25 @@ function App() {
                           style={{ display: 'none' }}
                           onChange={handleFabricFilesChange}
                         />
+                        {/* The roll is in the room and the phone is in the
+                            hand. stopPropagation so this click does not also
+                            reach the zone and open the gallery on top. */}
+                        <input
+                          type="file"
+                          id="fabric-picker-camera"
+                          accept="image/*"
+                          capture="environment"
+                          style={{ display: 'none' }}
+                          onChange={handleFabricFilesChange}
+                        />
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ fontSize: '12px', padding: '6px 10px', marginTop: '12px' }}
+                          onClick={(e) => { e.stopPropagation(); document.getElementById('fabric-picker-camera').click(); }}
+                        >
+                          📷 {t('common.takePhoto', 'Take photo')}
+                        </button>
                       </div>
 
                       {fabricPreviews.length > 0 && (
@@ -8088,10 +7337,28 @@ function App() {
                           boutique workflow, not a fallback. */}
                       {fabrics.filter(f => f.is_available !== false).length === 0 && (
                         <div style={{ padding: '24px', border: '1px dashed var(--border-color)', borderRadius: '10px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-                          <div style={{ fontWeight: 600 }}>Your fabric library is empty</div>
+                          {/* Two empty states, not one. An empty library is a
+                              job the owner can go and do; a library the
+                              platform has switched off is not, and the grid
+                              looks identically empty either way. Offering "Save
+                              & add fabrics" in the second case saved the draft,
+                              left the wizard, and landed on whatever tab was
+                              already showing -- the Fabrics tab it asked for is
+                              gone from the nav, so the derived dashboardTab
+                              refuses it. Say so instead, and leave the one
+                              route that still works. */}
+                          <div style={{ fontWeight: 600 }}>
+                            {canSeeTab(currentUser, 'fabrics') ? 'Your fabric library is empty' : 'Fabric library unavailable'}
+                          </div>
                           <div style={{ color: 'var(--text-secondary)', fontSize: '13px', maxWidth: '46ch', lineHeight: 1.5 }}>
-                            Add the rolls you stock to pick from them here — or switch to
-                            <strong> Customer's Own Fabric</strong> above if the client is bringing their own.
+                            {canSeeTab(currentUser, 'fabrics') ? (<>
+                              Add the rolls you stock to pick from them here — or switch to
+                              <strong> Customer's Own Fabric</strong> above if the client is bringing their own.
+                            </>) : (<>
+                              The fabric library is switched off for this boutique, so there is
+                              nothing to pick from. Switch to
+                              <strong> Customer's Own Fabric</strong> above to carry on with this order.
+                            </>)}
                           </div>
                           {/* Save first, then go. This button is the product's
                               own advice to a boutique with no fabric library --
@@ -8100,6 +7367,7 @@ function App() {
                               this component's state. The draft is on the server
                               before we navigate, so the work is waiting when
                               they come back. */}
+                          {canSeeTab(currentUser, 'fabrics') && (
                           <button type="button" className="btn-secondary" disabled={draftSaveState === 'saving'} onClick={async () => {
                             try {
                               await persistDraft({ step: 4 });
@@ -8113,6 +7381,7 @@ function App() {
                           }}>
                             {draftSaveState === 'saving' ? 'Saving…' : <>Save &amp; add fabrics</>}
                           </button>
+                          )}
                         </div>
                       )}
 
@@ -8142,7 +7411,7 @@ function App() {
                                 }}
                               >
                                 <div className="fabric-image-container">
-                                  <img src={resolvedImg} alt={f.name} onError={(e) => {
+                                  <img src={resolvedImg || 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400'} alt={f.name} onError={(e) => {
                                     e.target.src = 'https://images.unsplash.com/photo-1574169208507-84376144848b?w=400';
                                   }} />
                                   {selectedFabric?.id === f.id && (
@@ -8199,8 +7468,8 @@ function App() {
             {currentStep === 5 && (
               <>
                 <div className="page-title-group">
-                  <h1 className="page-title">Review & Staff Assignment</h1>
-                  <p className="page-subtitle">Assign a Master Tailor to supervise/cut and a Stitching Tailor for the assembly.</p>
+                  <h1 className="page-title">{t('wizard.reviewStaffAssignmentTitle', 'Review & Staff Assignment')}</h1>
+                  <p className="page-subtitle">{t('wizard.reviewStaffAssignmentDesc', 'Assign a Master Tailor to supervise/cut and a Stitching Tailor for the assembly.')}</p>
                 </div>
 
                 <div className="responsive-profile-grid" style={{ gap: '24px' }}>
@@ -8208,52 +7477,48 @@ function App() {
                   <div className="content-card" style={{ margin: 0 }}>
                     <div className="card-title">
                       <Scissors size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                      1. Assign Master Tailor (Cutting & Supervision)
+                      {t('wizard.assignMasterTailorTitle', '1. Assign Master Tailor (Cutting & Supervision)')}
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {tailors.filter(t => t.role === 'Master').length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Master Tailors available. Add one to continue:</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('wizard.noMasterTailorsAvailable', 'No Master Tailors available. Add one to continue:')}</div>
                           <button 
                             className="btn-primary" 
                             style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                            onClick={() => {
-                              setEditingTailor(null);
-                              setTailorForm({ name: '', email: '', specialty: 'Ethnic & Bridal Cutting', rating: 5.0, status: 'Available', role: 'Master' });
-                              setShowTailorModal(true);
-                            }}
+                            onClick={() => setDashboardTab('staff')}
                           >
-                            <Plus size={14} /> Add Master Tailor
+                            <Plus size={14} /> {t('wizard.addMasterTailorBtn', 'Add Master Tailor')}
                           </button>
                         </div>
                       ) : (
-                        tailors.filter(t => t.role === 'Master').map(t => (
+                        tailors.filter(t => t.role === 'Master').map(tailorItem => (
                           <div 
-                            key={t.id} 
-                            className={`tailor-row ${selectedMaster?.id === t.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedMaster(t)}
+                            key={tailorItem.id} 
+                            className={`tailor-row ${selectedMaster?.id === tailorItem.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedMaster(tailorItem)}
                             style={{
                               display: 'flex',
                               gap: '16px',
                               alignItems: 'center',
                               padding: '12px',
                               borderRadius: '8px',
-                              border: selectedMaster?.id === t.id ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)',
-                              background: selectedMaster?.id === t.id ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
+                              border: selectedMaster?.id === tailorItem.id ? '2px solid var(--accent-text, #b07c40)' : '1px solid var(--border-color)',
+                              background: selectedMaster?.id === tailorItem.id ? 'rgba(212, 175, 55, 0.05)' : 'transparent',
                               cursor: 'pointer'
                             }}
                           >
                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailorItem.name)}`} alt={tailorItem.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
                             <div className="tailor-info" style={{ flex: 1 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
-                                <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
-                                  {t.status}
+                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailorItem.name}</span>
+                                <span className={`order-row-badge ${tailorItem.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                  {tailorItem.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
                                 </span>
                               </div>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailorItem.specialty}</span>
                             </div>
                           </div>
                         ))
@@ -8265,52 +7530,48 @@ function App() {
                   <div className="content-card" style={{ margin: 0 }}>
                     <div className="card-title">
                       <Scissors size={20} />
-                      2. Assign Stitching Tailor (Sewing & Details)
+                      {t('wizard.assignStitchingTailorTitle', '2. Assign Stitching Tailor (Sewing & Details)')}
                     </div>
                     <div className="tailors-list" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {stitchingStaff().length === 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '8px 0' }}>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No Stitching Tailors available. Add one to continue:</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{t('wizard.noStitchingTailorsAvailable', 'No Stitching Tailors available. Add one to continue:')}</div>
                           <button 
                             className="btn-primary" 
                             style={{ alignSelf: 'flex-start', padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                            onClick={() => {
-                              setEditingTailor(null);
-                              setTailorForm({ name: '', email: '', specialty: 'Assembly & Detailing', rating: 5.0, status: 'Available', role: 'Tailor' });
-                              setShowTailorModal(true);
-                            }}
+                            onClick={() => setDashboardTab('staff')}
                           >
-                            <Plus size={14} /> Add Stitching Tailor
+                            <Plus size={14} /> {t('wizard.addStitchingTailorBtn', 'Add Stitching Tailor')}
                           </button>
                         </div>
                       ) : (
-                        stitchingStaff().map(t => (
+                        stitchingStaff().map(tailorItem => (
                           <div 
-                            key={t.id} 
-                            className={`tailor-row ${selectedTailor?.id === t.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedTailor(t)}
+                            key={tailorItem.id} 
+                            className={`tailor-row ${selectedTailor?.id === tailorItem.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedTailor(tailorItem)}
                             style={{
                               display: 'flex',
                               gap: '16px',
                               alignItems: 'center',
                               padding: '12px',
                               borderRadius: '8px',
-                              border: selectedTailor?.id === t.id ? '2px solid var(--border-color)' : '1px solid var(--border-color)',
-                              background: selectedTailor?.id === t.id ? 'rgba(0, 0, 0, 0.03)' : 'transparent',
+                              border: selectedTailor?.id === tailorItem.id ? '2px solid var(--border-color)' : '1px solid var(--border-color)',
+                              background: selectedTailor?.id === tailorItem.id ? 'rgba(0, 0, 0, 0.03)' : 'transparent',
                               cursor: 'pointer'
                             }}
                           >
                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`} alt={t.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <img src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(tailorItem.name)}`} alt={tailorItem.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
                             <div className="tailor-info" style={{ flex: 1 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{t.name}</span>
-                                <span className={`order-row-badge ${t.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
-                                  {t.status}
+                                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{tailorItem.name}</span>
+                                <span className={`order-row-badge ${tailorItem.status === 'Available' ? 'confirmed' : 'in_progress'}`} style={{ fontSize: '10px', padding: '1px 6px' }}>
+                                  {tailorItem.status === 'Available' ? t('wizard.available', 'Available') : t('wizard.busy', 'Busy')}
                                 </span>
                               </div>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t.specialty}</span>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{tailorItem.specialty}</span>
                             </div>
                           </div>
                         ))
@@ -8323,7 +7584,7 @@ function App() {
                 <div className="content-card" style={{ margin: '24px 0 0 0' }}>
                   <div className="card-title">
                     <Compass size={20} style={{ color: 'var(--accent-text, #b07c40)' }} />
-                    3. Delivery Method Configuration
+                    {t('wizard.deliveryMethodConfigTitle', '3. Delivery Method Configuration')}
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
@@ -8336,7 +7597,7 @@ function App() {
                           checked={deliveryMethod === 'Direct Pickup'}
                           onChange={() => setDeliveryMethod('Direct Pickup')}
                         />
-                        Direct Boutique Pickup
+                        {t('wizard.directBoutiquePickup', 'Direct Boutique Pickup')}
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
                         <input 
@@ -8346,14 +7607,14 @@ function App() {
                           checked={deliveryMethod === 'Courier'}
                           onChange={() => setDeliveryMethod('Courier')}
                         />
-                        Courier Delivery
+                        {t('wizard.courierDeliveryOption', 'Courier Delivery')}
                       </label>
                     </div>
 
                     {deliveryMethod === 'Courier' && (
                       <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', background: 'rgba(0,0,0,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '8px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Courier Service Provider</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.courierServiceProvider', 'Courier Service Provider')}</label>
                           <input 
                             type="text" 
                             className="form-control"
@@ -8364,7 +7625,7 @@ function App() {
                           />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Tracking Reference Number</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.trackingReferenceNumber', 'Tracking Reference Number')}</label>
                           <input 
                             type="text" 
                             className="form-control"
@@ -8374,7 +7635,7 @@ function App() {
                           />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', gridColumn: 'span 2' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Shipping / Delivery Address</label>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('wizard.shippingDeliveryAddress', 'Shipping / Delivery Address')}</label>
                           <textarea 
                             className="form-control"
                             rows="3"
@@ -8410,12 +7671,12 @@ function App() {
                   <>
                     <div className="page-title-group">
                       <h1 className="page-title">Review & Complete Order</h1>
-                      <p className="page-subtitle">Almost there! Please review your selections and order details. Once confirmed, we'll hand it over to your tailor and keep you updated at every step.</p>
+                      <p className="page-subtitle">Review the selections and order details. Once confirmed, it goes to the tailor and the customer is kept updated at every step.</p>
                     </div>
 
                     <div className="accent-banner" style={{ margin: '4px 0 16px', backgroundColor: '#e2f5ec', borderColor: '#c3ebdb', color: '#107c41', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Check size={16} />
-                      <span>All set! You're ready to create your order.</span>
+                      <span>All set — ready to create this order.</span>
                     </div>
 
                     {/* Section 1: Order Summary */}
@@ -8713,12 +7974,12 @@ function App() {
                   <>
                     <div className="page-title-group">
                       <h1 className="page-title">Create Order & Continue</h1>
-                      <p className="page-subtitle">You're all set! Choose how you'd like to proceed with your payment. Pay now in full or pay partially and the remaining after design completion.</p>
+                      <p className="page-subtitle">Record how the customer is paying: in full now, or part now and the rest after the design is completed.</p>
                     </div>
 
                     <div className="accent-banner" style={{ margin: '4px 0 16px', backgroundColor: '#e2f5ec', borderColor: '#c3ebdb', color: '#107c41', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <ShieldCheck size={16} />
-                      <span>Your order is safe and secure with Scaleezy.</span>
+                      <span>Order and payment details are stored securely with Scaleezy.</span>
                     </div>
 
                     {/* Order Review Summary Row */}
@@ -8779,7 +8040,7 @@ function App() {
                     {/* Payment Options Section */}
                     <div className="content-card">
                       <h3 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '16px' }}>2. Payment Options</h3>
-                      <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Choose how you want to pay for your order.</p>
+                      <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Choose how the customer is paying for this order.</p>
 
                       <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                         {/* Option 1: Full Payment */}
@@ -8842,7 +8103,7 @@ function App() {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                             <div>
                               <span style={{ fontSize: '13px', fontWeight: 700 }}>Pay Partially Now</span>
-                              <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>Pay a part now to confirm your order. Pay the remaining after design is completed.</p>
+                              <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>Take part payment now to confirm the order. The rest is due after the design is completed.</p>
                             </div>
                             <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: '2px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {paymentOption === 'partial' && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0f291e' }}></div>}
@@ -8931,28 +8192,28 @@ function App() {
                 <div className="sidebar-card">
                   <div className="sidebar-card-title">
                     <Sparkles size={16} />
-                    How it works
+                    {t('wizard.howItWorks', 'How it works')}
                   </div>
                   <div className="instruction-steps">
                     <div className="instruction-step">
                       <div className="step-num-badge">1</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Enter Profile Details</span>
-                        <span className="instruction-step-desc">Provide size tags and contact channels.</span>
+                        <span className="instruction-step-title">{t('wizard.enterProfileDetails', 'Enter Profile Details')}</span>
+                        <span className="instruction-step-desc">{t('wizard.provideSizeTagsDesc', 'Provide size tags and contact channels.')}</span>
                       </div>
                     </div>
                     <div className="instruction-step">
                       <div className="step-num-badge">2</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Submit Measurements</span>
-                        <span className="instruction-step-desc">Collect 7 key body specifications.</span>
+                        <span className="instruction-step-title">{t('wizard.submitMeasurements', 'Submit Measurements')}</span>
+                        <span className="instruction-step-desc">{t('wizard.collectBodySpecsDesc', 'Collect 7 key body specifications.')}</span>
                       </div>
                     </div>
                     <div className="instruction-step">
                       <div className="step-num-badge">3</div>
                       <div className="instruction-step-content">
-                        <span className="instruction-step-title">Bespoke Design & Fabric</span>
-                        <span className="instruction-step-desc">Pick reference sketches and fabric rolls.</span>
+                        <span className="instruction-step-title">{t('wizard.bespokeDesignFabric', 'Bespoke Design & Fabric')}</span>
+                        <span className="instruction-step-desc">{t('wizard.pickRefSketchesDesc', 'Pick reference sketches and fabric rolls.')}</span>
                       </div>
                     </div>
                   </div>
@@ -8961,10 +8222,10 @@ function App() {
                 <div className="sidebar-card">
                   <div className="sidebar-card-title">
                     <ShieldCheck size={16} />
-                    Privacy Assured
+                    {t('wizard.privacyAssured', 'Privacy Assured')}
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    Customer details, style files, and measurement records are saved exclusively to the Scaleezy database cluster and never shared.
+                    {t('wizard.privacyAssuredDesc', 'Customer details, style files, and measurement records are saved exclusively to the Scaleezy database cluster and never shared.')}
                   </p>
                 </div>
               </>
@@ -8972,13 +8233,13 @@ function App() {
               <div className="sidebar-card">
                 <div className="sidebar-card-title">
                   <ShoppingBag size={18} />
-                  Order Summary
+                  {t('wizard.orderSummaryTitle', 'Order Summary')}
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 600 }}>{customerForm.customer_type} • {wizardGarmentLabel}</div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Fabric: {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : 'Customer fabric'}
+                    {t('wizard.fabricLabel', 'Fabric:')} {fabricTab === 'boutique' && selectedFabric ? `${selectedFabric.name} (${selectedFabric.color})` : t('wizard.customerFabricLabel', 'Customer fabric')}
                   </div>
                 </div>
 
@@ -8992,25 +8253,25 @@ function App() {
                     </div>
                   ))}
                   <div className="summary-item-row">
-                    <span>Packaging & Handling</span>
+                    <span>{t('wizard.packagingHandling', 'Packaging & Handling')}</span>
                     <span className="price-display">{formatMoney(quotePrices.packaging)}</span>
                   </div>
                   {parseFloat(quotePrices.discount || 0) > 0 && (
                     <div className="summary-item-row">
-                      <span>Discount</span>
+                      <span>{t('wizard.discount', 'Discount')}</span>
                       <span className="price-display">−{formatMoney(quotePrices.discount)}</span>
                     </div>
                   )}
                   <div className="summary-item-row" style={{ borderTop: '1px solid #f1f3f5', paddingTop: '10px' }}>
-                    <span>Subtotal</span>
+                    <span>{t('wizard.subtotal', 'Subtotal')}</span>
                     <span className="price-display">{formatMoney(getSubtotal())}</span>
                   </div>
                   <div className="summary-item-row">
-                    <span>Taxes (GST 5%)</span>
+                    <span>{t('wizard.taxesGst', 'Taxes (GST 5%)')}</span>
                     <span className="price-display">{formatMoney(getTaxes())}</span>
                   </div>
                   <div className="summary-item-row total">
-                    <span>Total Amount</span>
+                    <span>{t('wizard.totalAmount', 'Total Amount')}</span>
                     <span className="price-display total">{formatMoney(getTotalPrice())}</span>
                   </div>
                 </div>
@@ -9191,22 +8452,38 @@ function App() {
       )}
 
       {/* CONFIRMED VIEW */}
-      {view === 'confirmed' && confirmedOrder && (
+      {view === 'confirmed' && confirmedOrder && (() => {
+        // The order carries the name it was saved under; the form is the
+        // fallback for the moment before it is re-read.
+        const confirmedCustomerName = (
+          confirmedOrder.customer_name
+          || `${customerForm.first_name || ''} ${customerForm.last_name || ''}`.trim()
+          || 'the customer');
+        return (
         <div className="order-confirmed-container">
           <div className="success-badge-container">
             <div className="success-circle"><Check size={40} /></div>
-            <h1 className="success-title">Your Order is Confirmed! 🎉</h1>
+            {/* The owner or a master places this order at the counter, with
+                the customer standing in front of them or not there at all.
+                Addressed to "you", the screen thanked the boutique for its own
+                order and named the customer as the reader. It names the
+                customer as the customer instead. */}
+            <h1 className="success-title">
+              {t('confirmed.title', 'Order created for {name} 🎉', { name: confirmedCustomerName })}
+            </h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-              Thank you, {customerForm.first_name}! We've received your order and our team has started working on your custom creation.
+              {t('confirmed.subtitle',
+                 'It is with the workroom now, and sits on {name}\'s profile with everything recorded here.',
+                 { name: confirmedCustomerName })}
             </p>
             <div className="order-id-badge">
-              <span>Order ID: <strong>{confirmedOrder.order_id}</strong></span>
+              <span>Order ID: <strong>{orderRef(confirmedOrder)}</strong></span>
               <button 
                 aria-label="Copy order ID"
                 title="Copy order ID"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', minWidth: '44px', minHeight: '44px', margin: '-12px' }}
                 onClick={() => {
-                  navigator.clipboard.writeText(confirmedOrder.order_id);
+                  navigator.clipboard.writeText(orderRef(confirmedOrder));
                   alert("Copied!");
                 }}
               >
@@ -9254,10 +8531,10 @@ function App() {
             <div className="timeline-tracker">
               <div className="timeline-line"></div>
               {[
-                { label: 'Stylist Review', desc: 'Your stylist is reviewing your order details.', active: true, completed: true },
-                { label: 'Design & Creation', desc: 'Artisans will cut and assemble your custom garment.', active: false, completed: false },
+                { label: 'Stylist Review', desc: 'A stylist is reviewing the order details.', active: true, completed: true },
+                { label: 'Design & Creation', desc: 'Artisans will cut and assemble the garment.', active: false, completed: false },
                 { label: 'Quality Check', desc: 'Multi-level measurement and stitching validation.', active: false, completed: false },
-                { label: 'Packed & Shipped', desc: 'Packed securely and dispatched to your door.', active: false, completed: false }
+                { label: 'Packed & Shipped', desc: 'Packed securely and handed over to the customer.', active: false, completed: false }
               ].map((node, i) => (
                 <div key={i} className={`timeline-node ${node.completed ? 'completed' : ''} ${node.active ? 'active' : ''}`}>
                   <div className="timeline-node-circle">
@@ -9294,7 +8571,8 @@ function App() {
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Footer Navigation Bar (Only in Wizard View) */}
       {view === 'wizard' && currentStep < 6 && (
@@ -9302,18 +8580,18 @@ function App() {
           <div className="footer-left-actions">
             <button className="btn-secondary" onClick={handleBack}>
               <ArrowLeft size={16} />
-              Back
+              {t('common.back', 'Back')}
             </button>
           </div>
           <div className="footer-right-actions">
             {/* Show Save as Draft only if they are creating a new customer profile (Step 1 or 2) */}
             {currentStep < 3 && (
               <button className="btn-secondary" onClick={handleSaveDraft} disabled={ctaBusy}>
-                Save as Draft
+                {t('wizard.saveAsDraft', 'Save as Draft')}
               </button>
             )}
             <button className="btn-primary" onClick={handleNext} disabled={ctaBusy} style={{ opacity: ctaBusy ? 0.6 : 1 }}>
-              {ctaBusy ? 'Working…' : <>{currentStep === 5 ? 'Confirm Order' : 'Next'}<ArrowRight size={16} /></>}
+              {ctaBusy ? t('wizard.working', 'Working…') : <>{currentStep === 5 ? t('wizard.confirmOrder', 'Confirm Order') : t('common.next', 'Next')}<ArrowRight size={16} /></>}
             </button>
           </div>
         </div>
@@ -9371,10 +8649,8 @@ function App() {
                   body * {
                     visibility: hidden;
                   }
-                  #invoice-printable, #invoice-printable * {
                     visibility: visible;
                   }
-                  #invoice-printable {
                     position: absolute;
                     left: 0;
                     top: 0;
@@ -9402,7 +8678,7 @@ function App() {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>INVOICE</h2>
-                  <span style={{ fontSize: '12px', display: 'block', marginTop: '4px' }}>Invoice ID: <strong>{confirmedOrder.order_id}</strong></span>
+                  <span style={{ fontSize: '12px', display: 'block', marginTop: '4px' }}>Invoice ID: <strong>{orderRef(confirmedOrder)}</strong></span>
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
                     Date: {fmtDate(confirmedOrder.order_date)}
                   </span>
@@ -9746,129 +9022,183 @@ function App() {
       )}
 
       {/* Stage Review Modal */}
-      {activeReviewStage && activeReviewOrder && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1100
-        }}>
-          <div style={{
-            backgroundColor: 'var(--surface-color)',
-            borderRadius: '12px',
-            border: '1px solid var(--border-color)',
-            width: '500px',
-            maxWidth: '95%',
-            padding: '24px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '20px',
-            maxHeight: '90vh',
-            overflowY: 'auto'
-          }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0, fontFamily: 'var(--font-serif)' }}>
-                  {selectedStageObj ? `Production Stage: ${selectedStageObj.stage_name}` : `Stage Review: ${activeReviewStage}`}
-                </h3>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Order ID: {activeReviewOrder.order_id}</span>
+      {activeReviewStage && activeReviewOrder && (() => {
+        const stage = selectedStageObj;
+        const closeStage = () => {
+          setActiveReviewStage(null);
+          setActiveReviewOrder(null);
+          setSelectedStageObj(null);
+          setSelectedPerformerId('');
+        };
+        const isSupervisor = !currentUser.role || currentUser.role === 'Owner'
+          || SUPERVISOR_ROLES.includes(currentUser.role);
+        // One path for every forward move; the server decides whether the
+        // role, the prerequisites and the stage's own data allow it.
+        const transition = async (status, okMessage) => {
+          if (stageTransitionBusy) return;
+          setStageTransitionBusy(true);
+          try {
+            await api.transitionStage(
+              activeReviewOrder.id,
+              stage.stage_key,
+              status,
+              stageReviewComments,
+              stageReviewImage ? [stageReviewImage] : [],
+              selectedPerformerId || null
+            );
+            alert(okMessage);
+            closeStage();
+            fetchDashboardAndConfig();
+          } catch (err) {
+            alert("Failed to transition: " + err.message);
+          } finally {
+            setStageTransitionBusy(false);
+          }
+        };
+        const tone = { COMPLETED: 'success', IN_PROGRESS: 'info', PAUSED: 'warning', SKIPPED: 'neutral' }[stage?.status] || 'neutral';
+        const jobs = activeReviewOrder.garment_jobs || [];
+        const answered = (obj) => Object.values(obj || {}).filter(v => v !== '' && v !== null && v !== undefined).length;
+        const detailCount = jobs.reduce((n, j) => n + answered(j.spec) + answered(j.measurements), 0);
+        const mins = Math.floor((stage?.duration_seconds || 0) / 60);
+        const hrs = Math.floor(mins / 60);
+        const duration = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
+        const settled = stage && (stage.status === 'COMPLETED' || stage.status === 'SKIPPED');
+        return (
+          <FormModal
+            icon={Scissors} tone="green" width="1000px" zIndex={1100}
+            title={stage ? `Production Stage: ${stage.stage_name}` : `Stage Review: ${activeReviewStage}`}
+            subtitle={`Order ID: ${orderRef(activeReviewOrder)}${activeReviewOrder.customer_name ? ` · ${activeReviewOrder.customer_name}` : ''}`}
+            onClose={closeStage}
+            footer={stage && (
+              <>
+                {(stage.status === 'NOT_STARTED' || stage.status === 'PAUSED') && (
+                  <button className="btn-primary" disabled={stageTransitionBusy}
+                          onClick={() => transition('IN_PROGRESS', 'Stage started successfully!')}>
+                    <Play size={16} /> Start In-Progress
+                  </button>
+                )}
+                {stage.status === 'IN_PROGRESS' && (
+                  <>
+                    <button className="btn-secondary at-btn-amber" disabled={stageTransitionBusy}
+                            onClick={() => transition('PAUSED', 'Stage paused successfully!')}>
+                      <Pause size={16} /> Pause Stage
+                    </button>
+                    <button className="btn-primary" disabled={stageTransitionBusy}
+                            onClick={() => transition('COMPLETED', 'Stage completed successfully!')}>
+                      <Check size={16} /> Complete Stage
+                    </button>
+                  </>
+                )}
+                {!settled && (
+                  <button className="btn-secondary" disabled={stageTransitionBusy}
+                          onClick={() => transition('SKIPPED', 'Stage skipped successfully!')}>
+                    <SkipForward size={16} /> Skip Stage
+                  </button>
+                )}
+                {/* Reversals. Forward-only is the rule; these are the two
+                    audited exceptions, supervisors only, reason required.
+                    The server enforces all of it -- these buttons only appear
+                    where they could succeed. */}
+                {settled && (currentUser?.role === 'Owner' || currentUser?.role === 'Master') && (
+                  <button className="btn-secondary at-btn-warn" disabled={reversalBusy}
+                          onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'reopen' }); }}>
+                    Reopen Stage…
+                  </button>
+                )}
+                {stage.stage_key === 'master_quality_check' && stage.status !== 'COMPLETED'
+                  && ['Owner', 'Master', 'QC Staff'].includes(currentUser?.role) && (
+                  <button className="btn-secondary at-btn-danger" disabled={reversalBusy}
+                          onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'failqc' }); }}>
+                    Fail QC — Send for Rework…
+                  </button>
+                )}
+              </>
+            )}
+          >
+            {/* What this stage is for, and where it stands. */}
+            <div className="at-stage-summary">
+              <div className="at-form-section" style={{ flexDirection: 'row', alignItems: 'center', gap: 'var(--space-4)' }}>
+                <div className="kanban-thumb at-tile--green" style={{ width: 72, height: 90 }}>
+                  {activeReviewOrder.completed_garment_image
+                    ? <img src={activeReviewOrder.completed_garment_image} alt="" />
+                    : <Shirt size={28} />}
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span className="at-section-title" style={{ fontSize: 'var(--text-xl)' }}>{orderGarmentLabel(activeReviewOrder)}</span>
+                    {detailCount > 0 && <span className="ui-badge ui-badge--neutral">{detailCount} details</span>}
+                  </div>
+                  <div className="at-section-sub" style={{ fontSize: 'var(--text-sm)', marginTop: '4px' }}>
+                    {activeReviewOrder.customer_name}
+                    {jobs.length > 1 ? ` · ${jobs.length} garments` : ''}
+                    {activeReviewOrder.estimated_delivery ? ` · Delivery ${fmtDate(activeReviewOrder.estimated_delivery)}` : ''}
+                  </div>
+                  {activeReviewOrder.garment_label && jobs.length > 1 && (
+                    <div className="at-section-sub">{activeReviewOrder.garment_label}</div>
+                  )}
+                </div>
               </div>
-              <button 
-                className="btn-secondary" 
-                style={{ padding: '4px 10px', fontSize: '12px' }}
-                onClick={() => {
-                  setActiveReviewStage(null);
-                  setActiveReviewOrder(null);
-                  setSelectedStageObj(null);
-                  setSelectedPerformerId('');
-                }}
-              >
-                Close
-              </button>
+              {stage && (
+                <div className="at-form-section at-stat--green" style={{ gap: 'var(--space-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span className="ui-eyebrow" style={{ color: 'var(--text-primary)' }}>Status</span>
+                    <span className={`ui-badge ui-badge--${tone}`}>● {stage.status.replace('_', ' ').toLowerCase()}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                    <div>
+                      <div className="ui-eyebrow">Started</div>
+                      <div className="stage-meta-value" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <Calendar size={14} /> {stage.started_at ? fmtDateTime(stage.started_at) : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="ui-eyebrow">SLA / target</div>
+                      <div className="stage-meta-value" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <Clock size={14} /> {stage.sla_hours} hours
+                      </div>
+                    </div>
+                    {stage.completed_at && (
+                      <div>
+                        <div className="ui-eyebrow">Completed</div>
+                        <div className="stage-meta-value">{fmtDateTime(stage.completed_at)}</div>
+                      </div>
+                    )}
+                    {stage.duration_seconds > 0 && (
+                      <div>
+                        <div className="ui-eyebrow">Actual duration</div>
+                        <div className="stage-meta-value">{duration}</div>
+                      </div>
+                    )}
+                    {stage.performed_by_name && (
+                      <div>
+                        <div className="ui-eyebrow">Performed by</div>
+                        <div className="stage-meta-value">{stage.performed_by_name}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* What is actually being made. The wizard collects a full spec and
-                measurement snapshot per dress and saved it correctly -- and
-                then no screen ever read it back, so the person opening this
-                stage to cut or stitch the garment could not see what the
-                customer had asked for. Nested on the order payload, so it
-                needs no fetch of its own. */}
-            {(activeReviewOrder.garment_jobs || []).length > 0 && (
-              <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
-                <div style={{ fontWeight: 700, marginBottom: '8px' }}>What to make</div>
-                {activeReviewOrder.garment_jobs.map(job => {
-                  // Material fields are rendered from job.materials, which
-                  // carries the item's name, quantity and unit. Left in the spec
-                  // dump they printed as bare database UUIDs -- "main fabric:
-                  // a1222bee-8dea-442d-9858-524141b109c4" -- on the one screen
-                  // a cutter opens to find out which roll to pull.
-                  const materials = job.materials || [];
-                  const materialKeys = new Set(materials.map(m => m.field_key));
-                  const specEntries = Object.entries(job.spec || {})
-                    .filter(([k, v]) => v !== '' && v !== null && v !== undefined
-                                        && !materialKeys.has(k));
-                  return (
-                    <div key={job.id} style={{ marginBottom: '10px' }}>
-                      <div style={{ fontWeight: 600, marginBottom: '4px' }}>{job.template_name || job.template_key}</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '4px 12px' }}>
-                        {Object.entries(job.measurements || {}).map(([k, v]) => (
-                          <span key={k} style={{ color: 'var(--text-secondary)' }}>
-                            {humaniseSpecKey(k)}: <strong style={{ color: 'var(--text-primary)' }}>{String(v)} in</strong>
-                          </span>
-                        ))}
-                        {specEntries.map(([k, v]) => (
-                          <span key={k} style={{ color: 'var(--text-secondary)' }}>
-                            {humaniseSpecKey(k)}: <strong style={{ color: 'var(--text-primary)' }}>{humaniseSpecValue(v)}</strong>
-                          </span>
-                        ))}
-                      </div>
-                      {materials.length > 0 && (
-                        <div style={{ marginTop: '6px' }}>
-                          <div style={{ fontWeight: 600, marginBottom: '2px' }}>Materials</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '4px 12px' }}>
-                            {materials.map(material => (
-                              <span key={material.id} style={{ color: 'var(--text-secondary)' }}>
-                                {humaniseSpecKey(material.field_key)}:{' '}
-                                <strong style={{ color: 'var(--text-primary)' }}>
-                                  {material.item_name || material.free_text || '—'}
-                                </strong>
-                                {Number(material.quantity) > 0
-                                  && ` · ${Number(material.quantity)} ${material.unit || ''}`.trimEnd()}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {activeReviewOrder.special_instructions && (
-                  <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Special instructions: </span>
-                    <strong>{activeReviewOrder.special_instructions}</strong>
-                  </div>
-                )}
-              </div>
+            {/* What is actually being made: the garments as the template
+                groups them -- measurements, style, materials -- with the
+                labels the order form used. Nested on the order payload, so it
+                needs no fetch beyond the template itself. */}
+            {jobs.length > 0 && (
+              <OrderGarmentBrief
+                jobs={jobs}
+                specialInstructions={activeReviewOrder.special_instructions}
+              />
             )}
 
             {/* The approved design, and the Master's note on how to make it.
-                GET /design-studio/boards/ has always served this and even swaps
-                in TailorBriefSerializer for a Tailor -- but api.getDesignBoards
-                had zero callers, so the design the owner approved reached the
-                person stitching it through no screen at all. The notes box
-                lives here because the endpoint that writes it had nowhere to be
-                called from until the board was on screen. */}
+                GET /design-studio/boards/ serves this and swaps in
+                TailorBriefSerializer for a Tailor; the notes box lives here
+                because the endpoint that writes it had nowhere else to be
+                called from. */}
             {stageDesignBrief && stageDesignBrief.design && (
-              <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
-                <div style={{ fontWeight: 700, marginBottom: '8px' }}>Approved design</div>
+              <FormSection icon={Sparkles} tone="amber" title="Approved design"
+                           subtitle="The design the owner approved, and how it is to be made.">
                 <div style={{ display: 'flex', gap: '12px' }}>
                   {stageDesignBrief.design.image_url && (
                     <img src={resolveMediaUrl(stageDesignBrief.design.image_url)} alt="Approved design"
@@ -9911,345 +9241,89 @@ function App() {
                         }}>
                   {savingProductionNotes ? 'Saving…' : 'Save notes'}
                 </button>
-              </div>
+              </FormSection>
             )}
 
-            {/* Stage Info Details */}
-            {selectedStageObj && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Current Status:</span>
-                  <span style={{
-                    fontWeight: 700,
-                    color: selectedStageObj.status === 'COMPLETED' ? '#10b981' : selectedStageObj.status === 'IN_PROGRESS' ? '#3b82f6' : selectedStageObj.status === 'PAUSED' ? '#f59e0b' : '#777'
-                  }}>{selectedStageObj.status.toUpperCase()}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>SLA / Target Time:</span>
-                  <span>{selectedStageObj.sla_hours} Hours</span>
-                </div>
-                {selectedStageObj.started_at && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Started At:</span>
-                    <span>{new Date(selectedStageObj.started_at).toLocaleString()}</span>
-                  </div>
-                )}
-                {selectedStageObj.completed_at && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Completed At:</span>
-                    <span>{new Date(selectedStageObj.completed_at).toLocaleString()}</span>
-                  </div>
-                )}
-                {selectedStageObj.duration_seconds > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Actual Duration:</span>
-                    <span>{(() => {
-                      const mins = Math.floor(selectedStageObj.duration_seconds / 60);
-                      const hrs = Math.floor(mins / 60);
-                      if (hrs > 0) return `${hrs}h ${mins % 60}m`;
-                      return `${mins}m`;
-                    })()}</span>
-                  </div>
-                )}
-                {selectedStageObj.performed_by_name && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Assigned Performer:</span>
-                    <span><strong>{selectedStageObj.performed_by_name}</strong></span>
-                  </div>
-                )}
-              </div>
+            {stage && stage.comments && (
+              <InfoNote icon={FileText} tone="neutral" title="Active notes / logs">
+                &ldquo;{stage.comments}&rdquo;
+              </InfoNote>
             )}
 
-            {/* Existing Stage Feedbacks / Notes */}
-            {selectedStageObj && selectedStageObj.comments && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.01)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Active Notes / Logs:</span>
-                <p style={{ fontSize: '12px', fontStyle: 'italic', margin: 0 }}>"{selectedStageObj.comments}"</p>
-              </div>
-            )}
-
-            {/* Photo Gallery for Stage Attachments */}
-            {selectedStageObj && selectedStageObj.attachments && selectedStageObj.attachments.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Progress Photos ({selectedStageObj.attachments.length}):</span>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '8px' }}>
-                  {selectedStageObj.attachments.map((url, i) => (
-                    <a key={i} href={url} target="_blank" rel="noreferrer">
-                      <img src={url} alt={`attachment-${i}`} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border-color)' }} />
+            {stage && stage.attachments && stage.attachments.length > 0 && (
+              <div className="at-field">
+                <span className="at-field-label">Progress photos ({stage.attachments.length})</span>
+                <div className="at-photos">
+                  {stage.attachments.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noreferrer" style={{ lineHeight: 0 }}>
+                      <PhotoTile src={url} alt={`attachment-${i}`} size={72} />
                     </a>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Submit New Transition / Action controls */}
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                Manage Stage Transition
-              </h4>
-
-              {/* Hand this stage to someone, ahead of the work starting.
-                  assign_stage is in SUPERVISOR_ORDER_ACTIONS specifically so a
-                  Master can delegate -- "handing work to someone else is a
-                  supervisor's call" -- and the API honours it, but the only
-                  Assign control in the product was gated to Owner AND lived on
-                  the overview tab, which a Master's nav does not contain and
-                  login never routes them to. The capability was granted and
-                  unreachable. Here it sits on the screen a Master actually
-                  works from. */}
-              {selectedStageObj && (!currentUser.role || currentUser.role === 'Owner'
-                || SUPERVISOR_ROLES.includes(currentUser.role)) && (
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
-                    Assign this stage to
-                  </label>
-                  <select
-                    className="form-control"
-                    style={{ fontSize: '12px', padding: '6px' }}
-                    value={selectedStageObj.assigned_to || ''}
-                    disabled={assigningStageKey === selectedStageObj.stage_key}
-                    onChange={(e) => handleAssignStage(
-                      activeReviewOrder.id, selectedStageObj.stage_key, e.target.value)}
-                  >
-                    <option value="">Unassigned</option>
-                    {eligibleStaffForStage(selectedStageObj.stage_key).map(t => (
-                      <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Who actually did the work, recorded with the transition. This
-                  is a different question from who it was assigned to, and it
-                  used to offer every member of staff regardless of whether the
-                  stage's role list permits them -- so it wrote a pairing that
-                  assign-stage refuses with a 400. */}
-              {(!currentUser.role || currentUser.role === 'Owner'
-                || SUPERVISOR_ROLES.includes(currentUser.role)) && (
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Record who performed this</label>
-                  <select
-                    className="form-control"
-                    style={{ fontSize: '12px', padding: '6px' }}
-                    value={selectedPerformerId}
-                    onChange={(e) => setSelectedPerformerId(e.target.value)}
-                  >
-                    <option value="">-- Select Tailor / Master --</option>
-                    {(selectedStageObj
-                      ? eligibleStaffForStage(selectedStageObj.stage_key)
-                      : tailors).map(t => (
-                      <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Comments / Fitting Logs</label>
-                <textarea 
-                  className="form-control"
-                  style={{ height: '60px', fontSize: '12px' }}
-                  placeholder="Enter notes, alterations details, or comments..."
-                  value={stageReviewComments}
-                  onChange={(e) => setStageReviewComments(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Upload Progress Photo</label>
-                <input
-                  type="file"
-                  className="form-control"
-                  style={{ fontSize: '12px' }}
-                  accept="image/*"
-                  onChange={(e) => setStageReviewImage(e.target.files[0])}
-                />
-                <input
-                  type="file"
-                  id="stage-review-photo-camera"
-                  accept="image/*"
-                  capture="environment"
-                  style={{ display: 'none' }}
-                  onChange={(e) => setStageReviewImage(e.target.files[0])}
-                />
-                <label
-                  htmlFor="stage-review-photo-camera"
-                  className="btn-secondary"
-                  style={{ display: 'inline-block', fontSize: '12px', padding: '6px 10px', marginTop: '6px', cursor: 'pointer' }}
-                >
-                  📷 Take photo
-                </label>
-              </div>
-
-              {/* Action Buttons Panel */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginTop: '10px' }}>
-                {selectedStageObj && (selectedStageObj.status === 'NOT_STARTED' || selectedStageObj.status === 'PAUSED') && (
-                  <button
-                    className="btn-primary"
-                    style={{ background: '#3b82f6', color: '#fff', fontSize: '12px', padding: '8px' }}
-                    disabled={stageTransitionBusy}
-                    onClick={async () => {
-                      if (stageTransitionBusy) return;
-                      setStageTransitionBusy(true);
-                      try {
-                        await api.transitionStage(
-                          activeReviewOrder.id,
-                          selectedStageObj.stage_key,
-                          'IN_PROGRESS',
-                          stageReviewComments,
-                          stageReviewImage ? [stageReviewImage] : [],
-                          selectedPerformerId || null
-                        );
-                        alert("Stage started successfully!");
-                        setActiveReviewStage(null);
-                        setActiveReviewOrder(null);
-                        setSelectedStageObj(null);
-                        setSelectedPerformerId('');
-                        fetchDashboardAndConfig();
-                      } catch (err) {
-                        alert("Failed to transition: " + err.message);
-                      } finally {
-                        setStageTransitionBusy(false);
-                      }
-                    }}
-                  >
-                    Start In-Progress
-                  </button>
-                )}
-
-                {selectedStageObj && selectedStageObj.status === 'IN_PROGRESS' && (
-                  <>
-                    <button
-                      className="btn-secondary"
-                      style={{ background: '#f59e0b', color: '#fff', border: 'none', fontSize: '12px', padding: '8px' }}
-                      disabled={stageTransitionBusy}
-                      onClick={async () => {
-                        if (stageTransitionBusy) return;
-                        setStageTransitionBusy(true);
-                        try {
-                          await api.transitionStage(
-                            activeReviewOrder.id,
-                            selectedStageObj.stage_key,
-                            'PAUSED',
-                            stageReviewComments,
-                            stageReviewImage ? [stageReviewImage] : [],
-                            selectedPerformerId || null
-                          );
-                          alert("Stage paused successfully!");
-                          setActiveReviewStage(null);
-                          setActiveReviewOrder(null);
-                          setSelectedStageObj(null);
-                          setSelectedPerformerId('');
-                          fetchDashboardAndConfig();
-                        } catch (err) {
-                          alert("Failed to transition: " + err.message);
-                        } finally {
-                          setStageTransitionBusy(false);
-                        }
-                      }}
+            {/* Hand this stage to someone, say who did the work, note what
+                happened, photograph it. assign_stage and the performer field
+                are supervisor calls; the API refuses them from anyone else. */}
+            <FormSection icon={RefreshCw} tone="green" title="Manage Stage Transition">
+              <div className="at-form-grid">
+                {stage && isSupervisor && (
+                  <Field label="Assign this stage to" icon={User}>
+                    <select
+                      className="form-control"
+                      value={stage.assigned_to || ''}
+                      disabled={assigningStageKey === stage.stage_key}
+                      onChange={(e) => handleAssignStage(activeReviewOrder.id, stage.stage_key, e.target.value)}
                     >
-                      Pause Stage
-                    </button>
-                    <button
-                      className="btn-primary"
-                      style={{ background: '#10b981', color: '#fff', fontSize: '12px', padding: '8px' }}
-                      disabled={stageTransitionBusy}
-                      onClick={async () => {
-                        if (stageTransitionBusy) return;
-                        setStageTransitionBusy(true);
-                        try {
-                          await api.transitionStage(
-                            activeReviewOrder.id,
-                            selectedStageObj.stage_key,
-                            'COMPLETED',
-                            stageReviewComments,
-                            stageReviewImage ? [stageReviewImage] : [],
-                            selectedPerformerId || null
-                          );
-                          alert("Stage completed successfully!");
-                          setActiveReviewStage(null);
-                          setActiveReviewOrder(null);
-                          setSelectedStageObj(null);
-                          setSelectedPerformerId('');
-                          fetchDashboardAndConfig();
-                        } catch (err) {
-                          alert("Failed to transition: " + err.message);
-                        } finally {
-                          setStageTransitionBusy(false);
-                        }
-                      }}
+                      <option value="">Unassigned</option>
+                      {eligibleStaffForStage(stage.stage_key).map(t => (
+                        <option key={t.id} value={t.id}>{t.name} · {t.role}</option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+                {isSupervisor && (
+                  <Field label="Record who performed this" icon={Users}>
+                    <select
+                      className="form-control"
+                      value={selectedPerformerId}
+                      onChange={(e) => setSelectedPerformerId(e.target.value)}
                     >
-                      Complete Stage
-                    </button>
-                  </>
+                      <option value="">-- Select Tailor / Master --</option>
+                      {(stage ? eligibleStaffForStage(stage.stage_key) : tailors).map(t => (
+                        <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
+                      ))}
+                    </select>
+                  </Field>
                 )}
-
-                {selectedStageObj && selectedStageObj.status !== 'COMPLETED' && selectedStageObj.status !== 'SKIPPED' && (
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '8px' }}
-                    disabled={stageTransitionBusy}
-                    onClick={async () => {
-                      if (stageTransitionBusy) return;
-                      setStageTransitionBusy(true);
-                      try {
-                        await api.transitionStage(
-                          activeReviewOrder.id,
-                          selectedStageObj.stage_key,
-                          'SKIPPED',
-                          stageReviewComments,
-                          stageReviewImage ? [stageReviewImage] : [],
-                          selectedPerformerId || null
-                        );
-                        alert("Stage skipped successfully!");
-                        setActiveReviewStage(null);
-                        setActiveReviewOrder(null);
-                        setSelectedStageObj(null);
-                        setSelectedPerformerId('');
-                        fetchDashboardAndConfig();
-                      } catch (err) {
-                        alert("Failed to transition: " + err.message);
-                      } finally {
-                        setStageTransitionBusy(false);
-                      }
-                    }}
-                  >
-                    Skip Stage
-                  </button>
-                )}
-
-                {/* Reversals. Forward-only is the rule; these are the two
-                    audited exceptions, supervisors only, reason required.
-                    The server enforces all of it -- these buttons only appear
-                    where they could succeed. */}
-                {selectedStageObj && (selectedStageObj.status === 'COMPLETED' || selectedStageObj.status === 'SKIPPED')
-                  && (currentUser?.role === 'Owner' || currentUser?.role === 'Master') && (
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '8px', color: '#b45309', borderColor: '#b45309' }}
-                    disabled={reversalBusy}
-                    onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'reopen' }); }}
-                  >
-                    Reopen Stage…
-                  </button>
-                )}
-                {selectedStageObj && selectedStageObj.stage_key === 'master_quality_check'
-                  && selectedStageObj.status !== 'COMPLETED'
-                  && ['Owner', 'Master', 'QC Master'].includes(currentUser?.role) && (
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '8px', color: '#b91c1c', borderColor: '#b91c1c' }}
-                    disabled={reversalBusy}
-                    onClick={() => { setReversalReason(''); setReversalPrompt({ type: 'failqc' }); }}
-                  >
-                    Fail QC — Send for Rework…
-                  </button>
-                )}
+                <Field label="Comments / Fitting Logs">
+                  <textarea
+                    className="form-control"
+                    placeholder="Enter notes, alterations details, or comments..."
+                    value={stageReviewComments}
+                    onChange={(e) => setStageReviewComments(e.target.value)}
+                  />
+                </Field>
+                <div className="at-field">
+                  <span className="at-field-label">Upload Progress Photo</span>
+                  {stageReviewImage ? (
+                    <div className="at-photos">
+                      <PhotoTile src={URL.createObjectURL(stageReviewImage)} size={88}
+                                 onRemove={() => setStageReviewImage(null)} />
+                    </div>
+                  ) : (
+                    <Dropzone compact camera
+                              title="Drag & drop an image here" subtitle="or choose a file"
+                              chooseLabel="Choose file" cameraLabel="Take photo"
+                              onFiles={(files) => setStageReviewImage(files[0])} />
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </FormSection>
+          </FormModal>
+        );
+      })()}
 
       {/* AI Draping Modal */}
       {showDrapingModal && selectedFabric && (

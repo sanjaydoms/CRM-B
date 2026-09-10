@@ -45,8 +45,8 @@ const PAGE_SIZE = 50;
  * with those two files; the server matches case-insensitively.
  */
 const ROLES = [
-  'Owner', 'Designer', 'Master', 'Tailor', 'Measurement Master', 'Pattern Master',
-  'Cutting Master', 'Maggam Master', 'Finishing Master', 'Pressing Staff', 'QC Master',
+  'Owner', 'Designer', 'Master', 'Tailor', 'Maggam Master', 'Karigar',
+  'Packaging Staff', 'QC Staff',
 ];
 
 /**

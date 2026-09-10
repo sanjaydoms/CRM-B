@@ -1,14 +1,3 @@
-"""Add Gown, Suit and Sherwani.
-
-The boutique stitches all three -- the seeded catalogue has three gowns, and the
-order wizard offered Gown, Suit and Sherwani before the templates replaced its
-hardcoded list. Without templates for them those designs sat in the library's
-Uncategorised section and no order could be taken for them at all.
-
-Suit is the kameez and Sherwani is the coat: the bottom and the dupatta worn with
-either are separate dresses on the order, which is what lets each carry its own
-measurements and go to its own tailor.
-"""
 
 from django.db import migrations
 

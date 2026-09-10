@@ -1,9 +1,3 @@
-"""Re-sync the shipped templates after two definition changes.
-
-Delivery date is no longer required, and the saree's style and material groups
-now appear only for the services actually ticked. Boutiques that forked a
-garment keep their own copy -- sync_global_templates only touches tenant=null.
-"""
 
 from django.db import migrations
 
@@ -23,6 +17,4 @@ class Migration(migrations.Migration):
 
     dependencies = [('catalog', '0002_seed_templates')]
 
-    # Irreversible by design: rolling back would need the previous definitions,
-    # which live in the file this migration exists to replace.
     operations = [migrations.RunPython(resync, migrations.RunPython.noop)]

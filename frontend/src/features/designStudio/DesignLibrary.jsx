@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Check, Clock, Edit2, Eye, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Check, ChevronRight, Clock, Edit2, Eye, Image as ImageIcon, LayoutGrid, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
 
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 import DesignUpload from './DesignUpload';
+import { IconTile, SectionCard, StatCard } from '../../components/ui/Atelier';
 
 /**
  * The boutique's design library.
@@ -22,10 +23,10 @@ const CARD_IMAGE_FALLBACK =
   'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400';
 
 const STATUS_COLOURS = {
-  ACTIVE: { bg: 'rgba(52, 211, 153, 0.15)', fg: '#34d399' },
-  PENDING: { bg: 'rgba(251, 191, 36, 0.15)', fg: '#fbbf24' },
-  DRAFT: { bg: 'rgba(156, 163, 175, 0.15)', fg: '#9ca3af' },
-  ARCHIVED: { bg: 'rgba(156, 163, 175, 0.15)', fg: '#9ca3af' },
+  ACTIVE: { bg: 'var(--success-bg)', fg: 'var(--success-color)' },
+  PENDING: { bg: 'var(--warning-bg)', fg: 'var(--warning-color)' },
+  DRAFT: { bg: 'var(--surface-inset)', fg: 'var(--text-secondary)' },
+  ARCHIVED: { bg: 'var(--surface-inset)', fg: 'var(--text-secondary)' },
 };
 
 // Only the boutique's own catalogue rows are editable through the catalogue
@@ -35,7 +36,7 @@ const EDITABLE_SOURCES = ['catalogue', 'suggestion'];
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 
-function Filters({ value, onChange, designers, collections }) {
+function Filters({ value, onChange, designers, collections, parts = [] }) {
   const set = (key) => (e) => onChange({ ...value, [key]: e.target.value });
 
   const select = (key, label, options) => (
@@ -74,6 +75,7 @@ function Filters({ value, onChange, designers, collections }) {
         ['sleeveless', 'Sleeveless'], ['cap', 'Cap'], ['short', 'Short'],
         ['elbow', 'Elbow'], ['three_quarter', '3/4'], ['full', 'Full'],
       ])}
+      {parts.length > 0 && select('part', 'Part', parts.map(p => [p.key, p.label]))}
       {select('status', 'Status', [
         ['ACTIVE', 'Active'], ['PENDING', 'Pending approval'],
         ['DRAFT', 'Draft'], ['ARCHIVED', 'Archived'],
@@ -96,8 +98,18 @@ function Filters({ value, onChange, designers, collections }) {
   );
 }
 
-function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview }) {
+function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview, partLabels = {} }) {
   const editable = EDITABLE_SOURCES.includes(design.source);
+  // Grouped in the order the server returned them, which is the template's own
+  // part order (DesignImage.Meta.ordering), so the overall shot leads.
+  const byPart = useMemo(() => {
+    const groups = new Map();
+    (design.images || []).forEach((img) => {
+      if (!groups.has(img.part)) groups.set(img.part, []);
+      groups.get(img.part).push(img);
+    });
+    return [...groups.entries()];
+  }, [design.images]);
   const [history, setHistory] = useState([]);
   const [note, setNote] = useState('');
   const [reviewing, setReviewing] = useState(false);
@@ -143,12 +155,12 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
            onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: '20px' }}>{design.title}</h3>
+            <h3 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', fontWeight: 500, color: 'var(--text-primary)' }}>{design.title}</h3>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
               {design.designer_name || 'No designer credited'} · added {formatDate(design.created_at)}
             </span>
           </div>
-          <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
+          <button className="btn-secondary" aria-label="Close" style={{ padding: '4px 10px' }} onClick={onClose}><X size={14} /></button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '20px' }}>
@@ -180,6 +192,32 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '16px' }}>{design.description}</p>
         )}
 
+        {/* A design is several photographs of one garment, each of a different
+            part of it. Grouped under the part so the boutique can show a
+            customer the pallu without hunting through an undifferentiated
+            gallery. Labels come from the garment's own template where the
+            design has one; the raw key is the honest fallback. */}
+        {byPart.length > 0 && (
+          <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+            {byPart.map(([part, shots]) => (
+              <div key={part} style={{ marginBottom: '14px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+                              color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  {partLabels[part] || part.replace(/_/g, ' ')} ({shots.length})
+                </div>
+                <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '4px' }}>
+                  {shots.map((img) => (
+                    <img key={img.id} src={resolveMediaUrl(img.image_url, CARD_IMAGE_FALLBACK)}
+                         alt={img.caption || part}
+                         style={{ width: '120px', height: '150px', objectFit: 'cover', borderRadius: '6px',
+                                  flexShrink: 0, border: '1px solid var(--border-color)' }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {canReview && isPending && (
           <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
             <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -197,7 +235,7 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
                       disabled={reviewing} onClick={() => decide('CHANGES_REQUESTED')}>
                 Request changes
               </button>
-              <button className="btn-secondary" style={{ padding: '6px 14px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }}
+              <button className="btn-secondary" style={{ padding: '6px 14px', fontSize: '12px', color: 'var(--danger-color)', borderColor: 'var(--danger-color)' }}
                       disabled={reviewing} onClick={() => decide('REJECTED')}>
                 Reject
               </button>
@@ -224,7 +262,7 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
           <div style={{ display: 'flex', gap: '8px', marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
             <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}
                     onClick={() => onEdit(design)}><Edit2 size={12} /> Edit</button>
-            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#ff4d4d', borderColor: 'rgba(255,77,77,0.2)' }}
+            <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--danger-color)', borderColor: 'var(--danger-color)' }}
                     onClick={() => onDelete(design)}><Trash2 size={12} /> Delete</button>
           </div>
         )}
@@ -246,6 +284,11 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
+  // Parts per garment key, for the Part filter and the detail modal's headings.
+  // Cached by key rather than reset per category: reopening a category the
+  // owner has already looked at costs nothing, and it keeps the state write
+  // inside the fetch callback rather than in an effect body.
+  const [partsByKey, setPartsByKey] = useState({});
 
   const PENDING_QUEUE = { key: '__pending__', name: 'Pending Approval' };
   const isPendingQueue = openCategory?.key === PENDING_QUEUE.key;
@@ -276,6 +319,23 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
     api.getCollections({ active: 'true' }).then(setCollections).catch(() => setCollections([]));
   }, [refreshToken]);
 
+  const openKey = openCategory?.key;
+  const needsParts = Boolean(openKey) && openKey !== PENDING_QUEUE.key
+                     && partsByKey[openKey] === undefined;
+
+  useEffect(() => {
+    if (!needsParts) return;
+    let cancelled = false;
+    api.getGarmentTemplate(openKey)
+      .then(t => { if (!cancelled) setPartsByKey(p => ({ ...p, [openKey]: t.design_parts || [] })); })
+      .catch(() => { if (!cancelled) setPartsByKey(p => ({ ...p, [openKey]: [] })); });
+    return () => { cancelled = true; };
+  }, [needsParts, openKey]);
+
+  const parts = partsByKey[openKey] || [];
+  const partLabels = useMemo(
+    () => Object.fromEntries(parts.map(p => [p.key, p.label])), [parts]);
+
   // Only the open category is fetched, so the landing page never pays for the
   // whole library.
   useEffect(() => {
@@ -284,7 +344,10 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
     setLoading(true);
     const query = isPendingQueue
       ? { ...filters, status: 'PENDING', template: undefined }
-      : { ...filters, template: openCategory.key || undefined };
+      // The Uncategorised bucket carries an empty key. Sending no filter
+      // at all listed the entire library under it; 'none' lists what it
+      // says on the tile.
+      : { ...filters, template: openCategory.key || 'none' };
     api.getDesignLibrary(query)
       .then((rows) => { if (!cancelled) { setDesigns(rows); setError(null); } })
       .catch((err) => { if (!cancelled) setError(err.message); })
@@ -306,7 +369,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
 
   if (error && !openCategory) {
     return (
-      <div className="content-card" style={{ color: '#c0392b', fontSize: '13px' }}>
+      <div className="content-card" style={{ color: 'var(--danger-color)', fontSize: '13px' }}>
         The design library could not be loaded — {error}
         <button className="btn-secondary" style={{ marginLeft: '10px', padding: '4px 10px', fontSize: '12px' }}
                 onClick={loadCategories}>Retry</button>
@@ -315,45 +378,48 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   }
 
   if (openCategory === null) {
+    const named = categories.filter((c) => c.key);
+    const uncategorised = categories.find((c) => !c.key);
     return (
-      <div className="content-card">
-        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span>Boutique Designs</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 400 }}>
-              {total} design{total === 1 ? '' : 's'} in the library
-            </span>
-            {canReview && pendingCount > 0 && (
-              <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', color: '#fbbf24', borderColor: 'rgba(251,191,36,0.3)' }}
-                      onClick={() => { setFilters({}); setOpenCategory(PENDING_QUEUE); }}>
-                <Clock size={13} /> {pendingCount} awaiting review
+      <div className="at-stack">
+        <div className="at-stat-grid">
+          <StatCard icon={ImageIcon} tone="green" label="Total Designs" value={total}
+                    sub={`${total === 1 ? 'design' : 'designs'} in the library`} />
+          <StatCard icon={LayoutGrid} tone="amber" label="Categories" value={named.length} sub="garment types" />
+          <StatCard icon={ImageIcon} tone="violet" label="Uncategorised" value={uncategorised?.count ?? 0}
+                    sub={uncategorised?.count ? 'not yet filed under a garment' : 'everything is filed'}
+                    onClick={uncategorised ? () => { setFilters({}); setOpenCategory(uncategorised); } : undefined} />
+          {canReview && (
+            <StatCard icon={Clock} tone={pendingCount > 0 ? 'rose' : 'blue'} label="Awaiting review" value={pendingCount}
+                      sub={pendingCount > 0 ? 'designs waiting on you' : 'all reviewed'}
+                      onClick={pendingCount > 0 ? () => { setFilters({}); setOpenCategory(PENDING_QUEUE); } : undefined} />
+          )}
+        </div>
+
+        <SectionCard
+          icon={LayoutGrid} tone="green" title="Design Categories"
+          subtitle="Organise the library by garment"
+          action={() => setUploading(true)} actionLabel="Upload design"
+        >
+          <div className="at-cat-grid">
+            {categories.map((category) => (
+              <button
+                key={category.key || 'uncategorised'}
+                type="button"
+                className="at-cat"
+                onClick={() => { setFilters({}); setOpenCategory(category); }}
+                style={{ opacity: category.count === 0 ? 0.6 : 1 }}
+              >
+                <IconTile icon={ImageIcon} tone={category.key ? (category.count ? 'green' : 'neutral') : 'amber'} size={44} iconSize={20} />
+                <span style={{ minWidth: 0 }}>
+                  <span className="at-cat-name" style={{ display: 'block' }}>{category.name}</span>
+                  <span className="at-cat-count">{category.count} design{category.count === 1 ? '' : 's'}</span>
+                </span>
+                <ChevronRight size={18} className="at-cat-chevron" />
               </button>
-            )}
-            <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }}
-                    onClick={() => setUploading(true)}>
-              <Plus size={13} /> Upload design
-            </button>
-          </span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))', gap: '12px' }}>
-          {categories.map((category) => (
-            <button
-              key={category.key || 'uncategorised'}
-              type="button"
-              onClick={() => { setFilters({}); setOpenCategory(category); }}
-              style={{
-                textAlign: 'left', padding: '16px', borderRadius: '8px', cursor: 'pointer',
-                border: '1px solid var(--border-color)', background: 'var(--surface-color)',
-                opacity: category.count === 0 ? 0.55 : 1,
-              }}
-            >
-              <div style={{ fontSize: '14px', fontWeight: 600 }}>{category.name}</div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-text, #b07c40)' }}>
-                {category.count}
-              </div>
-            </button>
-          ))}
-        </div>
+            ))}
+          </div>
+        </SectionCard>
 
         {uploading && (
           <DesignUpload
@@ -372,7 +438,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
                 onClick={() => { setOpenCategory(null); setDesigns([]); }}>
           <ArrowLeft size={13} /> All categories
         </button>
-        <h3 style={{ margin: 0, fontSize: '18px' }}>{openCategory.name}</h3>
+        <h3 style={{ margin: 0, fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', fontWeight: 500, color: 'var(--text-primary)' }}>{openCategory.name}</h3>
         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
           {loading ? 'loading…' : `${designs.length} shown`}
         </span>
@@ -382,7 +448,8 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
         </button>
       </div>
 
-      <Filters value={filters} onChange={setFilters} designers={designers} collections={collections} />
+      <Filters value={filters} onChange={setFilters} designers={designers}
+               collections={collections} parts={parts} />
 
       {!loading && designs.length === 0 && (
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)', padding: '24px 0', textAlign: 'center' }}>
@@ -395,7 +462,10 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
           const status = STATUS_COLOURS[design.status] || STATUS_COLOURS.DRAFT;
           return (
             <div key={design.id}
+                 role="button"
+                 tabIndex={0}
                  onClick={() => api.getDesignAsset(design.id).then(setSelected).catch(() => setSelected(design))}
+                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); api.getDesignAsset(design.id).then(setSelected).catch(() => setSelected(design)); } }}
                  style={{
                    border: '1px solid var(--border-color)', borderRadius: '10px',
                    overflow: 'hidden', cursor: 'pointer', background: 'var(--surface-color)',
@@ -453,6 +523,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
           onDelete={(design) => { setSelected(null); onDeleteDesign?.(design); }}
           onReviewed={handleReviewed}
           canReview={canReview}
+          partLabels={partLabels}
         />
       )}
     </div>

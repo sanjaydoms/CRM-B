@@ -1,4 +1,3 @@
-# Scaleezy Boutique CRM — Demo Guide
 
 Open this ten minutes before the meeting. Everything below is a click path that
 has been walked in the running build.
@@ -7,9 +6,7 @@ Full detail: **[Complete User Guide](README.md)** · coverage: **[Product Covera
 
 ---
 
-## 1. Demo setup
 
-### Start the servers
 
 ```bash
 cd antigravity/scratch/django_screens && ./start.sh
@@ -27,7 +24,6 @@ cd antigravity/scratch/django_screens/frontend && npm run build && npm run previ
 
 Served on `http://localhost:4173`.
 
-### Open these tabs before you start
 
 | Tab | URL |
 |---|---|
@@ -36,7 +32,6 @@ Served on `http://localhost:4173`.
 | 3 — customer tracking | the link from the demo order (below) |
 | 4 — phone view | tab 2, browser dev tools at 390×844 |
 
-### Two-minute pre-flight
 
 1. Sign in as the owner. The dashboard shows one order and one appointment.
 2. Open **Manage Orders** — order `T2B-260827-2925`, *Delivered*.
@@ -46,12 +41,10 @@ If any of that is missing, the demo data has been reset — see §6.
 
 ---
 
-## 2. Demo data
 
 **Boutique:** Kanchi Threads · 12 Kutchery Road, Mylapore, Chennai 600004
 **Schema:** `kavyademoboutiquetest_bc8ec80a`
 
-### Logins
 
 > Local demo credentials on a local database. They are not used anywhere else
 > and must never be reused on a hosted environment.
@@ -67,7 +60,6 @@ If any of that is missing, the demo data has been reset — see §6.
 The Super Admin console needs platform-administrator credentials, which are not
 part of this boutique's data. Show it only if you have them.
 
-### What is already in the boutique
 
 | Thing | Detail |
 |---|---|
@@ -80,7 +72,6 @@ part of this boutique's data. Show it only if you have them.
 | Design work | One blouse brief, submitted by the designer and approved by the owner |
 | Appointment | Design Consultation, 2 Sept 11:00, Ananya with Lakshmi |
 
-### The customer tracking link
 
 Owner → **Manage Orders** → the order card → **Customer updates** — the link is
 inside the message text. It is a signed URL; copy it from there rather than
@@ -88,12 +79,10 @@ typing one.
 
 ---
 
-## 3. Recommended demo sequence
 
 Work down the list. Each block is *what to show → what to say → what to click →
 expected result → the point*.
 
-### 3.1 The public site — 1 min
 
 **Show:** `localhost:4173`
 **Say:** "This is what a boutique owner finds. The pitch is narrow on purpose —
@@ -102,7 +91,6 @@ this is not generic CRM, it is built for businesses that stitch to measurement."
 **Result:** The demo form; leads land in the platform console.
 **Point:** *A vertical product, not a horizontal one.*
 
-### 3.2 Sign in and the dashboard — 1 min
 
 **Show:** Owner sign-in.
 **Say:** "Each boutique gets its own isolated database schema. Two boutiques on
@@ -112,7 +100,6 @@ this server cannot see each other's clients or prices."
 **Point:** *One screen answers the two questions an owner asks all day: where is
 each order, and who is coming in.*
 
-### 3.3 The customer record — 2 min
 
 **Click:** Customers → Ananya Krishnan.
 **Say:** "Measurements are versioned — you can see what this client measured
@@ -120,7 +107,6 @@ last season, not just today. The style profile is derived from their own orders.
 **Result:** Measurements, sizing version history, order history, style profile.
 **Point:** *The notebook, made searchable and shared with the whole floor.*
 
-### 3.4 Taking an order — 5 min, the centrepiece
 
 **Click:** New Custom Order → Create New Customer → fill the basics → pick
 **Blouse** and **Lehenga** → Next.
@@ -160,7 +146,6 @@ never re-keyed.*
 > If you are short of time, resume the wizard from a saved draft instead of
 > filling it in live.
 
-### 3.5 The floor — 3 min
 
 **Click:** Log out → sign in as **Ravi Kumar** (tailor).
 **Say:** "This is the whole application for a stitching tailor. Two menu items.
@@ -176,7 +161,6 @@ quality. Notice what they cannot do: they cannot touch a price."
 **Point:** *Each stage belongs to a role. Nobody can advance someone else's
 work, and every step is timestamped and attributed.*
 
-### 3.6 The designer — 2 min
 
 **Click:** Sign in as **Meera Nair**.
 **Say:** "A designer account is deliberately narrow — the brief and the garment
@@ -186,7 +170,6 @@ hidden in the menu."
 **Point:** *Freelance designers can be given access without giving away the
 client book.*
 
-### 3.7 Inventory — 2 min
 
 **Click:** Owner → Inventory → Items.
 **Say:** "The Kanchipuram Silk went in at 40 metres and reads 34.3. Nobody typed
@@ -196,7 +179,6 @@ when the fabric was confirmed, consumed when it was stitched."
 **Click:** Reports.
 **Point:** *Stock is a consequence of production, not a separate spreadsheet.*
 
-### 3.8 Money — 1 min
 
 **Click:** Invoices.
 **Say:** "Advance at the counter, balance at delivery, and the invoice carries
@@ -210,7 +192,6 @@ gateway.*
 > the fabric came from your own stock. If you are demoing the invoice, fill the
 > Fabric field in when you build the order. See §31.10 of the guide.
 
-### 3.9 The customer's view — 2 min, the closer
 
 **Click:** Manage Orders → the order card → Customer updates → copy the tracking
 link → paste it in tab 3, ideally on a phone.
@@ -224,7 +205,6 @@ and it is the part a boutique owner buys.*
 
 ---
 
-## 4. Ten-minute version
 
 ```text
 Public site (30 s)
@@ -248,7 +228,6 @@ Customer tracking link, on a phone (1 min)
 
 ---
 
-## 5. Key points to land
 
 | Claim | Evidence to show |
 |---|---|
@@ -260,7 +239,6 @@ Customer tracking link, on a phone (1 min)
 | Customers stop chasing you | The tracking link |
 | Boutique data is isolated | Each tenant is its own schema |
 
-### Do not claim
 
 - Online payment collection — there is no gateway.
 - Automatic WhatsApp — the product composes; a human sends.
@@ -271,7 +249,6 @@ Customer tracking link, on a phone (1 min)
 
 ---
 
-## 6. Backup and recovery during a demo
 
 | Problem | Fix |
 |---|---|
@@ -284,7 +261,6 @@ Customer tracking link, on a phone (1 min)
 | Try-On shows a broken image | Expected offline — use it as the honest framing (§20 of the guide) |
 | The data is gone | Re-seed by re-running the capture steps in order: `signup`, `seed_staff`, `seed_designer`, `seed_fabrics`, `seed_designs`, `seed_inventory`, `seed_stock`, `create_order`, `assign_design_work`, `designer_upload`, `owner_review_design`, `run_production`, `tailor_production`, `master_production_late`, `settle_payment`, `owner_order_wrapup`, `deliver_order`, `owner_appointments` — each is `python3 docs/user-guide/capture.py <name>` |
 
-### Reset to a clean boutique
 
 Sign up a new boutique with a fresh email and run the seed steps above against
 it. Nothing in the demo data is required by the application.

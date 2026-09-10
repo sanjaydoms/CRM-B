@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDownCircle, BarChart3, BookOpen, ClipboardList, History, MapPin, Package, Plus, Scissors, Search, Truck, X } from 'lucide-react';
 import { api } from '../../services/api';
+import { orderRef } from '../../services/format';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import { PageHeader, StatCard } from '../../components/ui/Atelier';
+import LanguageSelector from '../../components/LanguageSelector.jsx';
 import CatalogBrowser from './CatalogBrowser';
 import LocationsTab from './LocationsTab';
 import RecipesTab from './RecipesTab';
 import ReportsTab from './ReportsTab';
+
 
 // Movement types the UI offers, in the order an item actually travels.
 // `field` names the number the form asks for, because "adjust" asks for a
@@ -28,31 +33,33 @@ const MOVEMENTS = [
 ];
 
 const MOVEMENT_TONE = {
-  PURCHASE: '#10b981', STOCK_IN: '#10b981', RETURN: '#10b981',
-  ISSUE: '#f59e0b', CONSUMPTION: '#f59e0b',
-  RESERVATION: '#3b82f6', RELEASE: '#3b82f6',
-  DAMAGE: '#ef4444', SCRAP: '#ef4444',
-  ADJUSTMENT: '#a855f7', TRANSFER: '#6b7280',
+  PURCHASE: 'var(--success-color)', STOCK_IN: 'var(--success-color)', RETURN: 'var(--success-color)',
+  ISSUE: 'var(--warning-color)', CONSUMPTION: 'var(--warning-color)',
+  RESERVATION: 'var(--info-color)', RELEASE: 'var(--info-color)',
+  DAMAGE: 'var(--danger-color)', SCRAP: 'var(--danger-color)',
+  ADJUSTMENT: '#7a4fb0', TRANSFER: 'var(--text-muted)',
 };
 
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 const qty = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
 };
 
-function Stat({ label, value, tone, hint }) {
-  return (
-    <div style={{ ...panel, padding: '16px 18px', flex: '1 1 170px' }}>
-      <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{label}</div>
-      <div style={{ fontSize: '22px', fontWeight: 600, marginTop: '6px', color: tone || 'var(--text-primary)' }}>{value}</div>
-      {hint && <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{hint}</div>}
-    </div>
-  );
-}
+// One themed inline error, so every form and the load failure report the same
+// way instead of each hardcoding #ef4444 on a red tint.
+const errorBox = {
+  fontSize: 'var(--text-sm)',
+  color: 'var(--danger-color)',
+  background: 'var(--danger-bg)',
+  border: '1px solid var(--danger-color)',
+  padding: '10px 12px',
+  borderRadius: 'var(--radius-md)',
+};
 
 function Modal({ title, onClose, children, width = '520px' }) {
   return (
@@ -66,13 +73,13 @@ function Modal({ title, onClose, children, width = '520px' }) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: 'var(--modal-bg, #fff)', borderRadius: '12px', width: '100%',
-          maxWidth: width, maxHeight: '88vh', overflowY: 'auto', padding: '24px',
-          border: '1px solid var(--border-color)',
+          background: 'var(--surface-color)', borderRadius: 'var(--radius-xl)', width: '100%',
+          maxWidth: width, maxHeight: '88vh', overflowY: 'auto', padding: 'var(--space-6)',
+          border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>{title}</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-5)' }}>
+          <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', fontWeight: 500, margin: 0, color: 'var(--text-primary)' }}>{title}</h3>
           <button type="button" className="close-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
         {children}
@@ -82,7 +89,9 @@ function Modal({ title, onClose, children, width = '520px' }) {
 }
 
 export default function InventoryPanel({ currentUser }) {
+  const { t } = useLanguage();
   const [tab, setTab] = useState('items');
+
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState(null);
   const [options, setOptions] = useState({ categories: [], units: [], default_unit_by_category: {} });
@@ -155,65 +164,68 @@ export default function InventoryPanel({ currentUser }) {
 
   return (
     <>
-      <header className="portal-header">
-        <div className="portal-header-left">
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '28px', fontWeight: 400 }}>Inventory</h1>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              Fabrics, trims and materials. Every change is recorded in the stock ledger.
-            </p>
-          </div>
-        </div>
-        <div className="portal-header-right">
-          {isOwner && (
-            <button type="button" className="btn-primary" onClick={() => setEditingItem({})}>
-              <Plus size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-              New Item
-            </button>
-          )}
-        </div>
-      </header>
+      <PageHeader
+        title={t('inventoryPage.title')}
+        subtitle={t('inventoryPage.subtitle')}
+        actions={isOwner && (
+          <button type="button" className="btn-primary" style={{ padding: '10px 18px' }} onClick={() => setEditingItem({})}>
+            <Plus size={16} />
+            {t('inventoryPage.newItem')}
+          </button>
+        )}
+      />
 
       {summary && (
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
-          <Stat label="Stock value" value={money(summary.inventory_value)} hint={`${summary.item_count} items tracked`} />
-          <Stat label="Out of stock" value={summary.out_of_stock_count} tone={summary.out_of_stock_count ? '#ef4444' : undefined} />
-          <Stat label="Reorder due" value={summary.needs_reorder_count} tone={summary.needs_reorder_count ? '#f59e0b' : undefined} />
-          <Stat label="Dead stock" value={summary.dead_stock_count} hint="No movement in 90 days" />
+        <div className="at-stat-grid">
+          <StatCard icon={Package} tone="green" label={t('inventoryPage.stockValue')} value={money(summary.inventory_value)}
+                    sub={`${summary.item_count} ${t('inventoryPage.itemsTracked', 'items tracked')}`} />
+          <StatCard icon={AlertTriangle} tone="amber" label={t('inventoryPage.outOfStock')} value={summary.out_of_stock_count}
+                    sub="Items need restocking" onClick={() => { setTab('items'); setReorderOnly(true); }} />
+          <StatCard icon={ArrowDownCircle} tone="blue" label={t('inventoryPage.reorderDue')} value={summary.needs_reorder_count}
+                    sub="Items to reorder" onClick={() => { setTab('items'); setReorderOnly(true); }} />
+          <StatCard icon={History} tone="rose" label={t('inventoryPage.deadStock')} value={summary.dead_stock_count}
+                    sub={t('inventoryPage.noMovement90Days', 'No movement in 90 days')} onClick={() => setTab('reports')} />
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '12px', marginTop: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', flexWrap: 'wrap' }}>
+      {/* Tab strip, not pill buttons: these switch a view, so an underline on
+          the active one reads as navigation rather than seven call-to-actions. */}
+      <div style={{ display: 'flex', gap: 'var(--space-1)', marginTop: 'var(--space-5)', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
         {[
-          { key: 'items', label: 'Items', icon: Package },
-          { key: 'catalog', label: 'Catalogue', icon: BookOpen },
-          { key: 'locations', label: 'Locations', icon: MapPin },
-          { key: 'recipes', label: 'Recipes', icon: Scissors },
-          { key: 'purchase', label: 'Purchase Orders', icon: Truck },
-          { key: 'suppliers', label: 'Suppliers', icon: ClipboardList },
-          { key: 'reports', label: 'Reports', icon: BarChart3 },
-        ].map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            style={{
-              padding: '8px 16px', fontSize: '13px', fontWeight: 600, borderRadius: '6px',
-              border: '1px solid', display: 'flex', alignItems: 'center', gap: '6px',
-              borderColor: tab === key ? 'var(--accent-text, #b07c40)' : 'var(--border-color)',
-              background: tab === key ? 'var(--accent-color, #fcf6ee)' : 'transparent',
-              color: tab === key ? 'var(--accent-text, #b07c40)' : 'var(--text-secondary)',
-              cursor: 'pointer',
-            }}
-          >
-            <Icon size={14} /> {label}
-          </button>
-        ))}
+          { key: 'items', label: t('inventoryPage.items'), icon: Package },
+          { key: 'catalog', label: t('inventoryPage.catalog'), icon: BookOpen },
+          { key: 'locations', label: t('inventoryPage.locations'), icon: MapPin },
+          { key: 'recipes', label: t('inventoryPage.recipes'), icon: Scissors },
+          { key: 'purchase', label: t('inventoryPage.purchaseOrders'), icon: Truck },
+          { key: 'suppliers', label: t('inventoryPage.suppliers'), icon: ClipboardList },
+          { key: 'reports', label: t('inventoryPage.reports'), icon: BarChart3 },
+        ].map(({ key, label, icon: Icon }) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-current={active ? 'page' : undefined}
+              onClick={() => setTab(key)}
+              style={{
+                padding: '10px 14px', marginBottom: '-1px',
+                fontSize: 'var(--text-base)', fontWeight: active ? 'var(--weight-semibold)' : 'var(--weight-medium)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px',
+                color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                borderBottom: `2px solid ${active ? 'var(--primary-color)' : 'transparent'}`,
+              }}
+            >
+              <Icon size={15} /> {label}
+            </button>
+          );
+        })}
       </div>
 
+
       {loadError && (
-        <div style={{ ...panel, padding: '32px', textAlign: 'center', marginTop: '20px', borderColor: 'rgba(220,38,38,0.3)' }}>
-          <div style={{ color: '#fca5a5', marginBottom: '12px' }}>{loadError}</div>
+        <div style={{ ...panel, padding: '32px', textAlign: 'center', marginTop: '20px', borderColor: 'var(--danger-color)' }}>
+          <div style={{ color: 'var(--danger-color)', marginBottom: '12px' }}>{loadError}</div>
           <button type="button" className="btn-secondary" onClick={refresh}>Retry</button>
         </div>
       )}
@@ -350,6 +362,7 @@ function ItemsTab({
   items, loading, search, setSearch, category, setCategory, reorderOnly, setReorderOnly,
   categories, categoryLabel, isOwner, onMove, onLedger, onEdit,
 }) {
+  const { t } = useLanguage();
   return (
     <>
       <div style={{ display: 'flex', gap: '12px', marginTop: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -358,38 +371,38 @@ function ItemsTab({
           <input
             type="text"
             className="form-control"
-            placeholder="Search items…"
+            placeholder={t('inventoryPage.searchPlaceholder', 'Search items…')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <select className="form-control" style={{ maxWidth: '200px' }} value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="">All categories</option>
+          <option value="">{t('inventoryPage.allCategories', 'All categories')}</option>
           {categories.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
           <input type="checkbox" checked={reorderOnly} onChange={(e) => setReorderOnly(e.target.checked)} />
-          Reorder due only
+          {t('inventoryPage.reorderDueOnly', 'Reorder due only')}
         </label>
       </div>
 
       {loading && items.length === 0 ? (
-        <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>Loading inventory…</div>
+        <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>{t('inventoryPage.loadingInventory', 'Loading inventory…')}</div>
       ) : items.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)' }}>
-          No items match these filters.
+          {t('inventoryPage.noMatchingItems', 'No items match these filters.')}
         </div>
       ) : (
         <div style={{ ...panel, marginTop: '20px', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '780px' }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                <th style={{ padding: '14px 12px' }}>Item</th>
-                <th style={{ padding: '14px 12px' }}>Category</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>In stock</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Reserved</th>
-                <th style={{ padding: '14px 12px', textAlign: 'right' }}>Available</th>
-                <th style={{ padding: '14px 12px' }}>Location</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableItem', 'Item')}</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableCategory', 'Category')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableInStock', 'In stock')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableReserved', 'Reserved')}</th>
+                <th style={{ padding: '14px 12px', textAlign: 'right' }}>{t('inventoryPage.tableAvailable', 'Available')}</th>
+                <th style={{ padding: '14px 12px' }}>{t('inventoryPage.tableLocation', 'Location')}</th>
                 <th style={{ padding: '14px 12px' }}></th>
               </tr>
             </thead>
@@ -400,7 +413,7 @@ function ItemsTab({
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {item.name}
                       {item.needs_reorder && (
-                        <span title="At or below reorder level" style={{ display: 'inline-flex', color: '#f59e0b' }}>
+                        <span title="At or below reorder level" style={{ display: 'inline-flex', color: 'var(--warning-color)' }}>
                           <AlertTriangle size={13} />
                         </span>
                       )}
@@ -414,20 +427,20 @@ function ItemsTab({
                   <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{qty(item.reserved_stock)}</td>
                   <td style={{
                     padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600,
-                    color: Number(item.available_stock) <= 0 ? '#ef4444' : item.needs_reorder ? '#f59e0b' : 'var(--text-primary)',
+                    color: Number(item.available_stock) <= 0 ? 'var(--danger-color)' : item.needs_reorder ? 'var(--warning-color)' : 'var(--text-primary)',
                   }}>
                     {qty(item.available_stock)} <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>{item.unit_display}</span>
                   </td>
                   <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{item.rack_location || '—'}</td>
                   <td style={{ padding: '12px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px', marginRight: '6px' }} onClick={() => onMove(item)}>
-                      <ArrowDownCircle size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />Move
+                      <ArrowDownCircle size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />{t('inventoryPage.move', 'Move')}
                     </button>
                     <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px', marginRight: '6px' }} onClick={() => onLedger(item)}>
-                      <History size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />History
+                      <History size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />{t('inventoryPage.history', 'History')}
                     </button>
                     {isOwner && (
-                      <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => onEdit(item)}>Edit</button>
+                      <button type="button" className="btn-secondary" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => onEdit(item)}>{t('inventoryPage.edit', 'Edit')}</button>
                     )}
                   </td>
                 </tr>
@@ -529,7 +542,7 @@ function MovementModal({ item, onClose, onDone }) {
             <select className="form-control" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
               <option value="">Not tied to an order</option>
               {orders.map((o) => (
-                <option key={o.id} value={o.id}>{o.order_id} · {o.customer_name}</option>
+                <option key={o.id} value={o.id}>{orderRef(o)} · {o.customer_name}</option>
               ))}
             </select>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -568,7 +581,7 @@ function MovementModal({ item, onClose, onDone }) {
         </div>
 
         {error && (
-          <div style={{ fontSize: '12.5px', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '10px 12px', borderRadius: '6px' }}>
+          <div style={errorBox}>
             {error}
           </div>
         )}
@@ -583,6 +596,7 @@ function MovementModal({ item, onClose, onDone }) {
 }
 
 function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
+  const { t } = useLanguage();
   const isNew = !item.id;
   const [form, setForm] = useState({
     item_code: item.item_code || '',
@@ -625,28 +639,28 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
   };
 
   return (
-    <Modal title={isNew ? 'New inventory item' : `Edit · ${item.name}`} onClose={onClose} width="600px">
+    <Modal title={isNew ? t('inventoryPage.newItemTitle', 'New inventory item') : `${t('inventoryPage.editTitle', 'Edit')} · ${item.name}`} onClose={onClose} width="600px">
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
-          <Field label="Item code" required value={form.item_code} onChange={(v) => set('item_code', v)} />
-          <Field label="Name" required value={form.name} onChange={(v) => set('name', v)} />
-          <SelectField label="Category" value={form.category} onChange={(v) => { set('category', v); set('unit', ''); }}
+          <Field label={t('inventoryPage.itemCode', 'Item code')} required value={form.item_code} onChange={(v) => set('item_code', v)} />
+          <Field label={t('inventoryPage.itemName', 'Name')} required value={form.name} onChange={(v) => set('name', v)} />
+          <SelectField label={t('inventoryPage.category', 'Category')} value={form.category} onChange={(v) => { set('category', v); set('unit', ''); }}
             options={options.categories} />
           <SelectField
-            label="Unit"
+            label={t('inventoryPage.unit', 'Unit')}
             value={form.unit || unitForCategory || ''}
             onChange={(v) => set('unit', v)}
             options={options.units}
-            hint={!form.unit && unitForCategory ? 'Default for this category' : ''}
+            hint={!form.unit && unitForCategory ? t('inventoryPage.defaultForCategory', 'Default for this category') : ''}
           />
-          <Field label="Colour" value={form.color} onChange={(v) => set('color', v)} />
-          <Field label="Rack location" value={form.rack_location} onChange={(v) => set('rack_location', v)} />
-          <Field label="Purchase price" type="number" value={form.purchase_price} onChange={(v) => set('purchase_price', v)} />
-          <Field label="Selling price" type="number" value={form.selling_price} onChange={(v) => set('selling_price', v)} />
-          <Field label="Reorder level" type="number" value={form.reorder_level} onChange={(v) => set('reorder_level', v)} />
-          <Field label="Minimum stock" type="number" value={form.minimum_stock} onChange={(v) => set('minimum_stock', v)} />
+          <Field label={t('inventoryPage.colour', 'Colour')} value={form.color} onChange={(v) => set('color', v)} />
+          <Field label={t('inventoryPage.rackLocation', 'Rack location')} value={form.rack_location} onChange={(v) => set('rack_location', v)} />
+          <Field label={t('inventoryPage.purchasePrice', 'Purchase price')} type="number" value={form.purchase_price} onChange={(v) => set('purchase_price', v)} />
+          <Field label={t('inventoryPage.sellingPrice', 'Selling price')} type="number" value={form.selling_price} onChange={(v) => set('selling_price', v)} />
+          <Field label={t('inventoryPage.reorderLevel', 'Reorder level')} type="number" value={form.reorder_level} onChange={(v) => set('reorder_level', v)} />
+          <Field label={t('inventoryPage.minimumStock', 'Minimum stock')} type="number" value={form.minimum_stock} onChange={(v) => set('minimum_stock', v)} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600 }}>Supplier</label>
+            <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('inventoryPage.supplier', 'Supplier')}</label>
             <select className="form-control" value={form.supplier || ''} onChange={(e) => set('supplier', e.target.value)}>
               <option value="">—</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -655,16 +669,16 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
         </div>
 
         <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: 0 }}>
-          Stock quantities are not set here — they only change through recorded movements.
+          {t('inventoryPage.stockNotSetHereHint', 'Stock quantities are not set here — they only change through recorded movements.')}
         </p>
 
         {error && (
-          <div style={{ fontSize: '12.5px', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '10px 12px', borderRadius: '6px' }}>{error}</div>
+          <div style={errorBox}>{error}</div>
         )}
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save item'}</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
+          <button type="submit" className="btn-primary" disabled={saving}>{saving ? t('common.saving', 'Saving…') : t('inventoryPage.saveItem', 'Save item')}</button>
         </div>
       </form>
     </Modal>
@@ -696,20 +710,21 @@ function SelectField({ label, value, onChange, options, hint }) {
 }
 
 function PurchaseTab({ purchaseOrders, suppliers, items, isOwner, onReceive, onCreated }) {
+  const { t } = useLanguage();
   const [creating, setCreating] = useState(false);
   return (
     <>
       {isOwner && (
         <div style={{ marginTop: '20px' }}>
           <button type="button" className="btn-secondary" onClick={() => setCreating(true)}>
-            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />New purchase order
+            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />{t('inventoryPage.newPurchaseOrder', 'New purchase order')}
           </button>
         </div>
       )}
 
       {purchaseOrders.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '16px', color: 'var(--text-muted)' }}>
-          No purchase orders yet.
+          {t('inventoryPage.noPurchaseOrdersYet', 'No purchase orders yet.')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
@@ -726,7 +741,7 @@ function PurchaseTab({ purchaseOrders, suppliers, items, isOwner, onReceive, onC
                   </div>
                   {isOwner && outstanding && (
                     <button type="button" className="btn-secondary" style={{ fontSize: '12px' }} onClick={() => onReceive(po)}>
-                      Receive goods
+                      {t('inventoryPage.receiveGoods', 'Receive goods')}
                     </button>
                   )}
                 </div>
@@ -736,7 +751,7 @@ function PurchaseTab({ purchaseOrders, suppliers, items, isOwner, onReceive, onC
                       <div key={l.id}>
                         {l.item_name} — ordered {qty(l.quantity_ordered)}, received {qty(l.quantity_received)}
                         {Number(l.quantity_outstanding) > 0 && (
-                          <span style={{ color: '#f59e0b' }}> ({qty(l.quantity_outstanding)} outstanding)</span>
+                          <span style={{ color: 'var(--warning-color)' }}> ({qty(l.quantity_outstanding)} outstanding)</span>
                         )}
                       </div>
                     ))}
@@ -807,7 +822,7 @@ function CreatePurchaseOrderModal({ suppliers, items, onClose, onSaved }) {
           <label style={{ fontSize: '12px', fontWeight: 600 }}>Lines</label>
           {lines.map((line, i) => (
             <div key={i} className="po-line-row" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
-              <select className="form-control" value={line.item} onChange={(e) => setLine(i, 'item', e.target.value)}>
+              <select className="form-control" aria-label={`Item for line ${i + 1}`} value={line.item} onChange={(e) => setLine(i, 'item', e.target.value)}>
                 <option value="">Select item…</option>
                 {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
               </select>
@@ -826,7 +841,7 @@ function CreatePurchaseOrderModal({ suppliers, items, onClose, onSaved }) {
           </button>
         </div>
 
-        {error && <div style={{ fontSize: '12.5px', color: '#ef4444' }}>{error}</div>}
+        {error && <div style={errorBox}>{error}</div>}
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
@@ -877,6 +892,7 @@ function ReceiveModal({ purchaseOrder, onClose, onDone }) {
             </div>
             <input
               type="number" step="0.001" min="0" max={line.quantity_outstanding} className="form-control"
+              aria-label={`Received quantity for ${line.item_name}`}
               value={quantities[line.id] ?? ''}
               onChange={(e) => setQuantities((q) => ({ ...q, [line.id]: e.target.value }))}
             />
@@ -884,7 +900,7 @@ function ReceiveModal({ purchaseOrder, onClose, onDone }) {
         ))}
 
         {error && (
-          <div style={{ fontSize: '12.5px', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '10px 12px', borderRadius: '6px' }}>{error}</div>
+          <div style={errorBox}>{error}</div>
         )}
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -897,18 +913,19 @@ function ReceiveModal({ purchaseOrder, onClose, onDone }) {
 }
 
 function SuppliersTab({ suppliers, isOwner, onAdd }) {
+  const { t } = useLanguage();
   return (
     <>
       {isOwner && (
         <div style={{ marginTop: '20px' }}>
           <button type="button" className="btn-secondary" onClick={onAdd}>
-            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />New supplier
+            <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />{t('inventoryPage.newSupplier', 'New supplier')}
           </button>
         </div>
       )}
       {suppliers.length === 0 ? (
         <div style={{ ...panel, padding: '48px', textAlign: 'center', marginTop: '16px', color: 'var(--text-muted)' }}>
-          No suppliers yet.
+          {t('inventoryPage.noSuppliersYet', 'No suppliers yet.')}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px', marginTop: '16px' }}>
@@ -959,7 +976,7 @@ function SupplierFormModal({ onClose, onSaved }) {
           <Field label="Email" type="email" value={form.email} onChange={(v) => set('email', v)} />
         </div>
         <Field label="GST number" value={form.gst_number} onChange={(v) => set('gst_number', v)} />
-        {error && <div style={{ fontSize: '12.5px', color: '#ef4444' }}>{error}</div>}
+        {error && <div style={errorBox}>{error}</div>}
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save supplier'}</button>

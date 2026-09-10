@@ -1,16 +1,6 @@
-"""Create the eight stock locations, and put existing stock in one of them.
-
-The backfill matters: before this migration an item's stock had no location at
-all, so without it every existing balance would be invisible to the per-location
-breakdown and the first issue from any item would fail for having nothing at the
-source. Everything already on the books is treated as being at the Main Store,
-which is what a boutique means by "in stock" before it starts tracking units.
-"""
 
 from django.db import migrations
 
-#: (name, kind, sequence). Main Store is the default because that is where
-#: material arrives and where an unlocated movement should be understood to be.
 LOCATIONS = [
     ('Main Store', 'MAIN_STORE', 1),
     ('Warehouse', 'WAREHOUSE', 2),

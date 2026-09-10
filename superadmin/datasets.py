@@ -1,77 +1,8 @@
-"""Every table in a boutique, read generically -- and only what is allowed.
-
-A boutique's schema holds 50-odd models and several hundred fields between them,
-so rendering is still generic: the shape of a table comes from Django's own
-introspection rather than from a serializer per model. What is no longer generic
-is *which* of them an administrator may see.
-
-Read-only, and only ever pointed at a tenant schema. There is no write path in
-this module by design -- the console is for looking at what a boutique has, and
-anything that should be editable is editable in the boutique's own workspace,
-where the business rules that protect it live.
-
-Three layers decide what leaves this server, in this order:
-
-  1. **ALLOWED_FIELDS** -- an allowlist of models, and of the fields of each.
-     A model that is not named is not browsable; a field that is not named is
-     masked. Both directions fail closed, so a model or column added tomorrow
-     is invisible until someone reviews it rather than published by default.
-     This is the layer that matters and the reason for the rest of this
-     docstring.
-  2. **EXCLUDED_MODELS** -- Django's own plumbing and, above all,
-     `authtoken.Token`, whose `key` is a *live credential*: rendering one would
-     turn read access to this console into the ability to act as any user in
-     any boutique. The whole model is excluded rather than the one field, so a
-     future column on it cannot reopen this.
-  3. **REDACTED_NAME_PARTS** -- the original denylist, kept as a second layer
-     underneath the allowlist rather than as the defence. It is what stops a
-     credential column being exposed by someone adding it to ALLOWED_FIELDS
-     without thinking, and it costs nothing to keep.
-
-Why the allowlist replaced the denylist as the primary control: the denylist
-matched names ('password', 'secret', 'api_key', 'auth_token', ...), which is a
-bet that every future credential will be spelled like a past one. Measured
-against this build, it let through 'gateway_credential', 'webhook_signing',
-'otp_seed', 'recovery_code', 'session_key' and 'pat'. `auth.User.password` was
-caught -- but only because somebody had already been bitten by that one.
-
-Access here is audited by the caller (superadmin/views.py, BoutiqueDataView),
-not by this module. This module answers "what may be read"; the view records
-"who read it".
-"""
 
 from django.apps import apps
 from django.conf import settings
 from django.db.models import Q
 
-#: Every model a platform administrator may inspect, and the fields of each
-#: that may be RENDERED. This is an ALLOWLIST at both levels and it fails closed
-#: at both levels:
-#:
-#:   * a model that is not a key here is not browsable at all;
-#:   * a field that is not listed against its model is MASKED, not hidden --
-#:     the column still appears, so the console tells an administrator that
-#:     something is there rather than quietly editing reality.
-#:
-#: It replaces a denylist of credential-shaped NAMES ('password', 'api_key',
-#: 'auth_token', ...), which was safe only for the names someone had thought of.
-#: Measured against this build: 'gateway_credential', 'webhook_signing',
-#: 'otp_seed', 'recovery_code', 'session_key' and 'pat' all passed that filter
-#: untouched. A denylist has to predict the future to be correct; an allowlist
-#: only has to describe the present.
-#:
-#: THE MAINTENANCE CONTRACT, and it is deliberate rather than an oversight: a
-#: field added to a model tomorrow is masked until someone adds it here. That
-#: is the whole property being bought. Nothing breaks -- no test fails, no
-#: request errors, the boutique's own product is untouched -- an administrator
-#: simply sees a masked column and a developer decides whether it is fit to
-#: show. Adding a NEW MODEL requires an entry here before the console can read
-#: it, for the same reason.
-#:
-#: Seeded from the models present when this was written, minus the credential
-#: columns REDACTED_NAME_PARTS already caught. It is a review record, not a
-#: mirror of the schema; regenerating it wholesale from introspection would
-#: give back exactly the property it exists to remove.
 ALLOWED_FIELDS = {
     'activities.universalactivity': (
         'id', 'user', 'user_name_snapshot', 'module', 'entity_type',
@@ -333,8 +264,6 @@ ALLOWED_FIELDS = {
 
 }
 
-#: Models that exist in a tenant schema but are not that boutique's data.
-#: Django's own plumbing, plus the credential table above.
 EXCLUDED_MODELS = frozenset({
     'authtoken.Token',       # live credentials -- see the module docstring
     'authtoken.TokenProxy',  # the same rows under another name
@@ -345,36 +274,16 @@ EXCLUDED_MODELS = frozenset({
     'sessions.Session',
 })
 
-#: Any field whose name contains one of these is replaced with a placeholder,
-#: whatever model it turns up on. A blunt rule on purpose: the cost of redacting
-#: one harmless column by accident is a dash in a table, and the cost of missing
-#: a real one is a credential on a web page.
 REDACTED_NAME_PARTS = ('password', 'secret', 'api_key', 'apikey', 'auth_token',
                        'access_token', 'refresh_token', 'private_key')
 
 REDACTED = '••••••••'
 
-#: Rows per page. Generous, because an administrator scanning a boutique's
-#: orders wants to see them rather than click through them, and small enough
-#: that a boutique with ten thousand customers does not send all of them.
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 500
 
 
 def _is_redacted(field, model_key=None):
-    """Whether this cell must be masked.
-
-    Two independent reasons, and either is enough:
-
-      * the field is not on its model's allowlist -- the primary rule, and the
-        one that covers columns nobody has thought about yet;
-      * the name looks like a credential -- the old denylist, kept underneath as
-        a backstop against a careless addition to ALLOWED_FIELDS.
-
-    `model_key` is optional so the denylist half stays callable on its own; when
-    it is absent only the name rule applies, which is strictly the weaker of the
-    two and is why every caller in this module passes it.
-    """
     lowered = field.name.lower()
     if any(part in lowered for part in REDACTED_NAME_PARTS):
         return True
@@ -389,18 +298,6 @@ def _model_key(model):
 
 
 def visible_models():
-    """Every model a platform administrator may inspect, in a stable order.
-
-    The gate is ALLOWED_FIELDS, not TENANT_APPS. It used to be the other way
-    round -- everything in a tenant schema, minus a short exclusion list -- which
-    meant a model added to the product was published to the console the moment
-    it migrated, with whatever columns it carried. That is the wrong default for
-    a screen that reads every boutique's data: it publishes first and reviews
-    afterwards, if anyone notices.
-
-    TENANT_APPS is still checked, so an entry here cannot reach a SHARED_APPS
-    model (the console's own audit trail among them) even by mistake.
-    """
     tenant_labels = {a.rsplit('.', 1)[-1] for a in settings.TENANT_APPS}
     found = []
     for model in apps.get_models():
@@ -411,11 +308,8 @@ def visible_models():
         if f'{meta.app_label}.{meta.object_name}' in EXCLUDED_MODELS:
             continue
         if meta.proxy:
-            # A proxy is the same table under another name; listing both would
-            # show every row twice under two headings.
             continue
         if key not in ALLOWED_FIELDS:
-            # Not reviewed, so not browsable. See ALLOWED_FIELDS.
             continue
         found.append((key, model))
     found.sort(key=lambda pair: pair[0])
@@ -423,13 +317,6 @@ def visible_models():
 
 
 def get_model(key):
-    """Resolve 'app_label.model_name' to a model, or None.
-
-    Goes through visible_models() rather than apps.get_model() so that the
-    exclusions above are enforced on the *fetch* path too. Resolving directly
-    would let a caller name `authtoken.token` in the URL and read every token in
-    the boutique, with the list endpoint none the wiser.
-    """
     for candidate, model in visible_models():
         if candidate == key:
             return model
@@ -437,12 +324,6 @@ def get_model(key):
 
 
 def columns(model):
-    """The table header: one entry per concrete field.
-
-    Concrete fields only -- reverse relations and many-to-many would each be a
-    query per row to render, and none of them hold anything the forward side
-    does not.
-    """
     key = _model_key(model)
     described = []
     for field in model._meta.concrete_fields:
@@ -456,35 +337,16 @@ def columns(model):
 
 
 def _value(instance, field, model_key):
-    """One cell, rendered as something JSON can carry.
-
-    `model_key` is required rather than derived from `instance`: a masked cell
-    must be decided by the same rule the header used, and a deferred or
-    annotated instance is not a reliable place to ask which model it came from.
-    """
     if _is_redacted(field, model_key):
         return REDACTED
 
     internal = field.get_internal_type()
 
     if field.is_relation:
-        # The readable name of the related row, not its id. select_related in
-        # rows() is what keeps this from being a query per cell.
-        #
-        # But __str__ composes whatever fields a model chose, and it answers to
-        # no allowlist: crm_api.Customer.__str__ is 'Ann B (9000000999)', so the
-        # ORDER table renders a customer's mobile number in its `customer`
-        # column. Here that is tolerable only because mobile_number is itself
-        # allowlisted on crm_api.customer -- and that is exactly the coincidence
-        # not to depend on. A related model that is NOT browsable has had no
-        # such review, so its __str__ is not shown at all.
         related = getattr(instance, field.name, None)
         if related is None:
             return None
         if _model_key(type(related)) not in ALLOWED_FIELDS:
-            # Reachable through a relation but not approved for display. The
-            # primary key still lets an administrator correlate rows without
-            # putting an unreviewed string on the page.
             return f'{type(related)._meta.verbose_name} #{related.pk}'
         return str(related)
 
@@ -493,8 +355,6 @@ def _value(instance, field, model_key):
         return None
 
     if internal in ('FileField', 'ImageField'):
-        # A missing file raises rather than returning None, and a boutique's
-        # uploads live on Render's ephemeral disk, so this is a normal case.
         try:
             return value.url
         except Exception:
@@ -511,20 +371,9 @@ def _value(instance, field, model_key):
 
 
 def _search_filter(model, term):
-    """Match `term` against every text column on the model.
-
-    ponytail: an unindexed ILIKE per text column, so it is a sequential scan on
-    a large table. Acceptable for an administrator looking something up by hand;
-    if a boutique's order book ever makes this slow, give the columns that are
-    actually searched a trigram index rather than making this cleverer.
-    """
     searchable = [
         f.name for f in model._meta.concrete_fields
         if f.get_internal_type() in ('CharField', 'TextField', 'EmailField', 'SlugField')
-        # A masked column is not searchable either. Otherwise `?q=` becomes an
-        # oracle: the rows come back filtered by a value the console refuses to
-        # print, so an administrator could confirm a hidden field's contents one
-        # guess at a time without ever being shown it.
         and not _is_redacted(f, _model_key(model))
     ]
     if not searchable:
@@ -536,12 +385,6 @@ def _search_filter(model, term):
 
 
 def rows(model, page=1, page_size=DEFAULT_PAGE_SIZE, search=''):
-    """A page of `model`, newest first.
-
-    Ordered by `-pk` rather than the model's own Meta.ordering: several of these
-    models order on a non-unique column, and paginating an unstable ordering
-    silently repeats and skips rows between pages.
-    """
     page_size = max(1, min(int(page_size or DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE))
     page = max(1, int(page or 1))
 
@@ -549,9 +392,6 @@ def rows(model, page=1, page_size=DEFAULT_PAGE_SIZE, search=''):
     if search:
         queryset = queryset.filter(_search_filter(model, search))
 
-    # One level of FK following, so rendering the related name in _value() does
-    # not cost a query per cell. Deeper than one level is not needed: str() of
-    # the related object is as far as any cell goes.
     relations = [f.name for f in model._meta.concrete_fields if f.is_relation]
     if relations:
         queryset = queryset.select_related(*relations)
@@ -575,20 +415,11 @@ def rows(model, page=1, page_size=DEFAULT_PAGE_SIZE, search=''):
 
 
 def inventory():
-    """Every browsable model with its row count, for the drill-down sidebar.
-
-    One COUNT per model, so this is ~50 queries against a single schema. That is
-    a page an administrator opens deliberately rather than something on a hot
-    path, and it is the number that makes the sidebar useful -- a list of table
-    names with no counts does not tell you where a boutique's data actually is.
-    """
     listed = []
     for key, model in visible_models():
         try:
             count = model._default_manager.count()
         except Exception:
-            # A table missing from this schema (a migration not yet applied
-            # there) must not take the whole sidebar down with it.
             count = None
         listed.append({
             'key': key,

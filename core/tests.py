@@ -1,12 +1,3 @@
-"""Tests for the one place a user's role is decided.
-
-The fallback here has been wrong twice already -- once when "no Tailor
-profile" was read as Owner and locked owners out of their own workflow, and
-again when the same fallback would have handed a designer-only account full
-Owner access the moment designers got logins. Both were the same bug shape:
-treating "the lookup I tried came back empty" as proof rather than as one
-possibility among several.
-"""
 
 from django.contrib.auth.models import User
 from django_tenants.test.cases import TenantTestCase
@@ -50,26 +41,32 @@ class ResolveUserRoleTests(TenantTestCase):
         Designer.objects.create(name="Priya", user=user)
         self.assertEqual(resolve_user_role(user), DESIGNER)
 
-    def test_no_profile_at_all_falls_back_to_owner(self):
-        # The genuine case this fallback exists for: the boutique owner's own
-        # account, created at signup, which never gets a Tailor or Designer row.
-        user = User.objects.create_user(username="plain@roles.test", password="x")
+    def test_the_owner_is_recognised_by_the_tenants_own_owner_email(self):
+        """The genuine case: the account signup created, with no staff row.
+
+        Signup writes one address onto both the tenant and the owner's User, so
+        matching them is a positive test for ownership rather than a guess.
+        """
+        user = User.objects.create_user(
+            username="owner@roles.test", email="owner@roles.test", password="x")
         self.assertEqual(resolve_user_role(user), OWNER)
 
+    def test_an_account_nothing_claims_is_not_the_owner(self):
+        """Phase 8. A missing profile is not proof of ownership.
+
+        This used to answer OWNER, and the state was reachable: deleting a
+        roster row detached its User, so dismissing somebody promoted them.
+        """
+        user = User.objects.create_user(username="plain@roles.test", password="x")
+        self.assertIsNone(resolve_user_role(user))
+
     def test_a_tailor_profile_wins_over_a_designer_profile(self):
-        # Someone who both stitches and designs is not ambiguous: the account
-        # that does production work is treated as staff first, since that is
-        # the profile the workflow engine's stage assignment actually reads.
         user = User.objects.create_user(username="both@roles.test", password="x")
         Tailor.objects.create(name="Anita", specialty="Bridal", role="Tailor", user=user)
         Designer.objects.create(name="Anita", user=user)
         self.assertEqual(resolve_user_role(user), "Tailor")
 
     def test_a_designer_only_account_is_never_reported_as_owner(self):
-        # This is the fix. Before it, a Designer with no Tailor profile
-        # fell through the same branch as the boutique owner's own account and
-        # was handed full Owner access -- the exact failure the module's
-        # permission matrix promises never happens.
         user = User.objects.create_user(username="designer2@roles.test", password="x")
         Designer.objects.create(name="Ravi", user=user)
         self.assertNotEqual(resolve_user_role(user), OWNER)
@@ -77,13 +74,6 @@ class ResolveUserRoleTests(TenantTestCase):
 
 
 class ApiRoleBoundaryTests(TenantTestCase):
-    """The API enforces the role matrix, not just the interface.
-
-    Before this, a signed-in tailor could read every customer's contact
-    details, every order's money, the staff list and the stock valuation --
-    the frontend simply did not draw the menu items. A tailor with dev tools,
-    or anyone holding a tailor's token, had the whole boutique.
-    """
 
     @classmethod
     def setup_tenant(cls, tenant):
@@ -102,7 +92,14 @@ class ApiRoleBoundaryTests(TenantTestCase):
         connection.set_tenant(self.tenant)
 
         def account(username, tailor=None):
-            user = User.objects.create_user(username=username, password='pw12345678')
+            # `email` as well as `username`: core.roles identifies the boutique
+            # owner by comparing User.email to the tenant's owner_email, and
+            # before Phase 8 an account with neither a profile nor a matching
+            # address was handed OWNER anyway. `owner@perm.test` below IS this
+            # tenant's owner_email, so setting the field is what makes the
+            # fixture describe the person it claims to.
+            user = User.objects.create_user(
+                username=username, email=username, password='pw12345678')
             if tailor is not None:
                 tailor.user = user
                 tailor.save()
@@ -124,7 +121,6 @@ class ApiRoleBoundaryTests(TenantTestCase):
         self.my_order = Order.objects.create(order_id='PERM-1', customer=mine, tailor=self.rohit)
         Order.objects.create(order_id='PERM-2', customer=theirs)
 
-    # --- reads are scoped -------------------------------------------------
 
     def test_a_tailor_sees_only_their_own_orders(self):
         rows = self.tailor.get('/api/orders/').data
@@ -141,7 +137,6 @@ class ApiRoleBoundaryTests(TenantTestCase):
     def test_a_master_supervises_the_floor(self):
         self.assertEqual(len(self.master.get('/api/orders/').data), 2)
 
-    # --- writes are refused ----------------------------------------------
 
     def test_a_tailor_cannot_create_a_customer(self):
         response = self.tailor.post('/api/customers/', {
@@ -170,15 +165,8 @@ class ApiRoleBoundaryTests(TenantTestCase):
             {'stage_key': 'stitching_in_progress', 'tailor_id': self.rohit.id}, format='json')
         self.assertEqual(response.status_code, 403)
 
-    # --- but the job itself still works -----------------------------------
 
     def test_a_tailor_can_still_advance_their_own_stage(self):
-        """The permission list keys on the viewset METHOD name, not the URL.
-
-        `transition_stage` versus `transition` -- getting that wrong locks
-        every tailor out of the one write their job consists of, which is
-        exactly what the first version of this list did.
-        """
         response = self.tailor.post(
             f'/api/orders/{self.my_order.id}/transition/',
             {'stage_key': 'stitching_in_progress', 'status': 'COMPLETED'}, format='json')
@@ -188,15 +176,14 @@ class ApiRoleBoundaryTests(TenantTestCase):
     def test_anonymous_callers_get_nothing(self):
         from rest_framework.test import APIClient
         anon = APIClient()
+        # 400 as well as 401/403: TenantHeaderMiddleware now refuses a request
+        # that names no tenant (TenantContextRequired) before authentication
+        # runs, so an anonymous caller with no header is turned away one layer
+        # earlier than before. Still nothing -- which is what this asserts.
         for path in ('/api/orders/', '/api/customers/', '/api/inventory/items/'):
-            self.assertIn(anon.get(path).status_code, (401, 403), path)
+            self.assertIn(anon.get(path).status_code, (400, 401, 403), path)
 
     def test_a_designer_keeps_the_studio_and_loses_everything_else(self):
-        """The gap docs/design-management.md recorded as unenforced.
-
-        Its §4.2 note said a Designer's isolation from customers, orders and
-        financials was "a frontend containment only". It is not any more.
-        """
         from rest_framework.authtoken.models import Token
         from rest_framework.test import APIClient
 

@@ -1,17 +1,3 @@
-"""The order workflow and the stock ledger, joined.
-
-The regression these pin down: materials chosen on the order form were stored
-as bare item ids inside the garment's spec JSON, which nothing in the inventory
-module reads. An order could name brocade, lining, can-can, canvas, zip, hooks
-and thread, run all the way to Delivered, and leave every stock figure exactly
-as it was before the order was taken. Nothing was reserved, issued or consumed,
-and no movement carried an order id.
-
-So these tests do not assert "stock went down". They assert that stock went
-down *for a reason the system can name*: which garment, on which order, in what
-quantity, moved by whom. A number that is right by accident is the bug this is
-here to catch.
-"""
 
 from decimal import Decimal
 
@@ -52,8 +38,6 @@ class OrderMaterialsTestBase(TenantTestCase):
             email_address="lakshmi@materials.test", address="44 Church Street",
             customer_type="Women", garment_type="Blouse",
         )
-        # The workflow requires somebody to be holding the garment before
-        # stitching may start, so a fixture order needs real staff on it.
         self.tailor = Tailor.objects.create(
             name="Sunita Devi", specialty="Stitching", role="Tailor")
         self.master = Tailor.objects.create(
@@ -87,7 +71,6 @@ class OrderMaterialsTestBase(TenantTestCase):
         order = Order.objects.create(order_id=order_id, customer=self.customer,
                                      total_amount=Decimal('32025.00'),
                                      tailor=self.tailor, master=self.master)
-        # The workflow reads its stages; OrderService seeds them on real orders.
         for seq, key in enumerate([
             'created', 'measurements_completed', 'fabric_confirmed', 'pattern_cutting',
             'maggam_work', 'assigned_to_tailor', 'stitching_in_progress',
@@ -104,7 +87,6 @@ class OrderMaterialsTestBase(TenantTestCase):
         job = GarmentJob.objects.create(
             order=order, template=template, template_version=1,
             spec={},
-            # Assigning a tailor requires that somebody measured something.
             measurements=measurements or {'chest': '36'},
             sequence=sequence,
         )
@@ -117,23 +99,16 @@ class OrderMaterialsTestBase(TenantTestCase):
             )
         return job
 
-    #: The workflow in order. Reaching a stage means completing what precedes
-    #: it, which is what the backend now requires of everyone -- these tests
-    #: used to jump straight to fabric_confirmed or stitching_completed, and a
-    #: fixture that can do what the product forbids is testing a system nobody
-    #: runs.
     SEQUENCE = [
         'created', 'measurements_completed', 'fabric_confirmed', 'pattern_cutting',
         'maggam_work', 'assigned_to_tailor', 'stitching_in_progress',
         'stitching_completed', 'finishing', 'pressing', 'master_quality_check',
         'trial_scheduled', 'trial_completed', 'ready_for_delivery', 'delivered',
     ]
-    #: Stages a garment may legitimately not have. Skipped rather than completed
-    #: while walking, so the walk exercises the real distinction.
     OPTIONAL = {'maggam_work'}
 
     def advance(self, order, stage_key, user=None):
-        """Take the order to `stage_key`, completing everything before it."""
+
         for key in self.SEQUENCE[:self.SEQUENCE.index(stage_key)]:
             stage = order.stages.filter(stage_key=key).first()
             if stage is None or stage.status in ('COMPLETED', 'SKIPPED'):
@@ -154,7 +129,7 @@ class OrderMaterialsTestBase(TenantTestCase):
 
 
 class PlanFromGarmentJobsTests(OrderMaterialsTestBase):
-    """1 and 2: the wizard's selections become real, per-garment material lines."""
+
 
     def test_one_garment_with_several_materials(self):
         order = self.make_order()
@@ -188,12 +163,10 @@ class PlanFromGarmentJobsTests(OrderMaterialsTestBase):
             by_job.setdefault(line.garment_job_id, []).append(line)
         self.assertEqual(len(by_job[blouse.id]), 2)
         self.assertEqual(len(by_job[lehenga.id]), 2)
-        # Every line knows which dress it belongs to. Without this the ledger
-        # can say six metres left stock but not which garment took what.
         self.assertTrue(all(line.garment_job_id for line in plan.lines.all()))
 
     def test_same_material_on_two_garments_stays_two_lines(self):
-        """Two dresses cut from one roll are two separate accounts of it."""
+
         order = self.make_order()
         self.garment(order, self.blouse_template,
                      [('main_fabric', self.brocade, 2)], sequence=0)
@@ -205,11 +178,10 @@ class PlanFromGarmentJobsTests(OrderMaterialsTestBase):
         self.assertEqual(brocade_lines.count(), 2)
         self.assertEqual(
             sum(line.required_quantity for line in brocade_lines), Decimal('6.000'))
-        # ...and they are attributable to different garments.
         self.assertEqual(len({line.garment_job_id for line in brocade_lines}), 2)
 
     def test_a_material_with_no_quantity_is_reported_not_silently_planned(self):
-        """A line with no quantity would reserve nothing and still reconcile."""
+
         order = self.make_order()
         self.garment(order, self.blouse_template, [
             ('main_fabric', self.brocade, 2), ('hooks', self.hooks, 0)])
@@ -229,7 +201,7 @@ class PlanFromGarmentJobsTests(OrderMaterialsTestBase):
 
 
 class ReservationTests(OrderMaterialsTestBase):
-    """4 and 6: reserving, and what happens when the shelf is short."""
+
 
     def test_confirming_fabric_reserves_against_stock(self):
         order = self.make_order()
@@ -238,7 +210,6 @@ class ReservationTests(OrderMaterialsTestBase):
 
         self.advance(order, 'fabric_confirmed')
 
-        # Reserved, not deducted: the cloth is spoken for but still on the shelf.
         self.assertEqual(self.stock(self.brocade), (Decimal('25.000'), Decimal('2.000')))
         self.assertEqual(self.brocade.available_stock, Decimal('23.000'))
         self.assertEqual(
@@ -262,13 +233,6 @@ class ReservationTests(OrderMaterialsTestBase):
         self.assertEqual(attributed[lehenga.id], Decimal('4.000'))
 
     def test_selecting_a_material_never_consumes_it(self):
-        """Reservation is not consumption, and must never quietly become it.
-
-        The invariant that separates "this cloth is promised to an order" from
-        "this cloth is gone". Getting it wrong in either direction is expensive:
-        consume too early and the shelf lies about what is physically there;
-        never reserve and two orders sell the same roll.
-        """
         order = self.make_order()
         self.garment(order, self.blouse_template, [('main_fabric', self.brocade, 2)])
         self.advance(order, 'fabric_confirmed')
@@ -286,12 +250,6 @@ class ReservationTests(OrderMaterialsTestBase):
         self.assertEqual(line.consumed_quantity, Decimal('0'))
 
     def test_a_reservation_nobody_consumes_is_given_back(self):
-        """The inverse of consumption: what production never used comes back.
-
-        Full cancellation and rework arrive with the exception flows, but the
-        release path they will use is this one, and it has to be right before
-        anything is built on it.
-        """
         order = self.make_order()
         self.garment(order, self.blouse_template, [('main_fabric', self.brocade, 2)])
         self.advance(order, 'fabric_confirmed')
@@ -309,7 +267,7 @@ class ReservationTests(OrderMaterialsTestBase):
             garment_job__order=order).exists())
 
     def test_short_stock_reserves_what_there_is_and_reports_the_rest(self):
-        """A boutique routinely sells cloth it has not bought yet."""
+
         order = self.make_order()
         self.garment(order, self.blouse_template,
                      [('main_fabric', self.brocade, 40)])  # only 25 in stock
@@ -333,7 +291,7 @@ class ReservationTests(OrderMaterialsTestBase):
 
 
 class ConsumptionTests(OrderMaterialsTestBase):
-    """5: stock leaves the shelf when the garment is stitched, not before."""
+
 
     def test_stitching_consumes_and_reduces_stock(self):
         order = self.make_order()
@@ -345,12 +303,11 @@ class ConsumptionTests(OrderMaterialsTestBase):
 
         self.advance(order, 'stitching_completed')
 
-        # Consumed: gone from stock, and no longer reserved.
         self.assertEqual(self.stock(self.brocade), (Decimal('23.000'), Decimal('0.000')))
         self.assertEqual(self.stock(self.hooks), (Decimal('49.000'), Decimal('0.000')))
 
     def test_consumption_is_attributable_to_the_garment_that_took_it(self):
-        """The question the ledger could not answer: which dress took what."""
+
         order = self.make_order()
         blouse = self.garment(order, self.blouse_template,
                               [('main_fabric', self.brocade, 2)], sequence=0)
@@ -367,20 +324,12 @@ class ConsumptionTests(OrderMaterialsTestBase):
         by_job = {m.garment_job_id: m for m in consumed}
         self.assertEqual(by_job[blouse.id].quantity, Decimal('2.000'))
         self.assertEqual(by_job[lehenga.id].quantity, Decimal('4.000'))
-        # ...and each one names the order and the person who caused it.
         for movement in consumed:
             self.assertEqual(movement.order_id, order.id)
             self.assertEqual(movement.user_id, self.owner.id)
             self.assertIsNotNone(movement.created_at)
 
     def test_every_movement_names_the_stage_that_caused_it(self):
-        """An audit has to read as a sentence, not a number.
-
-        "2m brocade consumed for the Blouse during Stitching Completed by
-        Sunita at 12:24" -- item, garment, order, stage, type, quantity, who,
-        when. The stage is what turns a ledger line into an account of what
-        happened on the floor.
-        """
         order = self.make_order()
         blouse = self.garment(order, self.blouse_template,
                               [('main_fabric', self.brocade, 2)])
@@ -394,7 +343,6 @@ class ConsumptionTests(OrderMaterialsTestBase):
 
         self.assertEqual(reservation.stage_key, 'fabric_confirmed')
         self.assertEqual(consumption.stage_key, 'stitching_completed')
-        # The whole sentence, from one row.
         self.assertEqual(consumption.garment_job_id, blouse.id)
         self.assertEqual(consumption.order_id, order.id)
         self.assertEqual(consumption.quantity, Decimal('2.000'))
@@ -416,22 +364,11 @@ class ConsumptionTests(OrderMaterialsTestBase):
         self.assertEqual(release.quantity, Decimal('2.000'))
 
     def test_a_garment_added_after_fabric_was_confirmed_is_still_accounted_for(self):
-        """The safety net, for materials the plan could not have seen.
-
-        The wizard creates the order first and its garments immediately after,
-        so an order can pass through Fabric Confirmed while it still has no
-        garment rows -- there is nothing to plan from, and no plan is made. The
-        materials arrive moments later. Without a second chance to plan, that
-        order would reach Delivered having moved no stock at all, which is the
-        exact failure this whole change set exists to end.
-        """
         order = self.make_order()
-        # Fabric confirmed while the order is still empty: nothing to plan.
         self.advance(order, 'fabric_confirmed')
         self.assertIsNone(order_materials.live_plan(order))
         self.assertEqual(self.stock(self.brocade), (Decimal('25.000'), Decimal('0.000')))
 
-        # The garment and its materials land afterwards.
         self.garment(order, self.blouse_template, [('main_fabric', self.brocade, 2)])
 
         self.advance(order, 'stitching_completed')
@@ -442,25 +379,22 @@ class ConsumptionTests(OrderMaterialsTestBase):
             order=order).exists())
 
     def test_nothing_moves_before_the_fabric_is_confirmed(self):
-        """Taking the order is not committing the cloth."""
+
         order = self.make_order()
         self.garment(order, self.blouse_template, [('main_fabric', self.brocade, 2)])
-        # Up to the stage immediately before fabric is confirmed.
         self.advance(order, 'measurements_completed')
         self.assertEqual(self.stock(self.brocade), (Decimal('25.000'), Decimal('0.000')))
         self.assertFalse(StockMovement.objects.filter(order=order).exists())
 
 
 class CustomerSuppliedMaterialTests(OrderMaterialsTestBase):
-    """7: the customer's own cloth never touches the boutique's stock."""
+
 
     def test_customer_material_is_planned_but_never_reserved_or_consumed(self):
         order = self.make_order()
         job = GarmentJob.objects.create(
             order=order, template=self.blouse_template, template_version=1,
             spec={'material_source': 'customer'},
-            # Assigning a tailor needs real measurements, not merely a stage
-            # marked done -- so a hand-built job needs them too.
             measurements={'chest': '36'}, sequence=0)
         JobMaterial.objects.create(
             job=job, field_key='main_fabric', inventory_item=None,
@@ -475,8 +409,6 @@ class CustomerSuppliedMaterialTests(OrderMaterialsTestBase):
         self.advance(order, 'fabric_confirmed')
         self.advance(order, 'stitching_completed')
 
-        # The boutique's hooks moved; the customer's silk did not appear in
-        # boutique stock at any point.
         self.assertEqual(self.stock(self.hooks)[0], Decimal('49.000'))
         customer_line = order_materials.live_plan(order).lines.get(
             is_customer_supplied=True)
@@ -487,7 +419,7 @@ class CustomerSuppliedMaterialTests(OrderMaterialsTestBase):
 
 
 class ReconciliationTests(OrderMaterialsTestBase):
-    """8: the order's material account has to add up, and be explainable."""
+
 
     def test_delivery_releases_the_unused_and_reconciles(self):
         order = self.make_order()
@@ -504,16 +436,14 @@ class ReconciliationTests(OrderMaterialsTestBase):
         self.assertEqual(plan.status, OrderMaterialPlan.Status.COMPLETED)
 
         line = plan.lines.get(item=self.brocade)
-        # X - Z + R - W, with nothing returned and nothing wasted.
         expected = (opening - line.consumed_quantity
                     + line.returned_quantity - line.wasted_quantity)
         self.assertEqual(self.stock(self.brocade)[0], expected)
-        # Nothing left spoken for once the order is out of the building.
         self.assertEqual(self.stock(self.brocade)[1], Decimal('0.000'))
         self.assertTrue(order_materials.reconcile(plan)['is_reconciled'])
 
     def test_the_ledger_reconstructs_the_stock_figure_from_its_movements(self):
-        """Every change is explained by a movement, and they sum to the balance."""
+
         order = self.make_order()
         self.garment(order, self.blouse_template,
                      [('main_fabric', self.brocade, 2)], sequence=0)
@@ -526,19 +456,11 @@ class ReconciliationTests(OrderMaterialsTestBase):
         self.advance(order, 'delivered')
 
         movements = StockMovement.objects.filter(item=self.brocade).order_by('created_at')
-        # Each movement records the balance either side of it, so the chain has
-        # to be continuous -- no change without a line to explain it.
         for earlier, later in zip(movements, movements[1:]):
             self.assertEqual(earlier.new_stock, later.previous_stock)
         self.assertEqual(movements.last().new_stock, self.stock(self.brocade)[0])
 
     def test_using_less_than_planned_returns_the_difference_to_the_shelf(self):
-        """Two metres were reserved, one was used; the other must come back.
-
-        This is the difference between a reservation and a write-off, and the
-        case where a wrong ledger is most expensive: material invisible to every
-        other order for as long as the plan stays open.
-        """
         order = self.make_order()
         self.garment(order, self.blouse_template, [('main_fabric', self.brocade, 2)])
         self.advance(order, 'fabric_confirmed')
@@ -558,8 +480,6 @@ class ReconciliationTests(OrderMaterialsTestBase):
         line.refresh_from_db()
         current, reserved = self.stock(self.brocade)
         self.assertEqual(reserved, Decimal('0.000'), "nothing left spoken for")
-        # The order took what the second metre's consumption at stitching used,
-        # and the account still balances against the ledger.
         self.assertEqual(
             current,
             Decimal('25.000') - line.consumed_quantity
@@ -578,7 +498,6 @@ class ReconciliationTests(OrderMaterialsTestBase):
         line.refresh_from_db()
         self.assertEqual(line.consumed_quantity, Decimal('2.000'))
         self.assertEqual(line.wasted_quantity, Decimal('1.000'))
-        # Both left the shelf, but the ledger can tell offcuts from garment.
         self.assertEqual(self.stock(self.brocade)[0], Decimal('22.000'))
         self.assertTrue(StockMovement.objects.filter(
             item=self.brocade, movement_type=StockMovement.Type.WASTE,

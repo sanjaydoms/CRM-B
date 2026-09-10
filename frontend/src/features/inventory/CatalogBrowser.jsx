@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Package, Plus, Search } from 'lucide-react';
+import { Check, ChevronRight, Package, Plus, Search } from 'lucide-react';
 
 import { api } from '../../services/api';
+import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import { IconTile } from '../../components/ui/Atelier';
 
 /**
  * The published catalogue: 732 materials across 49 sections.
@@ -18,9 +20,10 @@ import { api } from '../../services/api';
  */
 
 const panel = {
-  background: 'var(--card-bg, rgba(255,255,255,0.03))',
-  border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
-  borderRadius: '12px',
+  background: 'var(--surface-color)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-lg)',
+  boxShadow: 'var(--shadow-sm)',
 };
 
 //: Rows the documents catalogue but which cannot hold stock -- a payment
@@ -32,6 +35,7 @@ const TYPE_LABEL = {
 };
 
 export default function CatalogBrowser({ isOwner, onStocked }) {
+  const { t } = useLanguage();
   const [sections, setSections] = useState([]);
   const [openSection, setOpenSection] = useState(null);
   const [items, setItems] = useState([]);
@@ -49,9 +53,6 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
   }, []);
 
   const loadItems = useCallback((section, term) => {
-    // A search spans the whole catalogue; without one, only the open section is
-    // fetched. Loading all 732 to filter in the browser would be the easy thing
-    // and the wrong one.
     if (!section && !term) { setItems([]); return; }
     setLoading(true);
     api.getCatalogItems({
@@ -81,8 +82,6 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
     setError(null);
     try {
       await api.stockCatalogItem(item.id, {});
-      // Re-fetch rather than patching in place: the row now carries the id of
-      // the inventory item it created, which is what hides the button.
       loadItems(openSection, search.trim());
       onStocked?.();
     } catch (err) {
@@ -109,41 +108,47 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
           <input type="checkbox" checked={stockableOnly} onChange={(e) => setStockableOnly(e.target.checked)} />
-          Only what can be stocked
+          {t('inventoryPage.onlyStockable', 'Only what can be stocked')}
         </label>
         {openSection && (
           <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
                   onClick={() => { setOpenSection(null); setSearch(''); }}>
-            All sections
+            {t('inventoryPage.allSections', 'All sections')}
           </button>
         )}
       </div>
 
       {error && (
-        <div style={{ ...panel, padding: '12px 16px', marginBottom: '12px', borderColor: 'rgba(220,38,38,0.3)', color: '#fca5a5', fontSize: '13px' }}>
+        <div style={{ ...panel, padding: '12px 16px', marginBottom: '12px', borderColor: 'var(--danger-color)', color: 'var(--danger-color)', fontSize: '13px' }}>
           {error}
         </div>
       )}
 
       {!openSection && !search.trim() && (
         <div>
-          {[['MAGGAM', 'Maggam · Aari · Zardosi'], ['APPAREL', 'Apparel ecosystem']].map(([doc, label]) => (
-            <div key={doc} style={{ marginBottom: '24px' }}>
-              <div style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                {label}
-              </div>
-              <div className="mobile-stack-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))', gap: '10px' }}>
+          <div style={{ marginBottom: 'var(--space-4)' }}>
+            <div className="at-section-title">Material Categories</div>
+            <div className="at-section-sub">Browse and manage all inventory categories</div>
+          </div>
+          {[['MAGGAM', t('inventoryPage.maggamSection', 'Maggam · Aari · Zardosi'), 'amber'], ['APPAREL', t('inventoryPage.apparelSection', 'Apparel ecosystem'), 'green']].map(([doc, label, tone]) => (
+            <div key={doc} style={{ marginBottom: 'var(--space-6)' }}>
+              <div className="ui-eyebrow" style={{ marginBottom: 'var(--space-3)' }}>{label}</div>
+              <div className="at-cat-grid">
                 {byDoc[doc].map((section) => (
                   <button
                     key={section.id}
                     type="button"
+                    className="at-cat"
                     onClick={() => setOpenSection(section)}
-                    style={{ ...panel, padding: '14px 16px', textAlign: 'left', cursor: 'pointer', color: 'inherit' }}
                   >
-                    <div style={{ fontSize: '13.5px', fontWeight: 600 }}>{section.full_name}</div>
-                    <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      {section.item_count} material{section.item_count === 1 ? '' : 's'}
-                    </div>
+                    <IconTile icon={Package} tone={tone} size={44} iconSize={20} />
+                    <span style={{ minWidth: 0 }}>
+                      <span className="at-cat-name" style={{ display: 'block' }}>{section.full_name}</span>
+                      <span className="at-cat-count">
+                        {section.item_count} {t('inventoryPage.tableItem', 'material')}{section.item_count === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                    <ChevronRight size={18} className="at-cat-chevron" />
                   </button>
                 ))}
               </div>
@@ -162,7 +167,7 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
           </div>
           {!loading && items.length === 0 && (
             <div style={{ padding: '28px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-              Nothing matches.
+              {t('inventoryPage.nothingMatches', 'Nothing matches.')}
             </div>
           )}
           <div>
@@ -178,12 +183,12 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
                   </div>
                 </div>
                 {item.stocked_item_id ? (
-                  <span style={{ fontSize: '11.5px', color: '#34d399', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <Check size={13} /> In your inventory
+                  <span style={{ fontSize: '11.5px', color: 'var(--success-color)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Check size={13} /> {t('inventoryPage.inYourInventory', 'In your inventory')}
                   </span>
                 ) : !item.is_stockable ? (
                   <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                    Not a stockable material
+                    {t('inventoryPage.notStockableMaterial', 'Not a stockable material')}
                   </span>
                 ) : isOwner ? (
                   <button type="button" className="btn-secondary"
@@ -191,7 +196,7 @@ export default function CatalogBrowser({ isOwner, onStocked }) {
                           disabled={busy === item.id}
                           onClick={() => stock(item)}>
                     <Plus size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
-                    {busy === item.id ? 'Adding…' : 'Stock this'}
+                    {busy === item.id ? t('inventoryPage.adding', 'Adding…') : t('inventoryPage.stockThis', 'Stock this')}
                   </button>
                 ) : null}
               </div>

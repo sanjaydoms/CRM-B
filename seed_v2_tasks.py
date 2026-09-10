@@ -24,7 +24,6 @@ def seed_schema(schema_name):
                 master = order.master
                 tailor = order.tailor
                 
-                # Seed Tasks if none exist
                 if not order.production_tasks.exists():
                     print(f"  Creating Production Tasks for Order {order.order_id}...")
                     tasks = [
@@ -39,7 +38,6 @@ def seed_schema(schema_name):
                     ]
                     ProductionTask.objects.bulk_create(tasks)
 
-                # Seed Activity Log
                 if not UniversalActivity.objects.filter(entity_id=order.order_id).exists():
                     UniversalActivity.objects.create(
                         module="orders",
@@ -51,7 +49,6 @@ def seed_schema(schema_name):
                         new_value={"order_id": order.order_id, "amount": float(order.total_amount)}
                     )
 
-                # Seed Fitting Trial Appointment if none exists
                 if order.customer and not Appointment.objects.filter(order=order).exists():
                     Appointment.objects.create(
                         customer=order.customer,

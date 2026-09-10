@@ -1,29 +1,8 @@
-"""Evaluating a BOM line's quantity formula.
-
-A formula is a small arithmetic expression over a garment's own measurements,
-written by the boutique: ``0.15 * bust + 0.4`` for a lining, or
-``2.2 if length > 42 else 1.9`` for a skirt panel.
-
-This is emphatically **not** eval(). A formula arrives from the database, which
-means it arrives from whoever could write to it, and eval() on that is arbitrary
-code execution against the server. Instead the expression is parsed to an AST and
-walked with an explicit allow-list of node types: arithmetic, comparison, a
-conditional, numeric literals and named variables. Anything else -- an attribute
-access, a subscript, a lambda, a comprehension, a call to anything outside the
-four whitelisted functions -- is refused by the walker rather than by a blacklist,
-so a construct nobody thought of is rejected by default instead of slipping
-through.
-
-Two further limits stop a formula that is syntactically harmless from hanging the
-process: the expression length is capped, and exponents are bounded, because
-``9**9**9`` is a denial of service written in four characters.
-"""
 
 import ast
 import math
 from decimal import Decimal, InvalidOperation
 
-#: The only callables a formula may use.
 FUNCTIONS = {
     'min': min,
     'max': max,
@@ -36,18 +15,12 @@ FUNCTIONS = {
 MAX_LENGTH = 500
 MAX_EXPONENT = 8
 
-#: Every intermediate value is bounded, not just the exponent. Bounding the
-#: exponent alone is not enough -- ((9**8)**8)**8 keeps each exponent at 8 and
-#: still overflows, and a caller-supplied measurement can be astronomical on its
-#: own. The ceiling matches what a quantity can actually be stored as: quantities
-#: are DecimalField(max_digits=12, decimal_places=3), so anything at or above
-#: 10**9 cannot be saved anyway and is better refused here, where the message can
-#: say which formula did it, than in the database.
 MAX_VALUE = 10 ** 9
 
 
 class FormulaError(ValueError):
-    """A formula that cannot be parsed, or asks for something it may not have."""
+    pass
+
 
 
 _BIN_OPS = {
@@ -70,16 +43,6 @@ _COMPARE_OPS = {
 
 
 def _check(value, where):
-    """Every value that flows through the evaluator passes through here.
-
-    Guarding only the final result is not enough: an intermediate can be
-    infinite, complex or astronomically large and then blow up somewhere with no
-    context -- ``(-1) ** 0.5`` is a complex number, ``round(1, 1e400)`` is an
-    OverflowError, and a merely enormous float reaches the caller and raises
-    decimal.InvalidOperation when it is quantised. Catching all of it at one
-    choke point turns every one of those into a FormulaError that names the
-    formula instead of a 500.
-    """
     if isinstance(value, complex):
         raise FormulaError(
             f'{where} produced a complex number. A negative base cannot be '
@@ -104,11 +67,6 @@ def _check(value, where):
 
 
 def _number(value, where):
-    """Coerce a variable's value to a float the arithmetic can use.
-
-    Variables come from the request body, so "nan" and "1e999" arrive as strings
-    that float() accepts happily. _check is what stops them.
-    """
     if isinstance(value, bool):
         raise FormulaError(f"'{where}' is {value!r}; measurements must be numbers.")
     if isinstance(value, (int, float, Decimal)):
@@ -163,7 +121,6 @@ def _eval(node, variables):
         return _check(result, 'An operation in the formula')
 
     if isinstance(node, ast.Compare):
-        # Chained comparisons (a < b < c) evaluate left to right, like Python.
         left = _eval(node.left, variables)
         for op, comparator in zip(node.ops, node.comparators):
             handler = _COMPARE_OPS.get(type(op))
@@ -176,10 +133,6 @@ def _eval(node, variables):
         return 1.0
 
     if isinstance(node, ast.BoolOp):
-        # Python's own semantics: short-circuit, and yield the operand that
-        # decided the result rather than collapsing to 1.0/0.0 after evaluating
-        # everything. `waist or 30` should be the waist measurement when there
-        # is one, not "true".
         if isinstance(node.op, ast.And):
             result = 1.0
             for operand in node.values:
@@ -214,16 +167,10 @@ def _eval(node, variables):
 
         args = [_eval(a, variables) for a in node.args]
         try:
-            # round()'s second argument must be an int -- round(2.345, 2.0) is a
-            # TypeError. Coerced inside the try, because int(inf) raises
-            # OverflowError and doing this above the try was itself a route to a
-            # 500 for round(1.5, 1e400).
             if node.func.id == 'round' and len(args) > 1:
                 args[1] = int(args[1])
             return _check(function(*args), f'{node.func.id}()')
         except (TypeError, ValueError, OverflowError) as exc:
-            # Wrong arity, or a value the function cannot take. Reported as a
-            # formula problem rather than escaping as a 500.
             raise FormulaError(f"{node.func.id}() could not be evaluated: {exc}")
 
     raise FormulaError(
@@ -232,11 +179,6 @@ def _eval(node, variables):
 
 
 def evaluate(expression, variables=None):
-    """Evaluate `expression` against `variables`, returning a Decimal.
-
-    Raises FormulaError for anything that is not a well-formed, permitted
-    arithmetic expression over the variables provided.
-    """
     if expression is None or not str(expression).strip():
         raise FormulaError('Formula is empty.')
     text = str(expression).strip()
@@ -258,7 +200,7 @@ def evaluate(expression, variables=None):
 
 
 def variables_used(expression):
-    """Every variable name a formula reads, for validating it against a garment."""
+
     try:
         tree = ast.parse(str(expression or ''), mode='eval')
     except SyntaxError:
@@ -267,8 +209,6 @@ def variables_used(expression):
             if isinstance(n, ast.Name) and n.id not in FUNCTIONS}
 
 
-#: Node types a formula may contain. Kept beside _eval deliberately: the two
-#: must agree, and a construct added to one without the other is a bug.
 _ALLOWED_NODES = (
     ast.Expression, ast.Constant, ast.Name, ast.Load,
     ast.UnaryOp, ast.USub, ast.UAdd, ast.Not,
@@ -279,19 +219,6 @@ _ALLOWED_NODES = (
 
 
 def validate_syntax(expression):
-    """Check a formula is well-formed and permitted, WITHOUT evaluating it.
-
-    Write-time validation cannot simply call evaluate(): the variables are the
-    garment's measurements, which do not exist until an order does, so every
-    real formula raises "unknown variable" at that point. Discriminating on that
-    error *message* is what an earlier version did, and it was a hole -- _eval
-    walks depth-first, so `hips * __import__('os')` raises the unknown-variable
-    error from the left operand before it ever reaches the call on the right,
-    and the hostile half was never examined.
-
-    This walks the whole tree structurally instead, so every node is inspected
-    regardless of evaluation order, and unbound names are simply allowed.
-    """
     if expression is None or not str(expression).strip():
         raise FormulaError('Formula is empty.')
     text = str(expression).strip()
