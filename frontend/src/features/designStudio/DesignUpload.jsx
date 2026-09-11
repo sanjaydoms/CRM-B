@@ -6,6 +6,7 @@ import {
 
 import { api } from '../../services/api';
 import TemplateForm from '../catalog/TemplateForm';
+import DesignCataloguePicker from './DesignCataloguePicker';
 import { getSection, pruneHidden } from '../../services/templates';
 import { AddMoreTile, Dropzone, Field, FormModal, FormSection, InfoNote, PhotoTile } from '../../components/ui/Atelier';
 
@@ -19,7 +20,11 @@ import { AddMoreTile, Dropzone, Field, FormModal, FormSection, InfoNote, PhotoTi
  * order form never produces, and the two sides would stop matching.
  */
 
-export default function DesignUpload({ onClose, onUploaded }) {
+/** @param initialGarmentKey  The garment the library was open on, so the
+ *                             form starts there rather than at Uncategorised.
+ *  @param initialCatalogue    {category, subcategory, option} the owner was
+ *                             looking at, so "upload here" is one click. */
+export default function DesignUpload({ onClose, onUploaded, initialGarmentKey = '', initialCatalogue = {} }) {
   const [templates, setTemplates] = useState([]);
   const [designers, setDesigners] = useState([]);
   const [collections, setCollections] = useState([]);
@@ -41,8 +46,13 @@ export default function DesignUpload({ onClose, onUploaded }) {
   const [addingCollection, setAddingCollection] = useState(false);
   const inFlight = useRef(false);
 
+  // Where in the garment's design catalogue this design is filed. Cleared
+  // with the garment, because a saree's catalogue says nothing about a kurti.
+  const [catalogue, setCatalogue] = useState(initialCatalogue || {});
+  // The position to send: set by the picker only once the path is complete.
+  const [cataloguePayload, setCataloguePayload] = useState(null);
   const [form, setForm] = useState({
-    title: '', template_key: '', designer_ref: '', collection: '',
+    title: '', template_key: initialGarmentKey || '', designer_ref: '', collection: '',
     description: '', estimated_price: '', difficulty: '', stitch_hours: '',
     video_url: '', source_url: '',
   });
@@ -100,6 +110,8 @@ export default function DesignUpload({ onClose, onUploaded }) {
 
   const changeGarment = (e) => {
     setForm({ ...form, template_key: e.target.value });
+    setCatalogue({});
+    setCataloguePayload(null);
     setPartFiles(collapseToOverall);
     setPartPreviews(collapseToOverall);
   };
@@ -182,6 +194,7 @@ export default function DesignUpload({ onClose, onUploaded }) {
         source_url: form.source_url,
         image_url: totalFiles ? '' : form.source_url,
         spec_tags: specTags,
+        catalogue: cataloguePayload || undefined,
       }, flatFiles, flatParts);
       onUploaded?.(created);
       onClose?.();
@@ -284,6 +297,11 @@ export default function DesignUpload({ onClose, onUploaded }) {
               {templates.map(t => <option key={t.key} value={t.key}>{t.name}</option>)}
             </select>
           </Field>
+          <DesignCataloguePicker
+            garmentKey={form.template_key}
+            value={catalogue}
+            onChange={(value, payload) => { setCatalogue(value); setCataloguePayload(payload); }}
+          />
           <Field label="Designer" icon={User}>
             {select('designer_ref', designers.map(d => [d.id, d.name]), 'Unattributed')}
           </Field>

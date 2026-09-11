@@ -42,6 +42,7 @@ const AlterationsPanel = lazy(() => import('./features/alterations/AlterationsPa
 const FinancePanel = lazy(() => import('./features/finance/FinancePanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
+import DesignCataloguePicker from './features/designStudio/DesignCataloguePicker';
 import GarmentSelectionsReview from './features/catalog/GarmentSelectionsReview';
 import OrderAlterations from './features/alterations/OrderAlterations';
 import AlterationList from './features/alterations/AlterationList';
@@ -2292,8 +2293,11 @@ function App() {
       const payload = {
         ...designForm,
         price: parseFloat(designForm.price) || 0.00,
-        is_boutique: designForm.is_boutique === true || designForm.is_boutique === 'true'
+        is_boutique: designForm.is_boutique === true || designForm.is_boutique === 'true',
+        // Only a complete position is sent; a half-chosen one would be refused.
+        catalogue: designForm.catalogue_path || undefined,
       };
+      delete payload.catalogue_path;
       if (!payload.image_url) {
         // Curated apparel image
         payload.image_url = 'https://images.unsplash.com/photo-1610030469668-93535c17b6b3?w=400';
@@ -4677,7 +4681,17 @@ function App() {
                             image_url: design.image_url || '',
                             is_boutique: design.source === 'catalogue',
                             price: String(design.estimated_price ?? 0),
-                            description: design.description || ''
+                            description: design.description || '',
+                            catalogue: design.catalogue?.category ? {
+                              category: design.catalogue.category,
+                              subcategory: design.catalogue.subcategory || undefined,
+                              option: design.catalogue.option || undefined,
+                            } : {},
+                            catalogue_path: design.catalogue?.category ? {
+                              category: design.catalogue.category,
+                              subcategory: design.catalogue.subcategory || '',
+                              option: design.catalogue.option || '',
+                            } : null,
                           });
                           setShowDesignModal(true);
                         }}
@@ -6233,7 +6247,7 @@ function App() {
                     <select
                       className="form-control"
                       value={designForm.garment_type}
-                      onChange={e => setDesignForm({...designForm, garment_type: e.target.value})}
+                      onChange={e => setDesignForm({...designForm, garment_type: e.target.value, catalogue: {}, catalogue_path: null})}
                     >
                       <option value="Lehenga">{t('designsPage.lehenga', 'Lehenga')}</option>
                       <option value="Gown">{t('designsPage.gown', 'Gown')}</option>
@@ -6253,6 +6267,16 @@ function App() {
                       <option value="false">{t('designsPage.aiSuggestionTemplate', 'AI Suggestion Template')}</option>
                     </select>
                   </Field>
+                  {/* Where in the garment's design catalogue this design is
+                      filed. The garment here is a name ("Saree"); the
+                      catalogue is keyed the way templates are, so the name is
+                      slugged the same way the server will slug it. Nothing
+                      renders for a garment without a catalogue. */}
+                  <DesignCataloguePicker
+                    garmentKey={(designForm.garment_type || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}
+                    value={designForm.catalogue || {}}
+                    onChange={(value, payload) => setDesignForm({ ...designForm, catalogue: value, catalogue_path: payload })}
+                  />
                   <Field label={t('designsPage.necklineStyleOptional', 'Neckline Style (Optional)')} icon={Sparkles}>
                     <input
                       type="text"

@@ -5,6 +5,7 @@ import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 import DesignUpload from './DesignUpload';
 import GarmentPartTabs from './GarmentPartTabs';
+import DesignCatalogueBrowser from './DesignCatalogueBrowser';
 import { IconTile, SectionCard, StatCard } from '../../components/ui/Atelier';
 
 /**
@@ -174,6 +175,7 @@ function DesignDetail({ design, onClose, onEdit, onDelete, onReviewed, canReview
             {row('Price', design.estimated_price > 0 ? `₹${Number(design.estimated_price).toLocaleString('en-IN')}` : null)}
             {row('Status', design.status)}
             {row('Source', design.source_display)}
+            {row('Catalogue', design.catalogue?.path)}
             {row('Difficulty', design.difficulty)}
             {row('Stitch time', design.stitch_hours ? `${design.stitch_hours} h` : null)}
             {row('Views', design.view_count)}
@@ -296,6 +298,11 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   // the choice -- a saree's Pallu is not a part a kurti has, and carrying the
   // key across would open a tab that garment does not own.
   const [partTab, setPartTab] = useState(null);
+  // Where in the garment's design catalogue the owner is looking:
+  // {garment, value: {category, subcategory, option}}. Stamped with the
+  // garment so opening another one starts from its own top, and derived below
+  // so the reset is not a thing an effect has to remember to do.
+  const [catalogueTab, setCatalogueTab] = useState(null);
 
   const PENDING_QUEUE = { key: '__pending__', name: 'Pending Approval' };
   const isPendingQueue = openCategory?.key === PENDING_QUEUE.key;
@@ -348,6 +355,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   // declared part -- its overall shot, for every template that lists one --
   // and only an explicit click under this garment moves off it.
   const openPart = (partTab && openKey && partTab.garment === openKey) ? partTab.part : (parts[0]?.key ?? null);
+  const cataloguePath = (catalogueTab && catalogueTab.garment === openKey) ? catalogueTab.value : {};
 
   // The design behind a card, in the detail panel. Shared by the design grid
   // and the part tabs, so a photograph opens the same View its whole design
@@ -366,13 +374,19 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
       // The Uncategorised bucket carries an empty key. Sending no filter
       // at all listed the entire library under it; 'none' lists what it
       // says on the tile.
-      : { ...filters, template: openCategory.key || 'none' };
+      : { ...filters, template: openCategory.key || 'none',
+          // The exact catalogue position, when one is chosen. Nothing chosen
+          // lists every design under the garment, filed or not, as before.
+          catalogue_category: cataloguePath.category,
+          catalogue_subcategory: cataloguePath.subcategory,
+          catalogue_option: cataloguePath.option };
     api.getDesignLibrary(query)
       .then((rows) => { if (!cancelled) { setDesigns(rows); setError(null); } })
       .catch((err) => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [openCategory, filters, refreshToken, isPendingQueue]);
+  }, [openCategory, filters, refreshToken, isPendingQueue,
+      cataloguePath.category, cataloguePath.subcategory, cataloguePath.option]);
 
   // A design leaving PENDING (approved/rejected) must disappear from the queue
   // immediately, not on the next reload -- otherwise the owner reviews the same
@@ -473,6 +487,17 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
                        onChange={(part) => setPartTab({ garment: openKey, part })}
                        onOpenDesign={(id) => openDesign(id)} />
 
+      {/* The garment's design catalogue -- category, section, design option.
+          Renders nothing for a garment that has no catalogue yet, so every
+          other garment's library looks exactly as it did. */}
+      {!openPart && !isPendingQueue && openKey && (
+        <DesignCatalogueBrowser
+          garmentKey={openKey}
+          value={cataloguePath}
+          onChange={(value) => setCatalogueTab({ garment: openKey, value })}
+        />
+      )}
+
       {!openPart && (
         <Filters value={filters} onChange={setFilters} designers={designers}
                  collections={collections} parts={parts} />
@@ -532,6 +557,8 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
 
       {uploading && (
         <DesignUpload
+          initialGarmentKey={isPendingQueue ? '' : (openKey || '')}
+          initialCatalogue={cataloguePath}
           onClose={() => setUploading(false)}
           onUploaded={() => {
             setUploading(false);

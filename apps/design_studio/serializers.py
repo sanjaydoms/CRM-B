@@ -101,6 +101,27 @@ class DesignAssetSerializer(serializers.ModelSerializer):
             return asset.designer_ref.name
         return asset.designer or ''
 
+    def validate(self, attrs):
+        # A catalogue path is only meaningful against the garment it belongs
+        # to, so it is checked here where both are in hand. Stored resolved --
+        # keys AND labels -- so the library can print "Traditional › Silk /
+        # Pattu › Banarasi Silk" without re-walking the tree.
+        catalogue = attrs.get('catalogue')
+        if catalogue:
+            from .design_catalogue import CatalogueError, resolve_path
+            template = attrs.get('template') or getattr(self.instance, 'template', None)
+            if not isinstance(catalogue, dict):
+                raise serializers.ValidationError({'catalogue': 'Expected an object.'})
+            try:
+                attrs['catalogue'] = resolve_path(
+                    template.key if template else '',
+                    catalogue.get('category', ''),
+                    catalogue.get('subcategory', '') or '',
+                    catalogue.get('option', '') or '')
+            except CatalogueError as exc:
+                raise serializers.ValidationError({'catalogue': str(exc)})
+        return attrs
+
 
 class DesignBoardItemSerializer(serializers.ModelSerializer):
     production_notes_by_name = serializers.CharField(

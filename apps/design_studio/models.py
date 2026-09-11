@@ -121,6 +121,12 @@ class DesignAsset(models.Model):
         related_name='designs', db_index=True,
     )
     spec_tags = models.JSONField(default=dict, blank=True)
+    # Where this design is filed in the garment's design catalogue --
+    # {garment, category, subcategory, option} keys plus their labels and a
+    # readable path -- validated against design_catalogue on the way in. Empty
+    # for a design uploaded before the catalogue existed or filed nowhere in
+    # particular; such a design still lists under its garment as it always did.
+    catalogue = models.JSONField(default=dict, blank=True)
 
     class Status(models.TextChoices):
         DRAFT = 'DRAFT', 'Draft'

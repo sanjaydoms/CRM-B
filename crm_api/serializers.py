@@ -289,8 +289,38 @@ class BoutiqueDesignSerializer(serializers.ModelSerializer):
         model = DesignAsset
         fields = [
             'id', 'name', 'garment_type', 'neckline_style', 'sleeve_style',
-            'image_url', 'is_boutique', 'description', 'price',
+            'image_url', 'is_boutique', 'description', 'price', 'catalogue',
         ]
+        extra_kwargs = {'catalogue': {'required': False}}
+
+    def _file_in_catalogue(self, asset, catalogue):
+        """Resolve a catalogue position against the garment this form names.
+
+        This form carries the garment as a name ("Saree") rather than a
+        template; the catalogue is keyed the way templates are, so the name is
+        slugged to its key. A design filed in the catalogue is also linked to
+        that template, so it lists under its garment in the library and the
+        Design Studio -- which is the point of filing it. A design saved with
+        no position is left exactly as this form always left it.
+        """
+        if catalogue is None:
+            return
+        if not catalogue:
+            asset.catalogue = {}
+            return
+        from apps.catalog.models import GarmentTemplate
+        from apps.design_studio.design_catalogue import CatalogueError, resolve_path, _slug
+        garment_key = asset.template.key if asset.template_id else _slug(asset.garment_type or '')
+        if not isinstance(catalogue, dict):
+            raise serializers.ValidationError({'catalogue': 'Expected an object.'})
+        try:
+            asset.catalogue = resolve_path(
+                garment_key, catalogue.get('category', ''),
+                catalogue.get('subcategory', '') or '', catalogue.get('option', '') or '')
+        except CatalogueError as exc:
+            raise serializers.ValidationError({'catalogue': str(exc)})
+        if not asset.template_id:
+            asset.template = GarmentTemplate.resolve(garment_key)
 
     def get_is_boutique(self, asset):
         return asset.source == DesignAsset.SOURCE_CATALOGUE
@@ -311,6 +341,7 @@ class BoutiqueDesignSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         raw = self.initial_data
+        catalogue = validated_data.pop('catalogue', None)
         asset = DesignAsset(
             source=(DesignAsset.SOURCE_CATALOGUE
                     if raw.get('is_boutique', True) in (True, 'true', 'True')
@@ -318,13 +349,16 @@ class BoutiqueDesignSerializer(serializers.ModelSerializer):
             **validated_data,
         )
         self._apply_style(asset, raw)
+        self._file_in_catalogue(asset, catalogue)
         asset.save()
         return asset
 
     def update(self, instance, validated_data):
+        catalogue = validated_data.pop('catalogue', None)
         for field, value in validated_data.items():
             setattr(instance, field, value)
         self._apply_style(instance, self.initial_data)
+        self._file_in_catalogue(instance, catalogue)
         if 'is_boutique' in self.initial_data:
             instance.source = (DesignAsset.SOURCE_CATALOGUE
                                if self.initial_data['is_boutique'] in (True, 'true', 'True')

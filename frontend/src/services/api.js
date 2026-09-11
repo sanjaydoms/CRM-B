@@ -1193,6 +1193,16 @@ export const api = {
     return res.json();
   },
 
+  // The design catalogue tree for one garment: category -> sub-category ->
+  // design option. Empty categories for a garment that has none yet.
+  async getDesignCatalogue(garment) {
+    const url = new URL(`${BASE_URL}/design-studio/catalogue/`);
+    if (garment) url.searchParams.set('garment', garment);
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to load the design catalogue');
+    return res.json();
+  },
+
   async getDesignCategories() {
     const res = await guardedFetch(`${BASE_URL}/design-studio/categories/`, { headers: getHeaders() });
     if (!res.ok) await failWith(res, 'Failed to load design categories');

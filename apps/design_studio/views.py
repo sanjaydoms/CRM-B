@@ -239,6 +239,11 @@ class DesignAssetViewSet(viewsets.ModelViewSet):
         'source': 'source',
         # "show me every pallu design" -- the reason the images are a table.
         'part': 'images__part',
+        # Exact position in the design catalogue. All three together name one
+        # option; the category alone lists everything filed anywhere under it.
+        'catalogue_category': 'catalogue__category',
+        'catalogue_subcategory': 'catalogue__subcategory',
+        'catalogue_option': 'catalogue__option',
     }
     
     RESERVED = {'search', 'ordering', 'price_min', 'price_max', 'favourite', 'occasion',
@@ -571,6 +576,25 @@ class ReferenceUploadView(views.APIView):
         return Response(
             {'image_url': request.build_absolute_uri(default_storage.url(saved))},
             status=status.HTTP_201_CREATED)
+
+
+class DesignCatalogueView(views.APIView):
+    """The design catalogue tree for one garment, or for every garment that has one.
+
+    Served rather than shipped in the bundle for the same reason the fabric
+    taxonomy is: the browser and the serializer must agree on the keys, and
+    one definition is how they do.
+    """
+
+    permission_classes = [DesignLibraryPermission]
+
+    def get(self, request):
+        from .design_catalogue import tree
+        garment = request.query_params.get('garment')
+        if garment:
+            found = tree(garment)
+            return Response(found if found else {'key': garment, 'categories': []})
+        return Response(tree())
 
 
 class DesignCategoryView(views.APIView):
