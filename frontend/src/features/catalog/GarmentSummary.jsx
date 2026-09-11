@@ -107,7 +107,63 @@ function SectionGroup({ title, entries }) {
   );
 }
 
-export default function GarmentSummary({ jobs, onEdit, inventoryNames: providedNames }) {
+/** molecule: the measurements as a tailor's sheet -- one row per measure,
+ *  the name on the left, the figure on the right where a tape-reader's eye
+ *  lands. Same entries, same text (unit included), same order as the grid it
+ *  replaces on the production stage; only the shape is different. Kept opt-in
+ *  so the wizard's own review, which also renders this component, is untouched.
+ */
+function MeasurementTable({ title, entries }) {
+  // A grid of divs with table roles rather than a <table>: index.css turns
+  // every <table> into display:block on small screens for the data tables,
+  // which would leave a tailor's sheet with its cells stopping short of its
+  // own border on exactly the phone it is most likely read on.
+  const cell = { padding: '10px 14px', borderTop: '1px solid var(--border-color)',
+                 display: 'flex', alignItems: 'center', minWidth: 0 };
+  return (
+    <div className="garment-section">
+      <div className="ui-eyebrow garment-section-title">{title}</div>
+      {/* Capped like a job card: on a wide modal a full-width sheet put the
+          figure a screen away from its name. Full width on a phone. */}
+      <div role="table" aria-label={title}
+           style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto',
+                    width: '100%', maxWidth: '560px',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md, 8px)', overflow: 'hidden',
+                    background: 'var(--surface-color)' }}>
+        <div role="row" style={{ display: 'contents' }}>
+          <div role="columnheader" className="ui-eyebrow"
+               style={{ ...cell, borderTop: 'none', background: 'var(--surface-inset, #f6f6f4)', fontWeight: 700 }}>
+            Measurement
+          </div>
+          <div role="columnheader" className="ui-eyebrow"
+               style={{ ...cell, borderTop: 'none', background: 'var(--surface-inset, #f6f6f4)',
+                        fontWeight: 700, justifyContent: 'flex-end' }}>
+            Value
+          </div>
+        </div>
+        {entries.map(({ field, text }) => (
+          <div role="row" key={field.key} style={{ display: 'contents' }}>
+            <div role="rowheader"
+                 style={{ ...cell, fontSize: 'var(--text-sm)', fontWeight: 500,
+                          color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
+              {field.label || formatKey(field.key)}
+            </div>
+            <div role="cell"
+                 style={{ ...cell, justifyContent: 'flex-end', fontSize: 'var(--text-md, 16px)',
+                          fontWeight: 'var(--weight-semibold, 600)', color: 'var(--text-primary)',
+                          fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              {text}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function GarmentSummary({ jobs, onEdit, inventoryNames: providedNames,
+                                         measurementsAsTable = false }) {
   const needsInventory = useMemo(
     () =>
       !providedNames
@@ -169,7 +225,9 @@ export default function GarmentSummary({ jobs, onEdit, inventoryNames: providedN
             </div>
 
             {sections.map((section) => (
-              <SectionGroup key={section.key} title={section.title} entries={section.answered} />
+              measurementsAsTable && section.key === 'measurements'
+                ? <MeasurementTable key={section.key} title={section.title} entries={section.answered} />
+                : <SectionGroup key={section.key} title={section.title} entries={section.answered} />
             ))}
           </div>
         );

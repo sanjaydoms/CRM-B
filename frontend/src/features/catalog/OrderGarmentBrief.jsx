@@ -78,7 +78,7 @@ export default function OrderGarmentBrief({ jobs, specialInstructions }) {
         <span className="ui-eyebrow">What to make</span>
         {loading && <span className="ui-badge ui-badge--neutral">Loading details…</span>}
       </div>
-      <GarmentSummary jobs={shaped} inventoryNames={inventoryNames} />
+      <GarmentSummary jobs={shaped} inventoryNames={inventoryNames} measurementsAsTable />
       {specialInstructions && (
         <div className="garment-instructions">
           <div className="ui-eyebrow garment-section-title">Special instructions</div>
