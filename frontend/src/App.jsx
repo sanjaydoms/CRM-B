@@ -1316,7 +1316,8 @@ function App() {
   const [selectedDesignTemplates, setSelectedDesignTemplates] = useState([]);
   const [designSource, setDesignSource] = useState('BOUTIQUE_CATALOG');
   const [designLinks, setDesignLinks] = useState('');
-  const [fabricTab, setFabricTab] = useState('boutique'); // 'my-fabric', 'boutique'
+  const [fabricTab, setFabricTab] = useState('boutique'); // 'my-fabric', 'boutique', 'accessories'
+  const [accessorySubTab, setAccessorySubTab] = useState('boutique'); // 'boutique', 'customer'
   const [paymentPhase, setPaymentPhase] = useState(false);
   const [paymentOption, setPaymentOption] = useState('full'); // 'full' or 'partial'
   const [deliveryMethod, setDeliveryMethod] = useState('Direct Pickup');
@@ -7234,46 +7235,68 @@ function App() {
                       )}
                     </div>
                   ) : fabricTab === 'accessories' ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      {/* Garment Accessories & Trims Selection (Boutique Inventory) */}
-                      {garmentJobs.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                            Boutique Accessories &amp; Trims
-                          </div>
-                          <Suspense fallback={<ScreenLoading />}>
-                            <GarmentFabricPicker
-                              garmentJobs={garmentJobs}
-                              fabrics={fabrics}
-                              taxonomy={fabricTaxonomy}
-                              selection={fabricSelection}
-                              onChange={handleFabricSelection}
-                              accessoriesOnly
-                            />
-                          </Suspense>
-                        </div>
-                      )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      {/* Sub-tabs header for Accessories */}
+                      <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                        <button
+                          type="button"
+                          className={`btn-secondary ${accessorySubTab === 'boutique' ? 'btn-primary' : ''}`}
+                          style={{ padding: '6px 16px', fontSize: '12.5px', borderRadius: '20px', fontWeight: 600 }}
+                          onClick={() => setAccessorySubTab('boutique')}
+                        >
+                          Boutique Accessories
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn-secondary ${accessorySubTab === 'customer' ? 'btn-primary' : ''}`}
+                          style={{ padding: '6px 16px', fontSize: '12.5px', borderRadius: '20px', fontWeight: 600 }}
+                          onClick={() => setAccessorySubTab('customer')}
+                        >
+                          Customer Accessories (My Accessories)
+                        </button>
+                      </div>
 
-                      {/* Customer Accessories & References */}
-                      {garmentJobs.length > 0 && (
-                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                            Customer Provided Accessories &amp; References
+                      {accessorySubTab === 'boutique' ? (
+                        /* Garment Accessories & Trims Selection (Boutique Inventory) */
+                        garmentJobs.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                              Boutique Accessories &amp; Trims
+                            </div>
+                            <Suspense fallback={<ScreenLoading />}>
+                              <GarmentFabricPicker
+                                garmentJobs={garmentJobs}
+                                fabrics={fabrics}
+                                taxonomy={fabricTaxonomy}
+                                selection={fabricSelection}
+                                onChange={handleFabricSelection}
+                                accessoriesOnly
+                              />
+                            </Suspense>
                           </div>
-                          {garmentJobs.map(job => (
-                            <GarmentPartPicker
-                              key={job.key}
-                              garmentKey={job.template?.key || job.key}
-                              garmentName={job.template?.name || job.key}
-                              ownOnly
-                              isFabric
-                              accessoriesOnly
-                              taxonomy={fabricTaxonomy}
-                              references={partReferences[job.key] || {}}
-                              onReferencesChange={(next) => handlePartReferences(job.key, next)}
-                            />
-                          ))}
-                        </div>
+                        )
+                      ) : (
+                        /* Customer Accessories & References */
+                        garmentJobs.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                              Customer Provided Accessories &amp; References
+                            </div>
+                            {garmentJobs.map(job => (
+                              <GarmentPartPicker
+                                key={job.key}
+                                garmentKey={job.template?.key || job.key}
+                                garmentName={job.template?.name || job.key}
+                                ownOnly
+                                isFabric
+                                accessoriesOnly
+                                taxonomy={fabricTaxonomy}
+                                references={partReferences[job.key] || {}}
+                                onReferencesChange={(next) => handlePartReferences(job.key, next)}
+                              />
+                            ))}
+                          </div>
+                        )
                       )}
                     </div>
                   ) : (
