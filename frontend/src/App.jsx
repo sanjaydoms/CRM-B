@@ -7218,6 +7218,7 @@ function App() {
                               garmentKey={job.template?.key || job.key}
                               garmentName={job.template?.name || job.key}
                               ownOnly
+                              isFabric
                               taxonomy={fabricTaxonomy}
                               references={partReferences[job.key] || {}}
                               onReferencesChange={(next) => handlePartReferences(job.key, next)}

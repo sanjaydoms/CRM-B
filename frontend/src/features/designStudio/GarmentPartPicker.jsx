@@ -314,7 +314,7 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
  *                   {part: reference} slot -- only the catalogue half is off. */
 export default function GarmentPartPicker({ garmentKey, garmentName, selection = {}, onChange,
                                             ownOnly = false, references = {},
-                                            onReferencesChange, taxonomy = null }) {
+                                            onReferencesChange, taxonomy = null, isFabric = false }) {
   const fetchedTaxonomy = useFabricTaxonomy();
   const effectiveTaxonomy = taxonomy || fetchedTaxonomy;
 
@@ -390,7 +390,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
 
   // The tabs: every part the template or fabric taxonomy declares.
   const tabParts = useMemo(() => {
-    if (ownOnly && effectiveTaxonomy && garmentKey) {
+    if (isFabric && effectiveTaxonomy && garmentKey) {
       const spec = garmentsByKey[garmentKey];
       if (spec?.sections?.length) {
         const slotsFromTaxonomy = spec.sections.flatMap(section => {
@@ -414,7 +414,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
       return [{ key: 'overall', label: 'Overall Design' }];
     }
     return [...declared, ...extra];
-  }, [template, imagesByPart, ownOnly, effectiveTaxonomy, garmentKey, garmentsByKey]);
+  }, [template, imagesByPart, ownOnly, isFabric, effectiveTaxonomy, garmentKey, garmentsByKey]);
 
   // Which tab is showing. `null` is the design list this screen has always
   // opened on, and it is the last tab; anything else is a part. Derived, so a
@@ -640,7 +640,9 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           and cannot carry a file; the link is kept as it was typed. */}
       {!loading && ownOnly && openPart && (() => {
         const isAlreadyFabric = /fabric/i.test(openPartLabel);
-        const partFabricLabel = isAlreadyFabric ? openPartLabel : `${openPartLabel} Fabric`;
+        const partFabricLabel = isFabric
+          ? (isAlreadyFabric ? openPartLabel : `${openPartLabel} Fabric`)
+          : openPartLabel;
         return (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px',
                         marginBottom: '14px' }}>
@@ -744,7 +746,13 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
 
       {!loading && ownOnly && openPart && ownRefs.length === 0 && (
         <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '4px 0 18px' }}>
-          No {(/fabric/i.test(openPartLabel) ? openPartLabel : `${openPartLabel} Fabric`).toLowerCase()} references yet — add as many photos and links as you like.
+          No {(() => {
+            const isAlreadyFabric = /fabric/i.test(openPartLabel);
+            const partFabricLabel = isFabric
+              ? (isAlreadyFabric ? openPartLabel : `${openPartLabel} Fabric`)
+              : openPartLabel;
+            return partFabricLabel.toLowerCase();
+          })()} references yet — add as many photos and links as you like.
         </div>
       )}
 
