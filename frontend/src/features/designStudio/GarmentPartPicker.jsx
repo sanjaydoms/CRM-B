@@ -629,9 +629,40 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           rather than opening twenty sarees. The last tab is the design list
           this screen has always opened on. */}
       {!loading && (
-        <PartTabStrip parts={tabParts} active={openPart}
-                      allLabel={ownOnly ? null : 'All Designs'}
-                      onChange={(part) => { setPartTab(part); setViewIndex(null); }} />
+        accessoriesOnly ? (
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+              Select Accessory Part:
+            </label>
+            <select
+              className="form-control"
+              value={openPart || ''}
+              onChange={(e) => { setPartTab(e.target.value); setViewIndex(null); }}
+              style={{
+                width: '100%',
+                maxWidth: '360px',
+                padding: '8px 12px',
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '8px',
+                border: '1.5px solid var(--border-color, #d1d5db)',
+                background: 'var(--surface-color, #fff)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+              }}
+            >
+              {tabParts.map(p => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <PartTabStrip parts={tabParts} active={openPart}
+                        allLabel={ownOnly ? null : 'All Designs'}
+                        onChange={(part) => { setPartTab(part); setViewIndex(null); }} />
+        )
       )}
 
       {loading && (

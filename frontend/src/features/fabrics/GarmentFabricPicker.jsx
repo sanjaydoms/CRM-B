@@ -286,20 +286,54 @@ export default function GarmentFabricPicker({
               </div>
             ) : (
               <div>
-                {/* Horizontal Part Tabs for fabric selection */}
-                <PartTabStrip
-                  parts={allSlots.map(s => {
-                    const chosenCount = (chosenForJob[s.key] || []).length;
-                    const sectionPrefix = (spec.sections?.length > 1 && s.sectionLabel) ? `${s.sectionLabel} - ` : '';
-                    return {
-                      key: s.key,
-                      label: chosenCount > 0 ? `✓ ${sectionPrefix}${s.label} (${chosenCount})` : `${sectionPrefix}${s.label}`,
-                    };
-                  })}
-                  active={activeSlotKey}
-                  allLabel={null}
-                  onChange={(key) => setActiveSlotMap(prev => ({ ...prev, [job.key]: key }))}
-                />
+                {accessoriesOnly ? (
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                      Select Accessory Type:
+                    </label>
+                    <select
+                      className="form-control"
+                      value={activeSlotKey || ''}
+                      onChange={(e) => setActiveSlotMap(prev => ({ ...prev, [job.key]: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        maxWidth: '360px',
+                        padding: '8px 12px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        borderRadius: '8px',
+                        border: '1.5px solid var(--border-color, #d1d5db)',
+                        background: 'var(--surface-color, #fff)',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {allSlots.map(s => {
+                        const chosenCount = (chosenForJob[s.key] || []).length;
+                        const sectionPrefix = (spec.sections?.length > 1 && s.sectionLabel) ? `${s.sectionLabel} - ` : '';
+                        return (
+                          <option key={s.key} value={s.key}>
+                            {chosenCount > 0 ? `✓ ${sectionPrefix}${s.label} (${chosenCount} selected)` : `${sectionPrefix}${s.label}`}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                ) : (
+                  <PartTabStrip
+                    parts={allSlots.map(s => {
+                      const chosenCount = (chosenForJob[s.key] || []).length;
+                      const sectionPrefix = (spec.sections?.length > 1 && s.sectionLabel) ? `${s.sectionLabel} - ` : '';
+                      return {
+                        key: s.key,
+                        label: chosenCount > 0 ? `✓ ${sectionPrefix}${s.label} (${chosenCount})` : `${sectionPrefix}${s.label}`,
+                      };
+                    })}
+                    active={activeSlotKey}
+                    allLabel={null}
+                    onChange={(key) => setActiveSlotMap(prev => ({ ...prev, [job.key]: key }))}
+                  />
+                )}
 
                 {/* Fabrics available for active part tab */}
                 {activeSlotItem && (() => {
