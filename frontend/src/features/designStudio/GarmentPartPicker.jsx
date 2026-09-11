@@ -609,7 +609,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           {ownOnly
             ? (referenceCount > 0
                 ? `${referenceCount} reference${referenceCount === 1 ? '' : 's'} across ${referencedParts} part${referencedParts === 1 ? '' : 's'}`
-                : 'Add your own photos or links for each part')
+                : (isFabric ? 'Add your own photos for each part' : 'Add your own photos or links for each part'))
             : chosenCount > 0
             ? `${chosenCount} part${chosenCount === 1 ? '' : 's'} chosen — parts may come from different designs`
             : (openPart ? 'Click a photograph to choose this part'
@@ -656,11 +656,13 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
                     onClick={openCamera}>
               <Camera size={12} /> Take photo
             </button>
-            <button type="button" className="btn-secondary"
-                    style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                    onClick={() => setAddingLink(v => !v)}>
-              <LinkIcon size={12} /> Add reference link
-            </button>
+            {!isFabric && (
+              <button type="button" className="btn-secondary"
+                      style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                      onClick={() => setAddingLink(v => !v)}>
+                <LinkIcon size={12} /> Add reference link
+              </button>
+            )}
             {/* multiple, because a customer describing one part sends several
                 pictures of it. Each becomes its own reference for this part. */}
             <input ref={ownFileRef} type="file" accept="image/*" multiple hidden
@@ -671,7 +673,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
             <input ref={ownCamRef} type="file" accept="image/*" capture="environment" hidden
                    onChange={uploadReference} />
 
-            {addingLink && (
+            {!isFabric && addingLink && (
               <>
                 <input className="form-control" value={linkDraft} autoFocus
                        onChange={(e) => setLinkDraft(e.target.value)}
@@ -752,7 +754,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
               ? (isAlreadyFabric ? openPartLabel : `${openPartLabel} Fabric`)
               : openPartLabel;
             return partFabricLabel.toLowerCase();
-          })()} references yet — add as many photos and links as you like.
+          })()} references yet — add as many photos{isFabric ? '' : ' and links'} as you like.
         </div>
       )}
 
