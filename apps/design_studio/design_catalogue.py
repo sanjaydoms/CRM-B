@@ -200,8 +200,110 @@ _SAREE_CATEGORIES = [
         ]),
 ]
 
+# --------------------------------------------------------------------------
+# BLOUSE -- cutting and pattern construction, not necklines
+# --------------------------------------------------------------------------
+#
+# What the tailor cuts: darts, katori, princess seams, panels, yokes, the back,
+# the armhole. Neckline styles are a different dimension of a blouse and are
+# deliberately not here. The Blouse Cut Master at the end is the simplified
+# family view for the workroom; the nine detailed categories are the full
+# catalogue. A name appearing in both ("Shoulder Princess") is two positions,
+# addressed by their paths, as everywhere else in this file.
+
+_BLOUSE_CATEGORIES = [
+    _category(
+        'Main Blouse Cutting / Pattern Types', short='Main Cutting / Pattern',
+        options=[
+            'Katori Cutting', 'Princess Cutting', 'Princess Dart', 'Waist Dart', 'Side Dart',
+            'Shoulder Dart', 'Bust Dart', 'French Dart', 'Armhole Dart', 'Centre Front Dart',
+            'Centre Back Dart', 'Double Dart', 'Single Dart', 'Panel Cutting', '4-Panel Cutting',
+            '6-Panel Cutting', '8-Panel Cutting', 'Centre Panel Cutting', 'Side Panel Cutting',
+            'Vertical Panel Cutting', 'Horizontal Panel Cutting',
+        ]),
+    _category(
+        'Traditional Blouse Construction Cuts', short='Traditional Construction',
+        options=[
+            'Katori Blouse', 'Katori Panel Cutting', 'Katori + Princess Combination',
+            'Princess Panel Blouse', 'Princess Seam Blouse', 'Princess Cut from Armhole',
+            'Princess Cut from Shoulder', 'Princess Cut from Neck',
+            'Princess Cut from Armhole to Waist', 'Side Panel Blouse', 'Centre Panel Blouse',
+            'Multi-Panel Blouse', 'Darted Blouse', 'Panel-and-Dart Blouse',
+        ]),
+    _category(
+        'Bust-Fitting Cuts', short='Bust-Fitting',
+        options=[
+            'Single Bust Dart', 'Double Bust Dart', 'Vertical Bust Dart', 'Horizontal Bust Dart',
+            'Diagonal Bust Dart', 'Under-Bust Dart', 'Side Bust Dart', 'Shoulder Bust Dart',
+            'Waist Bust Dart', 'French Dart',
+        ]),
+    _category(
+        'Designer / Advanced Cuts', short='Designer / Advanced',
+        options=[
+            'Princess Seam', 'Princess Panel', 'Empire Cut', 'Empire Waist Blouse', 'Yoke Cutting',
+            'Yoke + Panel Cutting', 'Yoke + Katori Cutting', 'Peplum Cut', 'Corset Panel Cutting',
+            'Corset Seam', 'Bustier Panel Cutting', 'Contour Cutting', 'Curved Panel Cutting',
+            'Asymmetric Panel Cutting', 'Diagonal Panel Cutting', 'Cross Panel Cutting',
+            'V-Panel Cutting', 'U-Panel Cutting', 'Geometric Panel Cutting', 'Cut-and-Join Blouse',
+        ]),
+    _category(
+        'Katori Variations', short='Katori',
+        options=[
+            'Single Katori', 'Double Katori', '2-Piece Katori', '3-Piece Katori', '4-Piece Katori',
+            'Full Katori', 'Half Katori', 'Round Katori', 'Curved Katori', 'Pointed Katori',
+            'Deep Katori', 'Katori with Princess Seam', 'Katori with Waist Dart',
+            'Katori with Side Panel', 'Katori with Yoke', 'Katori Corset',
+        ]),
+    _category(
+        'Princess-Cut Variations', short='Princess-Cut',
+        options=[
+            'Shoulder Princess', 'Armhole Princess', 'Neck Princess', 'Centre Princess',
+            'Side Princess', 'Full Princess', 'Half Princess', 'Princess with Katori',
+            'Princess with Yoke', 'Princess with Panel', 'Princess with Dart', 'Princess Corset',
+            'Princess Peplum',
+        ]),
+    _category(
+        'Blouse Back Construction Cuts', short='Back Construction',
+        options=[
+            'Back Princess', 'Back Dart', 'Back Panel', 'Centre Back Seam', 'Centre Back Opening',
+            'Back Yoke', 'Back Katori', 'Back V-Panel', 'Back U-Panel', 'Back Keyhole Panel',
+            'Back Corset Panel', 'Back Lace-Up Panel', 'Back Cut-Out Panel',
+        ]),
+    _category(
+        'Sleeve Attachment / Armhole Cuts', short='Sleeve / Armhole',
+        options=[
+            'Normal Armhole', 'Deep Armhole', 'High Armhole', 'Round Armhole', 'Square Armhole',
+            'Princess Armhole', 'Cut-In Armhole', 'Raglan Sleeve Cut', 'Kimono Sleeve Cut',
+            'Dolman Sleeve Cut', 'Extended Shoulder Cut', 'Cap Sleeve Cut', 'Puff Sleeve Cut',
+            'Petal Sleeve Cut', 'Bell Sleeve Cut',
+        ]),
+    _category(
+        'Yoke Cuts', short='Yoke',
+        options=[
+            'Round Yoke', 'Square Yoke', 'V-Yoke', 'U-Yoke', 'Straight Yoke', 'Curved Yoke',
+            'Deep Yoke', 'High Yoke', 'Front Yoke', 'Back Yoke', 'Full Yoke', 'Half Yoke',
+            'Shoulder Yoke', 'Neck Yoke', 'Embroidered Yoke', 'Transparent Yoke',
+        ]),
+    _category(
+        'Blouse Cut Master', short='Cut Master',
+        note='The primary cutting families, simplified for the workroom.',
+        subcategories=[
+            ('Dart Cut', ['Single Dart', 'Double Dart', 'French Dart', 'Bust Dart', 'Waist Dart',
+                          'Shoulder Dart']),
+            ('Katori Cut', ['2-Piece', '3-Piece', '4-Piece', 'Katori + Dart', 'Katori + Princess']),
+            ('Princess Cut', ['Shoulder Princess', 'Armhole Princess', 'Neck Princess',
+                              'Centre Princess', 'Princess Panel']),
+            ('Panel Cut', ['2 Panel', '4 Panel', '6 Panel', '8 Panel', 'Centre Panel', 'Side Panel',
+                           'Diagonal Panel']),
+            ('Yoke Cut', ['Round', 'Square', 'V', 'U', 'Curved', 'Deep']),
+            ('Designer Construction', ['Corset', 'Bustier', 'Empire', 'Peplum', 'Asymmetric',
+                                       'Geometric', 'Draped']),
+        ]),
+]
+
 CATALOGUE = {
     'saree': {'key': 'saree', 'label': 'Saree', 'categories': _SAREE_CATEGORIES},
+    'blouse': {'key': 'blouse', 'label': 'Blouse', 'categories': _BLOUSE_CATEGORIES},
 }
 
 

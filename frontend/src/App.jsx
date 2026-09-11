@@ -6252,6 +6252,7 @@ function App() {
                       <option value="Lehenga">{t('designsPage.lehenga', 'Lehenga')}</option>
                       <option value="Gown">{t('designsPage.gown', 'Gown')}</option>
                       <option value="Saree">{t('designsPage.saree', 'Saree')}</option>
+                      <option value="Blouse">{t('designsPage.blouse', 'Blouse')}</option>
                       <option value="Kurti">{t('designsPage.kurti', 'Kurti')}</option>
                       <option value="Sherwani">{t('designsPage.sherwani', 'Sherwani')}</option>
                       <option value="Anarkali">{t('designsPage.anarkali', 'Anarkali')}</option>

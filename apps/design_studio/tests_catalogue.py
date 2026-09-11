@@ -180,3 +180,81 @@ class HeaderFormCatalogueTests(CatalogueTestBase):
             'catalogue': {'category': 'petticoat', 'option': 'no_such'}}, format='json')
         self.assertEqual(r.status_code, 400)
         self.assertIn('catalogue', r.data)
+
+
+class BlouseCatalogueTests(CatalogueTestBase):
+    """The blouse cutting catalogue: ten headings, filed and read back at the
+    exact option, and never mixed with the saree's."""
+
+    def setUp(self):
+        super().setUp()
+        self.blouse = GarmentTemplate.resolve('blouse')
+        self.assertIsNotNone(self.blouse)
+
+    def test_blouse_tree_has_the_ten_headings_in_order(self):
+        r = self.client.get('/api/design-studio/catalogue/?garment=blouse')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([c['label'] for c in r.data['categories']], [
+            'Main Blouse Cutting / Pattern Types', 'Traditional Blouse Construction Cuts',
+            'Bust-Fitting Cuts', 'Designer / Advanced Cuts', 'Katori Variations',
+            'Princess-Cut Variations', 'Blouse Back Construction Cuts',
+            'Sleeve Attachment / Armhole Cuts', 'Yoke Cuts', 'Blouse Cut Master'])
+        katori = next(c for c in r.data['categories'] if c['key'] == 'katori_variations')
+        self.assertEqual([o['label'] for o in katori['options']][:3],
+                         ['Single Katori', 'Double Katori', '2-Piece Katori'])
+        master = next(c for c in r.data['categories'] if c['key'] == 'blouse_cut_master')
+        self.assertEqual([sc['label'] for sc in master['subcategories']],
+                         ['Dart Cut', 'Katori Cut', 'Princess Cut', 'Panel Cut', 'Yoke Cut',
+                          'Designer Construction'])
+
+    def test_only_single_katori_designs_list_under_single_katori(self):
+        katori = lambda o: {'category': 'katori_variations', 'option': o}
+        for title, cat in [
+            ('SK1', katori('single_katori')), ('SK2', katori('single_katori')),
+            ('DK', katori('double_katori')),
+            ('SP', {'category': 'princess_cut_variations', 'option': 'shoulder_princess'}),
+            ('BD', {'category': 'blouse_back_construction_cuts', 'option': 'back_dart'}),
+            ('RY', {'category': 'yoke_cuts', 'option': 'round_yoke'}),
+            ('RS', {'category': 'sleeve_attachment_armhole_cuts', 'option': 'raglan_sleeve_cut'}),
+        ]:
+            self.assertEqual(self.upload(title, cat, template=self.blouse).status_code, 201, title)
+
+        r = self.client.get('/api/design-studio/assets/', {
+            'template': 'blouse', 'catalogue_category': 'katori_variations',
+            'catalogue_option': 'single_katori'})
+        rows = r.data['results'] if isinstance(r.data, dict) else r.data
+        self.assertEqual(sorted(d['title'] for d in rows), ['SK1', 'SK2'])
+        stored = DesignAsset.objects.get(title='SK1').catalogue
+        self.assertEqual(stored['path'], 'Katori Variations \u203a Single Katori')
+
+    def test_master_and_detail_are_two_positions(self):
+        detail = {'category': 'princess_cut_variations', 'option': 'shoulder_princess'}
+        master = {'category': 'blouse_cut_master', 'subcategory': 'princess_cut',
+                  'option': 'shoulder_princess'}
+        self.assertEqual(self.upload('Detail', detail, template=self.blouse).status_code, 201)
+        self.assertEqual(self.upload('Master', master, template=self.blouse).status_code, 201)
+        r = self.client.get('/api/design-studio/assets/', {
+            'template': 'blouse', 'catalogue_category': 'blouse_cut_master',
+            'catalogue_subcategory': 'princess_cut', 'catalogue_option': 'shoulder_princess'})
+        rows = r.data['results'] if isinstance(r.data, dict) else r.data
+        self.assertEqual([d['title'] for d in rows], ['Master'])
+
+    def test_saree_and_blouse_designs_never_cross(self):
+        self.assertEqual(self.upload('A saree', {'category': 'petticoat',
+                                                 'option': 'mermaid_petticoat'}).status_code, 201)
+        self.assertEqual(self.upload('A blouse', {'category': 'yoke_cuts', 'option': 'v_yoke'},
+                                     template=self.blouse).status_code, 201)
+        # What the Design Studio asks for: every design of the garment, no position.
+        for key, expected in (('saree', ['A saree']), ('blouse', ['A blouse'])):
+            r = self.client.get('/api/design-studio/assets/', {'template': key})
+            rows = r.data['results'] if isinstance(r.data, dict) else r.data
+            self.assertEqual([d['title'] for d in rows], expected, key)
+        # A saree position is not a blouse position.
+        r = self.upload('Wrong garment', {'category': 'petticoat', 'option': 'mermaid_petticoat'},
+                        template=self.blouse)
+        self.assertEqual(r.status_code, 400)
+
+    def test_a_blouse_cannot_be_filed_at_a_neckline(self):
+        r = self.upload('Not a cut', {'category': 'yoke_cuts', 'option': 'round_neck'},
+                        template=self.blouse)
+        self.assertEqual(r.status_code, 400)
