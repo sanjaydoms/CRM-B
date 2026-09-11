@@ -42,6 +42,7 @@ const AlterationsPanel = lazy(() => import('./features/alterations/AlterationsPa
 const FinancePanel = lazy(() => import('./features/finance/FinancePanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
+import GarmentSelectionsReview from './features/catalog/GarmentSelectionsReview';
 import OrderAlterations from './features/alterations/OrderAlterations';
 import AlterationList from './features/alterations/AlterationList';
 import OrderGarmentBrief from './features/catalog/OrderGarmentBrief';
@@ -1321,6 +1322,11 @@ function App() {
   const [fabricTab, setFabricTab] = useState('boutique'); // 'my-fabric', 'boutique', 'accessories'
   const [accessorySubTab, setAccessorySubTab] = useState('boutique'); // 'boutique', 'customer'
   const [paymentPhase, setPaymentPhase] = useState(false);
+  // Step 2 has two phases the way step 6 does: choosing fabrics and
+  // accessories, then reading back everything chosen for every dress before
+  // moving on to the customer's details. A phase rather than a step number,
+  // because the number is what drafts save and resume by.
+  const [selectionReviewPhase, setSelectionReviewPhase] = useState(false);
   const [paymentOption, setPaymentOption] = useState('full'); // 'full' or 'partial'
   const [deliveryMethod, setDeliveryMethod] = useState('Direct Pickup');
   const [courierService, setCourierService] = useState('');
@@ -1714,6 +1720,7 @@ function App() {
     if (payment.option) setPaymentOption(payment.option);
     if (payment.advance !== undefined) setAdvancePaymentAmount(payment.advance);
     setSpecialInstructions(payload.special_instructions || '');
+    setSelectionReviewPhase(false);
     setCurrentStep(draft.current_step || 1);
     setView('wizard');
   };
@@ -2438,6 +2445,7 @@ function App() {
     setDeliveryAddress('');
     setGarmentJobs([]);
     setGarmentErrors({});
+    setSelectionReviewPhase(false);
     setCurrentStep(1);
     setView('wizard');
   };
@@ -2470,6 +2478,7 @@ function App() {
     setGarmentErrors({});
 
     // Start from the beginning (Step 1: Dress/Garment Type)
+    setSelectionReviewPhase(false);
     setCurrentStep(1);
     setView('wizard');
   };
@@ -2486,6 +2495,8 @@ function App() {
       } else {
         setCurrentStep(5);
       }
+    } else if (currentStep === 2 && selectionReviewPhase) {
+      setSelectionReviewPhase(false);
     } else if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     } else {
@@ -2624,12 +2635,19 @@ function App() {
         await saveStep1();
         setCurrentStep(2);
       } else if (currentStep === 2) {
-        if (fabricTab === 'boutique' && !selectedFabric) {
+        const anyPartFabric = garmentJobs.some(job => Object.keys(job.fabrics || {}).length > 0);
+        if (selectionReviewPhase) {
+          // Confirm & Continue: the review has been read, on to the details.
+          setSelectionReviewPhase(false);
+          setCurrentStep(3);
+          return;
+        }
+        if (fabricTab === 'boutique' && !selectedFabric && !anyPartFabric) {
           alert("Please select a fabric from the catalog or upload your own fabric.");
           return;
         }
         await saveStep2();
-        setCurrentStep(3);
+        setSelectionReviewPhase(true);
       } else if (currentStep === 3) {
         await saveStep3();
         setCurrentStep(4);
@@ -7202,7 +7220,7 @@ function App() {
             )}
 
             {/* STEP 2: Fabric Selection */}
-            {currentStep === 2 && (
+            {currentStep === 2 && !selectionReviewPhase && (
               <>
                 <div className="page-title-group">
                   <h1 className="page-title">Fabric Selection</h1>
@@ -7432,6 +7450,33 @@ function App() {
                     </button>
                   </div>
                 )}
+              </>
+            )}
+
+            {/* STEP 2, second phase: everything chosen, dress by dress, read
+                back before the customer's details are asked for. Reads the
+                same garment jobs the two steps before it wrote. */}
+            {currentStep === 2 && selectionReviewPhase && (
+              <>
+                <div className="page-title-group">
+                  <h1 className="page-title">Review &amp; Confirm</h1>
+                  <p className="page-subtitle">Designs, fabrics and accessories for every garment in this order. Edit any of them and come back — nothing chosen is lost.</p>
+                </div>
+
+                <div className="accent-banner" style={{ margin: '4px 0 16px', backgroundColor: '#e2f5ec', borderColor: '#c3ebdb', color: '#107c41', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Check size={16} />
+                  <span>Check each garment below, then Confirm &amp; Continue to add the customer's details.</span>
+                </div>
+
+                <div className="content-card">
+                  <GarmentSelectionsReview
+                    jobs={garmentJobs}
+                    fabrics={fabrics}
+                    taxonomy={fabricTaxonomy}
+                    onEditDesigns={() => { setSelectionReviewPhase(false); setCurrentStep(1); }}
+                    onEditFabrics={() => setSelectionReviewPhase(false)}
+                  />
+                </div>
               </>
             )}
 
@@ -8562,7 +8607,7 @@ function App() {
               </button>
             )}
             <button className="btn-primary" onClick={handleNext} disabled={ctaBusy} style={{ opacity: ctaBusy ? 0.6 : 1 }}>
-              {ctaBusy ? t('wizard.working', 'Working…') : <>{currentStep === 5 ? t('wizard.confirmOrder', 'Confirm Order') : t('common.next', 'Next')}<ArrowRight size={16} /></>}
+              {ctaBusy ? t('wizard.working', 'Working…') : <>{currentStep === 5 ? t('wizard.confirmOrder', 'Confirm Order') : (currentStep === 2 && selectionReviewPhase ? 'Confirm & Continue' : t('common.next', 'Next'))}<ArrowRight size={16} /></>}
             </button>
           </div>
         </div>
