@@ -27,6 +27,8 @@ import {
 // loading flicker mid-form would be worse than its few KB.
 const GarmentPartPicker = lazy(() => import('./features/designStudio/GarmentPartPicker'));
 const GarmentFabricPicker = lazy(() => import('./features/fabrics/GarmentFabricPicker'));
+const FabricColorFilter = lazy(() => import('./features/fabrics/FabricColorFilter'));
+import { fabricMatchesColour } from './features/fabrics/colour';
 // Named export off the same module, so it arrives with the chunk the
 // pickers already load rather than costing a second request.
 const SelectedDesignSummary = lazy(() => import('./features/designStudio/GarmentPartPicker')
@@ -2811,6 +2813,11 @@ function App() {
    *  its fabric choices with it and no stale blouse fabric can survive on an
    *  order that no longer has a blouse.
    */
+  // The colour the boutique fabrics are narrowed to. Empty is every roll,
+  // which is where the step opens; a swatch click or a typed word is the same
+  // filter. Only the boutique tab reads it -- accessories and the customer's
+  // own cloth are not filtered by it.
+  const [fabricColorQuery, setFabricColorQuery] = useState('');
   const fabricSelection = React.useMemo(
     () => Object.fromEntries(garmentJobs.map(job => [job.key, job.fabrics || {}])),
     [garmentJobs]);
@@ -2820,6 +2827,19 @@ function App() {
       ? { ...job, fabrics: next }
       : job));
   };
+
+  // What the boutique grid shows under a colour filter. A roll the customer
+  // has already chosen stays on screen whatever the filter says: narrowing to
+  // "red" must not make the blue lining they picked a minute ago vanish from
+  // under its own tick, or they will pick it twice.
+  const colourFilteredFabrics = React.useMemo(() => {
+    const q = fabricColorQuery.trim().toLowerCase();
+    if (!q) return fabrics;
+    const chosen = new Set(
+      Object.values(fabricSelection).flatMap(bySlot => Object.values(bySlot).flat()));
+    return fabrics.filter(f =>
+      fabricMatchesColour(f, q) || chosen.has(String(f.id)));
+  }, [fabrics, fabricColorQuery, fabricSelection]);
 
   /** The customer's own references for one dress: {part_key: [reference, ...]}.
    *
@@ -7366,9 +7386,14 @@ function App() {
                           lays the boutique's own filing out rather than
                           offering one common list for every dress. */}
                       <Suspense fallback={<ScreenLoading />}>
+                        <FabricColorFilter
+                          fabrics={fabrics}
+                          value={fabricColorQuery}
+                          onChange={setFabricColorQuery}
+                        />
                         <GarmentFabricPicker
                           garmentJobs={garmentJobs}
-                          fabrics={fabrics}
+                          fabrics={colourFilteredFabrics}
                           taxonomy={fabricTaxonomy}
                           selection={fabricSelection}
                           onChange={handleFabricSelection}
