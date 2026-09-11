@@ -258,3 +258,93 @@ class BlouseCatalogueTests(CatalogueTestBase):
         r = self.upload('Not a cut', {'category': 'yoke_cuts', 'option': 'round_neck'},
                         template=self.blouse)
         self.assertEqual(r.status_code, 400)
+
+
+class LehengaCatalogueTests(CatalogueTestBase):
+    """The lehenga construction catalogue: twelve headings, kali counts kept
+    apart, filed and read back at the exact option, and never mixed with the
+    saree's or the blouse's."""
+
+    def setUp(self):
+        super().setUp()
+        self.lehenga = GarmentTemplate.resolve('lehenga')
+        self.blouse = GarmentTemplate.resolve('blouse')
+        self.assertIsNotNone(self.lehenga)
+
+    def test_lehenga_tree_has_the_twelve_headings_in_order(self):
+        r = self.client.get('/api/design-studio/catalogue/?garment=lehenga')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([c['label'] for c in r.data['categories']], [
+            'Basic Lehenga Silhouettes', 'Pleated Lehenga Styles', 'Kali / Panel Construction',
+            'Ruffle & Layered Styles', 'Draped Lehenga Styles', 'Modern / Designer Lehenga Cuts',
+            'Traditional / Bridal Lehenga Styles', 'Fabric-Based Lehenga Styles',
+            'Volume / Flare Classification', 'Waist Construction', 'Lehenga Border / Hem Styles',
+            'Lehenga Design Master'])
+        kali = next(c for c in r.data['categories'] if c['key'] == 'kali_panel_construction')
+        self.assertEqual([o['label'] for o in kali['options']][:9], [
+            '4-Kali Lehenga', '6-Kali Lehenga', '8-Kali Lehenga', '10-Kali Lehenga',
+            '12-Kali Lehenga', '16-Kali Lehenga', '20-Kali Lehenga', '24-Kali Lehenga',
+            '32-Kali Lehenga'])
+        master = next(c for c in r.data['categories'] if c['key'] == 'lehenga_design_master')
+        self.assertEqual([sc['label'] for sc in master['subcategories']], [
+            'Silhouette', 'Construction', 'Kali Count', 'Pleat Type', 'Flare', 'Layer', 'Ruffle',
+            'Drape', 'Waist', 'Length', 'Hem', 'Fabric'])
+
+    def test_only_16_kali_designs_list_under_16_kali(self):
+        kali = lambda o: {'category': 'kali_panel_construction', 'option': o}
+        for title, cat in [
+            ('K16a', kali('16_kali_lehenga')), ('K16b', kali('16_kali_lehenga')),
+            ('K8', kali('8_kali_lehenga')), ('K12', kali('12_kali_lehenga')), ('K24', kali('24_kali_lehenga')),
+            ('AL', {'category': 'basic_lehenga_silhouettes', 'option': 'a_line_lehenga'}),
+            ('MM', {'category': 'basic_lehenga_silhouettes', 'option': 'mermaid_lehenga'}),
+            ('PT', {'category': 'traditional_bridal_lehenga_styles', 'option': 'pattu_lehenga'}),
+        ]:
+            self.assertEqual(self.upload(title, cat, template=self.lehenga).status_code, 201, title)
+
+        r = self.client.get('/api/design-studio/assets/', {
+            'template': 'lehenga', 'catalogue_category': 'kali_panel_construction',
+            'catalogue_option': '16_kali_lehenga'})
+        rows = r.data['results'] if isinstance(r.data, dict) else r.data
+        self.assertEqual(sorted(d['title'] for d in rows), ['K16a', 'K16b'])
+        self.assertEqual(DesignAsset.objects.get(title='K16a').catalogue['path'],
+                         'Kali / Panel Construction \u203a 16-Kali Lehenga')
+
+    def test_detail_and_master_and_overlapping_categories_are_distinct_positions(self):
+        for title, cat in [
+            ('detail-16', {'category': 'kali_panel_construction', 'option': '16_kali_lehenga'}),
+            ('master-16', {'category': 'lehenga_design_master', 'subcategory': 'kali_count',
+                           'option': '16_kali'}),
+            ('dhoti-draped', {'category': 'draped_lehenga_styles', 'option': 'dhoti_lehenga'}),
+            ('dhoti-modern', {'category': 'modern_designer_lehenga_cuts', 'option': 'dhoti_lehenga'}),
+        ]:
+            self.assertEqual(self.upload(title, cat, template=self.lehenga).status_code, 201, title)
+
+        def titles(**params):
+            r = self.client.get('/api/design-studio/assets/', {'template': 'lehenga', **params})
+            rows = r.data['results'] if isinstance(r.data, dict) else r.data
+            return [d['title'] for d in rows]
+
+        self.assertEqual(titles(catalogue_category='lehenga_design_master',
+                                catalogue_subcategory='kali_count', catalogue_option='16_kali'),
+                         ['master-16'])
+        self.assertEqual(titles(catalogue_category='draped_lehenga_styles',
+                                catalogue_option='dhoti_lehenga'), ['dhoti-draped'])
+        self.assertEqual(titles(catalogue_category='modern_designer_lehenga_cuts',
+                                catalogue_option='dhoti_lehenga'), ['dhoti-modern'])
+
+    def test_saree_blouse_and_lehenga_designs_never_cross(self):
+        self.assertEqual(self.upload('S', {'category': 'petticoat', 'option': 'mermaid_petticoat'}).status_code, 201)
+        self.assertEqual(self.upload('B', {'category': 'yoke_cuts', 'option': 'v_yoke'},
+                                     template=self.blouse).status_code, 201)
+        self.assertEqual(self.upload('L', {'category': 'waist_construction', 'option': 'corset_waist'},
+                                     template=self.lehenga).status_code, 201)
+        # What the Design Studio asks for per garment: every design, no position.
+        for key, expected in (('saree', ['S']), ('blouse', ['B']), ('lehenga', ['L'])):
+            r = self.client.get('/api/design-studio/assets/', {'template': key})
+            rows = r.data['results'] if isinstance(r.data, dict) else r.data
+            self.assertEqual([d['title'] for d in rows], expected, key)
+        # A blouse position is not a lehenga position, and vice versa.
+        self.assertEqual(self.upload('x', {'category': 'yoke_cuts', 'option': 'v_yoke'},
+                                     template=self.lehenga).status_code, 400)
+        self.assertEqual(self.upload('y', {'category': 'waist_construction', 'option': 'corset_waist'},
+                                     template=self.blouse).status_code, 400)

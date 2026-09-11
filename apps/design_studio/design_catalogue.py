@@ -301,9 +301,150 @@ _BLOUSE_CATEGORIES = [
         ]),
 ]
 
+# --------------------------------------------------------------------------
+# LEHENGA -- silhouette and construction
+# --------------------------------------------------------------------------
+#
+# Eleven dimensions of how a lehenga is built and looks, then the Lehenga
+# Design Master: the structured attributes a cutting master reads (silhouette,
+# kali count, pleat type, flare, waist, hem...). The detailed categories are
+# for filing design photographs; the master is the attribute vocabulary. The
+# same idea appears in both ("16-Kali Lehenga" and Kali Count > "16 Kali") and
+# in more than one detail category ("Dhoti Lehenga" is both a draped style and
+# a designer cut) -- every one is its own position, by its path.
+#
+# Kali counts are separate options on purpose: the number of panels is the
+# construction, and "Kali Lehenga" alone would lose it.
+
+_LEHENGA_CATEGORIES = [
+    _category(
+        'Basic Lehenga Silhouettes', short='Basic Silhouettes',
+        options=[
+            'Flared Lehenga', 'A-Line Lehenga', 'Straight-Cut Lehenga', 'Circular Lehenga',
+            'Semi-Circular Lehenga', 'Full-Circular Lehenga', 'Kali Lehenga', 'Panelled Lehenga',
+            'Mermaid Lehenga', 'Fish-Cut Lehenga', 'Trumpet Lehenga', 'Fishtail Lehenga',
+            'Tiered Lehenga', 'Layered Lehenga', 'Umbrella Lehenga', 'Sharara-Style Lehenga',
+            'Skirt-Style Lehenga', 'Maxi Lehenga', 'Floor-Length Lehenga', 'Short Lehenga',
+            'Knee-Length Lehenga',
+        ]),
+    _category(
+        'Pleated Lehenga Styles', short='Pleated',
+        options=[
+            'Pattu Pleated Lehenga', 'Knife-Pleated Lehenga', 'Box-Pleated Lehenga',
+            'Accordion-Pleated Lehenga', 'Sunray Pleated Lehenga', 'Fine-Pleated Lehenga',
+            'Broad-Pleated Lehenga', 'Front Pleated Lehenga', 'Side Pleated Lehenga',
+            'All-Around Pleated Lehenga', 'Structured Pleated Lehenga', 'Draped Pleated Lehenga',
+            'Layered Pleated Lehenga', 'Pleated Panel Lehenga',
+        ]),
+    _category(
+        'Kali / Panel Construction', short='Kali / Panel',
+        options=[
+            '4-Kali Lehenga', '6-Kali Lehenga', '8-Kali Lehenga', '10-Kali Lehenga',
+            '12-Kali Lehenga', '16-Kali Lehenga', '20-Kali Lehenga', '24-Kali Lehenga',
+            '32-Kali Lehenga', 'Multi-Kali Lehenga', 'Broad-Kali Lehenga', 'Narrow-Kali Lehenga',
+            'Alternating-Kali Lehenga', 'Contrast-Kali Lehenga', 'Embroidered-Kali Lehenga',
+        ]),
+    _category(
+        'Ruffle & Layered Styles', short='Ruffle & Layered',
+        options=[
+            'Ruffled Lehenga', 'Single-Ruffle Lehenga', 'Double-Ruffle Lehenga',
+            'Multi-Ruffle Lehenga', 'Tiered Ruffle Lehenga', 'Cascading Ruffle Lehenga',
+            'Asymmetric Ruffle Lehenga', 'Ruffle-Panel Lehenga', 'Layered Lehenga',
+            'Double-Layer Lehenga', 'Triple-Layer Lehenga', 'Multi-Tier Lehenga', 'Tiered Lehenga',
+            'Frill Lehenga', 'Flounce Lehenga', 'Scalloped Layer Lehenga',
+        ]),
+    _category(
+        'Draped Lehenga Styles', short='Draped',
+        options=[
+            'Draped Lehenga', 'Pre-Draped Lehenga', 'Saree-Style Lehenga', 'Dhoti Lehenga',
+            'Draped Skirt Lehenga', 'Cowl Draped Lehenga', 'Front-Draped Lehenga',
+            'Side-Draped Lehenga', 'Asymmetric Draped Lehenga', 'Wrap Lehenga',
+            'Wrap-Around Lehenga', 'Panel-Draped Lehenga',
+        ]),
+    _category(
+        'Modern / Designer Lehenga Cuts', short='Modern / Designer',
+        options=[
+            'Asymmetric Lehenga', 'High-Low Lehenga', 'Slit Lehenga', 'Front-Slit Lehenga',
+            'Side-Slit Lehenga', 'Double-Slit Lehenga', 'Cut-Out Lehenga', 'Peplum Lehenga',
+            'Corset Lehenga', 'Bustier Lehenga', 'Jacket Lehenga', 'Cape Lehenga', 'Pant Lehenga',
+            'Dhoti Lehenga', 'Skirt Lehenga', 'Lehenga Gown', 'Lehenga Saree',
+            'Indo-Western Lehenga', 'Fusion Lehenga', 'Co-Ord Lehenga', 'Layered Skirt Lehenga',
+        ]),
+    _category(
+        'Traditional / Bridal Lehenga Styles', short='Traditional / Bridal',
+        options=[
+            'Bridal Lehenga', 'Bridal Circular Lehenga', 'Bridal Kali Lehenga',
+            'Bridal A-Line Lehenga', 'Bridal Flared Lehenga', 'Pattu Lehenga',
+            'Pattu Pavadai-Style Lehenga', 'Banarasi Lehenga', 'Brocade Lehenga', 'Zari Lehenga',
+            'Gota Patti Lehenga', 'Rajasthani Lehenga', 'Gujarati Lehenga', 'Rajputi Lehenga',
+            'Punjabi Lehenga', 'Mughal-Style Lehenga', 'Temple-Style Lehenga', 'Heritage Lehenga',
+        ]),
+    _category(
+        'Fabric-Based Lehenga Styles', short='Fabric-Based',
+        options=[
+            'Pattu / Silk Lehenga', 'Kanjeevaram Silk Lehenga', 'Banarasi Silk Lehenga',
+            'Raw Silk Lehenga', 'Tussar Silk Lehenga', 'Velvet Lehenga', 'Organza Lehenga',
+            'Georgette Lehenga', 'Chiffon Lehenga', 'Net Lehenga', 'Tissue Lehenga',
+            'Satin Lehenga', 'Crepe Lehenga', 'Brocade Lehenga', 'Chanderi Lehenga',
+            'Linen Lehenga', 'Cotton Lehenga', 'Jacquard Lehenga',
+        ]),
+    _category(
+        'Volume / Flare Classification', short='Volume / Flare',
+        options=[
+            'Low-Flare Lehenga', 'Medium-Flare Lehenga', 'High-Flare Lehenga',
+            'Extra-Flare Lehenga', 'Circular Flare', 'Umbrella Flare', 'Structured Flare',
+            'Soft Flare', 'Stiff Flare', 'Layered Flare', 'Panelled Flare', 'Graduated Flare',
+            'Mermaid Flare', 'Trumpet Flare',
+        ]),
+    _category(
+        'Waist Construction', short='Waist',
+        options=[
+            'Normal Waist Lehenga', 'High-Waist Lehenga', 'Mid-Waist Lehenga', 'Low-Waist Lehenga',
+            'Elastic Waist', 'Hook Waist', 'Zip Waist', 'Side-Zip Waist', 'Front-Opening Waist',
+            'Lace-Up Waist', 'Tie-Up Waist', 'Corset Waist', 'Belted Waist', 'Drawstring Waist',
+        ]),
+    _category(
+        'Lehenga Border / Hem Styles', short='Border / Hem',
+        options=[
+            'Plain Hem', 'Zari Border', 'Contrast Border', 'Broad Border', 'Narrow Border',
+            'Double Border', 'Triple Border', 'Embroidered Border', 'Scalloped Hem', 'Wave Hem',
+            'Lace Hem', 'Ruffle Hem', 'Fringe Hem', 'Tassel Hem', 'Cutwork Hem', 'Gota Border',
+            'Piping Hem',
+        ]),
+    _category(
+        'Lehenga Design Master', short='Design Master',
+        note='The structured construction attributes a cutting master reads.',
+        subcategories=[
+            ('Silhouette', ['A-Line', 'Flared', 'Mermaid', 'Straight', 'Circular', 'Semi-Circular',
+                            'Full-Circular', 'Trumpet', 'Fishtail', 'Tiered', 'Layered', 'Umbrella']),
+            ('Construction', ['Kali', 'Panelled', 'Circular', 'Tiered', 'Layered']),
+            ('Kali Count', ['4 Kali', '6 Kali', '8 Kali', '10 Kali', '12 Kali', '16 Kali', '20 Kali',
+                            '24 Kali', '32 Kali', 'Multi-Kali']),
+            ('Pleat Type', ['Pattu', 'Knife', 'Box', 'Accordion', 'Sunray', 'Fine', 'Broad', 'Front',
+                            'Side', 'All-Around', 'Structured', 'Draped', 'Layered', 'Pleated Panel']),
+            ('Flare', ['Low', 'Medium', 'High', 'Extra', 'Circular', 'Umbrella', 'Structured', 'Soft',
+                       'Stiff', 'Layered', 'Panelled', 'Graduated', 'Mermaid', 'Trumpet']),
+            ('Layer', ['Single', 'Double', 'Triple', 'Multi']),
+            ('Ruffle', ['None', 'Single', 'Double', 'Multi', 'Tiered', 'Cascading', 'Asymmetric',
+                        'Panel']),
+            ('Drape', ['Normal', 'Draped', 'Pre-Draped', 'Saree-Style', 'Dhoti', 'Cowl',
+                       'Front-Draped', 'Side-Draped', 'Wrap', 'Panel-Draped']),
+            ('Waist', ['Normal', 'High', 'Mid', 'Low', 'Elastic', 'Hook', 'Zip', 'Side-Zip',
+                       'Front-Opening', 'Lace-Up', 'Tie-Up', 'Corset', 'Belted', 'Drawstring']),
+            ('Length', ['Short', 'Knee-Length', 'Ankle-Length', 'Floor-Length', 'Maxi']),
+            ('Hem', ['Plain', 'Zari', 'Contrast', 'Broad', 'Narrow', 'Double', 'Triple', 'Embroidered',
+                     'Scalloped', 'Wave', 'Lace', 'Ruffle', 'Fringe', 'Tassel', 'Cutwork', 'Gota',
+                     'Piping']),
+            ('Fabric', ['Pattu / Silk', 'Kanjeevaram Silk', 'Banarasi Silk', 'Raw Silk', 'Tussar Silk',
+                        'Velvet', 'Organza', 'Georgette', 'Chiffon', 'Net', 'Tissue', 'Satin', 'Crepe',
+                        'Brocade', 'Chanderi', 'Linen', 'Cotton', 'Jacquard']),
+        ]),
+]
+
 CATALOGUE = {
     'saree': {'key': 'saree', 'label': 'Saree', 'categories': _SAREE_CATEGORIES},
     'blouse': {'key': 'blouse', 'label': 'Blouse', 'categories': _BLOUSE_CATEGORIES},
+    'lehenga': {'key': 'lehenga', 'label': 'Lehenga', 'categories': _LEHENGA_CATEGORIES},
 }
 
 
