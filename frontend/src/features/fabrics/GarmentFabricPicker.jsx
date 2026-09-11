@@ -415,19 +415,29 @@ export default function GarmentFabricPicker({
           );
         }
 
-        const selectedKeys = selectedAccessoryMap[job.key] || ACCESSORY_OPTIONS.map(o => o.key);
+        const initialAccessoryKeys = Object.keys(chosenForJob || {});
+        const selectedKeys = selectedAccessoryMap[job.key] !== undefined
+          ? selectedAccessoryMap[job.key]
+          : initialAccessoryKeys;
+
         const toggleAccessoryKey = (key) => {
           setSelectedAccessoryMap((prev) => {
-            const current = prev[job.key] || ACCESSORY_OPTIONS.map(o => o.key);
-            const next = current.includes(key)
-              ? current.filter(k => k !== key)
-              : [...current, key];
+            const current = prev[job.key] !== undefined ? prev[job.key] : initialAccessoryKeys;
+            const isAdding = !current.includes(key);
+            const next = isAdding
+              ? [...current, key]
+              : current.filter(k => k !== key);
+            if (isAdding) {
+              setActiveSlotMap(sPrev => ({ ...sPrev, [job.key]: key }));
+            }
             return { ...prev, [job.key]: next };
           });
         };
 
-        const activeSlotKey = activeSlotMap[job.key] || allSlots[0]?.key;
-        const activeSlotItem = allSlots.find(s => s.key === activeSlotKey) || allSlots[0];
+        const activeSlotKey = activeSlotMap[job.key] || (selectedKeys.length > 0 ? selectedKeys[0] : null);
+        const activeSlotItem = accessoriesOnly
+          ? (activeSlotKey ? allSlots.find(s => s.key === activeSlotKey) : null)
+          : (allSlots.find(s => s.key === activeSlotKey) || allSlots[0]);
 
         const toggle = (slotKey) => (fabricId) => {
           const current = chosenForJob[slotKey] || [];

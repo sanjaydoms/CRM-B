@@ -498,16 +498,21 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   const [reloadToken, setReloadToken] = useState(0);
 
   // Track multi-selected accessory keys when accessoriesOnly is true
-  const [selectedAccessoryKeys, setSelectedAccessoryKeys] = useState(() =>
-    ACCESSORY_OPTIONS.map(o => o.key)
-  );
+  const [selectedAccessoryKeys, setSelectedAccessoryKeys] = useState(() => {
+    const existing = Object.keys(references || {});
+    return existing.length > 0 ? existing : [];
+  });
 
   const toggleAccessoryKey = (key) => {
     setSelectedAccessoryKeys((prev) => {
-      if (prev.includes(key)) {
-        return prev.filter((k) => k !== key);
+      const isAdding = !prev.includes(key);
+      const next = isAdding
+        ? [...prev, key]
+        : prev.filter((k) => k !== key);
+      if (isAdding) {
+        setPartTab(key);
       }
-      return [...prev, key];
+      return next;
     });
   };
 
@@ -622,6 +627,8 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   useEffect(() => () => camStream?.getTracks().forEach(track => track.stop()), [camStream]);
 
   const openPart = partTab === null ? null
+    : accessoriesOnly
+    ? (selectedAccessoryKeys.includes(partTab) ? partTab : (selectedAccessoryKeys[0] || null))
     : (tabParts.some(p => p.key === partTab) ? partTab : (tabParts[0]?.key ?? null));
   const openPartLabel = tabParts.find(p => p.key === openPart)?.label || '';
   const partShots = openPart ? (imagesByPart.get(openPart) || []) : [];
@@ -823,6 +830,12 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
                         allLabel={ownOnly ? null : 'All Designs'}
                         onChange={(part) => { setPartTab(part); setViewIndex(null); }} />
         )
+      )}
+
+      {!loading && accessoriesOnly && selectedAccessoryKeys.length === 0 && (
+        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '4px 0 18px' }}>
+          Select an accessory from the dropdown above to add or upload items.
+        </div>
       )}
 
       {loading && (
