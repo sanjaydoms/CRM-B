@@ -313,20 +313,76 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
  *                   because it is the same garment, the same parts and the same
  *                   {part: reference} slot -- only the catalogue half is off. */
 export const ACCESSORY_OPTIONS = [
-  { key: 'dori', label: 'Dori' },
-  { key: 'tassel_latkan', label: 'Tassel/Latkan' },
-  { key: 'border', label: 'Border' },
-  { key: 'lace_trim', label: 'Lace/Trim' },
-  { key: 'buttons', label: 'Buttons' },
-  { key: 'zip', label: 'Zip' },
-  { key: 'hooks', label: 'Hooks' },
-  { key: 'elastic_drawstring', label: 'Elastic or Draw String' },
-  { key: 'padding_cups', label: 'Padding/Cups' },
-  { key: 'shoulder_pad', label: 'Shoulder Pad' },
-  { key: 'decorative_motifs', label: 'Decorative Motifs' },
-  { key: 'fall', label: 'Fall' },
-  { key: 'lining', label: 'Lining' },
-  { key: 'other', label: 'Other' },
+  {
+    key: 'dori',
+    label: 'Dori',
+    subtypes: ['Handmade Fabric Dori', 'Handmade Potli Dori', 'Readymade Metallic Dori', 'Readymade Thread Dori'],
+  },
+  {
+    key: 'tassel_latkan',
+    label: 'Tassel/Latkan',
+    subtypes: ['Handmade Fabric Latkan', 'Hand Beaded / Maggam Latkan', 'Readymade Designer Latkan', 'Thread Tassels'],
+  },
+  {
+    key: 'border',
+    label: 'Border',
+    subtypes: ['Hand Embroidered / Maggam Border', 'Readymade Zari / Cutwork Border', 'Fabric Patch Border', 'Velvet / Satin Border'],
+  },
+  {
+    key: 'lace_trim',
+    label: 'Lace/Trim',
+    subtypes: ['Handcrafted Crochet / Trim', 'Readymade Gota / Kiran', 'Embroidered Lace', 'Sequence / Mirror Work Lace'],
+  },
+  {
+    key: 'buttons',
+    label: 'Buttons',
+    subtypes: ['Handmade Fabric Potli Buttons', 'Handmade Cloth Buttons', 'Readymade Fancy Metal Buttons', 'Pearl Buttons'],
+  },
+  {
+    key: 'zip',
+    label: 'Zip',
+    subtypes: ['Concealed / Invisible Zip', 'Heavy Duty Metallic Zip', 'Standard Nylon Zip'],
+  },
+  {
+    key: 'hooks',
+    label: 'Hooks',
+    subtypes: ['Standard Hook & Eye', 'Heavy Duty Steel Hooks', 'Pant / Skirt Fastener'],
+  },
+  {
+    key: 'elastic_drawstring',
+    label: 'Elastic or Draw String',
+    subtypes: ['Soft Waistband Elastic', 'Braided Cord Elastic', 'Cotton Drawstring (Nada)', 'Fabric Cord Drawstring'],
+  },
+  {
+    key: 'padding_cups',
+    label: 'Padding/Cups',
+    subtypes: ['Soft Padded Cups', 'Moulded Foam Cups', 'Push-up Cups', 'Heavy Density Bust Support'],
+  },
+  {
+    key: 'shoulder_pad',
+    label: 'Shoulder Pad',
+    subtypes: ['Thin Soft Shoulder Pad', 'Thick Moulded Shoulder Pad', 'Raglan Shoulder Pad'],
+  },
+  {
+    key: 'decorative_motifs',
+    label: 'Decorative Motifs',
+    subtypes: ['Handmade Zardozi / Maggam Patch', 'Hand Embroidered Motif', 'Readymade Appliqué Motif', 'Sequin Patch'],
+  },
+  {
+    key: 'fall',
+    label: 'Fall',
+    subtypes: ['Standard Cotton Fall', 'Terrycot Fall', 'Silk / Velvet Heavy Fall'],
+  },
+  {
+    key: 'lining',
+    label: 'Lining',
+    subtypes: ['Pure Cotton Lining (Aster)', 'Shantoon / Santoon Lining', 'Crepe / Micro Lining', 'Satin / Butter Silk Lining'],
+  },
+  {
+    key: 'other',
+    label: 'Other',
+    subtypes: ['Handmade / Custom Work', 'Readymade Bought Accessory', 'Special Trimming'],
+  },
 ];
 
 function AccessoryMultiSelectDropdown({
@@ -517,6 +573,8 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
       return next;
     });
   };
+
+  const [accessorySubtypes, setAccessorySubtypes] = useState({});
 
   // Derived rather than stored: a `loading` flag would have to be set
   // synchronously at the top of the effect, which is the cascading-render
@@ -856,6 +914,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         const partFabricLabel = isFabric
           ? (isAlreadyFabric ? openPartLabel : `${openPartLabel} Fabric`)
           : openPartLabel;
+        const currentAccOption = accessoriesOnly && ACCESSORY_OPTIONS.find(o => o.key === openPart);
         return (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px',
                         marginBottom: '14px' }}>

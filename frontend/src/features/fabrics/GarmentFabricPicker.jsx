@@ -368,6 +368,7 @@ export default function GarmentFabricPicker({
     (taxonomy?.garments || []).map(g => [g.key, g])), [taxonomy]);
 
   const [selectedAccessoryMap, setSelectedAccessoryMap] = useState({});
+  const [accessorySubtypes, setAccessorySubtypes] = useState({});
 
   if (garmentJobs.length === 0) {
     return (
@@ -451,6 +452,8 @@ export default function GarmentFabricPicker({
           onChange?.(job.key, forJob);
         };
 
+        const currentAccOption = accessoriesOnly && activeSlotKey && ACCESSORY_OPTIONS.find(o => o.key === activeSlotKey);
+
         return (
           // One card per dress, so a saree's fabrics and a blouse's can never
           // read as one list.
@@ -470,13 +473,47 @@ export default function GarmentFabricPicker({
             ) : (
               <div>
                 {accessoriesOnly ? (
-                  <AccessoryMultiSelectDropdown
-                    options={ACCESSORY_OPTIONS}
-                    selectedKeys={selectedKeys}
-                    onToggleKey={toggleAccessoryKey}
-                    activeKey={activeSlotKey}
-                    onSelectActiveKey={(key) => setActiveSlotMap(prev => ({ ...prev, [job.key]: key }))}
-                  />
+                  <>
+                    <AccessoryMultiSelectDropdown
+                      options={ACCESSORY_OPTIONS}
+                      selectedKeys={selectedKeys}
+                      onToggleKey={toggleAccessoryKey}
+                      activeKey={activeSlotKey}
+                      onSelectActiveKey={(key) => setActiveSlotMap(prev => ({ ...prev, [job.key]: key }))}
+                    />
+                    {currentAccOption?.subtypes?.length > 0 && (
+                      <div style={{ marginBottom: '14px', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          {currentAccOption.label} Option / Style:
+                        </span>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {currentAccOption.subtypes.map(sub => {
+                            const activeSub = accessorySubtypes[`${job.key}:${activeSlotKey}`] || currentAccOption.subtypes[0];
+                            const isSelected = activeSub === sub;
+                            return (
+                              <button
+                                key={sub}
+                                type="button"
+                                onClick={() => setAccessorySubtypes(prev => ({ ...prev, [`${job.key}:${activeSlotKey}`]: sub }))}
+                                style={{
+                                  padding: '4px 12px',
+                                  fontSize: '11.5px',
+                                  borderRadius: '14px',
+                                  border: isSelected ? '1.5px solid #107c41' : '1px solid var(--border-color)',
+                                  background: isSelected ? 'rgba(16, 124, 65, 0.12)' : 'var(--surface-color, #fff)',
+                                  color: isSelected ? '#107c41' : 'var(--text-primary)',
+                                  fontWeight: isSelected ? 700 : 500,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {sub}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <PartTabStrip
                     parts={allSlots.map(s => {
