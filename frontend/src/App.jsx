@@ -7273,6 +7273,25 @@ function App() {
                           </div>
                         </div>
                       )}
+
+                      {/* Part-wise reference photos & links for each garment */}
+                      {garmentJobs.length > 0 && (
+                        <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            Part-wise Fabric References &amp; Links
+                          </div>
+                          {garmentJobs.map(job => (
+                            <GarmentPartPicker
+                              key={job.key}
+                              garmentKey={job.template?.key || job.key}
+                              garmentName={job.template?.name || job.key}
+                              ownOnly
+                              references={partReferences[job.key] || {}}
+                              onReferencesChange={(next) => handlePartReferences(job.key, next)}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div>
