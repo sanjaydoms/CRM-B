@@ -324,6 +324,8 @@ export const ACCESSORY_OPTIONS = [
   { key: 'padding_cups', label: 'Padding/Cups' },
   { key: 'shoulder_pad', label: 'Shoulder Pad' },
   { key: 'decorative_motifs', label: 'Decorative Motifs' },
+  { key: 'fall', label: 'Fall' },
+  { key: 'lining', label: 'Lining' },
   { key: 'other', label: 'Other' },
 ];
 
