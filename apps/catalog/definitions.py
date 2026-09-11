@@ -160,9 +160,7 @@ def parts(*labels):
 TEMPLATES = [
     {
         'key': 'saree', 'name': 'Saree', 'sequence': 10,
-        'design_parts': parts('Overall Saree Design', 'Pallu Design', 'Border Design',
-              'Body Design', 'Pleat Design', 'Print Design', 'Embroidery Design',
-              'Zari / Work Design'),
+        'design_parts': parts('Overall Saree Design', 'Main Fabric / Saree Body', 'Pallu', 'Border', 'Fall', 'Backing'),
         'sections': {
             'basic': [
                 field('saree_type', 'Saree Type', 'select', required=True, options=[
@@ -217,8 +215,7 @@ TEMPLATES = [
     },
     {
         'key': 'blouse', 'name': 'Blouse', 'sequence': 20,
-        'design_parts': parts('Overall Blouse Design', 'Front Design', 'Back Design',
-              'Neck Design', 'Sleeve Design', 'Hand Design'),
+        'design_parts': parts('Overall Blouse Design', 'Main Fabric / Body', 'Lining', 'Backing', 'Border'),
         'sections': {
             'basic': [
                 # Lehenga Blouse was retired into this garment, so its styles
@@ -277,8 +274,7 @@ TEMPLATES = [
     },
     {
         'key': 'lehenga', 'name': 'Lehenga', 'sequence': 30,
-        'design_parts': parts('Overall Lehenga Design', 'Lehenga / Skirt Design', 'Border Design',
-              'Waistband Design', 'Embroidery / Work Design', 'Print Design'),
+        'design_parts': parts('Overall Lehenga Design', 'Main Fabric / Body', 'Lining', 'Backing', 'Border', 'Flair', 'Waistband'),
         'sections': {
             'basic': [
                 field('lehenga_type', 'Lehenga Type', 'select', required=True, options=[
@@ -316,8 +312,7 @@ TEMPLATES = [
         # `blouse_type` is the key it retired with, so the jobs that still
         # point at this template keep reading.
         'key': 'lehenga_blouse', 'name': 'Lehenga Blouse', 'sequence': 40,
-        'design_parts': parts('Overall Blouse Design', 'Front Design', 'Back Design',
-              'Neck Design', 'Sleeve Design', 'Hand Design'),
+        'design_parts': parts('Overall Blouse Design', 'Main Fabric / Body', 'Lining', 'Backing', 'Border'),
         'sections': {
             'basic': [
                 field('blouse_style', 'Style', 'select', required=True, options=[
@@ -359,9 +354,7 @@ TEMPLATES = [
     },
     {
         'key': 'dupatta', 'name': 'Dupatta', 'sequence': 50,
-        'design_parts': parts('Overall Dupatta Design', 'Border Design', 'Pallu / End Design',
-              'Body Design', 'Corner Design', 'Print Design',
-              'Embroidery / Work Design', 'Tassel / Latkan Design'),
+        'design_parts': parts('Overall Dupatta Design', 'Main Fabric / Body', 'Backing', 'Border'),
         'sections': {
             'measurements': [
                 measurement('length', 'Length', required=True),
@@ -383,9 +376,7 @@ TEMPLATES = [
     },
     {
         'key': 'kurti', 'name': 'Kurti', 'sequence': 60,
-        'design_parts': parts('Overall Kurti Design', 'Front Design', 'Back Design', 'Neck Design',
-              'Sleeve Design', 'Hemline / Bottom Design', 'Side Design',
-              'Embroidery / Work Design', 'Print Design', 'Pocket Design'),
+        'design_parts': parts('Overall Kurti Design', 'Main Fabric / Body', 'Backing', 'Border'),
         'sections': {
             'basic': [
                 field('kurti_type', 'Kurti Type', 'select', required=True,
@@ -420,10 +411,7 @@ TEMPLATES = [
     },
     {
         'key': 'anarkali', 'name': 'Anarkali', 'sequence': 70,
-        'design_parts': parts('Overall Anarkali Design', 'Front Design', 'Back Design',
-              'Neck Design', 'Sleeve Design', 'Flare / Ghera Design',
-              'Border Design', 'Dupatta Design', 'Embroidery Design',
-              'Print Design', 'Waist / Belt Design'),
+        'design_parts': parts('Overall Anarkali Design', 'Main Fabric / Body', 'Lining', 'Backing', 'Border', 'Waistband'),
         'sections': {
             'basic': [
                 field('anarkali_type', 'Anarkali Type', 'select', required=True,
@@ -461,8 +449,7 @@ TEMPLATES = [
     },
     {
         'key': 'petticoat', 'name': 'Petticoat', 'sequence': 80,
-        'design_parts': parts('Overall Petticoat Design', 'Waist Design', 'Flare / Ghera Design',
-              'Bottom / Border Design', 'Side Design'),
+        'design_parts': parts('Overall Petticoat Design', 'Main Fabric / Body', 'Lining', 'Backing', 'Waistband', 'Border'),
         'sections': {
             'measurements': [
                 measurement('length', 'Length', required=True),
@@ -476,9 +463,7 @@ TEMPLATES = [
     },
     {
         'key': 'bottom_wear', 'name': 'Bottom Wear', 'sequence': 90,
-        'design_parts': parts('Overall Design', 'Waist Design', 'Upper / Thigh Design',
-              'Leg Design', 'Bottom / Ankle Design', 'Flare / Ghera Design',
-              'Border Design', 'Pocket Design', 'Embroidery Design', 'Print Design'),
+        'design_parts': parts('Overall Bottom Wear Design', 'Main Fabric / Body', 'Lining', 'Backing', 'Waistband', 'Border'),
         'sections': {
             'basic': [
                 field('bottom_type', 'Bottom Type', 'select', required=True, options=[
@@ -516,9 +501,7 @@ TEMPLATES = [
     },
     {
         'key': 'gown', 'name': 'Gown', 'sequence': 130,
-        'design_parts': parts('Front Design', 'Back Design', 'Neck Design', 'Sleeve Design',
-              'Waist Design', 'Skirt / Flare Design', 'Border / Hem Design',
-              'Side Design', 'Embroidery Design', 'Print Design'),
+        'design_parts': parts('Overall Gown Design', 'Main Fabric / Body', 'Backing', 'Border'),
         'sections': {
             'basic': [
                 field('gown_type', 'Gown Type', 'select', required=True, options=[
@@ -556,9 +539,7 @@ TEMPLATES = [
     },
     {
         'key': 'suit', 'name': 'Suit (Kameez)', 'sequence': 140,
-        'design_parts': parts('Front Design', 'Back Design', 'Neck Design', 'Sleeve Design',
-              'Side Design', 'Bottom / Salwar Design', 'Border Design',
-              'Embroidery Design', 'Print Design'),
+        'design_parts': parts('Overall Suit Design', 'Main Fabric / Body', 'Lining', 'Backing', 'Border', 'Waistband'),
         'sections': {
             'basic': [
                 field('suit_type', 'Suit Type', 'select', required=True, options=[
@@ -595,10 +576,7 @@ TEMPLATES = [
     },
     {
         'key': 'sherwani', 'name': 'Sherwani', 'sequence': 150,
-        'design_parts': parts('Front Design', 'Back Design', 'Collar / Neck Design',
-              'Sleeve Design', 'Button Design', 'Pocket Design',
-              'Hem / Bottom Design', 'Side Design', 'Embroidery Design',
-              'Print / Pattern Design'),
+        'design_parts': parts('Overall Sherwani Design', 'Main Fabric / Body', 'Lining', 'Backing', 'Border', 'Waistband'),
         'sections': {
             'basic': [
                 field('sherwani_type', 'Sherwani Type', 'select', required=True, options=[

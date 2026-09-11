@@ -40,12 +40,13 @@ KINDS = {
 ACCESSORY_KINDS = [key for key, spec in KINDS.items() if spec['accessory']]
 
 SLOTS = {
-    'MAIN_FABRIC': 'Main Fabric',
+    'MAIN_FABRIC': 'Main Fabric / Body',
     'SAREE_BODY': 'Main Fabric / Saree Body',
     'PALLU': 'Pallu',
+    'PLEAT': 'Pleat / Pleats',
     'FALL': 'Fall',
     'LINING': 'Lining',
-    'BACKING_FABRIC': 'Backing Fabric',
+    'BACKING_FABRIC': 'Backing',
     'BORDER': 'Border',
     'DORI': 'Dori',
     'DRAWSTRING_DORI': 'Drawstring / Dori',
@@ -69,15 +70,11 @@ _BLOUSE = ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER', 'DORI',
 _DUPATTA = ['MAIN_FABRIC', 'BACKING_FABRIC', 'BORDER', 'TASSEL_LATKAN',
             'LACE_GOTA_KIRAN']
 
-_DRAPED = ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER', 'DORI',
-           'TASSEL_LATKAN', 'LACE_TRIM', 'CAN_CAN', 'FLAIR', 'HOOKS_ZIPPER']
-
 GARMENTS = {
     'saree': {
         'label': 'Saree',
         'section_label': None,
-        'sections': {'': ['SAREE_BODY', 'PALLU', 'BORDER', 'FALL',
-                          'BACKING_FABRIC', 'TASSEL_LATKAN']},
+        'sections': {'': ['SAREE_BODY', 'PALLU', 'BORDER', 'FALL', 'BACKING_FABRIC']},
     },
     'blouse': {
         'label': 'Blouse',
@@ -90,11 +87,16 @@ GARMENTS = {
         'sections': {
             'BLOUSE': _BLOUSE,
             'SKIRT': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER',
-                      'FLAIR', 'CAN_CAN', 'WAISTBAND', 'ZIPPER_HOOKS'],
+                      'FLAIR', 'WAISTBAND', 'CAN_CAN', 'ZIPPER_HOOKS'],
             'DUPATTA': _DUPATTA,
         },
         'section_labels': {'BLOUSE': 'Blouse', 'SKIRT': 'Skirt',
                            'DUPATTA': 'Dupatta'},
+    },
+    'lehenga_blouse': {
+        'label': 'Lehenga Blouse',
+        'section_label': None,
+        'sections': {'': _BLOUSE},
     },
     'dupatta': {
         'label': 'Dupatta',
@@ -104,45 +106,37 @@ GARMENTS = {
     'kurti': {
         'label': 'Kurti',
         'section_label': None,
-        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER',
-                          'DORI', 'TASSEL_LATKAN', 'LACE_TRIM', 'BUTTONS',
-                          'HOOKS_ZIPPER']},
+        'sections': {'': ['MAIN_FABRIC', 'BACKING_FABRIC', 'BORDER']},
     },
     'anarkali': {
         'label': 'Anarkali',
         'section_label': None,
-        'sections': {'': _DRAPED},
+        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER', 'WAISTBAND']},
     },
     'petticoat': {
         'label': 'Petticoat',
         'section_label': None,
-        'sections': {'': ['MAIN_FABRIC', 'LINING', 'WAISTBAND',
-                          'DRAWSTRING_DORI', 'LACE_TRIM']},
+        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'WAISTBAND', 'BORDER']},
     },
     'bottom_wear': {
         'label': 'Bottom Wear',
         'section_label': None,
-        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC',
-                          'WAISTBAND', 'DORI_DRAWSTRING', 'BORDER',
-                          'LACE_TRIM', 'HOOKS_ZIPPER']},
+        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'WAISTBAND', 'BORDER']},
     },
     'gown': {
         'label': 'Gown',
         'section_label': None,
-        'sections': {'': _DRAPED},
+        'sections': {'': ['MAIN_FABRIC', 'BACKING_FABRIC', 'BORDER']},
     },
     'suit': {
         'label': 'Suit (Kameez)',
         'section_label': None,
-        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER',
-                          'DORI', 'TASSEL_LATKAN', 'LACE_TRIM', 'BUTTONS',
-                          'HOOKS_ZIPPER']},
+        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER', 'WAISTBAND']},
     },
     'sherwani': {
         'label': 'Sherwani',
         'section_label': None,
-        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER',
-                          'BUTTONS', 'HOOKS', 'DORI', 'LACE_TRIM']},
+        'sections': {'': ['MAIN_FABRIC', 'LINING', 'BACKING_FABRIC', 'BORDER', 'WAISTBAND']},
     },
 }
 
