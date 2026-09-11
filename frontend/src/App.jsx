@@ -7202,6 +7202,12 @@ function App() {
                     >
                       Customer Fabrics (My Fabrics)
                     </button>
+                    <button 
+                      className={`tab-btn ${fabricTab === 'accessories' ? 'active' : ''}`}
+                      onClick={() => setFabricTab('accessories')}
+                    >
+                      Accessories
+                    </button>
                   </div>
 
                   {fabricTab === 'my-fabric' ? (
@@ -7219,6 +7225,49 @@ function App() {
                               garmentName={job.template?.name || job.key}
                               ownOnly
                               isFabric
+                              taxonomy={fabricTaxonomy}
+                              references={partReferences[job.key] || {}}
+                              onReferencesChange={(next) => handlePartReferences(job.key, next)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : fabricTab === 'accessories' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                      {/* Garment Accessories & Trims Selection (Boutique Inventory) */}
+                      {garmentJobs.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            Boutique Accessories &amp; Trims
+                          </div>
+                          <Suspense fallback={<ScreenLoading />}>
+                            <GarmentFabricPicker
+                              garmentJobs={garmentJobs}
+                              fabrics={fabrics}
+                              taxonomy={fabricTaxonomy}
+                              selection={fabricSelection}
+                              onChange={handleFabricSelection}
+                              accessoriesOnly
+                            />
+                          </Suspense>
+                        </div>
+                      )}
+
+                      {/* Customer Accessories & References */}
+                      {garmentJobs.length > 0 && (
+                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            Customer Provided Accessories &amp; References
+                          </div>
+                          {garmentJobs.map(job => (
+                            <GarmentPartPicker
+                              key={job.key}
+                              garmentKey={job.template?.key || job.key}
+                              garmentName={job.template?.name || job.key}
+                              ownOnly
+                              isFabric
+                              accessoriesOnly
                               taxonomy={fabricTaxonomy}
                               references={partReferences[job.key] || {}}
                               onReferencesChange={(next) => handlePartReferences(job.key, next)}

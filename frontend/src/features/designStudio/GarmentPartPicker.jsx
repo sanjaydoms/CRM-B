@@ -314,7 +314,7 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
  *                   {part: reference} slot -- only the catalogue half is off. */
 export default function GarmentPartPicker({ garmentKey, garmentName, selection = {}, onChange,
                                             ownOnly = false, references = {},
-                                            onReferencesChange, taxonomy = null, isFabric = false }) {
+                                            onReferencesChange, taxonomy = null, isFabric = false, accessoriesOnly = false }) {
   const fetchedTaxonomy = useFabricTaxonomy();
   const effectiveTaxonomy = taxonomy || fetchedTaxonomy;
 
@@ -390,16 +390,23 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
 
   // The tabs: every part the template or fabric taxonomy declares.
   const tabParts = useMemo(() => {
-    if (isFabric && effectiveTaxonomy && garmentKey) {
+    if ((isFabric || accessoriesOnly) && effectiveTaxonomy && garmentKey) {
       const spec = garmentsByKey[garmentKey];
       if (spec?.sections?.length) {
-        const slotsFromTaxonomy = spec.sections.flatMap(section => {
+        let slotsFromTaxonomy = spec.sections.flatMap(section => {
           const sectionPrefix = (spec.sections.length > 1 && section.label) ? `${section.label} - ` : '';
           return (section.slots || []).map(slot => ({
             key: slot.key,
             label: `${sectionPrefix}${slot.label}`,
           }));
         });
+        if (accessoriesOnly) {
+          const mainFabricKeys = ['MAIN_FABRIC', 'SAREE_BODY', 'PALLU', 'PLEAT', 'FALL', 'LINING', 'BACKING_FABRIC'];
+          const filtered = slotsFromTaxonomy.filter(s => !mainFabricKeys.includes(s.key.toUpperCase()));
+          if (filtered.length > 0) {
+            slotsFromTaxonomy = filtered;
+          }
+        }
         if (slotsFromTaxonomy.length > 0) {
           return slotsFromTaxonomy;
         }
@@ -414,7 +421,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
       return [{ key: 'overall', label: 'Overall Design' }];
     }
     return [...declared, ...extra];
-  }, [template, imagesByPart, ownOnly, isFabric, effectiveTaxonomy, garmentKey, garmentsByKey]);
+  }, [template, imagesByPart, ownOnly, isFabric, accessoriesOnly, effectiveTaxonomy, garmentKey, garmentsByKey]);
 
   // Which tab is showing. `null` is the design list this screen has always
   // opened on, and it is the last tab; anything else is a part. Derived, so a

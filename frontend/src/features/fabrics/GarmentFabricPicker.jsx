@@ -67,14 +67,15 @@ function FabricCard({ fabric, picked, onToggle }) {
 
 
 /** One part of one garment, and the fabrics filed under it. */
-function SlotRow({ label, fabrics, chosen, onToggle }) {
+function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false }) {
   const chosenFabrics = fabrics.filter(f => chosen.includes(String(f.id)));
+  const itemCategoryName = accessoriesOnly ? 'Accessories' : 'Fabrics';
 
   return (
     <div style={{ marginBottom: '18px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '12px',
                     borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
-        <span style={{ fontSize: '13.5px', fontWeight: 700 }}>{label} Fabrics</span>
+        <span style={{ fontSize: '13.5px', fontWeight: 700 }}>{label} {itemCategoryName}</span>
         <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
           {chosen.length > 0 ? `${chosen.length} chosen` : `${fabrics.length} available`}
         </span>
@@ -84,7 +85,7 @@ function SlotRow({ label, fabrics, chosen, onToggle }) {
         // Never another part's fabrics as a fallback: an empty part is a gap in
         // the boutique's own filing, and showing it is how that gets noticed.
         <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '8px 0' }}>
-          No fabrics available for this part.
+          No {itemCategoryName.toLowerCase()} available for this part.
         </div>
       ) : (
         <div className="fabrics-grid">
@@ -190,7 +191,7 @@ function SlotRow({ label, fabrics, chosen, onToggle }) {
 
 
 export default function GarmentFabricPicker({
-  garmentJobs = [], fabrics = [], taxonomy = null, selection = {}, onChange, loading = false,
+  garmentJobs = [], fabrics = [], taxonomy = null, selection = {}, onChange, loading = false, accessoriesOnly = false,
 }) {
   const [activeSlotMap, setActiveSlotMap] = useState({});
 
@@ -212,7 +213,7 @@ export default function GarmentFabricPicker({
   if (garmentJobs.length === 0) {
     return (
       <div style={{ fontSize: '13.5px', color: 'var(--text-secondary)', padding: '16px 0' }}>
-        No garment was chosen yet, so there is nothing to pick fabric for. Go back and
+        No garment was chosen yet, so there is nothing to pick {accessoriesOnly ? 'accessories' : 'fabric'} for. Go back and
         pick at least one dress.
       </div>
     );
@@ -221,7 +222,7 @@ export default function GarmentFabricPicker({
   if (loading) {
     return (
       <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '18px 0' }}>
-        Loading fabrics…
+        Loading {accessoriesOnly ? 'accessories' : 'fabrics'}…
       </div>
     );
   }
@@ -234,7 +235,7 @@ export default function GarmentFabricPicker({
         const spec = garmentsByKey[garmentKey];
         const chosenForJob = selection[job.key] || {};
 
-        const allSlots = (spec?.sections || []).flatMap(section =>
+        let allSlots = (spec?.sections || []).flatMap(section =>
           (section.slots || []).map(slot => ({
             key: slot.key,
             label: slot.label,
@@ -243,6 +244,14 @@ export default function GarmentFabricPicker({
             slot,
           }))
         );
+
+        if (accessoriesOnly) {
+          const mainFabricKeys = ['MAIN_FABRIC', 'SAREE_BODY', 'PALLU', 'PLEAT', 'FALL', 'LINING', 'BACKING_FABRIC'];
+          const filtered = allSlots.filter(s => !mainFabricKeys.includes(s.key.toUpperCase()));
+          if (filtered.length > 0) {
+            allSlots = filtered;
+          }
+        }
 
         const activeSlotKey = activeSlotMap[job.key] || allSlots[0]?.key;
         const activeSlotItem = allSlots.find(s => s.key === activeSlotKey) || allSlots[0];
@@ -264,7 +273,7 @@ export default function GarmentFabricPicker({
           // read as one list.
           <div className="content-card" key={job.key}>
             <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <Layers size={18} /> {garmentName}
+              <Layers size={18} /> {garmentName} {accessoriesOnly ? 'Accessories' : ''}
             </div>
 
             {!spec || allSlots.length === 0 ? (
@@ -272,8 +281,8 @@ export default function GarmentFabricPicker({
               // loud rather than showing an empty card or, worse, another
               // garment's rolls.
               <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                No fabric parts are configured for {garmentName} yet. Add them under
-                Manage Fabrics to pick fabric part by part.
+                No {accessoriesOnly ? 'accessory' : 'fabric'} parts are configured for {garmentName} yet. Add them under
+                Manage Fabrics to pick {accessoriesOnly ? 'accessories' : 'fabric'} part by part.
               </div>
             ) : (
               <div>
@@ -308,6 +317,7 @@ export default function GarmentFabricPicker({
                       fabrics={forSlot}
                       chosen={chosenForJob[slot.key] || []}
                       onToggle={toggle(slot.key)}
+                      accessoriesOnly={accessoriesOnly}
                     />
                   );
                 })()}
