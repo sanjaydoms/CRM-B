@@ -67,35 +67,49 @@ export function PartTabStrip({ parts = [], active, onChange, allLabel = 'All Des
         .at-part-tabs {
           display: flex;
           flex-wrap: nowrap;
-          /* width/min-width, not width:100%. A scroll container still offers
-             its full content width as its minimum contribution, so eleven
-             nowrap tabs pushed the card out through .workspace-panel into the
-             wizard's 1fr/360px track: the card grew to 1491px, the page
-             scrolled sideways and the sidebar was shoved off screen. width:0
-             is what the ancestors measure, so the card is sized by its track
-             again; min-width:100% is what the strip is actually drawn at,
-             resolved against that settled width. Fixing it here rather than
-             putting min-width:0 on .content-card keeps it off every other
-             screen those shared classes lay out. */
+          align-items: center;
           width: 0;
           min-width: 100%;
           overflow-x: auto;
           overflow-y: hidden;
           overscroll-behavior-x: contain;
           -webkit-overflow-scrolling: touch;
-          scrollbar-width: thin;
-          border-bottom: 1px solid var(--border-color);
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+          background: var(--background-secondary, #f4f4f5);
+          border: 1px solid var(--border-color, #e4e4e7);
+          padding: 5px;
+          border-radius: 10px;
+          gap: 5px;
           margin-bottom: 16px;
         }
-        .at-part-tabs::-webkit-scrollbar { height: 4px; }
-        .at-part-tabs::-webkit-scrollbar-thumb {
-          background: var(--border-color); border-radius: 4px;
+        .at-part-tabs::-webkit-scrollbar {
+          display: none !important;
+          height: 0 !important;
+          width: 0 !important;
         }
         .at-part-tabs .tab-btn {
           flex: 0 0 auto;
           white-space: nowrap;
-          padding: 11px 16px;
+          padding: 7px 14px;
           font-size: 12.5px;
+          font-weight: 500;
+          border-radius: 7px;
+          border: none;
+          background: transparent;
+          color: var(--text-secondary, #64748b);
+          transition: all 0.15s ease;
+          cursor: pointer;
+        }
+        .at-part-tabs .tab-btn.active {
+          background: #18181b;
+          color: #ffffff;
+          font-weight: 600;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+        }
+        .at-part-tabs .tab-btn:hover:not(.active) {
+          background: rgba(0, 0, 0, 0.05);
+          color: var(--text-primary, #0f172a);
         }
       `}</style>
       <div className="at-part-tabs" ref={strip} onWheel={onWheel} role="tablist">
