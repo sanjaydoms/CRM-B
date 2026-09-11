@@ -369,6 +369,7 @@ export default function GarmentFabricPicker({
 
   const [selectedAccessoryMap, setSelectedAccessoryMap] = useState({});
   const [accessorySubtypes, setAccessorySubtypes] = useState({});
+  const [accessoryMeasurements, setAccessoryMeasurements] = useState({});
 
   if (garmentJobs.length === 0) {
     return (
@@ -481,36 +482,59 @@ export default function GarmentFabricPicker({
                       activeKey={activeSlotKey}
                       onSelectActiveKey={(key) => setActiveSlotMap(prev => ({ ...prev, [job.key]: key }))}
                     />
-                    {currentAccOption?.subtypes?.length > 0 && (
-                      <div style={{ marginBottom: '14px', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                          {currentAccOption.label} Option / Style:
-                        </span>
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          {currentAccOption.subtypes.map(sub => {
-                            const activeSub = accessorySubtypes[`${job.key}:${activeSlotKey}`] || currentAccOption.subtypes[0];
-                            const isSelected = activeSub === sub;
-                            return (
-                              <button
-                                key={sub}
-                                type="button"
-                                onClick={() => setAccessorySubtypes(prev => ({ ...prev, [`${job.key}:${activeSlotKey}`]: sub }))}
-                                style={{
-                                  padding: '4px 12px',
-                                  fontSize: '11.5px',
-                                  borderRadius: '14px',
-                                  border: isSelected ? '1.5px solid #107c41' : '1px solid var(--border-color)',
-                                  background: isSelected ? 'rgba(16, 124, 65, 0.12)' : 'var(--surface-color, #fff)',
-                                  color: isSelected ? '#107c41' : 'var(--text-primary)',
-                                  fontWeight: isSelected ? 700 : 500,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {sub}
-                              </button>
-                            );
-                          })}
-                        </div>
+                    {currentAccOption && (
+                      <div style={{ marginBottom: '14px', marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {currentAccOption.subtypes?.length > 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                              {currentAccOption.label} Option / Style:
+                            </span>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              {currentAccOption.subtypes.map(sub => {
+                                const activeSub = accessorySubtypes[`${job.key}:${activeSlotKey}`] || currentAccOption.subtypes[0];
+                                const isSelected = activeSub === sub;
+                                return (
+                                  <button
+                                    key={sub}
+                                    type="button"
+                                    onClick={() => setAccessorySubtypes(prev => ({ ...prev, [`${job.key}:${activeSlotKey}`]: sub }))}
+                                    style={{
+                                      padding: '4px 12px',
+                                      fontSize: '11.5px',
+                                      borderRadius: '14px',
+                                      border: isSelected ? '1.5px solid #107c41' : '1px solid var(--border-color)',
+                                      background: isSelected ? 'rgba(16, 124, 65, 0.12)' : 'var(--surface-color, #fff)',
+                                      color: isSelected ? '#107c41' : 'var(--text-primary)',
+                                      fontWeight: isSelected ? 700 : 500,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {sub}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {currentAccOption.measurementLabel && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', minWidth: '180px' }}>
+                              {currentAccOption.label} {currentAccOption.measurementLabel}:
+                            </label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder={currentAccOption.placeholder || 'Enter measurement or size...'}
+                              value={accessoryMeasurements[`${job.key}:${activeSlotKey}`] || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setAccessoryMeasurements(prev => ({ ...prev, [`${job.key}:${activeSlotKey}`]: val }));
+                              }}
+                              style={{ maxWidth: '280px', padding: '5px 10px', fontSize: '12px', borderRadius: '6px' }}
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
                   </>
