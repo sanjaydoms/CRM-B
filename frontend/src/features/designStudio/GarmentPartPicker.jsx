@@ -4,6 +4,7 @@ import { Camera, Check, ChevronLeft, ChevronRight, Eye, ImageOff, Link as LinkIc
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 import { PartTabStrip } from './GarmentPartTabs';
+import { useFabricTaxonomy } from '../fabrics/taxonomy';
 
 /**
  * Choosing a garment's design, part by part.
@@ -313,7 +314,10 @@ function DesignModal({ design, partOrder, partLabels, selection, onChoose, onClo
  *                   {part: reference} slot -- only the catalogue half is off. */
 export default function GarmentPartPicker({ garmentKey, garmentName, selection = {}, onChange,
                                             ownOnly = false, references = {},
-                                            onReferencesChange }) {
+                                            onReferencesChange, taxonomy = null }) {
+  const fetchedTaxonomy = useFabricTaxonomy();
+  const effectiveTaxonomy = taxonomy || fetchedTaxonomy;
+
   const [designs, setDesigns] = useState(null);
   const [template, setTemplate] = useState(null);
   const [error, setError] = useState(null);
@@ -381,24 +385,36 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     return map;
   }, [designs]);
 
-  // The tabs: every part the template declares, in its own order, whether or
-  // not anything has been uploaded for it -- an empty Pallu tab tells the
-  // boutique what is missing. Anything filed under a part the template no
-  // longer names is listed after them, so those photographs stay reachable.
+  const garmentsByKey = useMemo(() => Object.fromEntries(
+    (effectiveTaxonomy?.garments || []).map(g => [g.key, g])), [effectiveTaxonomy]);
+
+  // The tabs: every part the template or fabric taxonomy declares.
   const tabParts = useMemo(() => {
+    if (ownOnly && effectiveTaxonomy && garmentKey) {
+      const spec = garmentsByKey[garmentKey];
+      if (spec?.sections?.length) {
+        const slotsFromTaxonomy = spec.sections.flatMap(section => {
+          const sectionPrefix = (spec.sections.length > 1 && section.label) ? `${section.label} - ` : '';
+          return (section.slots || []).map(slot => ({
+            key: slot.key,
+            label: `${sectionPrefix}${slot.label}`,
+          }));
+        });
+        if (slotsFromTaxonomy.length > 0) {
+          return slotsFromTaxonomy;
+        }
+      }
+    }
+
     const declared = template?.design_parts || [];
     const extra = [...imagesByPart.keys()]
       .filter(key => !declared.some(p => p.key === key))
       .map(key => ({ key, label: key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }));
-    // A template that declares no parts still has to offer somewhere to put a
-    // reference, so it gets the one part every garment has -- the same fallback
-    // the upload form makes. Only in ownOnly mode: with the catalogue on
-    // screen, no tabs is already the honest answer.
     if (ownOnly && !declared.length && !extra.length) {
       return [{ key: 'overall', label: 'Overall Design' }];
     }
     return [...declared, ...extra];
-  }, [template, imagesByPart, ownOnly]);
+  }, [template, imagesByPart, ownOnly, effectiveTaxonomy, garmentKey, garmentsByKey]);
 
   // Which tab is showing. `null` is the design list this screen has always
   // opened on, and it is the last tab; anything else is a part. Derived, so a
