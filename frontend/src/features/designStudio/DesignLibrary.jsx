@@ -347,7 +347,7 @@ export default function DesignLibrary({ onEditDesign, onDeleteDesign, onUploaded
   // garment, or switching to another one, lands on that garment's first
   // declared part -- its overall shot, for every template that lists one --
   // and only an explicit click under this garment moves off it.
-  const openPart = partTab?.garment === openKey ? partTab.part : (parts[0]?.key ?? null);
+  const openPart = (partTab && openKey && partTab.garment === openKey) ? partTab.part : (parts[0]?.key ?? null);
 
   // The design behind a card, in the detail panel. Shared by the design grid
   // and the part tabs, so a photograph opens the same View its whole design
