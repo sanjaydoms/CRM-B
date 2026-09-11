@@ -638,56 +638,60 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           boutique's catalogue and offers no upload of its own.
           The upload is stored on the spot because the wizard's draft is JSON
           and cannot carry a file; the link is kept as it was typed. */}
-      {!loading && ownOnly && openPart && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px',
-                      marginBottom: '14px' }}>
-          <button type="button" className="btn-secondary" disabled={uploading}
-                  style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                  onClick={() => ownFileRef.current?.click()}>
-            <Upload size={12} /> {uploading ? 'Uploading…' : `Upload ${openPartLabel} photos`}
-          </button>
-          <button type="button" className="btn-secondary" disabled={uploading}
-                  style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                  onClick={openCamera}>
-            <Camera size={12} /> Take photo
-          </button>
-          <button type="button" className="btn-secondary"
-                  style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                  onClick={() => setAddingLink(v => !v)}>
-            <LinkIcon size={12} /> Add reference link
-          </button>
-          {/* multiple, because a customer describing one part sends several
-              pictures of it. Each becomes its own reference for this part. */}
-          <input ref={ownFileRef} type="file" accept="image/*" multiple hidden
-                 onChange={uploadReference} />
-          {/* capture, so a phone opens the camera rather than the gallery. One
-              shot at a time, which is what a camera gives; both land in the
-              same list for this part through the same handler. */}
-          <input ref={ownCamRef} type="file" accept="image/*" capture="environment" hidden
-                 onChange={uploadReference} />
+      {!loading && ownOnly && openPart && (() => {
+        const isAlreadyFabric = /fabric/i.test(openPartLabel);
+        const partFabricLabel = isAlreadyFabric ? openPartLabel : `${openPartLabel} Fabric`;
+        return (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px',
+                        marginBottom: '14px' }}>
+            <button type="button" className="btn-secondary" disabled={uploading}
+                    style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                    onClick={() => ownFileRef.current?.click()}>
+              <Upload size={12} /> {uploading ? 'Uploading…' : `Upload ${partFabricLabel} photos`}
+            </button>
+            <button type="button" className="btn-secondary" disabled={uploading}
+                    style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                    onClick={openCamera}>
+              <Camera size={12} /> Take photo
+            </button>
+            <button type="button" className="btn-secondary"
+                    style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                    onClick={() => setAddingLink(v => !v)}>
+              <LinkIcon size={12} /> Add reference link
+            </button>
+            {/* multiple, because a customer describing one part sends several
+                pictures of it. Each becomes its own reference for this part. */}
+            <input ref={ownFileRef} type="file" accept="image/*" multiple hidden
+                   onChange={uploadReference} />
+            {/* capture, so a phone opens the camera rather than the gallery. One
+                shot at a time, which is what a camera gives; both land in the
+                same list for this part through the same handler. */}
+            <input ref={ownCamRef} type="file" accept="image/*" capture="environment" hidden
+                   onChange={uploadReference} />
 
-          {addingLink && (
-            <>
-              <input className="form-control" value={linkDraft} autoFocus
-                     onChange={(e) => setLinkDraft(e.target.value)}
-                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addReferenceLink(); } }}
-                     placeholder={`Link to a ${openPartLabel.toLowerCase()} you like — add as many as you want`}
-                     style={{ flex: '1 1 240px', maxWidth: '340px', padding: '5px 9px', fontSize: '11.5px' }} />
-              <button type="button" className="btn-primary" disabled={!linkDraft.trim()}
-                      style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                      onClick={addReferenceLink}>
-                Add
-              </button>
-            </>
-          )}
+            {addingLink && (
+              <>
+                <input className="form-control" value={linkDraft} autoFocus
+                       onChange={(e) => setLinkDraft(e.target.value)}
+                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addReferenceLink(); } }}
+                       placeholder={`Link to a ${partFabricLabel.toLowerCase()} you like — add as many as you want`}
+                       style={{ flex: '1 1 240px', maxWidth: '340px', padding: '5px 9px', fontSize: '11.5px' }} />
+                <button type="button" className="btn-primary" disabled={!linkDraft.trim()}
+                        style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                        onClick={addReferenceLink}>
+                  Add
+                </button>
+              </>
+            )}
 
-          {uploadError && (
-            <span role="alert" style={{ fontSize: '11.5px', color: 'var(--danger-color, #c0392b)' }}>
-              {uploadError}
-            </span>
-          )}
-        </div>
-      )}
+            {uploadError && (
+              <span role="alert" style={{ fontSize: '11.5px', color: 'var(--danger-color, #c0392b)' }}>
+                {uploadError}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {!loading && ownOnly && openPart && ownRefs.length > 0 && (
         <div style={{ display: 'grid', gap: '14px', marginBottom: '16px',
@@ -740,7 +744,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
 
       {!loading && ownOnly && openPart && ownRefs.length === 0 && (
         <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '4px 0 18px' }}>
-          No {openPartLabel.toLowerCase()} references yet — add as many photos and links as you like.
+          No {(/fabric/i.test(openPartLabel) ? openPartLabel : `${openPartLabel} Fabric`).toLowerCase()} references yet — add as many photos and links as you like.
         </div>
       )}
 
