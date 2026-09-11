@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect, useState } from 'react';
-import { Check, Layers, X } from 'lucide-react';
+import { Check, ChevronDown, Inbox, Layers, X } from 'lucide-react';
 
 import { resolveMediaUrl } from '../../services/media';
 import { PartTabStrip } from '../designStudio/GarmentPartTabs';
@@ -47,31 +47,36 @@ function AccessoryMultiSelectDropdown({
   const selectedCount = selectedKeys.length;
 
   return (
-    <div style={{ marginBottom: '16px', position: 'relative' }} ref={dropdownRef}>
-      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+    <div ref={dropdownRef} style={{ position: 'relative' }}>
+      <label style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em',
+                      textTransform: 'uppercase', color: 'var(--text-secondary)',
+                      display: 'block', marginBottom: '8px' }}>
         Select Accessories (Choose one or more options):
       </label>
 
       {/* Multi-Select Dropdown Header */}
       <button
         type="button"
-        className="form-control"
         onClick={() => setIsOpen((v) => !v)}
+        aria-expanded={isOpen}
         style={{
           width: '100%',
-          maxWidth: '420px',
-          padding: '8px 12px',
+          maxWidth: '440px',
+          padding: '10px 12px 10px 14px',
           fontSize: '13px',
           fontWeight: 600,
-          borderRadius: '8px',
-          border: '1.5px solid var(--border-color, #d1d5db)',
+          borderRadius: '10px',
+          border: isOpen ? '1.5px solid #107c41' : '1.5px solid var(--border-color, #d1d5db)',
           background: 'var(--surface-color, #fff)',
-          color: 'var(--text-primary)',
+          color: selectedCount === 0 ? 'var(--text-secondary)' : 'var(--text-primary)',
           cursor: 'pointer',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          gap: '10px',
           textAlign: 'left',
+          boxShadow: isOpen ? '0 0 0 3px rgba(16,124,65,0.12)' : 'none',
+          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
         }}
       >
         <span>
@@ -79,7 +84,9 @@ function AccessoryMultiSelectDropdown({
             ? 'Select accessories from dropdown...'
             : `${selectedCount} Accessor${selectedCount === 1 ? 'y' : 'ies'} Selected`}
         </span>
-        <span style={{ fontSize: '11px', opacity: 0.7 }}>{isOpen ? '▲' : '▼'}</span>
+        <ChevronDown size={16} style={{ flexShrink: 0, color: 'var(--text-secondary)',
+                                        transform: isOpen ? 'rotate(180deg)' : 'none',
+                                        transition: 'transform 0.15s ease' }} />
       </button>
 
       {/* Dropdown Menu Overlay */}
@@ -91,15 +98,15 @@ function AccessoryMultiSelectDropdown({
             left: 0,
             zIndex: 99,
             width: '100%',
-            maxWidth: '420px',
-            marginTop: '4px',
-            maxHeight: '260px',
+            maxWidth: '440px',
+            marginTop: '6px',
+            maxHeight: '280px',
             overflowY: 'auto',
             background: 'var(--surface-color, #ffffff)',
-            border: '1.5px solid var(--border-color, #d1d5db)',
-            borderRadius: '8px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-            padding: '8px',
+            border: '1px solid var(--border-color, #d1d5db)',
+            borderRadius: '12px',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.12)',
+            padding: '6px',
           }}
         >
           {options.map((opt) => {
@@ -110,22 +117,21 @@ function AccessoryMultiSelectDropdown({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 10px',
-                  borderRadius: '6px',
+                  gap: '10px',
+                  padding: '9px 12px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
-                  fontSize: '12.5px',
-                  fontWeight: isChecked ? 600 : 400,
+                  fontSize: '13px',
+                  fontWeight: isChecked ? 600 : 500,
                   background: isChecked ? 'rgba(16, 124, 65, 0.08)' : 'transparent',
                   color: isChecked ? '#107c41' : 'var(--text-primary)',
-                  marginBottom: '2px',
                 }}
               >
                 <input
                   type="checkbox"
                   checked={isChecked}
                   onChange={() => onToggleKey(opt.key)}
-                  style={{ width: '15px', height: '15px', accentColor: '#107c41', cursor: 'pointer' }}
+                  style={{ width: '16px', height: '16px', accentColor: '#107c41', cursor: 'pointer', margin: 0 }}
                 />
                 <span>{opt.label}</span>
               </label>
@@ -136,7 +142,7 @@ function AccessoryMultiSelectDropdown({
 
       {/* Selected Accessories Pills/Tabs */}
       {selectedKeys.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
           {selectedKeys.map((key) => {
             const opt = options.find((o) => o.key === key);
             if (!opt) return null;
@@ -147,17 +153,20 @@ function AccessoryMultiSelectDropdown({
                 type="button"
                 onClick={() => onSelectActiveKey(key)}
                 style={{
-                  padding: '4px 10px',
-                  borderRadius: '16px',
-                  border: isActive ? '1.5px solid #107c41' : '1px solid var(--border-color)',
-                  background: isActive ? '#107c41' : 'var(--surface-color, #f3f4f6)',
+                  padding: '6px 6px 6px 14px',
+                  borderRadius: '999px',
+                  border: isActive ? '1.5px solid #107c41' : '1.5px solid var(--border-color)',
+                  background: isActive ? '#107c41' : 'var(--surface-color, #fff)',
                   color: isActive ? '#fff' : 'var(--text-primary)',
-                  fontSize: '11.5px',
+                  fontSize: '12.5px',
                   fontWeight: 600,
+                  whiteSpace: 'nowrap',
                   cursor: 'pointer',
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
+                  boxShadow: isActive ? '0 2px 8px rgba(16,124,65,0.25)' : 'none',
+                  transition: 'all 0.15s ease',
                 }}
               >
                 <span>{opt.label}</span>
@@ -166,10 +175,13 @@ function AccessoryMultiSelectDropdown({
                     e.stopPropagation();
                     onToggleKey(key);
                   }}
-                  style={{ opacity: 0.8, fontSize: '11px', fontWeight: 700, padding: '0 2px' }}
                   title="Remove accessory"
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                           width: '20px', height: '20px', borderRadius: '50%',
+                           background: isActive ? 'rgba(255,255,255,0.22)' : 'var(--surface-inset, #f3f4f6)',
+                           color: isActive ? '#fff' : 'var(--text-secondary)' }}
                 >
-                  ✕
+                  <X size={12} />
                 </span>
               </button>
             );
@@ -229,11 +241,15 @@ function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false }) 
   const itemCategoryName = accessoriesOnly ? 'Accessories' : 'Fabrics';
 
   return (
-    <div style={{ marginBottom: '18px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '12px',
-                    borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
-        <span style={{ fontSize: '13.5px', fontWeight: 700 }}>{label} {itemCategoryName}</span>
-        <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+    <div style={{ marginTop: '4px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+        <span style={{ fontFamily: 'var(--font-serif)', fontSize: '16px', fontWeight: 500,
+                       color: 'var(--text-primary)' }}>
+          {label} {itemCategoryName}
+        </span>
+        <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 9px', borderRadius: '999px',
+                       background: chosen.length > 0 ? 'rgba(16,124,65,0.1)' : 'var(--surface-inset, #f3f4f6)',
+                       color: chosen.length > 0 ? '#107c41' : 'var(--text-secondary)' }}>
           {chosen.length > 0 ? `${chosen.length} chosen` : `${fabrics.length} available`}
         </span>
       </div>
@@ -241,8 +257,18 @@ function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false }) 
       {fabrics.length === 0 ? (
         // Never another part's fabrics as a fallback: an empty part is a gap in
         // the boutique's own filing, and showing it is how that gets noticed.
-        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '8px 0' }}>
-          No {itemCategoryName.toLowerCase()} available for this part.
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+                      padding: '28px 16px', borderRadius: '12px',
+                      border: '1px dashed var(--border-color)',
+                      background: 'var(--surface-inset, #fafafa)', color: 'var(--text-secondary)' }}>
+          <span style={{ width: '40px', height: '40px', borderRadius: '50%', display: 'flex',
+                         alignItems: 'center', justifyContent: 'center',
+                         background: 'var(--surface-color, #fff)', border: '1px solid var(--border-color)' }}>
+            <Inbox size={18} />
+          </span>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            No {itemCategoryName.toLowerCase()} available for this part.
+          </div>
         </div>
       ) : (
         <div className="fabrics-grid">
@@ -260,10 +286,9 @@ function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false }) 
           style={{
             marginTop: '16px',
             padding: '14px 16px',
-            background: 'var(--background-secondary, #f8f9fa)',
-            border: '1.5px solid #18181b',
-            borderRadius: '10px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
+            background: 'rgba(16, 124, 65, 0.04)',
+            border: '1px solid rgba(16, 124, 65, 0.35)',
+            borderRadius: '12px',
           }}
         >
           <div
@@ -271,9 +296,9 @@ function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false }) 
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              marginBottom: '10px',
-              paddingBottom: '6px',
-              borderBottom: '1px solid var(--border-color, #e2e8f0)',
+              marginBottom: '12px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid rgba(16, 124, 65, 0.18)',
             }}
           >
             <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -459,8 +484,13 @@ export default function GarmentFabricPicker({
           // One card per dress, so a saree's fabrics and a blouse's can never
           // read as one list.
           <div className="content-card" key={job.key}>
-            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <Layers size={18} /> {garmentName} {accessoriesOnly ? 'Accessories' : ''}
+            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <span style={{ width: '34px', height: '34px', borderRadius: '10px', display: 'flex',
+                             alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                             background: 'rgba(16,124,65,0.1)', color: '#107c41' }}>
+                <Layers size={17} />
+              </span>
+              <span>{garmentName} {accessoriesOnly ? 'Accessories' : ''}</span>
             </div>
 
             {!spec || allSlots.length === 0 ? (
@@ -475,6 +505,9 @@ export default function GarmentFabricPicker({
               <div>
                 {accessoriesOnly ? (
                   <>
+                    <div style={{ padding: '16px 18px', borderRadius: '12px',
+                                  border: '1px solid var(--border-color)',
+                                  background: 'var(--surface-color, #fff)' }}>
                     <AccessoryMultiSelectDropdown
                       options={ACCESSORY_OPTIONS}
                       selectedKeys={selectedKeys}
@@ -482,14 +515,20 @@ export default function GarmentFabricPicker({
                       activeKey={activeSlotKey}
                       onSelectActiveKey={(key) => setActiveSlotMap(prev => ({ ...prev, [job.key]: key }))}
                     />
+                    </div>
                     {currentAccOption && (
-                      <div style={{ marginBottom: '14px', marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ margin: '16px 0 20px', padding: '16px 18px', borderRadius: '12px',
+                                    border: '1px solid var(--border-color)',
+                                    background: 'var(--surface-inset, #fafafa)',
+                                    display: 'grid', gap: '16px',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))' }}>
                         {currentAccOption.subtypes?.length > 0 && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em',
+                                           textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
                               {currentAccOption.label} Option / Style:
                             </span>
-                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                               {currentAccOption.subtypes.map(sub => {
                                 const activeSub = accessorySubtypes[`${job.key}:${activeSlotKey}`] || currentAccOption.subtypes[0];
                                 const isSelected = activeSub === sub;
@@ -499,14 +538,17 @@ export default function GarmentFabricPicker({
                                     type="button"
                                     onClick={() => setAccessorySubtypes(prev => ({ ...prev, [`${job.key}:${activeSlotKey}`]: sub }))}
                                     style={{
-                                      padding: '4px 12px',
-                                      fontSize: '11.5px',
-                                      borderRadius: '14px',
-                                      border: isSelected ? '1.5px solid #107c41' : '1px solid var(--border-color)',
-                                      background: isSelected ? 'rgba(16, 124, 65, 0.12)' : 'var(--surface-color, #fff)',
-                                      color: isSelected ? '#107c41' : 'var(--text-primary)',
-                                      fontWeight: isSelected ? 700 : 500,
+                                      padding: '7px 14px',
+                                      fontSize: '12.5px',
+                                      borderRadius: '999px',
+                                      border: isSelected ? '1.5px solid #107c41' : '1.5px solid var(--border-color)',
+                                      background: isSelected ? '#107c41' : 'var(--surface-color, #fff)',
+                                      color: isSelected ? '#fff' : 'var(--text-primary)',
+                                      fontWeight: 600,
+                                      whiteSpace: 'nowrap',
                                       cursor: 'pointer',
+                                      boxShadow: isSelected ? '0 2px 8px rgba(16,124,65,0.25)' : 'none',
+                                      transition: 'all 0.15s ease',
                                     }}
                                   >
                                     {sub}
@@ -518,8 +560,9 @@ export default function GarmentFabricPicker({
                         )}
 
                         {currentAccOption.measurementLabel && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', minWidth: '180px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <label style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em',
+                                            textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
                               {currentAccOption.label} {currentAccOption.measurementLabel}:
                             </label>
                             <input
@@ -531,7 +574,7 @@ export default function GarmentFabricPicker({
                                 const val = e.target.value;
                                 setAccessoryMeasurements(prev => ({ ...prev, [`${job.key}:${activeSlotKey}`]: val }));
                               }}
-                              style={{ maxWidth: '280px', padding: '5px 10px', fontSize: '12px', borderRadius: '6px' }}
+                              style={{ maxWidth: '300px', padding: '9px 12px', fontSize: '13px', borderRadius: '10px' }}
                             />
                           </div>
                         )}
