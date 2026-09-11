@@ -603,6 +603,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   };
 
   const [accessorySubtypes, setAccessorySubtypes] = useState({});
+  const [fabricMeasurements, setFabricMeasurements] = useState({});
 
   // Derived rather than stored: a `loading` flag would have to be set
   // synchronously at the top of the effect, which is the cascading-render
@@ -944,55 +945,75 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           : openPartLabel;
         const currentAccOption = accessoriesOnly && ACCESSORY_OPTIONS.find(o => o.key === openPart);
         return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px',
-                        marginBottom: '14px' }}>
-            <button type="button" className="btn-secondary" disabled={uploading}
-                    style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                    onClick={() => ownFileRef.current?.click()}>
-              <Upload size={12} /> {uploading ? 'Uploading…' : `Upload ${partFabricLabel} photos`}
-            </button>
-            <button type="button" className="btn-secondary" disabled={uploading}
-                    style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                    onClick={openCamera}>
-              <Camera size={12} /> Take photo
-            </button>
-            {!isFabric && (
-              <button type="button" className="btn-secondary"
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+            {isFabric && !accessoriesOnly && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', minWidth: '180px' }}>
+                  {partFabricLabel} Meter / Length / Size:
+                </label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="e.g. 2.5 meters, 1 meter, 3 yards..."
+                  value={fabricMeasurements[openPart] || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFabricMeasurements(prev => ({ ...prev, [openPart]: val }));
+                  }}
+                  style={{ maxWidth: '320px', padding: '5px 10px', fontSize: '12px', borderRadius: '6px' }}
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+              <button type="button" className="btn-secondary" disabled={uploading}
                       style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                      onClick={() => setAddingLink(v => !v)}>
-                <LinkIcon size={12} /> Add reference link
+                      onClick={() => ownFileRef.current?.click()}>
+                <Upload size={12} /> {uploading ? 'Uploading…' : `Upload ${partFabricLabel} photos`}
               </button>
-            )}
-            {/* multiple, because a customer describing one part sends several
-                pictures of it. Each becomes its own reference for this part. */}
-            <input ref={ownFileRef} type="file" accept="image/*" multiple hidden
-                   onChange={uploadReference} />
-            {/* capture, so a phone opens the camera rather than the gallery. One
-                shot at a time, which is what a camera gives; both land in the
-                same list for this part through the same handler. */}
-            <input ref={ownCamRef} type="file" accept="image/*" capture="environment" hidden
-                   onChange={uploadReference} />
-
-            {!isFabric && addingLink && (
-              <>
-                <input className="form-control" value={linkDraft} autoFocus
-                       onChange={(e) => setLinkDraft(e.target.value)}
-                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addReferenceLink(); } }}
-                       placeholder={`Link to a ${partFabricLabel.toLowerCase()} you like — add as many as you want`}
-                       style={{ flex: '1 1 240px', maxWidth: '340px', padding: '5px 9px', fontSize: '11.5px' }} />
-                <button type="button" className="btn-primary" disabled={!linkDraft.trim()}
+              <button type="button" className="btn-secondary" disabled={uploading}
+                      style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                      onClick={openCamera}>
+                <Camera size={12} /> Take photo
+              </button>
+              {!isFabric && (
+                <button type="button" className="btn-secondary"
                         style={{ padding: '5px 11px', fontSize: '11.5px' }}
-                        onClick={addReferenceLink}>
-                  Add
+                        onClick={() => setAddingLink(v => !v)}>
+                  <LinkIcon size={12} /> Add reference link
                 </button>
-              </>
-            )}
+              )}
+              {/* multiple, because a customer describing one part sends several
+                  pictures of it. Each becomes its own reference for this part. */}
+              <input ref={ownFileRef} type="file" accept="image/*" multiple hidden
+                     onChange={uploadReference} />
+              {/* capture, so a phone opens the camera rather than the gallery. One
+                  shot at a time, which is what a camera gives; both land in the
+                  same list for this part through the same handler. */}
+              <input ref={ownCamRef} type="file" accept="image/*" capture="environment" hidden
+                     onChange={uploadReference} />
 
-            {uploadError && (
-              <span role="alert" style={{ fontSize: '11.5px', color: 'var(--danger-color, #c0392b)' }}>
-                {uploadError}
-              </span>
-            )}
+              {!isFabric && addingLink && (
+                <>
+                  <input className="form-control" value={linkDraft} autoFocus
+                         onChange={(e) => setLinkDraft(e.target.value)}
+                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addReferenceLink(); } }}
+                         placeholder={`Link to a ${partFabricLabel.toLowerCase()} you like — add as many as you want`}
+                         style={{ flex: '1 1 240px', maxWidth: '340px', padding: '5px 9px', fontSize: '11.5px' }} />
+                  <button type="button" className="btn-primary" disabled={!linkDraft.trim()}
+                          style={{ padding: '5px 11px', fontSize: '11.5px' }}
+                          onClick={addReferenceLink}>
+                    Add
+                  </button>
+                </>
+              )}
+
+              {uploadError && (
+                <span role="alert" style={{ fontSize: '11.5px', color: 'var(--danger-color, #c0392b)' }}>
+                  {uploadError}
+                </span>
+              )}
+            </div>
           </div>
         );
       })()}
