@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Check, Layers } from 'lucide-react';
 
 import { resolveMediaUrl } from '../../services/media';
+import { PartTabStrip } from '../designStudio/GarmentPartTabs';
 
 /**
  * Fabric, garment by garment and part by part.
@@ -69,10 +70,10 @@ function FabricCard({ fabric, picked, onToggle }) {
 function SlotRow({ label, fabrics, chosen, onToggle }) {
   return (
     <div style={{ marginBottom: '18px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px',
-                    borderBottom: '1px solid var(--border-color)', paddingBottom: '5px' }}>
-        <span style={{ fontSize: '13px', fontWeight: 700 }}>{label}</span>
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '12px',
+                    borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
+        <span style={{ fontSize: '13.5px', fontWeight: 700 }}>{label} Fabrics</span>
+        <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
           {chosen.length > 0 ? `${chosen.length} chosen` : `${fabrics.length} available`}
         </span>
       </div>
@@ -80,7 +81,7 @@ function SlotRow({ label, fabrics, chosen, onToggle }) {
       {fabrics.length === 0 ? (
         // Never another part's fabrics as a fallback: an empty part is a gap in
         // the boutique's own filing, and showing it is how that gets noticed.
-        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '4px 0' }}>
+        <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', padding: '8px 0' }}>
           No fabrics available for this part.
         </div>
       ) : (
@@ -100,6 +101,8 @@ function SlotRow({ label, fabrics, chosen, onToggle }) {
 export default function GarmentFabricPicker({
   garmentJobs = [], fabrics = [], taxonomy = null, selection = {}, onChange, loading = false,
 }) {
+  const [activeSlotMap, setActiveSlotMap] = useState({});
+
   // In stock only, the same rule the flat grid applied: Manage Fabrics is the
   // screen that sets the flag and legitimately still lists what this hides.
   const inStock = useMemo(
@@ -140,6 +143,19 @@ export default function GarmentFabricPicker({
         const spec = garmentsByKey[garmentKey];
         const chosenForJob = selection[job.key] || {};
 
+        const allSlots = (spec?.sections || []).flatMap(section =>
+          (section.slots || []).map(slot => ({
+            key: slot.key,
+            label: slot.label,
+            sectionKey: section.key,
+            sectionLabel: section.label,
+            slot,
+          }))
+        );
+
+        const activeSlotKey = activeSlotMap[job.key] || allSlots[0]?.key;
+        const activeSlotItem = allSlots.find(s => s.key === activeSlotKey) || allSlots[0];
+
         const toggle = (slotKey) => (fabricId) => {
           const current = chosenForJob[slotKey] || [];
           const next = current.includes(fabricId)
@@ -156,11 +172,11 @@ export default function GarmentFabricPicker({
           // One card per dress, so a saree's fabrics and a blouse's can never
           // read as one list.
           <div className="content-card" key={job.key}>
-            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
               <Layers size={18} /> {garmentName}
             </div>
 
-            {!spec ? (
+            {!spec || allSlots.length === 0 ? (
               // A garment the fabric taxonomy does not describe yet. Said out
               // loud rather than showing an empty card or, worse, another
               // garment's rolls.
@@ -168,37 +184,44 @@ export default function GarmentFabricPicker({
                 No fabric parts are configured for {garmentName} yet. Add them under
                 Manage Fabrics to pick fabric part by part.
               </div>
-            ) : spec.sections.map((section) => (
-              <div key={section.key || '__only__'}>
-                {/* Garments whose taxonomy splits into sections (a lehenga's
-                    skirt and its blouse) label them; a saree has one unnamed
-                    section and needs no heading. */}
-                {section.key && (
-                  <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
-                                letterSpacing: '0.04em', color: 'var(--text-secondary)',
-                                margin: '14px 0 8px' }}>
-                    {section.label}
-                  </div>
-                )}
-                {section.slots.map((slot) => {
+            ) : (
+              <div>
+                {/* Horizontal Part Tabs for fabric selection */}
+                <PartTabStrip
+                  parts={allSlots.map(s => {
+                    const chosenCount = (chosenForJob[s.key] || []).length;
+                    const sectionPrefix = (spec.sections?.length > 1 && s.sectionLabel) ? `${s.sectionLabel} - ` : '';
+                    return {
+                      key: s.key,
+                      label: chosenCount > 0 ? `✓ ${sectionPrefix}${s.label} (${chosenCount})` : `${sectionPrefix}${s.label}`,
+                    };
+                  })}
+                  active={activeSlotKey}
+                  allLabel={null}
+                  onChange={(key) => setActiveSlotMap(prev => ({ ...prev, [job.key]: key }))}
+                />
+
+                {/* Fabrics available for active part tab */}
+                {activeSlotItem && (() => {
+                  const { sectionKey, slot } = activeSlotItem;
                   const filed = inStock.filter(f => (f.placements || []).some(
-                    p => placementCovers(p, garmentKey, section.key, slot.key)));
+                    p => placementCovers(p, garmentKey, sectionKey, slot.key)));
                   // Unfiled rolls come after the ones actually filed here, so
                   // the boutique's own filing leads.
                   const forSlot = [...filed,
                                    ...unfiled.filter(f => !filed.includes(f))];
                   return (
                     <SlotRow
-                      key={`${section.key}:${slot.key}`}
+                      key={`${sectionKey}:${slot.key}`}
                       label={slot.label}
                       fabrics={forSlot}
                       chosen={chosenForJob[slot.key] || []}
                       onToggle={toggle(slot.key)}
                     />
                   );
-                })}
+                })()}
               </div>
-            ))}
+            )}
           </div>
         );
       })}
