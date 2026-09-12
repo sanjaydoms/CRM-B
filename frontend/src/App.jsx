@@ -7245,6 +7245,14 @@ function App() {
                         customers={allCustomers}
                         orders={ordersList}
                         garmentTemplates={garmentTemplates}
+                        newCustomer={customerForm}
+                        onCustomerCreated={(row) => {
+                          // The walk-in is now a customer: the draft carries
+                          // the id, so confirm updates them rather than
+                          // creating a second row for the same mobile.
+                          setCustomerId(row.id);
+                          setAllCustomers((prev) => [row, ...prev]);
+                        }}
                       />
                     </Suspense>
                   )}

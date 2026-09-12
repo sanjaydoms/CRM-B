@@ -26,6 +26,19 @@ const FALLBACK =
 
 const customerName = (c) => `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.mobile_number || 'Customer';
 
+// A customer typed into the wizard but not yet saved -- the name and mobile
+// at the top of the Design Studio step -- offered in the customer list as
+// "New: …" and created on Save, so a walk-in can have a sketch captured
+// before there is a customer row. What the draft's own confirm would send.
+const NEW_CUSTOMER = '__new__';
+const NEW_CUSTOMER_KEYS = ['first_name', 'last_name', 'mobile_number', 'email_address', 'address',
+                           'city_region', 'source', 'customer_type', 'gender', 'garment_type',
+                           'occasion', 'pattern_style', 'custom_requirements', 'occupation',
+                           'preferred_communication', 'notes'];
+const newCustomerFields = (form) => Object.fromEntries(
+  NEW_CUSTOMER_KEYS.filter((k) => form?.[k] !== undefined && form?.[k] !== null && form?.[k] !== '')
+                   .map((k) => [k, form[k]]));
+
 // ---------------------------------------------------------------------------
 // The sketch pad
 
@@ -201,9 +214,14 @@ function strokesToFile(strokes) {
 // ---------------------------------------------------------------------------
 // The form: one form, two ways of taking the picture
 
-function CustomerDesignForm({ mode, customers, orders, garmentTemplates, initialCustomerId, onClose, onSaved }) {
+function CustomerDesignForm({ mode, customers, orders, garmentTemplates, initialCustomerId, newCustomer,
+                              onClose, onSaved, onCustomerCreated }) {
+  // Offered only while the wizard's customer is new: a name and a mobile
+  // typed above, and no saved row behind them.
+  const pendingNew = !initialCustomerId && (newCustomer?.first_name || '').trim() && (newCustomer?.mobile_number || '').trim()
+    ? newCustomer : null;
   const [form, setForm] = useState({
-    title: '', customer: initialCustomerId || '', order: '', template: '', notes: '',
+    title: '', customer: initialCustomerId || (pendingNew ? NEW_CUSTOMER : ''), order: '', template: '', notes: '',
   });
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState('');
@@ -238,8 +256,17 @@ function CustomerDesignForm({ mode, customers, orders, garmentTemplates, initial
     setError(null);
     try {
       const image = mode === 'draw' ? await strokesToFile(strokes) : file;
+      let customer = form.customer;
+      if (customer === NEW_CUSTOMER) {
+        // The customer first, exactly as the order's confirm would create
+        // them; the wizard is told, so its draft carries the id from here on
+        // and confirm does not create the same person twice.
+        const row = await api.createCustomer(newCustomerFields(pendingNew));
+        customer = row.id;
+        onCustomerCreated?.(row);
+      }
       const created = await api.createCustomerDesign({
-        title: form.title.trim(), customer: form.customer, order: form.order,
+        title: form.title.trim(), customer, order: form.order,
         template: form.template, notes: form.notes, source: mode === 'draw' ? 'drawn' : 'uploaded',
       }, image);
       onSaved?.(created);
@@ -275,10 +302,17 @@ function CustomerDesignForm({ mode, customers, orders, garmentTemplates, initial
           <input className="form-control" value={form.title} onChange={set('title')} autoFocus
                  placeholder="e.g. Bridal Blouse, Customer Neck Design" />
         </Field>
-        <Field label="Customer" required icon={User}>
+        <Field label="Customer" required icon={User}
+               hint={!initialCustomerId && !pendingNew
+                 ? 'For a new customer, enter their name and mobile at the top of this step first.' : undefined}>
           <select className="form-control" value={form.customer}
                   onChange={(e) => setForm((f) => ({ ...f, customer: e.target.value, order: '' }))}>
             <option value="">Choose a customer</option>
+            {pendingNew && (
+              <option value={NEW_CUSTOMER}>
+                New: {customerName(pendingNew)} ({pendingNew.mobile_number}) — will be created
+              </option>
+            )}
             {(customers || []).map((c) => <option key={c.id} value={c.id}>{customerName(c)}</option>)}
           </select>
         </Field>
@@ -382,7 +416,8 @@ function CustomerDesignView({ design, onClose }) {
 // ---------------------------------------------------------------------------
 // The list
 
-export default function CustomerDesigns({ customerId, customers = [], orders = [], garmentTemplates = [] }) {
+export default function CustomerDesigns({ customerId, customers = [], orders = [], garmentTemplates = [],
+                                          newCustomer = null, onCustomerCreated }) {
   const [designs, setDesigns] = useState(null);
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -502,7 +537,8 @@ export default function CustomerDesigns({ customerId, customers = [], orders = [
       {mode && (
         <CustomerDesignForm
           mode={mode} customers={customers} orders={orders} garmentTemplates={garmentTemplates}
-          initialCustomerId={customerId} onClose={() => setMode(null)} onSaved={saved}
+          initialCustomerId={customerId} newCustomer={newCustomer} onCustomerCreated={onCustomerCreated}
+          onClose={() => setMode(null)} onSaved={saved}
         />
       )}
       {viewing && <CustomerDesignView design={viewing} onClose={() => setViewing(null)} />}
