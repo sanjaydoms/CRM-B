@@ -28,7 +28,7 @@ const STATUS_TONE = {
 
 const money = (value) => formatMoney(Number(value || 0));
 
-function RequestAlterationModal({ order, customerId, onClose, onCreated }) {
+export function RequestAlterationModal({ order, customerId, onClose, onCreated }) {
   const garments = order.garment_jobs || [];
   const [form, setForm] = useState({
     garment_job_id: garments.length === 1 ? garments[0].id : '',
@@ -66,7 +66,7 @@ function RequestAlterationModal({ order, customerId, onClose, onCreated }) {
     }
   };
 
-  const field = { width: '100%', marginBottom: '12px' };
+  const field = { width: '100%', marginBottom: '10px' };
   const label = { fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' };
 
   return (
@@ -76,7 +76,7 @@ function RequestAlterationModal({ order, customerId, onClose, onCreated }) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: 'var(--surface-color, #17181a)', border: '1px solid var(--border-color)', borderRadius: '12px', width: '100%', maxWidth: '520px', maxHeight: '88vh', overflowY: 'auto', padding: '20px' }}
+        style={{ background: 'var(--surface-color, #17181a)', border: '1px solid var(--border-color)', borderRadius: '12px', width: '100%', maxWidth: '760px', maxHeight: '92vh', overflowY: 'auto', padding: '20px' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Take a garment back for alteration</h3>
@@ -93,6 +93,7 @@ function RequestAlterationModal({ order, customerId, onClose, onCreated }) {
           </div>
         )}
 
+        <div className="form-grid-2" style={{ gap: '12px' }}>
         <div style={field}>
           <label style={label}>Which garment came back?</label>
           {garments.length === 0 ? (
@@ -131,15 +132,18 @@ function RequestAlterationModal({ order, customerId, onClose, onCreated }) {
             ))}
           </div>
         </div>
+        </div>
 
+        <div className="form-grid-2" style={{ gap: '12px' }}>
         <div style={field}>
           <label style={label}>What is wrong?</label>
-          <textarea className="form-control" rows={3} placeholder="The waist is loose…" value={form.issue_description} onChange={set('issue_description')} />
+          <textarea className="form-control" rows={2} placeholder="The waist is loose…" value={form.issue_description} onChange={set('issue_description')} />
         </div>
 
         <div style={field}>
           <label style={label}>Adjustments asked for — one per line, e.g. “waist: let out 1 inch”</label>
-          <textarea className="form-control" rows={3} value={form.adjustments} onChange={set('adjustments')} />
+          <textarea className="form-control" rows={2} value={form.adjustments} onChange={set('adjustments')} />
+        </div>
         </div>
 
         {isPaid && (

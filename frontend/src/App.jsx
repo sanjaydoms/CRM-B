@@ -40,7 +40,7 @@ const AlterationsPanel = lazy(() => import('./features/alterations/AlterationsPa
 const FinancePanel = lazy(() => import('./features/finance/FinancePanel'));
 import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
-import OrderAlterations from './features/alterations/OrderAlterations';
+import OrderAlterations, { RequestAlterationModal } from './features/alterations/OrderAlterations';
 import AlterationList from './features/alterations/AlterationList';
 import OrderGarmentBrief from './features/catalog/OrderGarmentBrief';
 import OrderKanban from './features/orders/OrderKanban';
@@ -1047,7 +1047,6 @@ const navSectionsFor = (user, t) => {
       { key: 'daily', label: t('nav.groups.daily', 'Daily'), items: [
         { tab: 'overview', icon: Users, label: t('nav.dashboard'), phone: true },
         { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
-        { tab: 'alterations', icon: Scissors, label: t('nav.alterations', 'Alterations') },
         { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
       ] },
       { key: 'design', label: t('nav.groups.design', 'Design'), items: [
@@ -1075,7 +1074,6 @@ const navSectionsFor = (user, t) => {
       { key: 'master', items: [
         { tab: 'assignments', icon: Scissors, label: t('nav.myAssignments'), phone: true },
         { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
-        { tab: 'alterations', icon: Scissors, label: t('nav.alterations', 'Alterations') },
         { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
         // A Master supervises the floor, so they get the team roster. The
         // screen hides every management control for them and the API strips
@@ -1201,7 +1199,10 @@ function App() {
   // that 403s on every call it makes. Hiding the sidebar entry does not help
   // on its own -- nothing stops a stale requestedTab from still pointing at
   // it -- so resolve it here, where a hidden tab simply never renders.
+  // 'alterations' has no sidebar entry on purpose -- it is reached from a
+  // delivered order -- but it is still a real screen for anyone with the module.
   const navTabs = navSections.flatMap((s) => s.items.map((i) => i.tab));
+  if (canSeeTab(currentUser, 'alterations')) navTabs.push('alterations');
   const dashboardTab = (!navTabs.length || navTabs.includes(requestedTab)) ? requestedTab : navTabs[0];
 
   
@@ -1752,6 +1753,8 @@ function App() {
   // follows one from an order card or a customer's file, cleared once the tab
   // has been entered so going back to the tab shows the register again.
   const [openAlterationId, setOpenAlterationId] = useState(null);
+  // Delivered order picked for alteration from the customer profile.
+  const [alterationOrder, setAlterationOrder] = useState(null);
   const openAlteration = (id) => {
     setOpenAlterationId(id);
     setSelectedDirectoryCustomer(null);
@@ -5178,7 +5181,7 @@ function App() {
                         <Copy size={16} /> Go with Existing Design
                       </button>
                       <button className="btn-primary" onClick={() => handleSelectExistingCustomer(c)}>
-                        <Sparkles size={16} /> Create New Design
+                        <Sparkles size={16} /> Create New Order
                       </button>
                     </div>
                   )}
@@ -5297,6 +5300,12 @@ function App() {
                                   {stages.length > 0 ? ` · ${done}/${stages.length} stages${current ? ` · ${current.stage_name}` : ''}` : ''}
                                 </div>
                               </div>
+                              {order.order_status === 'Delivered' && isOwner && (
+                                <button type="button" className="btn-secondary at-btn-sm"
+                                        onClick={(e) => { e.stopPropagation(); setAlterationOrder(order); }}>
+                                  <Scissors size={12} /> Alteration
+                                </button>
+                              )}
                               <span className={`ui-badge ui-badge--${statusTone(order.order_status)}`}>{order.order_status}</span>
                               <span className="at-row-sub" style={{ whiteSpace: 'nowrap' }}>{fmtDate(order.order_date)}</span>
                               <strong className="at-num" style={{ color: 'var(--accent-text)' }}>{inr(order.total_amount)}</strong>
@@ -5337,12 +5346,29 @@ function App() {
                                     <Copy size={12} /> Reorder Style
                                   </button>
                                 )}
+                                {/* Renders only once the order is Delivered: the
+                                    way to take a garment back for alteration. */}
+                                <OrderAlterations
+                                  order={order}
+                                  customerId={c.id}
+                                  currentUser={currentUser}
+                                  onOpenAlteration={openAlteration}
+                                  compact
+                                />
                               </div>
                             )}
                           </div>
                         );
                       })}
                     </SectionCard>
+                    {alterationOrder && (
+                      <RequestAlterationModal
+                        order={alterationOrder}
+                        customerId={c.id}
+                        onClose={() => setAlterationOrder(null)}
+                        onCreated={(created) => { setAlterationOrder(null); openAlteration(created.id); }}
+                      />
+                    )}
                   </div>
 
                   <div className="at-stack">
