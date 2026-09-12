@@ -4181,7 +4181,7 @@ function App() {
                                 value={inr(s.revenue_month)} sub={`${inr(s.revenue_total)} all time`} />
                       <StatCard icon={Wallet} tone="amber" label="To collect" value={inr(outstanding)}
                                 sub={outstanding > 0 ? 'across active orders' : 'all settled'}
-                                onClick={() => setDashboardTab('orders')} />
+                                onClick={() => { setInvoiceFilter('Pending'); setDashboardTab('invoices'); }} />
                       <StatCard icon={ClipboardList} tone="violet" label="Active orders" value={s.active_orders ?? 0}
                                 sub={`${s.due_soon ?? 0} due this week${overdue ? ` · ${overdue} overdue` : ''}`}
                                 onClick={() => setDashboardTab('orders')} />
