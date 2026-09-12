@@ -35,6 +35,7 @@ const SelectedDesignSummary = lazy(() => import('./features/designStudio/Garment
   .then(m => ({ default: m.SelectedDesignSummary })));
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
 const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
+const DesignUpload = lazy(() => import('./features/designStudio/DesignUpload'));
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
 const StaffPanel = lazy(() => import('./features/staff/StaffPanel'));
@@ -1376,6 +1377,7 @@ function App() {
   const [editingDesign, setEditingDesign] = useState(null);
   const [designSaving, setDesignSaving] = useState(false);
   const [designImageFile, setDesignImageFile] = useState(null);
+  const [showDesignUpload, setShowDesignUpload] = useState(false);
   const [designForm, setDesignForm] = useState({
     name: '',
     garment_type: 'Lehenga',
@@ -4618,26 +4620,27 @@ function App() {
                     </div>
                   )}
                   actions={(!currentUser?.role || currentUser.role === 'Owner') && (
-                      <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={() => {
-                        setEditingDesign(null);
-                        setDesignForm({
-                          name: '',
-                          garment_type: 'Lehenga',
-                          neckline_style: '',
-                          sleeve_style: '',
-                          image_url: '',
-                          is_boutique: true,
-                          price: 0,
-                          description: ''
-                        });
-                        setDesignImageFile(null);
-                        setShowDesignModal(true);
-                      }}>
+                      <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={() => setShowDesignUpload(true)}>
                         <Plus size={16} />
                         {t('designsPage.addNewDesign')}
                       </button>
                   )}
                 />
+                {/* The same upload form the library's "Upload design" button
+                    opens; on save the library refreshes through its token. */}
+                {showDesignUpload && (
+                  <Suspense fallback={<ScreenLoading />}>
+                    <DesignUpload
+                      onClose={() => setShowDesignUpload(false)}
+                      onUploaded={() => {
+                        setShowDesignUpload(false);
+                        setDesignLibraryToken(t => t + 1);
+                        setDesignsView('library');
+                        fetchDashboardAndConfig();
+                      }}
+                    />
+                  </Suspense>
+                )}
 
                 <div className="design-manager-content">
                   {/* Dashboard first: stats before images, so opening the module
