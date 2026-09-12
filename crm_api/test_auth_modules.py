@@ -98,15 +98,15 @@ class AuthModulePayloadTests(TenantTestCase):
         # Entitlement outranks the role map: the owner distributes access, but
         # cannot hand out what the platform has not sold the boutique.
         before = self.login(OWNER_EMAIL, OWNER_PASSWORD)['user']
-        self.assertIn('fabrics', before['modules'])
+        self.assertIn('tailors', before['modules'])
 
-        self.set_enabled_modules({'fabrics': False})
+        self.set_enabled_modules({'tailors': False})
 
         after = self.login(OWNER_EMAIL, OWNER_PASSWORD)['user']
-        self.assertNotIn('fabrics', after['modules'])
-        self.assertNotIn('fabrics',
+        self.assertNotIn('tailors', after['modules'])
+        self.assertNotIn('tailors',
                          [k for keys in after['module_groups'].values() for k in keys])
-        self.assertNotIn('fabrics', self.me(self.token_for(self.owner))['modules'])
+        self.assertNotIn('tailors', self.me(self.token_for(self.owner))['modules'])
 
     def test_the_owner_can_take_a_module_off_a_role_but_keeps_it(self):
         tailor_before = self.login(TAILOR_EMAIL, TAILOR_PASSWORD)['user']['modules']

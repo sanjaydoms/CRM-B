@@ -32,7 +32,7 @@ export default function FabricColorFilter({ fabrics = [], value = '', onChange }
   const swatches = useMemo(() => {
     const seen = new Map();
     (fabrics || [])
-      .filter(f => f.is_available !== false && (f.color || '').trim())
+      .filter(f => (f.color || '').trim())
       .forEach((f) => {
         const key = f.color.trim().toLowerCase();
         const entry = seen.get(key) || { name: f.color.trim(), hex: '', count: 0 };

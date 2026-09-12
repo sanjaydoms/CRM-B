@@ -258,6 +258,19 @@ class InventoryItem(models.Model):
     design_number = models.CharField(max_length=100, blank=True, null=True)
     width = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True)
 
+    # What the fabric catalogue (crm_api.BoutiqueFabric, retired) held and the
+    # ledger did not: the roll's own photographs, its exact shade, and what it
+    # is in the fabric taxonomy. One row is now both the picture the order
+    # wizard picks from and the metres the ledger counts.
+    color_hex = models.CharField(max_length=7, blank=True, default='')
+    image_url = models.CharField(max_length=500, blank=True, default='')
+    image_urls = models.JSONField(default=list, blank=True)
+    kind = models.CharField(max_length=40, blank=True, default='', db_index=True)
+    variant = models.CharField(max_length=60, blank=True, default='')
+    # The catalogue row this item was migrated from. Orders placed before the
+    # merge snapshot those ids in GarmentJob.selections.
+    legacy_fabric_id = models.IntegerField(null=True, blank=True, db_index=True)
+
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     gst_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
@@ -337,6 +350,36 @@ class InventoryItem(models.Model):
 
     def __str__(self):
         return f"{self.item_code} · {self.name} ({self.available_stock} {self.get_unit_display()})"
+
+
+class ItemPlacement(models.Model):
+    """Where on which garment a stocked material is used: Saree > Pallu, or
+    Lehenga > Blouse > Main Fabric. One roll, many placements; the order
+    wizard lays each part's fabrics out from these."""
+
+    item = models.ForeignKey(InventoryItem, on_delete=models.CASCADE, related_name='placements')
+    garment = models.CharField(max_length=40)
+    section = models.CharField(max_length=60, blank=True, default='')
+    slot = models.CharField(max_length=60, blank=True, default='')
+    # Photographs of this material on this part of the garment.
+    image_urls = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ['garment', 'section', 'slot']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['item', 'garment', 'section', 'slot'],
+                name='uniq_item_placement'),
+        ]
+        indexes = [models.Index(fields=['garment', 'section', 'slot'])]
+
+    @property
+    def path(self):
+        from crm_api.fabric_taxonomy import placement_path
+        return placement_path(self.garment, self.section, self.slot)
+
+    def __str__(self):
+        return f"{self.item.name} — {self.path}"
 
 
 class StockMovement(models.Model):

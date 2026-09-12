@@ -333,14 +333,6 @@ export const api = {
   },
 
   // Get boutique fabrics
-  async getFabrics() {
-    const res = await guardedFetch(`${BASE_URL}/fabrics/`, {
-      headers: getHeaders()
-    });
-    if (!res.ok) await failWith(res, 'Failed to fetch fabrics');
-    return res.json();
-  },
-
   // Create customer profile (Step 1)
   async createCustomer(customerData, profilePhotoFile) {
     const formData = new FormData();
@@ -762,54 +754,6 @@ export const api = {
   // Fabrics CRUD
   // Photos go up before the fabric exists, so this returns URLs the form then
   // saves with the rest of the record.
-  async getFabricTaxonomy() {
-    const res = await guardedFetch(`${BASE_URL}/fabrics/taxonomy/`, {
-      headers: getHeaders()
-    });
-    if (!res.ok) await failWith(res, 'Failed to fetch fabric categories');
-    return res.json();
-  },
-
-  async uploadFabricImages(files) {
-    const formData = new FormData();
-    files.forEach(file => formData.append('images', file));
-    const res = await fetch(`${BASE_URL}/fabrics/upload-images/`, {
-      method: 'POST',
-      headers: getHeaders(true),
-      body: formData,
-    });
-    if (!res.ok) await failWith(res, 'Failed to upload fabric images');
-    return res.json();
-  },
-
-  async createFabric(fabricData) {
-    const res = await guardedFetch(`${BASE_URL}/fabrics/`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(fabricData),
-    });
-    if (!res.ok) await failWith(res, 'Failed to create fabric');
-    return res.json();
-  },
-
-  async updateFabric(id, fabricData) {
-    const res = await guardedFetch(`${BASE_URL}/fabrics/${id}/`, {
-      method: 'PATCH',
-      headers: getHeaders(),
-      body: JSON.stringify(fabricData),
-    });
-    if (!res.ok) await failWith(res, 'Failed to update fabric');
-    return res.json();
-  },
-
-  async deleteFabric(id) {
-    const res = await guardedFetch(`${BASE_URL}/fabrics/${id}/`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    });
-    if (!res.ok) await failWith(res, 'Failed to delete fabric');
-    return true;
-  },
 
   // Tailors CRUD
   // FormData when a profile photo is attached (multipart), plain JSON otherwise.
@@ -957,6 +901,23 @@ export const api = {
     return res.json();
   },
 
+  // The garment / section / slot tree and the material kinds the fabric
+  // catalogue used to serve. Owner-only like the rest of inventory.
+  async getInventoryTaxonomy() {
+    const res = await guardedFetch(`${BASE_URL}/inventory/items/taxonomy/`, { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to fetch fabric categories');
+    return res.json();
+  },
+  // Photographs go up before the item exists, so the form saves the URLs.
+  async uploadInventoryImages(files) {
+    const formData = new FormData();
+    [...files].forEach((file) => formData.append('images', file));
+    const res = await guardedFetch(`${BASE_URL}/inventory/items/upload-images/`, {
+      method: 'POST', headers: getHeaders(true), body: formData,
+    });
+    if (!res.ok) await failWith(res, 'Failed to upload the photos');
+    return res.json();
+  },
   async saveInventoryItem(itemData, itemId = null) {
     const res = await guardedFetch(
       itemId ? `${BASE_URL}/inventory/items/${itemId}/` : `${BASE_URL}/inventory/items/`,

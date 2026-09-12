@@ -10,7 +10,7 @@ from django.test import override_settings
 import datetime
 
 from apps.design_studio.models import DesignAsset
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign, OrderStage, Notification
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueDesign, OrderStage, Notification
 
 def settle_stages_before(order, stage_key):
     from crm_api.models import BoutiqueSettings, OrderStage
@@ -43,9 +43,6 @@ class BoutiqueCRMTests(TenantTestCase):
 
         self.tailor = Tailor.objects.create(
             name="Test Tailor", specialty="Suits", rating=4.8, status="Available"
-        )
-        self.fabric = BoutiqueFabric.objects.create(
-            name="Silk Dupion", material="Pure Silk", color="Dusty Rose", price_per_meter=1800.00
         )
         
         self.user_password = "securepassword123"
@@ -656,64 +653,6 @@ class BoutiqueCRMTests(TenantTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], "Boutique Lehenga 1")
-
-    def test_fabric_crud(self):
-        self.authenticate_client()
-        
-        url = reverse('fabric-list')
-        data = {
-            "name": "Chanderi Silk",
-            "material": "Silk Blend",
-            "color": "Aqua Blue",
-            "price_per_meter": 1250.00
-        }
-        response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['name'], "Chanderi Silk")
-        fabric_id = response.data['id']
-
-        detail_url = reverse('fabric-detail', kwargs={'pk': fabric_id})
-        patch_data = {"price_per_meter": 1400.00}
-        response = self.client.patch(detail_url, patch_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(float(response.data['price_per_meter']), 1400.00)
-
-        response = self.client.delete(detail_url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(BoutiqueFabric.objects.filter(id=fabric_id).exists())
-
-    def test_fabric_colour_and_photos(self):
-        """The swatch is validated, and the first photo becomes the card image."""
-        self.authenticate_client()
-        url = reverse('fabric-list')
-
-        bad = self.client.post(url, {
-            "name": "Bad Swatch", "material": "Silk", "color": "Red",
-            "color_hex": "aqua-blue", "price_per_meter": 900.00}, format='json')
-        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('color_hex', bad.data)
-
-        good = self.client.post(url, {
-            "name": "Chanderi Silk", "material": "Silk Blend", "color": "Aqua Blue",
-            "color_hex": "#1A2B3C", "price_per_meter": 1250.00,
-            "image_urls": ["https://example.test/a.jpg", "https://example.test/b.jpg"]},
-            format='json')
-        self.assertEqual(good.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(good.data['color_hex'], '#1a2b3c')
-        # Every existing grid reads image_url; it must not stay empty when the
-        # owner only ever photographed the roll.
-        self.assertEqual(good.data['image_url'], "https://example.test/a.jpg")
-        self.assertEqual(len(good.data['image_urls']), 2)
-
-        upload = reverse('fabric-upload-images')
-        junk = SimpleUploadedFile('notes.txt', b'not an image', content_type='text/plain')
-        self.assertEqual(self.client.post(upload, {'images': junk}, format='multipart').status_code,
-                         status.HTTP_400_BAD_REQUEST)
-
-        shot = SimpleUploadedFile('roll.png', b'\x89PNG\r\n\x1a\n fake', content_type='image/png')
-        stored = self.client.post(upload, {'images': shot}, format='multipart')
-        self.assertEqual(stored.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(len(stored.data['image_urls']), 1)
 
     def test_tailor_crud(self):
         self.authenticate_client()

@@ -299,10 +299,10 @@ class AtomicConfirmOverHttpTests(DraftTestBase):
         self.assertEqual(job.measurements['chest'], '36')
 
     def test_the_designs_and_fabrics_chosen_stay_on_the_garment(self):
-        from crm_api.models import BoutiqueFabric
-        silk = BoutiqueFabric.objects.create(
-            name='Kanchipuram Silk', material='Silk', color='Maroon',
-            price_per_meter=Decimal('1200'))
+        from apps.inventory.models import InventoryItem
+        silk = InventoryItem.objects.create(
+            item_code='FAB-T-001', name='Kanchipuram Silk', category='FABRIC', unit='METER',
+            material_type='Silk', color='Maroon', selling_price=Decimal('1200'))
         draft_id = self.a_draft(garments=[{
             'template': str(self.template.id),
             'spec': {'blouse_type': 'princess'},
@@ -311,6 +311,7 @@ class AtomicConfirmOverHttpTests(DraftTestBase):
                 'id': 7, 'image_url': '/media/front.jpg',
                 'design_title': 'Pattu Blouse', 'part_label': 'Front design'}}},
             'fabrics': {'MAIN_FABRIC': [str(silk.id)], 'BORDER': [str(silk.id)]},
+            'fabric_qty': {f'MAIN_FABRIC:{silk.id}': 6, f'BORDER:{silk.id}': 1.5},
         }])
 
         response = self.api.post(reverse('order-draft-confirm', args=[draft_id]))
@@ -320,6 +321,7 @@ class AtomicConfirmOverHttpTests(DraftTestBase):
         self.assertEqual(kept['design']['parts']['front']['design_title'], 'Pattu Blouse')
         self.assertEqual(kept['fabrics'], {'MAIN_FABRIC': [str(silk.id)], 'BORDER': [str(silk.id)]})
         self.assertEqual([f['name'] for f in kept['fabric_items']], ['Kanchipuram Silk'])
+        self.assertEqual(kept['fabric_qty'][f'MAIN_FABRIC:{silk.id}'], 6)
         self.assertEqual(kept['slot_labels']['MAIN_FABRIC'], 'Main Fabric / Body')
         # The stage panel reads the order, not the draft, and never /api/fabrics/.
         panel = response.data['garment_jobs'][0]['selections']

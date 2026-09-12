@@ -165,10 +165,10 @@ class MergeTests(RoleModuleBase):
         """
         self.patch(self.owner, {'Tailor': {'inventory': False}})
         self.patch(self.owner, {'QC Staff': {'payroll': False}})
-        response = self.patch(self.owner, {'Tailor': {'fabrics': False}})
+        response = self.patch(self.owner, {'Tailor': {'scheduling': False}})
 
         self.assertEqual(response.data['role_modules'], {
-            'Tailor': {'inventory': False, 'fabrics': False},
+            'Tailor': {'inventory': False, 'scheduling': False},
             'QC Staff': {'payroll': False},
         })
 

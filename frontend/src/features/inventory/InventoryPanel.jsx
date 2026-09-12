@@ -3,7 +3,10 @@ import { AlertTriangle, ArrowDownCircle, BarChart3, BookOpen, ClipboardList, His
 import { api } from '../../services/api';
 import { orderRef } from '../../services/format';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
-import { PageHeader, StatCard } from '../../components/ui/Atelier';
+import { AddMoreTile, Dropzone, PageHeader, PhotoTile, StatCard } from '../../components/ui/Atelier';
+import { resolveMediaUrl } from '../../services/media';
+import FabricPlacements from '../fabrics/FabricPlacements';
+import { useFabricTaxonomy } from '../fabrics/taxonomy';
 import CatalogBrowser from './CatalogBrowser';
 import LocationsTab from './LocationsTab';
 import RecipesTab from './RecipesTab';
@@ -410,6 +413,10 @@ function ItemsTab({
                 <tr key={item.id} style={{ borderTop: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '12px' }}>
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {item.image_url && (
+                        <img src={resolveMediaUrl(item.image_url)} alt="" loading="lazy"
+                             style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+                      )}
                       {item.name}
                       {item.needs_reorder && (
                         <span title="At or below reorder level" style={{ display: 'inline-flex', color: 'var(--warning-color)' }}>
@@ -610,7 +617,37 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
     rack_location: item.rack_location || '',
     supplier: item.supplier || '',
     status: item.status || 'ACTIVE',
+    // What the fabric catalogue used to record: the roll's own photographs,
+    // its exact shade, what it is and where on which garment it goes.
+    material_type: item.material_type || '',
+    color_hex: item.color_hex || '',
+    image_urls: item.image_urls || [],
+    image_url: item.image_url || '',
+    kind: item.kind || '',
+    variant: item.variant || '',
+    placements: (item.placements || []).map(({ garment, section, slot }) => ({ garment, section, slot })),
+    // A roll that has just arrived is stocked in the same breath.
+    opening_stock: '',
   });
+  const taxonomy = useFabricTaxonomy();
+  const [uploading, setUploading] = useState(false);
+  const addPhotos = async (files) => {
+    const picked = [...(files || [])];
+    if (!picked.length) return;
+    setUploading(true);
+    try {
+      const { image_urls: uploaded } = await api.uploadInventoryImages(picked);
+      setForm((f) => ({
+        ...f,
+        image_urls: [...(f.image_urls || []), ...uploaded],
+        image_url: f.image_url || uploaded[0] || '',
+      }));
+    } catch (err) {
+      alert('Could not upload those photos: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -623,12 +660,17 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
     setError(null);
     setSaving(true);
     try {
-      const payload = { ...form, unit: form.unit || unitForCategory || 'UNIT' };
+      const { opening_stock: openingStock, ...payload } = { ...form, unit: form.unit || unitForCategory || 'UNIT' };
       ['purchase_price', 'selling_price', 'reorder_level', 'minimum_stock'].forEach((k) => {
         payload[k] = payload[k] === '' ? 0 : payload[k];
       });
       if (!payload.supplier) delete payload.supplier;
-      await api.saveInventoryItem(payload, item.id || null);
+      const saved = await api.saveInventoryItem(payload, item.id || null);
+      // Through the ledger, like every other quantity: the item is created
+      // empty and the opening figure arrives as a Stock In that names itself.
+      if (isNew && Number(openingStock) > 0) {
+        await api.moveStock(saved.id, 'stock-in', { quantity: openingStock, remarks: 'Opening stock' });
+      }
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -638,7 +680,7 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
   };
 
   return (
-    <Modal title={isNew ? t('inventoryPage.newItemTitle', 'New inventory item') : `${t('inventoryPage.editTitle', 'Edit')} · ${item.name}`} onClose={onClose} width="600px">
+    <Modal title={isNew ? t('inventoryPage.newItemTitle', 'New inventory item') : `${t('inventoryPage.editTitle', 'Edit')} · ${item.name}`} onClose={onClose} width="760px">
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
           <Field label={t('inventoryPage.itemCode', 'Item code')} required value={form.item_code} onChange={(v) => set('item_code', v)} />
@@ -653,6 +695,17 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
             hint={!form.unit && unitForCategory ? t('inventoryPage.defaultForCategory', 'Default for this category') : ''}
           />
           <Field label={t('inventoryPage.colour', 'Colour')} value={form.color} onChange={(v) => set('color', v)} />
+          <Field label={t('inventoryPage.materialType', 'Material')} value={form.material_type} onChange={(v) => set('material_type', v)} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('inventoryPage.colourCode', 'Colour code')}</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="color" aria-label="Colour wheel" value={/^#[0-9a-fA-F]{6}$/.test(form.color_hex) ? form.color_hex : '#c8a97e'}
+                     onChange={(e) => set('color_hex', e.target.value)}
+                     style={{ width: '38px', height: '38px', padding: 0, border: '1px solid var(--border-color)', borderRadius: '8px', background: 'none' }} />
+              <input className="form-control" placeholder="#c8a97e" maxLength={7} value={form.color_hex} style={{ fontFamily: 'monospace' }}
+                     onChange={(e) => { const v = e.target.value.trim(); set('color_hex', v && !v.startsWith('#') ? `#${v}` : v); }} />
+            </div>
+          </div>
           <Field label={t('inventoryPage.rackLocation', 'Rack location')} value={form.rack_location} onChange={(v) => set('rack_location', v)} />
           <Field label={t('inventoryPage.purchasePrice', 'Purchase price')} type="number" value={form.purchase_price} onChange={(v) => set('purchase_price', v)} />
           <Field label={t('inventoryPage.sellingPrice', 'Selling price')} type="number" value={form.selling_price} onChange={(v) => set('selling_price', v)} />
@@ -665,11 +718,46 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
+          {isNew && (
+            <Field label={t('inventoryPage.openingStock', 'Opening stock (quantity on the shelf now)')} type="number"
+                   value={form.opening_stock} onChange={(v) => set('opening_stock', v)} />
+          )}
         </div>
 
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('inventoryPage.photos', 'Photos')}</label>
+          <Dropzone compact multiple camera title="Drag & drop photos here" subtitle="or choose an option"
+                    chooseLabel="Choose from gallery" cameraLabel="Take photo" onFiles={addPhotos} />
+          {(form.image_urls || []).length > 0 && (
+            <div className="at-photos" style={{ gap: '6px' }}>
+              {form.image_urls.map((src, i) => (
+                <PhotoTile key={src} src={src} size={64}
+                           onRemove={() => set('image_urls', form.image_urls.filter((_, idx) => idx !== i))} />
+              ))}
+              <AddMoreTile size={64} onClick={() => document.getElementById('inventory-item-photos').click()} />
+            </div>
+          )}
+          <input type="file" id="inventory-item-photos" accept="image/*" multiple style={{ display: 'none' }}
+                 onChange={(e) => { addPhotos(e.target.files); e.target.value = ''; }} />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 600 }}>{t('inventoryPage.usedOn', 'Where is it used?')}</label>
+          <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: 0 }}>
+            {t('inventoryPage.usedOnHint', 'File it under the garment parts it suits, or as an accessory, and the order wizard offers it there.')}
+          </p>
+          <FabricPlacements
+            taxonomy={taxonomy}
+            value={{ kind: form.kind, variant: form.variant, placements: form.placements }}
+            onChange={(next) => setForm((f) => ({ ...f, kind: next.kind || '', variant: next.variant || '', placements: next.placements || [] }))}
+          />
+        </div>
+
+        {!isNew && (
         <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: 0 }}>
           {t('inventoryPage.stockNotSetHereHint', 'Stock quantities are not set here — they only change through recorded movements.')}
         </p>
+        )}
 
         {error && (
           <div style={errorBox}>{error}</div>
@@ -677,7 +765,9 @@ function ItemFormModal({ item, options, suppliers, onClose, onSaved }) {
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? t('common.saving', 'Saving…') : t('inventoryPage.saveItem', 'Save item')}</button>
+          <button type="submit" className="btn-primary" disabled={saving || uploading}>
+            {uploading ? t('common.uploading', 'Uploading…') : saving ? t('common.saving', 'Saving…') : t('inventoryPage.saveItem', 'Save item')}
+          </button>
         </div>
       </form>
     </Modal>

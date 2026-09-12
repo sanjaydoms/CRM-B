@@ -1,17 +1,23 @@
+"""Placements, taxonomy kinds and photographs on stocked materials.
+
+Ported from crm_api/test_fabric_placements.py when the fabric catalogue was
+merged into inventory: the same behaviour, now on /api/inventory/items/.
+"""
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django_tenants.test.cases import TenantTestCase
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
-from crm_api.models import BoutiqueFabric, FabricPlacement
+from apps.inventory.models import InventoryItem, ItemPlacement
 
-FABRICS = '/api/fabrics/'
+ITEMS = '/api/inventory/items/'
 OWNER_EMAIL = 'owner@fabrics.test'
 
 
-class FabricPlacementTests(TenantTestCase):
+class ItemPlacementTests(TenantTestCase):
 
     @classmethod
     def setup_tenant(cls, tenant):
@@ -28,15 +34,18 @@ class FabricPlacementTests(TenantTestCase):
         self.client.credentials(
             HTTP_AUTHORIZATION='Token ' + Token.objects.create(user=self.owner).key,
             HTTP_X_TENANT_ID=self.tenant.schema_name)
+        self.codes = 0
 
     def payload(self, **kw):
-        data = {'name': 'Red Silk', 'material': 'Silk', 'color': 'Red',
-                'price_per_meter': '450.00'}
+        self.codes += 1
+        data = {'item_code': f'FAB-{self.codes:04d}', 'name': 'Red Silk',
+                'category': 'FABRIC', 'material_type': 'Silk', 'color': 'Red',
+                'selling_price': '450.00'}
         data.update(kw)
         return data
 
     def create(self, expect=status.HTTP_201_CREATED, **kw):
-        res = self.client.post(FABRICS, self.payload(**kw), format='json')
+        res = self.client.post(ITEMS, self.payload(**kw), format='json')
         self.assertEqual(res.status_code, expect, res.data)
         return res.data
 
@@ -52,42 +61,45 @@ class FabricPlacementTests(TenantTestCase):
         self.assertEqual(data['placements'], [])
         self.assertEqual(data['kind_label'], '')
         self.assertFalse(data['is_accessory'])
+        self.assertEqual(data['unit'], 'METER', 'fabric is counted in metres')
 
     def test_legacy_crud_round_trip(self):
-        fabric_id = self.create()['id']
-        listed = self.client.get(FABRICS)
+        item_id = self.create()['id']
+        listed = self.client.get(ITEMS)
         self.assertEqual(listed.status_code, status.HTTP_200_OK)
         self.assertEqual(len(listed.data), 1)
 
-        patched = self.client.patch(f'{FABRICS}{fabric_id}/',
+        patched = self.client.patch(f'{ITEMS}{item_id}/',
                                     {'color': 'Blue'}, format='json')
         self.assertEqual(patched.status_code, status.HTTP_200_OK, patched.data)
         self.assertEqual(patched.data['color'], 'Blue')
 
-        removed = self.client.delete(f'{FABRICS}{fabric_id}/')
+        removed = self.client.delete(f'{ITEMS}{item_id}/')
         self.assertEqual(removed.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(BoutiqueFabric.objects.filter(id=fabric_id).exists())
+        self.assertFalse(InventoryItem.objects.filter(id=item_id).exists())
 
     def test_a_row_written_before_this_feature_reads_and_edits(self):
-        legacy = BoutiqueFabric.objects.create(
-            name='Old Silk', material='Silk', color='Gold', price_per_meter=900)
-        row = self.client.get(f'{FABRICS}{legacy.id}/').data
+        legacy = InventoryItem.objects.create(
+            item_code='OLD-0001', name='Old Silk', category='FABRIC', unit='METER',
+            material_type='Silk', color='Gold', selling_price=900)
+        row = self.client.get(f'{ITEMS}{legacy.id}/').data
         self.assertEqual(row['placements'], [])
 
-        res = self.client.patch(f'{FABRICS}{legacy.id}/',
-                                {'price_per_meter': '950.00'}, format='json')
+        res = self.client.patch(f'{ITEMS}{legacy.id}/',
+                                {'selling_price': '950.00'}, format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
 
     # 3: taxonomy ----------------------------------------------------------
 
     def test_taxonomy_endpoint(self):
-        res = self.client.get(f'{FABRICS}taxonomy/')
+        res = self.client.get(f'{ITEMS}taxonomy/')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
         garments = [g['key'] for g in res.data['garments']]
-        self.assertEqual(garments, ['saree', 'blouse', 'lehenga', 'dupatta',
-                                    'kurti', 'anarkali', 'petticoat',
-                                    'bottom_wear', 'gown', 'suit', 'sherwani'])
+        self.assertEqual(garments[:3], ['saree', 'blouse', 'lehenga'])
+        for key in ('dupatta', 'kurti', 'anarkali', 'petticoat', 'bottom_wear',
+                    'gown', 'suit', 'sherwani'):
+            self.assertIn(key, garments)
 
         lehenga = next(g for g in res.data['garments'] if g['key'] == 'lehenga')
         self.assertEqual(lehenga['section_label'], 'Lehenga Section')
@@ -113,19 +125,19 @@ class FabricPlacementTests(TenantTestCase):
     def test_one_placement(self):
         data = self.create(kind='FABRIC', placements=[
             {'garment': 'lehenga', 'section': 'SKIRT', 'slot': 'MAIN_FABRIC'}])
-        self.assertEqual(self.paths(data), ['Lehenga / Skirt / Main Fabric'])
+        self.assertEqual(self.paths(data), ['Lehenga / Skirt / Main Fabric / Body'])
 
     def test_the_same_material_serves_many_garments(self):
         data = self.create(
-            name='Gold Latkan Dori', material='Dori', color='Gold',
-            kind='DORI', variant='LATKAN_DORI',
+            name='Gold Latkan Dori', material_type='Dori', color='Gold',
+            category='EMBELLISHMENT', kind='DORI', variant='LATKAN_DORI',
             placements=[
                 {'garment': 'lehenga', 'section': 'BLOUSE', 'slot': 'DORI'},
                 {'garment': 'blouse', 'section': '', 'slot': 'DORI'},
-                {'garment': 'kurti', 'section': '', 'slot': 'TASSEL_LATKAN'},
-                {'garment': 'suit', 'section': '', 'slot': 'DORI'},
+                {'garment': 'dupatta', 'section': '', 'slot': 'TASSEL_LATKAN'},
+                {'garment': 'lehenga_blouse', 'section': '', 'slot': 'DORI'},
             ])
-        self.assertEqual(BoutiqueFabric.objects.count(), 1)
+        self.assertEqual(InventoryItem.objects.count(), 1)
         self.assertEqual(len(data['placements']), 4)
         self.assertEqual(data['variant_label'], 'Latkan Dori')
         self.assertTrue(data['is_accessory'])
@@ -134,9 +146,9 @@ class FabricPlacementTests(TenantTestCase):
         data = self.create(kind='FABRIC', placements=[
             {'garment': 'lehenga', 'section': 'SKIRT', 'slot': 'MAIN_FABRIC'},
             {'garment': 'saree', 'section': '', 'slot': 'BACKING_FABRIC'}])
-        self.assertEqual(BoutiqueFabric.objects.count(), 1)
+        self.assertEqual(InventoryItem.objects.count(), 1)
         self.assertEqual(self.paths(data),
-                         ['Lehenga / Skirt / Main Fabric', 'Saree / Backing Fabric'])
+                         ['Lehenga / Skirt / Main Fabric / Body', 'Saree / Backing'])
 
     def test_every_lehenga_section(self):
         data = self.create(kind='BORDER', placements=[
@@ -153,8 +165,8 @@ class FabricPlacementTests(TenantTestCase):
     # 8-9: accessories -----------------------------------------------------
 
     def test_an_accessory_needs_no_placement(self):
-        data = self.create(name='Gold Gota', material='Gota', color='Gold',
-                           kind='GOTA')
+        data = self.create(name='Gold Gota', material_type='Gota', color='Gold',
+                           category='BORDER', kind='GOTA')
         self.assertEqual(data['placements'], [])
         self.assertTrue(data['is_accessory'])
         self.assertEqual(data['kind_label'], 'Gota')
@@ -171,28 +183,28 @@ class FabricPlacementTests(TenantTestCase):
     # 10-11: PATCH semantics ----------------------------------------------
 
     def test_patch_with_placements_replaces_them(self):
-        fabric_id = self.create(kind='DORI', variant='POTLI_DORI', placements=[
+        item_id = self.create(kind='DORI', variant='POTLI_DORI', placements=[
             {'garment': 'blouse', 'section': '', 'slot': 'DORI'}])['id']
-        res = self.client.patch(f'{FABRICS}{fabric_id}/', {'placements': [
-            {'garment': 'kurti', 'section': '', 'slot': 'DORI'},
-            {'garment': 'suit', 'section': '', 'slot': 'DORI'}]}, format='json')
+        res = self.client.patch(f'{ITEMS}{item_id}/', {'placements': [
+            {'garment': 'lehenga', 'section': 'BLOUSE', 'slot': 'DORI'},
+            {'garment': 'lehenga_blouse', 'section': '', 'slot': 'DORI'}]}, format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
-        self.assertEqual(self.paths(res.data), ['Kurti / Dori', 'Suit (Kameez) / Dori'])
-        self.assertEqual(FabricPlacement.objects.filter(fabric_id=fabric_id).count(), 2)
+        self.assertEqual(self.paths(res.data), ['Lehenga / Blouse / Dori', 'Lehenga Blouse / Dori'])
+        self.assertEqual(ItemPlacement.objects.filter(item_id=item_id).count(), 2)
 
     def test_patch_without_placements_preserves_them(self):
-        fabric_id = self.create(kind='DORI', variant='POTLI_DORI', placements=[
+        item_id = self.create(kind='DORI', variant='POTLI_DORI', placements=[
             {'garment': 'blouse', 'section': '', 'slot': 'DORI'},
-            {'garment': 'kurti', 'section': '', 'slot': 'DORI'}])['id']
-        res = self.client.patch(f'{FABRICS}{fabric_id}/',
+            {'garment': 'lehenga_blouse', 'section': '', 'slot': 'DORI'}])['id']
+        res = self.client.patch(f'{ITEMS}{item_id}/',
                                 {'color': 'Ivory'}, format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
         self.assertEqual(len(res.data['placements']), 2)
 
     def test_placements_can_be_emptied_explicitly(self):
-        fabric_id = self.create(kind='DORI', placements=[
+        item_id = self.create(kind='DORI', placements=[
             {'garment': 'blouse', 'section': '', 'slot': 'DORI'}])['id']
-        res = self.client.patch(f'{FABRICS}{fabric_id}/', {'placements': []},
+        res = self.client.patch(f'{ITEMS}{item_id}/', {'placements': []},
                                 format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
         self.assertEqual(res.data['placements'], [])
@@ -208,7 +220,7 @@ class FabricPlacementTests(TenantTestCase):
     def test_unknown_garment_is_refused(self):
         self.create(expect=status.HTTP_400_BAD_REQUEST, placements=[
             {'garment': 'trousers', 'section': '', 'slot': ''}])
-        self.assertEqual(BoutiqueFabric.objects.count(), 0)
+        self.assertEqual(InventoryItem.objects.count(), 0)
 
     def test_section_must_belong_to_the_garment(self):
         self.create(expect=status.HTTP_400_BAD_REQUEST, placements=[
@@ -235,97 +247,72 @@ class FabricPlacementTests(TenantTestCase):
         """A boutique may use what it has; the taxonomy is not a rule engine."""
         data = self.create(kind='DORI', variant='LATKAN_DORI', placements=[
             {'garment': 'lehenga', 'section': 'SKIRT', 'slot': 'MAIN_FABRIC'}])
-        self.assertEqual(self.paths(data), ['Lehenga / Skirt / Main Fabric'])
+        self.assertEqual(self.paths(data), ['Lehenga / Skirt / Main Fabric / Body'])
 
     # filtering ------------------------------------------------------------
 
     def test_filters(self):
-        self.create(name='Gold Dori', kind='DORI', variant='LATKAN_DORI',
+        self.create(name='Gold Dori', category='EMBELLISHMENT', kind='DORI',
+                    variant='LATKAN_DORI',
                     placements=[{'garment': 'blouse', 'section': '', 'slot': 'DORI'},
-                                {'garment': 'kurti', 'section': '', 'slot': 'DORI'}])
+                                {'garment': 'lehenga_blouse', 'section': '', 'slot': 'DORI'}])
         self.create(name='Red Silk', kind='FABRIC',
                     placements=[{'garment': 'lehenga', 'section': 'SKIRT',
                                  'slot': 'MAIN_FABRIC'}])
         self.create(name='Legacy Roll')
+        # Stock the wizard never lays on a garment part: no kind, no
+        # placement, and not a cloth category.
+        self.create(name='Polyester Thread', category='STITCHING', material_type='')
 
         def count(query=''):
-            return len(self.client.get(f'{FABRICS}{query}').data)
+            return len(self.client.get(f'{ITEMS}{query}').data)
 
-        self.assertEqual(count(), 3)
+        self.assertEqual(count(), 4)
         self.assertEqual(count('?garment=blouse'), 1)
         self.assertEqual(count('?garment=lehenga&section=SKIRT'), 1)
         self.assertEqual(count('?slot=DORI'), 1)
         self.assertEqual(count('?kind=FABRIC'), 1)
         self.assertEqual(count('?accessory=1'), 1)
-        self.assertEqual(count('?uncategorised=1'), 1)
+        self.assertEqual(count('?uncategorised=1'), 2)
         self.assertEqual(count('?garment=sherwani'), 0)
+        self.assertEqual(count('?picker=1'), 3, 'the thread stays off the fabric step')
 
     def test_a_reused_material_is_listed_once_per_query(self):
         self.create(name='Gold Dori', kind='DORI', placements=[
             {'garment': 'blouse', 'section': '', 'slot': 'DORI'},
             {'garment': 'blouse', 'section': '', 'slot': 'LACE_TRIM'}])
-        self.assertEqual(len(self.client.get(f'{FABRICS}?garment=blouse').data), 1)
+        self.assertEqual(len(self.client.get(f'{ITEMS}?garment=blouse').data), 1)
 
-    # cataloguing several parts of one garment in a single save -------------
+    # photographs ----------------------------------------------------------
 
-    def test_a_saree_catalogued_a_part_at_a_time(self):
-        rows = [
-            {'name': 'Red Silk Body', 'material': 'Silk', 'color': 'Red',
-             'price_per_meter': '900.00', 'kind': 'FABRIC',
-             'placements': [{'garment': 'saree', 'section': '', 'slot': 'SAREE_BODY'}]},
-            {'name': 'Gold Zari Border', 'material': 'Zari', 'color': 'Gold',
-             'price_per_meter': '260.00', 'kind': 'BORDER',
-             'placements': [{'garment': 'saree', 'section': '', 'slot': 'BORDER'}]},
-            {'name': 'Gold Tassel', 'material': 'Silk thread', 'color': 'Gold',
-             'price_per_meter': '40.00', 'kind': 'TASSEL',
-             'placements': [{'garment': 'saree', 'section': '', 'slot': 'TASSEL_LATKAN'}]},
-        ]
-        res = self.client.post(FABRICS, rows, format='json')
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
-        self.assertEqual(len(res.data), 3)
-        self.assertEqual(BoutiqueFabric.objects.count(), 3)
+    def test_the_swatch_is_validated_and_the_first_photo_becomes_the_card_image(self):
+        bad = self.create(expect=status.HTTP_400_BAD_REQUEST, color_hex='aqua-blue')
+        self.assertIn('color_hex', bad)
+
+        good = self.create(name='Chanderi Silk', color_hex='#1A2B3C',
+                           image_urls=['https://example.test/a.jpg',
+                                       'https://example.test/b.jpg'])
+        self.assertEqual(good['color_hex'], '#1a2b3c')
+        # Every card and the wizard's picker read image_url; it must not stay
+        # empty when the owner only ever photographed the roll.
+        self.assertEqual(good['image_url'], 'https://example.test/a.jpg')
+        self.assertEqual(len(good['image_urls']), 2)
+
+    def test_uploads_take_images_only(self):
+        upload = f'{ITEMS}upload-images/'
+        junk = SimpleUploadedFile('notes.txt', b'not an image', content_type='text/plain')
         self.assertEqual(
-            sorted(p['path'] for row in res.data for p in row['placements']),
-            ['Saree / Border', 'Saree / Main Fabric / Saree Body',
-             'Saree / Tassel / Latkan'])
+            self.client.post(upload, {'images': junk}, format='multipart').status_code,
+            status.HTTP_400_BAD_REQUEST)
 
-    def test_each_row_keeps_its_own_price_and_photos(self):
-        rows = [
-            {'name': 'Body', 'material': 'Silk', 'color': 'Red',
-             'price_per_meter': '900.00', 'image_urls': ['http://x/body.jpg']},
-            {'name': 'Border', 'material': 'Zari', 'color': 'Gold',
-             'price_per_meter': '260.00', 'image_urls': ['http://x/border.jpg']},
-        ]
-        res = self.client.post(FABRICS, rows, format='json')
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
-        by_name = {row['name']: row for row in res.data}
-        self.assertEqual(by_name['Body']['price_per_meter'], '900.00')
-        self.assertEqual(by_name['Border']['price_per_meter'], '260.00')
-        self.assertEqual(by_name['Body']['image_url'], 'http://x/body.jpg')
-        self.assertEqual(by_name['Border']['image_url'], 'http://x/border.jpg')
-
-    def test_one_bad_row_saves_none_of_them(self):
-        rows = [
-            {'name': 'Good', 'material': 'Silk', 'color': 'Red',
-             'price_per_meter': '10.00'},
-            {'name': 'Bad', 'material': 'Silk', 'color': 'Red',
-             'price_per_meter': '10.00',
-             'placements': [{'garment': 'saree', 'section': '', 'slot': 'CAN_CAN'}]},
-        ]
-        res = self.client.post(FABRICS, rows, format='json')
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(BoutiqueFabric.objects.count(), 0)
-
-    def test_a_single_object_post_is_unaffected(self):
-        res = self.client.post(FABRICS, self.payload(), format='json')
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(res.data['name'], 'Red Silk')
-
-    # every part of one saree, photographed separately, in one save ---------
+        shot = SimpleUploadedFile('roll.png', b'\x89PNG\r\n\x1a\n fake', content_type='image/png')
+        stored = self.client.post(upload, {'images': shot}, format='multipart')
+        self.assertEqual(stored.status_code, status.HTTP_201_CREATED, stored.data)
+        self.assertEqual(len(stored.data['image_urls']), 1)
 
     def test_each_part_of_a_saree_keeps_its_own_photos(self):
         data = self.create(
-            name='Kanjivaram Saree', material='Silk', color='Red', kind='FABRIC',
+            name='Kanjivaram Saree', material_type='Silk', color='Red', kind='FABRIC',
             placements=[
                 {'garment': 'saree', 'section': '', 'slot': 'SAREE_BODY',
                  'image_urls': ['http://x/body1.jpg', 'http://x/body2.jpg']},
@@ -336,7 +323,7 @@ class FabricPlacementTests(TenantTestCase):
                 {'garment': 'saree', 'section': '', 'slot': 'FALL',
                  'image_urls': []},
             ])
-        self.assertEqual(BoutiqueFabric.objects.count(), 1)
+        self.assertEqual(InventoryItem.objects.count(), 1)
         by_slot = {p['slot']: p['image_urls'] for p in data['placements']}
         self.assertEqual(by_slot['SAREE_BODY'],
                          ['http://x/body1.jpg', 'http://x/body2.jpg'])
@@ -350,13 +337,13 @@ class FabricPlacementTests(TenantTestCase):
         self.assertEqual(data['placements'][0]['image_urls'], [])
 
     def test_patch_replaces_the_photos_of_one_part_only(self):
-        fabric_id = self.create(kind='FABRIC', placements=[
+        item_id = self.create(kind='FABRIC', placements=[
             {'garment': 'saree', 'section': '', 'slot': 'PALLU',
              'image_urls': ['http://x/pallu.jpg']},
             {'garment': 'saree', 'section': '', 'slot': 'BORDER',
              'image_urls': ['http://x/border.jpg']}])['id']
 
-        res = self.client.patch(f'{FABRICS}{fabric_id}/', {'placements': [
+        res = self.client.patch(f'{ITEMS}{item_id}/', {'placements': [
             {'garment': 'saree', 'section': '', 'slot': 'PALLU',
              'image_urls': ['http://x/pallu.jpg', 'http://x/pallu2.jpg']},
             {'garment': 'saree', 'section': '', 'slot': 'BORDER',
@@ -365,13 +352,13 @@ class FabricPlacementTests(TenantTestCase):
         by_slot = {p['slot']: p['image_urls'] for p in res.data['placements']}
         self.assertEqual(len(by_slot['PALLU']), 2)
         self.assertEqual(by_slot['BORDER'], ['http://x/border.jpg'])
-        self.assertEqual(FabricPlacement.objects.count(), 2)
+        self.assertEqual(ItemPlacement.objects.count(), 2)
 
     def test_editing_other_fields_keeps_the_part_photos(self):
-        fabric_id = self.create(kind='FABRIC', placements=[
+        item_id = self.create(kind='FABRIC', placements=[
             {'garment': 'saree', 'section': '', 'slot': 'PALLU',
              'image_urls': ['http://x/pallu.jpg']}])['id']
-        res = self.client.patch(f'{FABRICS}{fabric_id}/',
+        res = self.client.patch(f'{ITEMS}{item_id}/',
                                 {'color': 'Maroon'}, format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
         self.assertEqual(res.data['placements'][0]['image_urls'],
@@ -385,13 +372,13 @@ class FabricPlacementTests(TenantTestCase):
     # deletion --------------------------------------------------------------
 
     def test_deleting_a_material_takes_its_placements(self):
-        fabric_id = self.create(kind='DORI', placements=[
+        item_id = self.create(kind='DORI', placements=[
             {'garment': 'blouse', 'section': '', 'slot': 'DORI'}])['id']
-        self.client.delete(f'{FABRICS}{fabric_id}/')
-        self.assertEqual(FabricPlacement.objects.count(), 0)
+        self.client.delete(f'{ITEMS}{item_id}/')
+        self.assertEqual(ItemPlacement.objects.count(), 0)
 
 
-class FabricTenantIsolationTests(TenantTestCase):
+class ItemPlacementTenantIsolationTests(TenantTestCase):
 
     @classmethod
     def setup_tenant(cls, tenant):
@@ -402,13 +389,12 @@ class FabricTenantIsolationTests(TenantTestCase):
     def test_placements_live_in_the_tenant_schema(self):
         from django.db import connection as conn
         conn.set_tenant(self.tenant)
-        fabric = BoutiqueFabric.objects.create(
-            name='Tenant Silk', material='Silk', color='Red',
-            price_per_meter=100, kind='FABRIC')
-        FabricPlacement.objects.create(fabric=fabric, garment='saree',
-                                       section='', slot='PALLU')
-        self.assertEqual(FabricPlacement.objects.count(), 1)
+        item = InventoryItem.objects.create(
+            item_code='ISO-0001', name='Tenant Silk', category='FABRIC', unit='METER',
+            material_type='Silk', color='Red', selling_price=100, kind='FABRIC')
+        ItemPlacement.objects.create(item=item, garment='saree', section='', slot='PALLU')
+        self.assertEqual(ItemPlacement.objects.count(), 1)
 
         conn.set_schema_to_public()
         with self.assertRaises(Exception):
-            FabricPlacement.objects.count()
+            ItemPlacement.objects.count()

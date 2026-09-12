@@ -52,11 +52,6 @@ MODULES = {
         ('/api/activities/',),
         'The cross-module activity stream. Owner and Master only.',
     ),
-    'fabrics': (
-        'Fabrics',
-        ('/api/fabrics/',),
-        "The boutique's own fabric library.",
-    ),
     'tailors': (
         'Team',
         ('/api/tailors/',),
@@ -149,7 +144,6 @@ MODULE_GROUP = {
     'order_drafts': 'daily',
     'design_studio': 'design',
     'garment_catalog': 'design',
-    'fabrics': 'stock',
     'inventory': 'stock',
     'inventory_catalog': 'stock',
     'tailors': 'people',

@@ -428,15 +428,15 @@ class ModuleGateTests(TransactionTestCase):
     def test_a_disabled_module_is_refused_and_the_message_names_it(self):
         with temporary_tenant('mod_test_a', 'a@mod.test', 'Atelier A') as tenant:
             client = tenant_client('mod_test_a')
-            self.assertEqual(client.get('/api/fabrics/').status_code, 200)
+            self.assertEqual(client.get('/api/tailors/').status_code, 200)
 
-            set_modules(tenant, {'fabrics': False})
+            set_modules(tenant, {'tailors': False})
 
-            response = client.get('/api/fabrics/')
+            response = client.get('/api/tailors/')
             self.assertEqual(response.status_code, 403)
             body = response.json()
-            self.assertIn('Fabrics', body['error'])
-            self.assertEqual(body['module'], 'fabrics')
+            self.assertIn('Team', body['error'])
+            self.assertEqual(body['module'], 'tailors')
             self.assertNotIn('suspended', body['error'])
 
     def test_everything_disabled_still_leaves_the_boutique_a_way_in(self):
@@ -483,10 +483,10 @@ class ModuleGateTests(TransactionTestCase):
             connection.set_schema_to_public()
             self.assertEqual(
                 BoutiqueTenant.objects.get(pk=tenant.pk).enabled_modules, {})
-            self.assertEqual(client.get('/api/fabrics/').status_code, 200)
+            self.assertEqual(client.get('/api/tailors/').status_code, 200)
 
             set_modules(tenant, {'inventory': False})
-            self.assertEqual(client.get('/api/fabrics/').status_code, 200)
+            self.assertEqual(client.get('/api/tailors/').status_code, 200)
 
 
 class MaintenanceModeTests(TransactionTestCase):
@@ -534,7 +534,8 @@ class SignupSeedsNothingInventedTests(TransactionTestCase):
         }, format='json')
 
     def test_a_new_boutique_has_no_invented_staff_fabrics_or_designs(self):
-        from crm_api.models import BoutiqueFabric, Tailor
+        from crm_api.models import Tailor
+        from apps.inventory.models import InventoryItem
         from apps.design_studio.models import DesignAsset
 
         response = self._signup('nita.seed@ownerflow.test')
@@ -544,15 +545,16 @@ class SignupSeedsNothingInventedTests(TransactionTestCase):
         with schema_context(schema):
             self.assertEqual(Tailor.objects.count(), 0,
                              list(Tailor.objects.values_list('name', flat=True)))
-            self.assertEqual(BoutiqueFabric.objects.count(), 0,
-                             list(BoutiqueFabric.objects.values_list('name', flat=True)))
+            self.assertEqual(InventoryItem.objects.count(), 0,
+                             list(InventoryItem.objects.values_list('name', flat=True)))
             self.assertFalse(
                 DesignAsset.objects.filter(
                     source=DesignAsset.SOURCE_CATALOGUE).exists(),
                 'the demo catalogue was seeded into a real boutique')
 
     def test_the_seed_helper_still_populates_when_asked(self):
-        from crm_api.models import BoutiqueFabric, Tailor
+        from crm_api.models import Tailor
+        from apps.inventory.models import InventoryItem
         from crm_api.utils import seed_tenant_defaults
 
         response = self._signup('nita.demo@ownerflow.test')
@@ -560,7 +562,7 @@ class SignupSeedsNothingInventedTests(TransactionTestCase):
         with schema_context(schema):
             seed_tenant_defaults()
             self.assertGreater(Tailor.objects.count(), 0)
-            self.assertGreater(BoutiqueFabric.objects.count(), 0)
+            self.assertGreater(InventoryItem.objects.count(), 0)
 
 
 class MultiBoutiqueLoginTests(TransactionTestCase):

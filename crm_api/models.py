@@ -217,59 +217,6 @@ class FabricSelection(models.Model):
     def __str__(self):
         return f"Fabric ({self.fabric_name}) for {self.customer.first_name}"
 
-class BoutiqueFabric(models.Model):
-    name = models.CharField(max_length=100)
-    material = models.CharField(max_length=100)
-    color = models.CharField(max_length=50)
-    # The name a boutique gives a colour ("Aqua Blue") is not the colour. Two
-    # rolls called that are rarely the same blue, and a tailor matching thread
-    # months later has only the word. The swatch carries the exact shade.
-    color_hex = models.CharField(max_length=7, blank=True, default='')
-    price_per_meter = models.DecimalField(max_digits=10, decimal_places=2)
-    image_url = models.CharField(max_length=255, blank=True, null=True)
-    # image_url stays the one every existing card and grid reads. The rest of
-    # the shoot lives here, first entry mirrored into image_url on save.
-    image_urls = models.JSONField(default=list, blank=True)
-    is_available = models.BooleanField(default=True)
-
-    # What the material IS, kept apart from where it may be used. One roll of
-    # gold latkan dori is one row here and many FabricPlacement rows, rather
-    # than one row per garment it happens to suit.
-    kind = models.CharField(max_length=40, blank=True, default='', db_index=True)
-    variant = models.CharField(max_length=60, blank=True, default='')
-
-    def __str__(self):
-        return f"{self.name} ({self.material}) - ₹{self.price_per_meter}/mtr"
-
-
-class FabricPlacement(models.Model):
-    fabric = models.ForeignKey(
-        BoutiqueFabric, on_delete=models.CASCADE, related_name='placements')
-    garment = models.CharField(max_length=40)
-    section = models.CharField(max_length=60, blank=True, default='')
-    slot = models.CharField(max_length=60, blank=True, default='')
-    # Photographs of this material on this part of the garment. The pallu and
-    # the border of one saree are shot separately, and the counter should not
-    # have to reopen the form for each.
-    image_urls = models.JSONField(default=list, blank=True)
-
-    class Meta:
-        ordering = ['garment', 'section', 'slot']
-        constraints = [
-            models.UniqueConstraint(
-                fields=['fabric', 'garment', 'section', 'slot'],
-                name='uniq_fabric_placement'),
-        ]
-        indexes = [models.Index(fields=['garment', 'section', 'slot'])]
-
-    @property
-    def path(self):
-        from crm_api.fabric_taxonomy import placement_path
-        return placement_path(self.garment, self.section, self.slot)
-
-    def __str__(self):
-        return f"{self.fabric.name} — {self.path}"
-
 class BoutiqueDesign(models.Model):
 
     name = models.CharField(max_length=150)

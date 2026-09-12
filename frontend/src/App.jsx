@@ -49,8 +49,7 @@ import OrderAlterations, { RequestAlterationModal } from './features/alterations
 import AlterationList from './features/alterations/AlterationList';
 import OrderGarmentBrief from './features/catalog/OrderGarmentBrief';
 import OrderKanban from './features/orders/OrderKanban';
-import FabricGroup from './features/fabrics/FabricGroup';
-import { blankGroup, blankMaterial, useFabricTaxonomy } from './features/fabrics/taxonomy';
+import { useFabricTaxonomy } from './features/fabrics/taxonomy';
 import { MobileHeader } from './components/ui/MobileHeader';
 import {
   PageHeader, StatCard, SectionCard, Chips, AvatarInitials, ProgressBar, SearchBox, Segmented, IconTile,
@@ -801,6 +800,80 @@ function StageTimeline({ stages, onSelectStage }) {
  * Normalising here rather than at each of the four reads: one place to be
  * wrong, and the next serializer shape that appears has one place to be taught.
  */
+/**
+ * What the cutting table actually used, roll by roll.
+ *
+ * Fabric Confirmed reserved the metres the order asked for. This records the
+ * metres that were cut and the offcuts at the moment they happen: stock drops
+ * by exactly that, the movement names pattern_cutting, and whatever was
+ * reserved but never cut goes back on the shelf when the order is delivered.
+ */
+function CuttingUsage({ orderId }) {
+  const [plan, setPlan] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [draft, setDraft] = useState({});
+  const [busyLineId, setBusyLineId] = useState(null);
+
+  const refresh = () => api.getMaterialChecklist(orderId)
+    .then((data) => { setPlan(data.plan); setLoaded(true); })
+    .catch(() => setLoaded(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { refresh(); }, [orderId]);
+
+  if (!loaded) return <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Loading materials…</div>;
+  const lines = (plan?.lines || []).filter((l) => l.item && !l.is_customer_supplied);
+  if (!lines.length) {
+    return <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No stock material is planned on this order.</div>;
+  }
+  const unit = (line) => (line.unit_display || line.unit || '').toLowerCase();
+  const record = async (line) => {
+    const entry = draft[line.id] || {};
+    const used = Number(entry.used || 0);
+    const wasted = Number(entry.wasted || 0);
+    if (!(used > 0 || wasted > 0)) { alert('Enter the quantity used, the waste, or both.'); return; }
+    setBusyLineId(line.id);
+    try {
+      await api.consumePlanLine(plan.id, { line: line.id, used, wasted, stage_key: 'pattern_cutting' });
+      setDraft((d) => ({ ...d, [line.id]: {} }));
+      await refresh();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusyLineId(null);
+    }
+  };
+  const num = { padding: '6px 8px', fontSize: '13px', width: '96px' };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {lines.map((line) => (
+        <div key={line.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px 12px',
+                                    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+          <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: '13.5px' }}>{line.material_name}</div>
+            <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+              {line.garment_name ? `${line.garment_name} · ` : ''}
+              planned {line.required_quantity} {unit(line)} · reserved {line.reserved_quantity}
+              {Number(line.consumed_quantity) > 0 ? ` · used ${line.consumed_quantity}` : ''}
+              {Number(line.wasted_quantity) > 0 ? ` · waste ${line.wasted_quantity}` : ''}
+              {line.available_stock !== undefined && line.available_stock !== null ? ` · ${line.available_stock} on the shelf` : ''}
+            </div>
+          </div>
+          <input type="number" min="0" step="0.01" className="form-control" style={num} placeholder={`Used (${unit(line)})`}
+                 value={draft[line.id]?.used ?? ''}
+                 onChange={(e) => setDraft((d) => ({ ...d, [line.id]: { ...(d[line.id] || {}), used: e.target.value } }))} />
+          <input type="number" min="0" step="0.01" className="form-control" style={num} placeholder="Waste"
+                 value={draft[line.id]?.wasted ?? ''}
+                 onChange={(e) => setDraft((d) => ({ ...d, [line.id]: { ...(d[line.id] || {}), wasted: e.target.value } }))} />
+          <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                  disabled={busyLineId === line.id} onClick={() => record(line)}>
+            {busyLineId === line.id ? 'Recording…' : 'Record'}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const normaliseDesignBrief = (brief) => {
   if (!brief) return null;
   return { ...brief, design: brief.design || brief.selected || null };
@@ -1014,7 +1087,6 @@ const NAV_MODULE = {
   settings: null,
   designs: 'design_studio',
   designWork: 'design_studio',
-  fabrics: 'fabrics',
   inventory: 'inventory',
   staff: 'staff',
   finance: 'finance',
@@ -1063,7 +1135,6 @@ const navSectionsFor = (user, t) => {
       // and the roster apart from the employment screen that extends it, so
       // finding anything meant reading all eleven.
       { key: 'stock', label: t('nav.groups.stock', 'Stock'), items: [
-        { tab: 'fabrics', icon: Compass, label: t('nav.manageFabrics') },
         { tab: 'inventory', icon: Package, label: t('nav.inventory'), phone: true },
       ] },
       // Manage Tailors is WHO works here; Staff Management is their
@@ -1353,16 +1424,7 @@ function App() {
   const [quotePrices, setQuotePrices] = useState({ packaging: 500, discount: 0 });
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
-  // Fabrics CRUD State
-  const [showFabricModal, setShowFabricModal] = useState(false);
-  const [editingFabric, setEditingFabric] = useState(null);
-  // Library filters: one predicate over the fabrics already loaded.
-  const [fabricQuery, setFabricQuery] = useState({ search: '', material: 'All', colour: 'All', availability: 'All', sort: 'newest' });
-  const [fabricSaving, setFabricSaving] = useState(false);
-  const [fabricGroups, setFabricGroups] = useState([blankGroup()]);
   const fabricTaxonomy = useFabricTaxonomy();
-  const [fabricUploads, setFabricUploads] = useState(0);
-  const fabricCount = fabricGroups.reduce((n, g) => n + g.materials.length, 0);
 
   // Tailors CRUD State
   // Recording a payment: which row is in flight, and what went wrong. Shown in
@@ -1623,6 +1685,27 @@ function App() {
    *  object: the template is boutique configuration that can be re-read, and
    *  storing a copy of it would mean resuming a draft against a stale one.
    */
+  /** Every stock line on a garment, in the shape the API stores.
+   *
+   *  The rolls picked part by part on the fabric step come first, with the
+   *  metres asked for there -- that is what the ledger reserves at Fabric
+   *  Confirmed and what the cutting table consumes. The template's own
+   *  material fields follow, minus any that name a roll the fabric step
+   *  already did, so one roll is never reserved twice for one garment.
+   */
+  const garmentMaterialLines = (job) => {
+    const picked = Object.entries(job.fabrics || {}).flatMap(([slot, ids]) =>
+      [...new Set((ids || []).map(String))].map(id => ({
+        field_key: slot, inventory_item: id, source: 'STORE',
+        quantity: job.fabric_qty?.[`${slot}:${id}`],
+      })))
+      .filter(line => Number(line.quantity) > 0);
+    const pickedIds = new Set(picked.map(line => String(line.inventory_item)));
+    const fromTemplate = garmentMaterialFields(job).map(materialLine(job))
+      .filter(line => !(line.inventory_item && pickedIds.has(String(line.inventory_item))));
+    return [...picked, ...fromTemplate];
+  };
+
   const serialiseWizard = () => ({
     ...customerForm,
     measurements: customerForm.measurements || {},
@@ -1637,9 +1720,10 @@ function App() {
       pricing: job.pricing || {},
       design: job.design || {},
       fabrics: job.fabrics || {},
+      fabric_qty: job.fabric_qty || {},
       sources: job.sources || {},
       brought: job.brought || {},
-      materials: garmentMaterialFields(job).map(materialLine(job)),
+      materials: garmentMaterialLines(job),
     })),
     design: {
       notes: designNotes, links: designLinks, source: designSource,
@@ -1686,6 +1770,7 @@ function App() {
           pricing: garment.pricing || {},
           design: garment.design || {},
           fabrics: garment.fabrics || {},
+          fabric_qty: garment.fabric_qty || {},
         });
       } catch (err) {
         console.error('Could not reload the garment template', garment.template_key, err);
@@ -1913,7 +1998,6 @@ function App() {
   const [updatingStatusOrderId, setUpdatingStatusOrderId] = useState(null);
   const [savingVerificationOrderId, setSavingVerificationOrderId] = useState(null);
   const [assigningWorkflowOrderId, setAssigningWorkflowOrderId] = useState(null);
-  const [deletingFabricId, setDeletingFabricId] = useState(null);
   const [deletingDraftId, setDeletingDraftId] = useState(null);
 
   // `user` is passed explicitly by callers that have just signed in: setCurrentUser
@@ -2096,7 +2180,9 @@ function App() {
     // The panel this fills says Upcoming, so it asks for upcoming: past
     // bookings and cancelled ones are history, not the day ahead.
     if (hasModule(user, 'scheduling')) await load('appointments', () => api.getAppointments({ upcoming: 'true' }), setAppointments);
-    if (hasModule(user, 'fabrics')) await load('fabrics', api.getFabrics, setFabrics);
+    // The rolls the order wizard picks from are stock now: every active
+    // inventory item that is cloth, or filed under a garment part.
+    if (hasModule(user, 'inventory')) await load('fabrics', () => api.getInventoryItems({ picker: 'true' }), setFabrics);
     if (hasModule(user, 'alterations')) await load('alterations', api.getAlterations, (d) => setAlterationsList(d || []));
     if (hasModule(user, 'design_studio')) await load('designs', api.getAllBoutiqueDesigns, setAllDesigns);
     await load('settings', api.getBoutiqueSettings, (data) => {
@@ -2141,71 +2227,6 @@ function App() {
     await api.markMessageSent(orderId, messageId);
     // The queue holds only what is still waiting, so a sent one leaves it.
     setQueuedMessages((prev) => prev.filter((m) => m.id !== messageId));
-  };
-
-  // Catalog Management Handlers
-  // Photos picked in the modal, whether from the gallery or straight off the
-  // camera, land here. Same handler for both inputs -- a capture and a pick
-  // arrive as the same File.
-  const handleSaveFabric = async (e) => {
-    e.preventDefault();
-    if (fabricSaving || fabricUploads) return;
-    // A placement picked but never committed with "Add use" would file every
-    // material in the group as uncategorised. Say so instead of saving.
-    const unplaced = fabricGroups.findIndex((g) => !g.kind && !g.placements.length);
-    if (unplaced >= 0) {
-      alert(`Section ${unplaced + 1}: choose where these materials are used, `
-        + 'then click "Add use".');
-      return;
-    }
-    setFabricSaving(true);
-    try {
-      // One catalog row per material, carrying its group's placement. The
-      // whitelist keeps UI-only fields (_id, materials) out of the payload.
-      const rows = fabricGroups.flatMap((group) => group.materials.map((row) => ({
-        name: row.name,
-        material: row.material,
-        color: row.color,
-        color_hex: row.color_hex,
-        is_available: row.is_available,
-        kind: group.kind,
-        variant: group.variant,
-        price_per_meter: parseFloat(row.price_per_meter) || 0.00,
-        image_urls: row.image_urls || [],
-        image_url: row.image_url || (row.image_urls || [])[0]
-          || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400',
-        placements: group.placements.map(
-          ({ garment, section, slot }) => ({ garment, section, slot })),
-      })));
-      if (editingFabric) {
-        await api.updateFabric(editingFabric.id, rows[0]);
-      } else {
-        await api.createFabric(rows.length === 1 ? rows[0] : rows);
-      }
-      setShowFabricModal(false);
-      setEditingFabric(null);
-      setFabricGroups([blankGroup()]);
-      fetchDashboardAndConfig();
-    } catch (err) {
-      alert("Failed to save fabric: " + err.message);
-    } finally {
-      setFabricSaving(false);
-    }
-  };
-
-  const handleDeleteFabric = async (id) => {
-    if (deletingFabricId) return;
-    if (window.confirm("Are you sure you want to delete this fabric?")) {
-      setDeletingFabricId(id);
-      try {
-        await api.deleteFabric(id);
-        fetchDashboardAndConfig();
-      } catch (err) {
-        alert("Failed to delete fabric: " + err.message);
-      } finally {
-        setDeletingFabricId(null);
-      }
-    }
   };
 
   const blankAppointmentForm = {
@@ -2674,6 +2695,12 @@ function App() {
           alert("Please select a fabric from the catalog or upload your own fabric.");
           return;
         }
+        const unmeasured = garmentJobs.some(job => Object.entries(job.fabrics || {})
+          .some(([slot, ids]) => (ids || []).some(id => !(Number(job.fabric_qty?.[`${slot}:${id}`]) > 0))));
+        if (unmeasured) {
+          alert("Enter how much of each chosen fabric or accessory this order needs.");
+          return;
+        }
         await saveStep2();
         setSelectionReviewPhase(true);
       } else if (currentStep === 3) {
@@ -2871,6 +2898,18 @@ function App() {
   const handleFabricSelection = (garmentKey, next) => {
     setGarmentJobs(prev => prev.map(job => job.key === garmentKey
       ? { ...job, fabrics: next }
+      : job));
+  };
+
+  // How much of each picked roll the garment needs, keyed "SLOT:itemId" per
+  // garment. Asked at the moment of choosing: a pick with no quantity is one
+  // the ledger can never reserve or consume.
+  const fabricQuantities = React.useMemo(
+    () => Object.fromEntries(garmentJobs.map(job => [job.key, job.fabric_qty || {}])),
+    [garmentJobs]);
+  const handleFabricQuantity = (garmentKey, slot, fabricId, quantity) => {
+    setGarmentJobs(prev => prev.map(job => job.key === garmentKey
+      ? { ...job, fabric_qty: { ...(job.fabric_qty || {}), [`${slot}:${fabricId}`]: quantity } }
       : job));
   };
 
@@ -3099,7 +3138,7 @@ function App() {
     { key: 'customer', label: 'Add your first customer', done: customersList.length > 0, go: () => setView('order-selector') },
     { key: 'order', label: 'Create your first order', done: ordersList.length > 0, go: () => setView('order-selector') },
     { key: 'staff', label: 'Add your staff (tailors & designers)', done: tailors.length > 0, tab: 'staff', go: () => setDashboardTab('staff') },
-    { key: 'fabrics', label: 'Set up your fabric library', done: fabrics.length > 0, tab: 'fabrics', go: () => setDashboardTab('fabrics') },
+    { key: 'fabrics', label: 'Stock your first fabric', done: fabrics.length > 0, tab: 'inventory', go: () => setDashboardTab('inventory') },
     { key: 'production', label: 'Move an order through production', done: ordersList.some(o => o.order_status && o.order_status !== 'Received'), tab: 'orders', go: () => setDashboardTab('orders') },
     // A step whose screen this boutique cannot open is not a step it can ever
     // finish: `done` stays false forever, so the checklist never completes and
@@ -3579,7 +3618,6 @@ function App() {
             title={t(
               dashboardTab === 'overview' ? 'nav.dashboard' :
               dashboardTab === 'orders' ? 'nav.manageOrders' :
-              dashboardTab === 'fabrics' ? 'nav.manageFabrics' :
               dashboardTab === 'tailors' ? 'nav.manageTailors' :
               dashboardTab === 'designs' ? 'nav.manageDesigns' :
               `nav.${dashboardTab}`,
@@ -4412,183 +4450,6 @@ function App() {
                 />
               </Suspense>
             )}
-
-            {/* 2. MANAGE FABRICS TAB */}
-            {dashboardTab === 'fabrics' && (() => {
-              const q = fabricQuery;
-              const materials = [...new Set(fabrics.map(f => f.material).filter(Boolean))].sort();
-              const colours = [...new Set(fabrics.map(f => f.color).filter(Boolean))].sort();
-              const filtered = fabrics.filter(f => {
-                if (q.material !== 'All' && f.material !== q.material) return false;
-                if (q.colour !== 'All' && f.color !== q.colour) return false;
-                if (q.availability === 'Available' && !f.is_available) return false;
-                if (q.availability === 'Out of Stock' && f.is_available) return false;
-                if (q.search.trim()) {
-                  const needle = q.search.toLowerCase();
-                  return [f.name, f.material, f.color].some(v => (v || '').toLowerCase().includes(needle));
-                }
-                return true;
-              }).sort((a, b) => (
-                q.sort === 'name' ? String(a.name).localeCompare(String(b.name))
-                  : q.sort === 'price_asc' ? Number(a.price_per_meter) - Number(b.price_per_meter)
-                  : q.sort === 'price_desc' ? Number(b.price_per_meter) - Number(a.price_per_meter)
-                  : (b.id || 0) - (a.id || 0)));
-              const available = fabrics.filter(f => f.is_available).length;
-              const avg = fabrics.length
-                ? fabrics.reduce((sum, f) => sum + Number(f.price_per_meter || 0), 0) / fabrics.length : 0;
-              const openNew = () => {
-                setEditingFabric(null);
-                setFabricGroups([blankGroup()]);
-                setShowFabricModal(true);
-              };
-              const openEdit = (fabric) => {
-                setEditingFabric(fabric);
-                setFabricGroups([{
-                  ...blankGroup(),
-                  kind: fabric.kind || '',
-                  variant: fabric.variant || '',
-                  placements: (fabric.placements || []).map(
-                    ({ garment, section, slot }) => ({ garment, section, slot })),
-                  materials: [{
-                    ...blankMaterial(),
-                    name: fabric.name,
-                    material: fabric.material,
-                    color: fabric.color,
-                    color_hex: fabric.color_hex || '#c8a97e',
-                    price_per_meter: String(fabric.price_per_meter),
-                    image_url: fabric.image_url || '',
-                    image_urls: fabric.image_urls || [],
-                    is_available: fabric.is_available,
-                  }],
-                }]);
-                setShowFabricModal(true);
-              };
-              const pick = (key, label, options) => (
-                <label className="at-field" style={{ minWidth: '140px' }}>
-                  <span className="at-field-hint" style={{ fontWeight: 600 }}>{label}</span>
-                  <div className="at-field-control" style={{ minHeight: '42px' }}>
-                    <select className="form-control" value={q[key]} onChange={(e) => setFabricQuery({ ...q, [key]: e.target.value })}>
-                      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                  </div>
-                </label>
-              );
-              return (
-              <>
-                <PageHeader
-                  title={t('fabricsPage.title')}
-                  subtitle={t('fabricsPage.subtitle')}
-                  aside={(
-                    <div className="user-profile-widget">
-                      <div className="user-avatar-circle">
-                        <UserAvatar user={currentUser} />
-                      </div>
-                      <span>{t('dashboard.hiUser', `Hi, ${currentUserName}`, { name: currentUserName })}</span>
-                    </div>
-                  )}
-                  actions={(
-                    <button className="btn-primary" style={{ padding: '10px 18px' }} onClick={openNew}>
-                      <Plus size={16} />
-                      {t('fabricsPage.addNewFabric')}
-                    </button>
-                  )}
-                />
-
-                <div className="at-toolbar" style={{ marginTop: 0, alignItems: 'flex-end' }}>
-                  <SearchBox value={q.search} onChange={(v) => setFabricQuery({ ...q, search: v })}
-                             placeholder="Search fabrics by name, material, colour…" />
-                  <div className="at-toolbar-right" style={{ alignItems: 'flex-end' }}>
-                    {pick('material', 'Material', [['All', 'All'], ...materials.map(m => [m, m])])}
-                    {pick('colour', 'Colour', [['All', 'All'], ...colours.map(c => [c, c])])}
-                    {pick('availability', 'Availability', [['All', 'All'], ['Available', 'Available'], ['Out of Stock', 'Out of Stock']])}
-                    {pick('sort', 'Sort by', [['newest', 'Newest First'], ['name', 'Name A–Z'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low']])}
-                  </div>
-                </div>
-
-                <section className="at-stat-grid" style={{ marginBottom: 'var(--space-5)' }}>
-                  <StatCard icon={Layers} tone="amber" label="Total Fabrics" value={fabrics.length} />
-                  <StatCard icon={CheckCircle2} tone="green" label="Available" value={available} />
-                  <StatCard icon={Package} tone="rose" label="Out of Stock" value={fabrics.length - available} />
-                  <StatCard icon={Tag} tone="amber" label="Average Price / mtr" value={formatMoney(avg)} />
-                </section>
-
-                {fabrics.length === 0 ? (
-                  <div className="ui-card" style={{ padding: '48px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                    <div style={{ fontWeight: 'var(--weight-semibold)', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                      {t('fabricsPage.noFabricsYet', 'No fabrics in your library yet')}
-                    </div>
-                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', maxWidth: '44ch', margin: '0 auto 16px', lineHeight: 'var(--leading-normal)' }}>
-                      {t('fabricsPage.noFabricsHint', 'Add the cloths you keep in stock — their colour, material and price per metre — so they can be picked when you take an order.')}
-                    </div>
-                    <button className="btn-primary" style={{ margin: '0 auto' }} onClick={openNew}><Plus size={16} /> {t('fabricsPage.addNewFabric')}</button>
-                  </div>
-                ) : (
-                  <div className="at-fabric-grid">
-                    {filtered.length === 0 && (
-                      <div className="ui-card" style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-muted)', gridColumn: '1 / -1' }}>
-                        No fabrics match these filters.
-                      </div>
-                    )}
-                    {filtered.map(fabric => (
-                      <article key={fabric.id} className="ui-card at-fabric">
-                        {/* "Aqua Blue" is not a CSS colour, so the tile fell back
-                            to grey for every fabric named the way a boutique
-                            names one. The swatch the owner picked is exact; the
-                            name map is the honest second choice. */}
-                        <div className="at-fabric-media" style={{ background: fabric.color_hex || getColorCircleStyle(fabric.color) }}>
-                          {fabric.image_url
-                            ? <img src={resolveMediaUrl(fabric.image_url)} alt={fabric.name} />
-                            : <span className="at-fabric-swatch-name">{fabric.color}</span>}
-                          <span className={`ui-badge at-fabric-pill ${fabric.is_available ? 'ui-badge--success' : 'ui-badge--neutral'}`}>
-                            ● {fabric.is_available ? 'Available' : 'Out of Stock'}
-                          </span>
-                        </div>
-                        <div className="at-fabric-body">
-                          <h4 className="at-fabric-name">{fabric.name}</h4>
-                          <div className="at-fabric-meta">
-                            <span><Layers size={13} /> Material: {fabric.material}</span>
-                            <span className="at-fabric-price">{formatMoney(fabric.price_per_meter)}/mtr</span>
-                            <span>
-                              <Palette size={13} /> Colour: {fabric.color}
-                              {fabric.color_hex && (
-                                <i title={fabric.color_hex} style={{ width: '12px', height: '12px', borderRadius: '3px', background: fabric.color_hex, border: '1px solid var(--border-color)', display: 'inline-block' }} />
-                              )}
-                            </span>
-                          </div>
-                          {(fabric.kind_label || (fabric.placements || []).length > 0) && (
-                            <div className="at-fabric-meta" style={{ gap: '6px', flexWrap: 'wrap' }}>
-                              {fabric.kind_label && (
-                                <span className="ui-badge">
-                                  {fabric.variant_label || fabric.kind_label}
-                                </span>
-                              )}
-                              {(fabric.placements || []).map((p) => (
-                                <span key={p.id} className="ui-badge">{p.path}</span>
-                              ))}
-                            </div>
-                          )}
-                          <div className="at-fabric-actions">
-                            <button className="btn-secondary at-btn-sm" onClick={() => openEdit(fabric)}>
-                              <Edit2 size={12} /> Edit
-                            </button>
-                            <button className="btn-secondary at-btn-sm at-btn-danger" disabled={deletingFabricId === fabric.id} onClick={() => handleDeleteFabric(fabric.id)}>
-                              {deletingFabricId === fabric.id ? 'Deleting…' : <><Trash2 size={12} /> Delete</>}
-                            </button>
-                          </div>
-                        </div>
-                      </article>
-                    ))}
-                    <button type="button" className="at-fabric--add" onClick={openNew}>
-                      <span className="at-photo-plus" style={{ width: 56, height: 56 }}><Plus size={22} /></span>
-                      <span className="at-section-title">Add New Fabric</span>
-                      <span className="at-section-sub">Expand your collection with new fabrics.</span>
-                      <span className="btn-primary" style={{ marginTop: '8px' }}><Plus size={16} /> Add Fabric</span>
-                    </button>
-                  </div>
-                )}
-              </>
-              );
-            })()}
 
             {/* 3. MANAGE TAILORS TAB */}
 
@@ -6196,59 +6057,6 @@ function App() {
             )}
           </main>
 
-          {/* Fabrics CRUD Modal Overlay */}
-          {showFabricModal && (
-            <FormModal
-              icon={Layers} tone="green" zIndex={1100} width="720px"
-              title={editingFabric ? t('fabricsPage.editFabricDetails', 'Edit Fabric Details') : t('fabricsPage.addNewFabricTitle', 'Add New Fabric to Catalog')}
-              subtitle="Add fabric details to your catalog for easy selection and reuse."
-              onClose={() => setShowFabricModal(false)}
-              footer={(
-                <>
-                  <button type="button" className="btn-secondary" onClick={() => setShowFabricModal(false)}>{t('common.cancel', 'Cancel')}</button>
-                  <button type="submit" form="fabric-form" className="btn-primary" disabled={fabricSaving || fabricUploads > 0}>
-                    <Save size={16} />
-                    {fabricUploads > 0
-                      ? t('common.uploading', 'Uploading…')
-                      : fabricSaving ? t('common.saving', 'Saving…')
-                        : fabricCount > 1
-                          ? `Save ${fabricCount} materials`
-                          : t('fabricsPage.saveFabric', 'Save Fabric')}
-                  </button>
-                </>
-              )}
-            >
-              <form id="fabric-form" onSubmit={handleSaveFabric} className="at-stack">
-                {fabricGroups.map((group, i) => (
-                  <FabricGroup
-                    key={group._id}
-                    index={i}
-                    taxonomy={fabricTaxonomy}
-                    value={group}
-                    allowRepeat={!editingFabric}
-                    canRemove={!editingFabric && fabricGroups.length > 1}
-                    onUploading={(delta) => setFabricUploads(n => Math.max(0, n + delta))}
-                    onChange={(next) => setFabricGroups(
-                      rows => rows.map((row, idx) => (idx === i ? next : row)))}
-                    onRemove={() => setFabricGroups(
-                      rows => rows.filter((_, idx) => idx !== i))}
-                  />
-                ))}
-
-                {!editingFabric && (
-                  <button
-                    type="button"
-                    className="btn-secondary at-btn-sm"
-                    style={{ alignSelf: 'flex-start', borderStyle: 'dashed' }}
-                    onClick={() => setFabricGroups(rows => [...rows, blankGroup()])}
-                  >
-                    <Plus size={14} /> Add another garment or accessory
-                  </button>
-                )}
-              </form>
-            </FormModal>
-          )}
-
           {/* Appointment booking. apps/scheduling has always accepted these and
               the customer's tracking page already renders a trial card from
               them; there was simply no way to create one from the product. */}
@@ -7424,6 +7232,8 @@ function App() {
                                 taxonomy={fabricTaxonomy}
                                 selection={fabricSelection}
                                 onChange={handleFabricSelection}
+                                quantities={fabricQuantities}
+                                onQuantityChange={handleFabricQuantity}
                                 accessoriesOnly
                               />
                             </Suspense>
@@ -7464,7 +7274,7 @@ function App() {
                           own empty case this way. Both routes out are offered,
                           because using the customer's own cloth is a normal
                           boutique workflow, not a fallback. */}
-                      {fabrics.filter(f => f.is_available !== false).length === 0 && (
+                      {fabrics.length === 0 && (
                         <div style={{ padding: '24px', border: '1px dashed var(--border-color)', borderRadius: '10px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
                           {/* Two empty states, not one. An empty library is a
                               job the owner can go and do; a library the
@@ -7477,10 +7287,10 @@ function App() {
                               refuses it. Say so instead, and leave the one
                               route that still works. */}
                           <div style={{ fontWeight: 600 }}>
-                            {canSeeTab(currentUser, 'fabrics') ? 'Your fabric library is empty' : 'Fabric library unavailable'}
+                            {canSeeTab(currentUser, 'inventory') ? 'No fabric in stock yet' : 'Inventory unavailable'}
                           </div>
                           <div style={{ color: 'var(--text-secondary)', fontSize: '13px', maxWidth: '46ch', lineHeight: 1.5 }}>
-                            {canSeeTab(currentUser, 'fabrics') ? (<>
+                            {canSeeTab(currentUser, 'inventory') ? (<>
                               Add the rolls you stock to pick from them here — or switch to
                               <strong> Customer's Own Fabric</strong> above if the client is bringing their own.
                             </>) : (<>
@@ -7496,19 +7306,19 @@ function App() {
                               this component's state. The draft is on the server
                               before we navigate, so the work is waiting when
                               they come back. */}
-                          {canSeeTab(currentUser, 'fabrics') && (
+                          {canSeeTab(currentUser, 'inventory') && (
                           <button type="button" className="btn-secondary" disabled={draftSaveState === 'saving'} onClick={async () => {
                             try {
                               await persistDraft({ step: 4 });
                             } catch (err) {
-                              alert('Could not save this order before opening the fabric library. '
+                              alert('Could not save this order before opening Inventory. '
                                     + 'Nothing has been lost — try again.');
                               return;
                             }
                             setView('dashboard');
-                            setDashboardTab('fabrics');
+                            setDashboardTab('inventory');
                           }}>
-                            {draftSaveState === 'saving' ? 'Saving…' : <>Save &amp; add fabrics</>}
+                            {draftSaveState === 'saving' ? 'Saving…' : <>Save &amp; stock fabrics</>}
                           </button>
                           )}
                         </div>
@@ -7531,6 +7341,8 @@ function App() {
                           taxonomy={fabricTaxonomy}
                           selection={fabricSelection}
                           onChange={handleFabricSelection}
+                          quantities={fabricQuantities}
+                          onQuantityChange={handleFabricQuantity}
                         />
                       </Suspense>
                       </div>
@@ -9098,7 +8910,7 @@ function App() {
             {/* The designs, fabrics and accessories chosen for each garment,
                 read back exactly as the order's review step showed them. Off
                 the job's own `selections` snapshot: the floor roles have no
-                fabrics module, so nothing here asks /api/fabrics/. Orders
+                inventory module, so nothing here asks /api/inventory/. Orders
                 placed before the snapshot existed have nothing to show. */}
             {jobs.some((j) => Object.keys(j.selections || {}).length > 0) && (
               <FormSection icon={Layers} tone="green" title="Designs &amp; fabrics"
@@ -9110,10 +8922,22 @@ function App() {
                     design: j.selections?.design,
                     fabrics: j.selections?.fabrics,
                     slot_labels: j.selections?.slot_labels,
+                    fabric_qty: j.selections?.fabric_qty,
                   }))}
                   fabrics={jobs.flatMap((j) => j.selections?.fabric_items || [])}
                   taxonomy={fabricTaxonomy}
                 />
+              </FormSection>
+            )}
+
+            {/* What the cutting table actually took from each roll. Recorded
+                here, at the stage it happens, by the people standing at it;
+                Stitching Completed only mops up lines nobody recorded. */}
+            {stage?.stage_key === 'pattern_cutting'
+              && (currentUser?.role === 'Owner' || currentUser?.role === 'Master') && (
+              <FormSection icon={Scissors} tone="green" title="Fabric used at cutting"
+                           subtitle="Metres cut from each roll, and the offcuts. Stock and the order's material cost follow from this.">
+                <CuttingUsage orderId={activeReviewOrder.id} />
               </FormSection>
             )}
 

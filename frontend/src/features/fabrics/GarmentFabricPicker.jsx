@@ -5,6 +5,10 @@ import { resolveMediaUrl } from '../../services/media';
 import { PartTabStrip } from '../designStudio/GarmentPartTabs';
 import { ACCESSORY_OPTIONS } from '../designStudio/GarmentPartPicker';
 
+// "m" for cloth, "pcs" for anything counted; the ledger's own unit otherwise.
+const unitShort = (f) => (
+  !f?.unit || f.unit === 'METER' ? 'm' : f.unit === 'PIECE' ? 'pcs' : String(f.unit).toLowerCase());
+
 /**
  * Fabric, garment by garment and part by part.
  *
@@ -222,11 +226,19 @@ function FabricCard({ fabric, picked, onToggle }) {
       <div className="fabric-details">
         <span className="fabric-title">{fabric.name}</span>
         <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>
-          {[fabric.material, fabric.color].filter(Boolean).join(' · ')}
+          {[fabric.material_type, fabric.color].filter(Boolean).join(' · ')}
         </span>
-        {Number(fabric.price_per_meter) > 0 && (
+        {Number(fabric.selling_price) > 0 && (
           <span style={{ fontWeight: 600, display: 'block', marginTop: '4px', fontSize: '12px' }}>
-            ₹{Number(fabric.price_per_meter).toLocaleString('en-IN')}/mtr
+            ₹{Number(fabric.selling_price).toLocaleString('en-IN')}/{unitShort(fabric)}
+          </span>
+        )}
+        {fabric.available_stock !== undefined && (
+          <span style={{ display: 'block', marginTop: '2px', fontSize: '10.5px',
+                         color: Number(fabric.available_stock) > 0 ? '#107c41' : 'var(--danger-color, #b91c1c)' }}>
+            {Number(fabric.available_stock) > 0
+              ? `${Number(fabric.available_stock)} ${unitShort(fabric)} in stock`
+              : 'Out of stock'}
           </span>
         )}
       </div>
@@ -236,7 +248,8 @@ function FabricCard({ fabric, picked, onToggle }) {
 
 
 /** One part of one garment, and the fabrics filed under it. */
-function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false }) {
+function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false,
+                   slotKey = '', quantities = {}, onQuantity }) {
   const chosenFabrics = fabrics.filter(f => chosen.includes(String(f.id)));
   const itemCategoryName = accessoriesOnly ? 'Accessories' : 'Fabrics';
 
@@ -338,10 +351,23 @@ function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false }) 
                       {fabric.name}
                     </div>
                     <div style={{ fontSize: '10.5px', color: 'var(--text-secondary, #64748b)' }}>
-                      {[fabric.material, fabric.color].filter(Boolean).join(' · ')}
-                      {Number(fabric.price_per_meter) > 0 && ` · ₹${Number(fabric.price_per_meter).toLocaleString('en-IN')}/mtr`}
+                      {[fabric.material_type, fabric.color].filter(Boolean).join(' · ')}
+                      {Number(fabric.selling_price) > 0 && ` · ₹${Number(fabric.selling_price).toLocaleString('en-IN')}/${unitShort(fabric)}`}
                     </div>
                   </div>
+                  {/* How much of it: the number the ledger reserves at Fabric
+                      Confirmed and the cutting table later consumes. */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', marginLeft: '6px' }}>
+                    <input
+                      type="number" min="0" step="0.01" className="form-control"
+                      style={{ width: '84px', padding: '4px 8px', fontSize: '12px' }}
+                      placeholder={accessoriesOnly ? 'Qty' : 'Metres'}
+                      value={quantities[`${slotKey}:${fabric.id}`] ?? ''}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => onQuantity?.(slotKey, String(fabric.id), e.target.value)}
+                    />
+                    <span style={{ color: 'var(--text-secondary)' }}>{unitShort(fabric)}</span>
+                  </label>
                   <button
                     type="button"
                     onClick={() => onToggle(String(fabric.id))}
@@ -374,13 +400,14 @@ function SlotRow({ label, fabrics, chosen, onToggle, accessoriesOnly = false }) 
 
 export default function GarmentFabricPicker({
   garmentJobs = [], fabrics = [], taxonomy = null, selection = {}, onChange, loading = false, accessoriesOnly = false,
+  quantities = {}, onQuantityChange,
 }) {
   const [activeSlotMap, setActiveSlotMap] = useState({});
 
-  // In stock only, the same rule the flat grid applied: Manage Fabrics is the
-  // screen that sets the flag and legitimately still lists what this hides.
-  const inStock = useMemo(
-    () => (fabrics || []).filter(f => f.is_available !== false), [fabrics]);
+  // Every active roll the server sent. Stock levels are shown on the card
+  // rather than used to hide it: an empty roll can still be the right one,
+  // and the reservation reports the shortfall when the order is confirmed.
+  const inStock = useMemo(() => fabrics || [], [fabrics]);
 
   // A roll nobody has filed against any garment yet. Every part offers these,
   // because a boutique that has not started using placements still has to be
@@ -614,6 +641,9 @@ export default function GarmentFabricPicker({
                       chosen={chosenForJob[slot.key] || []}
                       onToggle={toggle(slot.key)}
                       accessoriesOnly={accessoriesOnly}
+                      slotKey={slot.key}
+                      quantities={quantities[job.key] || {}}
+                      onQuantity={(s, id, q) => onQuantityChange?.(job.key, s, id, q)}
                     />
                   );
                 })()}

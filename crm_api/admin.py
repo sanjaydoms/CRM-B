@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueFabric, BoutiqueDesign
+from .models import Customer, Measurement, DesignPreference, FabricSelection, Tailor, Order, BoutiqueDesign
 
 class MeasurementInline(admin.StackedInline):
     model = Measurement
@@ -62,12 +62,6 @@ class CustomerAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="width: 45px; height: 45px; border-radius: 50%; object-fit: cover;" />', obj.profile_photo.url)
         return "No Photo"
     profile_image_tag.short_description = 'Photo'
-
-@admin.register(BoutiqueFabric)
-class BoutiqueFabricAdmin(admin.ModelAdmin):
-    list_display = ('name', 'material', 'color', 'price_per_meter', 'is_available')
-    search_fields = ('name', 'material', 'color')
-    list_filter = ('is_available', 'material')
 
 @admin.register(Tailor)
 class TailorAdmin(admin.ModelAdmin):

@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CustomerViewSet, TailorViewSet, BoutiqueFabricViewSet, BoutiqueDesignViewSet, OrderViewSet, OrderDraftViewSet, DashboardView, NotificationViewSet, BoutiqueSettingsViewSet
+from .views import CustomerViewSet, TailorViewSet, BoutiqueDesignViewSet, OrderViewSet, OrderDraftViewSet, DashboardView, NotificationViewSet, BoutiqueSettingsViewSet
 from .client_errors import ClientErrorView
 from .auth_views import (
     SignupView, LoginView, LogoutView, MeView, SeedDataView,
@@ -10,7 +10,6 @@ from .auth_views import (
 router = DefaultRouter()
 router.register(r'customers', CustomerViewSet, basename='customer')
 router.register(r'tailors', TailorViewSet, basename='tailor')
-router.register(r'fabrics', BoutiqueFabricViewSet, basename='fabric')
 router.register(r'boutique-designs', BoutiqueDesignViewSet, basename='boutique-design')
 router.register(r'orders', OrderViewSet, basename='order')
 router.register(r'order-drafts', OrderDraftViewSet, basename='order-draft')

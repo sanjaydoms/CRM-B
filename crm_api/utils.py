@@ -1,4 +1,4 @@
-from crm_api.models import Tailor, BoutiqueFabric
+from crm_api.models import Tailor
 
 def seed_tenant_defaults(demo=True):
     if not demo:
@@ -25,14 +25,17 @@ def seed_tenant_defaults(demo=True):
         {"name": "Cotton Slub", "material": "Cotton", "color": "Olive Green", "price_per_meter": 950.00, "image_url": "https://images.unsplash.com/photo-1605721911519-3dfeb3be25e7?w=400"},
     ]
 
-    for f in fabrics:
-        fab_obj, created = BoutiqueFabric.objects.get_or_create(
-            name=f["name"],
-            defaults={"material": f["material"], "color": f["color"], "price_per_meter": f["price_per_meter"], "image_url": f["image_url"]}
+    # Stock rows rather than a catalogue: the wizard picks from inventory now,
+    # and metres are recorded against these with a Stock In.
+    from apps.inventory.models import InventoryItem
+    for n, f in enumerate(fabrics, 1):
+        InventoryItem.objects.get_or_create(
+            item_code=f"FAB-DEMO-{n:02d}",
+            defaults={"name": f["name"], "category": "FABRIC", "unit": "METER",
+                      "material_type": f["material"], "color": f["color"],
+                      "purchase_price": f["price_per_meter"], "selling_price": f["price_per_meter"],
+                      "image_url": f["image_url"], "image_urls": [f["image_url"]]},
         )
-        if not created and ('fabric_' in str(fab_obj.image_url) or not str(fab_obj.image_url).startswith('http')):
-            fab_obj.image_url = f["image_url"]
-            fab_obj.save()
 
     designs = [
         {

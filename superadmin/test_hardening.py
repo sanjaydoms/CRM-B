@@ -93,17 +93,17 @@ class ControlStateIsAuthoritative(TransactionTestCase):
         with temporary_tenant('hard_mod', 'o@mod.test', 'Modules') as tenant:
             client = boutique_client('hard_mod', 'u@mod.test')
             self.assertEqual(
-                client.get('/api/fabrics/', HTTP_X_TENANT_ID='hard_mod').status_code, 200)
+                client.get('/api/tailors/', HTTP_X_TENANT_ID='hard_mod').status_code, 200)
 
             BoutiqueTenant.objects.filter(pk=tenant.pk).update(
-                enabled_modules={'fabrics': False})
+                enabled_modules={'tailors': False})
 
-            refused = client.get('/api/fabrics/', HTTP_X_TENANT_ID='hard_mod')
+            refused = client.get('/api/tailors/', HTTP_X_TENANT_ID='hard_mod')
             self.assertEqual(refused.status_code, 403, 'a disabled module was served')
-            self.assertEqual(refused.json()['module'], 'fabrics')
+            self.assertEqual(refused.json()['module'], 'tailors')
 
             self.assertEqual(
-                client.get('/api/fabrics.json', HTTP_X_TENANT_ID='hard_mod').status_code, 403)
+                client.get('/api/tailors.json', HTTP_X_TENANT_ID='hard_mod').status_code, 403)
 
     def test_a_deleted_registry_row_stops_being_served(self):
 
@@ -161,7 +161,7 @@ class GhostSchemaIsRefused(TransactionTestCase):
             client.credentials(HTTP_AUTHORIZATION='Token ' + self.admin_token.key,
                                HTTP_X_TENANT_ID='hard_ghost3')
 
-            reads = ['/api/customers/', '/api/orders/', '/api/fabrics/',
+            reads = ['/api/customers/', '/api/orders/',
                      '/api/tailors/', '/api/inventory/items/',
                      '/api/design-studio/designs/', '/api/production/tasks/',
                      '/api/scheduling/appointments/', '/api/dashboard/']
@@ -170,7 +170,6 @@ class GhostSchemaIsRefused(TransactionTestCase):
 
             writes = [('/api/customers/', {'first_name': 'X', 'last_name': 'Y',
                                            'mobile_number': '9000000009'}),
-                      ('/api/fabrics/', {'name': 'F', 'material': 'silk'}),
                       ('/api/tailors/', {'name': 'T', 'specialty': 'blouse'})]
             for url, payload in writes:
                 self.assertEqual(client.post(url, payload, format='json').status_code,

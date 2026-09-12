@@ -23,6 +23,10 @@ const formatKey = (key) => (key || '').replace(/_/g, ' ').replace(/\b\w/g, (c) =
 
 const ACCESSORY_LABELS = Object.fromEntries(ACCESSORY_OPTIONS.map((o) => [o.key, o.label]));
 
+// "m" for cloth, "pcs" for anything counted; the ledger's own unit otherwise.
+const unitShort = (f) => (
+  !f?.unit || f.unit === 'METER' ? 'm' : f.unit === 'PIECE' ? 'pcs' : String(f.unit).toLowerCase());
+
 const FALLBACK =
   'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=400';
 
@@ -150,6 +154,8 @@ export default function GarmentSelectionsReview({
           const isAccessory = slot in ACCESSORY_LABELS;
           unique.forEach((id) => {
             const f = fabricById[id];
+            const qty = Number(job.fabric_qty?.[`${slot}:${id}`] || 0);
+            const price = Number(f?.selling_price ?? f?.price_per_meter ?? 0);
             const row = {
               key: `${slot}:${id}`,
               // A placed order's job carries the labels it was placed with
@@ -158,10 +164,10 @@ export default function GarmentSelectionsReview({
               label: isAccessory ? ACCESSORY_LABELS[slot]
                                  : (job.slot_labels?.[slot] || slotLabels[garmentKey]?.[slot] || formatKey(slot)),
               value: f?.name || `Item #${id}`,
-              sub: f ? [f.material, f.color,
-                        Number(f.price_per_meter) > 0
-                          ? `₹${Number(f.price_per_meter).toLocaleString('en-IN')}/mtr` : null]
-                        .filter(Boolean).join(' · ') : null,
+              sub: [f?.material_type || f?.material, f?.color,
+                    qty > 0 ? `${qty} ${unitShort(f)} needed` : null,
+                    price > 0 ? `₹${price.toLocaleString('en-IN')}/${unitShort(f)}` : null]
+                .filter(Boolean).join(' · ') || null,
               image_url: f?.image_url,
             };
             (isAccessory ? accessoryRows : fabricRows).push(row);

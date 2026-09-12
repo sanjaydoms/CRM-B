@@ -163,6 +163,9 @@ class RolePermission(ModuleAccess):
         'assign_stage', 'upload_garment_image', 'delete_garment_image',
         'publish_garment_images',
         'master_verification',
+        # What the cutting table actually used, and what became offcuts, is
+        # recorded by the Master standing at it.
+        'consume',
     })
 
     def has_role_permission(self, request, view):

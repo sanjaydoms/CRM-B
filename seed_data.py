@@ -5,7 +5,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'boutique_crm.settings')
 django.setup()
 
 from django.contrib.auth.models import User
-from crm_api.models import Tailor, BoutiqueFabric, BoutiqueDesign
+from crm_api.models import Tailor, BoutiqueDesign
 from tenants.models import BoutiqueTenant, Domain
 from core.utils import refuse_unless_local_database
 from django_tenants.utils import schema_context

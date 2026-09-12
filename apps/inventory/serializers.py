@@ -1,9 +1,11 @@
+import re
+
 from rest_framework import serializers
 
 from .models import (
     BillOfMaterials, BomLine, CatalogItem, CatalogSection, Category,
     CustomerMaterial, CustomerMaterialMovement, DEFAULT_UNIT_BY_CATEGORY,
-    InventoryItem, LocationStock, OrderMaterialLine, OrderMaterialPlan,
+    InventoryItem, ItemPlacement, LocationStock, OrderMaterialLine, OrderMaterialPlan,
     PurchaseOrder, PurchaseOrderLine, StockLocation, StockMovement, Supplier,
     Unit, UnitConversion,
 )
@@ -15,6 +17,28 @@ class SupplierSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class ItemPlacementSerializer(serializers.ModelSerializer):
+    path = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ItemPlacement
+        fields = ['id', 'garment', 'section', 'slot', 'path', 'image_urls']
+        read_only_fields = ['id', 'path']
+
+    def validate(self, data):
+        from crm_api.fabric_taxonomy import TaxonomyError, validate_placement
+        try:
+            garment, section, slot = validate_placement(
+                data.get('garment', ''), data.get('section', ''), data.get('slot', ''))
+        except TaxonomyError as exc:
+            raise serializers.ValidationError(str(exc))
+        images = data.get('image_urls') or []
+        if not isinstance(images, list):
+            raise serializers.ValidationError({'image_urls': 'Expected a list of URLs.'})
+        return {'garment': garment, 'section': section, 'slot': slot,
+                'image_urls': [str(u) for u in images if u]}
+
+
 class InventoryItemSerializer(serializers.ModelSerializer):
     available_stock = serializers.DecimalField(max_digits=12, decimal_places=3, read_only=True)
     needs_reorder = serializers.BooleanField(read_only=True)
@@ -22,17 +46,92 @@ class InventoryItemSerializer(serializers.ModelSerializer):
     unit_display = serializers.CharField(source='get_unit_display', read_only=True)
     category_display = serializers.CharField(source='get_category_display', read_only=True)
     supplier_name = serializers.CharField(source='supplier.name', read_only=True)
+    placements = ItemPlacementSerializer(many=True, required=False)
+    kind_label = serializers.SerializerMethodField()
+    variant_label = serializers.SerializerMethodField()
+    is_accessory = serializers.SerializerMethodField()
 
     class Meta:
         model = InventoryItem
         fields = '__all__'
         read_only_fields = ['current_stock', 'reserved_stock', 'created_at', 'updated_at']
 
+    def get_kind_label(self, obj):
+        from crm_api.fabric_taxonomy import kind_label
+        return kind_label(obj.kind)
+
+    def get_variant_label(self, obj):
+        from crm_api.fabric_taxonomy import variant_label
+        return variant_label(obj.kind, obj.variant)
+
+    def get_is_accessory(self, obj):
+        from crm_api.fabric_taxonomy import is_accessory
+        return is_accessory(obj.kind)
+
+    def validate_color_hex(self, value):
+        if value and not re.fullmatch(r'#[0-9a-fA-F]{6}', value):
+            raise serializers.ValidationError("Colour code must look like #1a2b3c.")
+        return (value or '').lower()
+
     def validate(self, attrs):
         category = attrs.get('category') or getattr(self.instance, 'category', None)
         if category and not attrs.get('unit') and not self.instance:
             attrs['unit'] = DEFAULT_UNIT_BY_CATEGORY.get(category, Unit.UNIT)
+
+        # The card and the picker read image_url; the gallery is the rest of
+        # the shoot. The first photo is mirrored so neither has to know the
+        # other exists.
+        urls = attrs.get('image_urls')
+        if urls and not attrs.get('image_url'):
+            attrs['image_url'] = urls[0]
+
+        from crm_api.fabric_taxonomy import TaxonomyError, validate_kind
+        if any(f in attrs for f in ('kind', 'variant')):
+            kind = attrs.get('kind', getattr(self.instance, 'kind', '') or '')
+            variant = attrs.get('variant', getattr(self.instance, 'variant', '') or '')
+            try:
+                attrs['kind'], attrs['variant'] = validate_kind(kind, variant)
+            except TaxonomyError as exc:
+                raise serializers.ValidationError({'kind': str(exc)})
         return attrs
+
+    def _write_placements(self, item, rows):
+        # Replace, not merge: the form sends the whole set it means to keep.
+        wanted = {}
+        for row in rows:
+            wanted[(row['garment'], row['section'], row['slot'])] = row.get('image_urls') or []
+        current = {(p.garment, p.section, p.slot): p for p in item.placements.all()}
+        stale = [p.id for key, p in current.items() if key not in wanted]
+        if stale:
+            item.placements.filter(id__in=stale).delete()
+        fresh, touched = [], []
+        for (garment, section, slot), images in wanted.items():
+            existing = current.get((garment, section, slot))
+            if existing is None:
+                fresh.append(ItemPlacement(
+                    item=item, garment=garment, section=section, slot=slot,
+                    image_urls=images))
+            elif existing.image_urls != images:
+                existing.image_urls = images
+                touched.append(existing)
+        if fresh:
+            ItemPlacement.objects.bulk_create(fresh)
+        if touched:
+            ItemPlacement.objects.bulk_update(touched, ['image_urls'])
+
+    def create(self, validated_data):
+        rows = validated_data.pop('placements', [])
+        item = super().create(validated_data)
+        if rows:
+            self._write_placements(item, rows)
+        return item
+
+    def update(self, instance, validated_data):
+        rows = validated_data.pop('placements', None)
+        item = super().update(instance, validated_data)
+        if rows is not None:
+            self._write_placements(item, rows)
+        return item
 
 
 class InventoryItemSummarySerializer(serializers.ModelSerializer):
@@ -41,6 +140,9 @@ class InventoryItemSummarySerializer(serializers.ModelSerializer):
     available_stock = serializers.DecimalField(max_digits=12, decimal_places=3, read_only=True)
     needs_reorder = serializers.BooleanField(read_only=True)
     unit_display = serializers.CharField(source='get_unit_display', read_only=True)
+    placements = ItemPlacementSerializer(many=True, read_only=True)
+    kind_label = serializers.SerializerMethodField()
+    is_accessory = serializers.SerializerMethodField()
 
     class Meta:
         model = InventoryItem
@@ -48,7 +150,18 @@ class InventoryItemSummarySerializer(serializers.ModelSerializer):
             'id', 'item_code', 'name', 'category', 'color', 'unit', 'unit_display',
             'current_stock', 'reserved_stock', 'available_stock', 'reorder_level',
             'needs_reorder', 'rack_location', 'status', 'purchase_price',
+            # What the order wizard's fabric picker reads off each roll.
+            'material_type', 'color_hex', 'image_url', 'image_urls', 'kind', 'variant',
+            'kind_label', 'is_accessory', 'selling_price', 'placements',
         ]
+
+    def get_kind_label(self, obj):
+        from crm_api.fabric_taxonomy import kind_label
+        return kind_label(obj.kind)
+
+    def get_is_accessory(self, obj):
+        from crm_api.fabric_taxonomy import is_accessory
+        return is_accessory(obj.kind)
 
 
 class StockMovementSerializer(serializers.ModelSerializer):
@@ -257,6 +370,7 @@ class OrderMaterialLineSerializer(serializers.ModelSerializer):
     outstanding_reservation = serializers.DecimalField(
         max_digits=12, decimal_places=3, read_only=True)
     item_code = serializers.CharField(source='item.item_code', read_only=True, default=None)
+    garment_name = serializers.CharField(source='garment_job.template.name', read_only=True, default=None)
     available_stock = serializers.DecimalField(
         source='item.available_stock', max_digits=12, decimal_places=3,
         read_only=True, default=None)
@@ -264,7 +378,7 @@ class OrderMaterialLineSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderMaterialLine
         fields = [
-            'id', 'plan', 'bom_line', 'item', 'item_code', 'role', 'role_display',
+            'id', 'plan', 'bom_line', 'item', 'item_code', 'garment_name', 'role', 'role_display',
             'material_name', 'unit', 'unit_display', 'required_quantity',
             'reserved_quantity', 'consumed_quantity', 'wasted_quantity',
             'returned_quantity', 'outstanding_reservation', 'available_stock',

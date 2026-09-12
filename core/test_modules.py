@@ -50,7 +50,7 @@ class RegistryChecksTests(SimpleTestCase):
         self.assertTrue(any('/api/marketing/' in m for m in messages), messages)
         self.assertEqual({e.id for e in errors}, {'core.E001'})
         # ...and a governed neighbour in the same fake urlconf stays quiet.
-        self.assertFalse(any('/api/fabrics/' in m for m in messages), messages)
+        self.assertFalse(any('/api/tailors/' in m for m in messages), messages)
 
     @override_settings(ROOT_URLCONF='core.test_modules')
     def test_an_app_that_adds_no_segment_of_its_own_is_reported(self):
@@ -132,7 +132,7 @@ class EntitlementTests(SimpleTestCase):
         # Sparse storage: a module added to the registry must not switch itself
         # off for every existing boutique the moment it is deployed.
         self.assertTrue(is_enabled({}, 'inventory'))
-        self.assertTrue(is_enabled({'fabrics': False}, 'inventory'))
+        self.assertTrue(is_enabled({'tailors': False}, 'inventory'))
         self.assertTrue(is_enabled(None, 'inventory'))
         self.assertFalse(is_enabled({'inventory': False}, 'inventory'))
 
@@ -264,6 +264,6 @@ urlpatterns = [
     ])),
     # Quiet neighbours: one a module governs, one always-on with children
     # under it that must not be walked.
-    path('api/fabrics/', _view),
+    path('api/tailors/', _view),
     path('admin/', include([path('login/', _view)])),
 ]

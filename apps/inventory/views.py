@@ -1,7 +1,7 @@
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
-from django.db.models import Count, F, Sum, DecimalField, ExpressionWrapper
+from django.db.models import Count, F, Q, Sum, DecimalField, ExpressionWrapper
 from django.utils import timezone
 from rest_framework import status, viewsets
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -53,7 +53,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
         return InventoryItemSerializer
 
     def get_queryset(self):
-        queryset = InventoryItem.objects.all()
+        queryset = InventoryItem.objects.prefetch_related('placements')
         if self.action != 'list':
             queryset = queryset.select_related('supplier')
 
@@ -68,7 +68,30 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 current_stock__lte=F('reserved_stock') + F('reorder_level')
             )
-        return queryset
+
+        # The fabric catalogue's filters, kept so the order wizard can ask for
+        # "saree pallu fabrics" the way it always did.
+        if kind := params.get('kind'):
+            queryset = queryset.filter(kind=kind)
+        if variant := params.get('variant'):
+            queryset = queryset.filter(variant=variant)
+        placement = {f'placements__{f}': params[f]
+                     for f in ('garment', 'section', 'slot') if params.get(f)}
+        if placement:
+            queryset = queryset.filter(**placement)
+        if params.get('accessory') in ('1', 'true', 'True'):
+            from crm_api.fabric_taxonomy import ACCESSORY_KINDS
+            queryset = queryset.filter(kind__in=ACCESSORY_KINDS)
+        if params.get('uncategorised') in ('1', 'true', 'True'):
+            queryset = queryset.filter(kind='', placements__isnull=True)
+        # What the wizard's fabric step lays out: the cloth categories, plus
+        # anything filed under a garment part or classified in the taxonomy.
+        # Threads and packaging stay off a saree's pallu tab.
+        if params.get('picker') in ('1', 'true', 'True'):
+            queryset = queryset.filter(status=InventoryItem.Status.ACTIVE).filter(
+                Q(category__in=[Category.FABRIC, Category.LINING, Category.BORDER])
+                | ~Q(kind='') | Q(placements__isnull=False))
+        return queryset.distinct()
 
     @action(detail=False, methods=['GET'], url_path='options')
     def options_metadata(self, request):
@@ -78,6 +101,39 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
             'units': [{'value': u.value, 'label': u.label} for u in Unit],
             'default_unit_by_category': {k: v for k, v in DEFAULT_UNIT_BY_CATEGORY.items()},
         })
+
+    @action(detail=False, methods=['GET'], url_path='taxonomy')
+    def taxonomy(self, request):
+        from crm_api.fabric_taxonomy import tree
+        return Response(tree())
+
+    # An item that does not exist yet has no id to hang an upload on, so the
+    # shots go up first and the form saves the URLs it gets back.
+    @action(detail=False, methods=['POST'], url_path='upload-images')
+    def upload_images(self, request):
+        import uuid as uuid_module
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import default_storage
+
+        files = request.FILES.getlist('images')
+        if not files:
+            return Response({'error': 'No images were sent.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if len(files) > 10:
+            return Response({'error': 'Up to 10 images at a time.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        urls = []
+        for f in files:
+            if not (f.content_type or '').startswith('image/'):
+                return Response({'error': f"{f.name} is not an image."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if f.size > 10 * 1024 * 1024:
+                return Response({'error': f"{f.name} is larger than 10MB."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            path = f"inventory/{uuid_module.uuid4()}_{f.name}"
+            saved = default_storage.save(path, ContentFile(f.read()))
+            urls.append(request.build_absolute_uri(default_storage.url(saved)))
+        return Response({'image_urls': urls}, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['GET'], url_path='summary')
     def summary(self, request):
@@ -786,7 +842,10 @@ class OrderMaterialPlanViewSet(viewsets.ReadOnlyModelViewSet):
             order_materials.confirm_consumption(
                 line, request.data.get('used', 0),
                 wasted=request.data.get('wasted', 0), user=request.user,
-                from_location=self._location(request, 'from_location'))
+                from_location=self._location(request, 'from_location'),
+                # Named by the caller (the cutting table records at
+                # pattern_cutting), so the ledger says which stage took it.
+                stage_key=request.data.get('stage_key') or None)
         except (order_materials.MaterialPlanError, ValueError) as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         plan.refresh_from_db()
