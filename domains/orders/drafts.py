@@ -64,7 +64,7 @@ def customer_for(draft, payload):
         return draft.customer
     fields = {k: payload.get(k, '') for k in (
         'first_name', 'last_name', 'mobile_number', 'email_address', 'address',
-        'city_region', 'source', 'customer_type', 'garment_type', 'occasion',
+        'city_region', 'source', 'customer_type', 'gender', 'garment_type', 'occasion',
         'pattern_style', 'custom_requirements', 'occupation',
         'preferred_communication', 'notes',
     ) if payload.get(k) not in (None, '')}

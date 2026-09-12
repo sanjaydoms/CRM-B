@@ -93,7 +93,8 @@ class Customer(models.Model):
     address = models.TextField(blank=True, null=True)
     city_region = models.CharField(max_length=100, blank=True, null=True)
     source = models.CharField(max_length=50, default="Walk In") # Walk In, Instagram, Referral, etc.
-    customer_type = models.CharField(max_length=50, default="Women", db_index=True) # Women, Men, Kids
+    customer_type = models.CharField(max_length=50, default="Silver", db_index=True) # Silver, Gold, Platinum
+    gender = models.CharField(max_length=20, blank=True, default='')
     garment_type = models.CharField(max_length=100, default="Lehenga")
     neckline_style = models.CharField(max_length=100, blank=True, null=True)
     sleeve_style = models.CharField(max_length=100, blank=True, null=True)
@@ -405,6 +406,9 @@ class OrderStage(models.Model):
     performed_by = models.ForeignKey(Tailor, on_delete=models.SET_NULL, null=True, blank=True)
     comments = models.TextField(blank=True, null=True)
     attachments = models.JSONField(default=list, blank=True) # list of image URLs
+    # Why a supervisor sent submitted work back. Set on rejection, cleared on
+    # the next submission, so the worker reads it when they reopen the stage.
+    verification_note = models.TextField(blank=True, default='')
     sequence = models.IntegerField(default=0)
     sla_hours = models.IntegerField(default=24)
 

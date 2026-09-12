@@ -674,7 +674,7 @@ class CustomerSerializer(serializers.ModelSerializer):
         model = Customer
         fields = [
             'id', 'first_name', 'last_name', 'mobile_number', 'email_address',
-            'address', 'city_region', 'source', 'customer_type', 'garment_type',
+            'address', 'city_region', 'source', 'customer_type', 'gender', 'garment_type',
             'neckline_style', 'sleeve_style', 'back_style', 'length_preference',
             'silhouette', 'embellishments', 'pattern_style', 'occasion',
             'custom_requirements', 'date_of_birth', 'occupation',
@@ -779,7 +779,7 @@ class CustomerSummarySerializer(serializers.ModelSerializer):
         model = Customer
         fields = [
             'id', 'first_name', 'last_name', 'mobile_number', 'email_address',
-            'address', 'city_region', 'source', 'customer_type', 'garment_type',
+            'address', 'city_region', 'source', 'customer_type', 'gender', 'garment_type',
             'neckline_style', 'sleeve_style', 'back_style', 'length_preference',
             'silhouette', 'embellishments', 'pattern_style', 'occasion',
             'custom_requirements', 'date_of_birth', 'occupation',

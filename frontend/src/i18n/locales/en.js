@@ -245,7 +245,7 @@ const en = {
   customersPage: {
     title: "Customer Directory",
     subtitle: "View client profiles, style files, and body measurements.",
-    searchPlaceholder: "Search customers...",
+    searchPlaceholder: "Search customers by name, email, or phone...",
     filterAll: "All",
     filterWomen: "Women",
     filterMen: "Men",

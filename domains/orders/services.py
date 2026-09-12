@@ -337,10 +337,29 @@ class OrderService:
         if order_stage.status == 'COMPLETED' and new_status == 'COMPLETED':
             return order
 
+        # Verification. Anyone below owner/Master does not complete a stage:
+        # they submit it, photo attached, and a supervisor completes it. The
+        # rule sits here, not in the button, so the API cannot be talked past.
+        supervisor = user_role == OWNER or user_role in SUPERVISOR_ROLES
+        if not supervisor:
+            if new_status == 'COMPLETED':
+                new_status = 'PENDING_VERIFICATION'
+            if new_status == 'PENDING_VERIFICATION' and not files:
+                raise ValueError('Add a photo of the finished work before submitting it for verification.')
+            if order_stage.status == 'PENDING_VERIFICATION':
+                raise ValueError('This stage is waiting for the owner or Master to verify it.')
+        rejected = order_stage.status == 'PENDING_VERIFICATION' and new_status == 'IN_PROGRESS'
+        if rejected and not (comments or '').strip():
+            raise ValueError('Say what needs to be redone before sending this back.')
+
         old_status = order_stage.status
         order_stage.status = new_status
         if comments:
             order_stage.comments = comments
+        if rejected:
+            order_stage.verification_note = comments
+        elif new_status == 'PENDING_VERIFICATION':
+            order_stage.verification_note = ''
 
         # Naming SOMEBODY ELSE as the performer is a supervisor's call.
         #
@@ -359,10 +378,12 @@ class OrderService:
                 order_stage.performed_by = Tailor.objects.get(id=int(performer_id))
             except (Tailor.DoesNotExist, TypeError, ValueError):
                 pass
+        elif old_status == 'PENDING_VERIFICATION':
+            pass  # verifying or rejecting is not doing the work: keep the worker's name on it
         elif user and user.is_authenticated and getattr(user, 'tailor_profile', None):
             order_stage.performed_by = user.tailor_profile
 
-        if new_status == 'IN_PROGRESS' and old_status != 'IN_PROGRESS':
+        if new_status == 'IN_PROGRESS' and old_status not in ('IN_PROGRESS', 'PENDING_VERIFICATION'):
             order_stage.started_at = timezone.now()
         elif new_status == 'COMPLETED' and old_status != 'COMPLETED':
             if not order_stage.started_at:
@@ -415,13 +436,7 @@ class OrderService:
         order.save()
 
         from apps.production.models import ProductionTask
-        task_status = {
-            'NOT_STARTED': 'PENDING',
-            'IN_PROGRESS': 'IN_PROGRESS',
-            'COMPLETED': 'COMPLETED',
-            'SKIPPED': 'SKIPPED',
-            'PAUSED': 'BLOCKED',
-        }.get(new_status)
+        task_status = STAGE_TO_TASK_STATUS.get(new_status)
         task = ProductionTask.objects.filter(order=order, stage_key=stage_key).first()
         if task is not None and task_status:
             task.status = task_status
@@ -450,6 +465,12 @@ class OrderService:
         if stage_key in ('stitching_in_progress', 'stitching_completed', 'delivered'):
             refresh_staff_availability(order.tailor, order.master)
 
+        from domains.orders.notifications import notify_verification
+        if new_status == 'PENDING_VERIFICATION':
+            notify_verification(order, order_stage, submitted=True)
+        elif rejected:
+            notify_verification(order, order_stage, submitted=False)
+
         if new_status in ('COMPLETED', 'SKIPPED'):
             create_order_notifications(
                 order,
@@ -473,6 +494,7 @@ STAGE_TO_TASK_STATUS = {
     'COMPLETED': 'COMPLETED',
     'SKIPPED': 'SKIPPED',
     'PAUSED': 'BLOCKED',
+    'PENDING_VERIFICATION': 'IN_PROGRESS',
 }
 
 

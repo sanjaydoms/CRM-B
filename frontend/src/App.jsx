@@ -6,11 +6,11 @@ import {
   FolderOpen, Sparkles, HelpCircle, X, ExternalLink,
   ChevronRight, Lock, Mail, Phone, Calendar, Landmark, 
   FileText, Bell, User, MapPin, Eye, EyeOff, Edit2, Plus, Trash2, LogOut, History, Package, Menu,
-  PenTool, Settings, RotateCw, Clock, Wallet,
+  PenTool, Settings, RotateCw, Clock, Wallet, AlertTriangle,
   Shirt, TrendingUp, AlertCircle, CalendarDays, LayoutGrid, List, Receipt, Banknote,
   Truck, PackageCheck, CheckCircle2, Boxes, Crown, ShoppingCart, Coins, ClipboardList,
   Type, Tag, Layers, Palette, IndianRupee, Link as LinkIcon, Image as ImageIcon, Save,
-  Play, Pause, SkipForward, RefreshCw, Ruler, Target, Leaf, Building2, Globe, Camera, Store,
+  Play, Pause, RefreshCw, Ruler, Target, Leaf, Building2, Globe, Camera, Store,
   PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import { api } from './services/api';
@@ -44,7 +44,7 @@ import TemplateForm from './features/catalog/TemplateForm';
 import GarmentSummary from './features/catalog/GarmentSummary';
 import DesignCataloguePicker from './features/designStudio/DesignCataloguePicker';
 import GarmentSelectionsReview from './features/catalog/GarmentSelectionsReview';
-import OrderAlterations from './features/alterations/OrderAlterations';
+import OrderAlterations, { RequestAlterationModal } from './features/alterations/OrderAlterations';
 import AlterationList from './features/alterations/AlterationList';
 import OrderGarmentBrief from './features/catalog/OrderGarmentBrief';
 import OrderKanban from './features/orders/OrderKanban';
@@ -299,7 +299,8 @@ const DEFAULT_CUSTOMER_DATA = {
   address: '',
   city_region: '',
   source: 'Walk In',
-  customer_type: 'Women',
+  customer_type: 'Silver',
+  gender: '',
   garment_type: 'Lehenga',
   neckline_style: '',
   sleeve_style: '',
@@ -695,7 +696,7 @@ function StageTimeline({ stages, onSelectStage }) {
   const activeIndex = (() => {
     if (!stages || !stages.length) return -1;
     const running = stages.findIndex(
-      (s) => s.status === 'IN_PROGRESS' || s.status === 'PAUSED');
+      (s) => s.status === 'IN_PROGRESS' || s.status === 'PAUSED' || s.status === 'PENDING_VERIFICATION');
     if (running !== -1) return running;
     let last = -1;
     stages.forEach((s, i) => { if (s.status === 'COMPLETED') last = i; });
@@ -726,11 +727,12 @@ function StageTimeline({ stages, onSelectStage }) {
         const isInProgress = stage.status === 'IN_PROGRESS';
         const isPaused = stage.status === 'PAUSED';
         const isSkipped = stage.status === 'SKIPPED';
+        const isPendingVerification = stage.status === 'PENDING_VERIFICATION';
 
         let statusColor = 'var(--border-color)';
         if (isCompleted) statusColor = '#10b981';
         else if (isInProgress) statusColor = '#3b82f6';
-        else if (isPaused) statusColor = '#f59e0b';
+        else if (isPaused || isPendingVerification) statusColor = '#f59e0b';
         else if (isSkipped) statusColor = '#9ca3af';
 
         return (
@@ -1050,7 +1052,6 @@ const navSectionsFor = (user, t) => {
       { key: 'daily', label: t('nav.groups.daily', 'Daily'), items: [
         { tab: 'overview', icon: Users, label: t('nav.dashboard'), phone: true },
         { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
-        { tab: 'alterations', icon: Scissors, label: t('nav.alterations', 'Alterations') },
         { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
       ] },
       { key: 'design', label: t('nav.groups.design', 'Design'), items: [
@@ -1078,7 +1079,6 @@ const navSectionsFor = (user, t) => {
       { key: 'master', items: [
         { tab: 'assignments', icon: Scissors, label: t('nav.myAssignments'), phone: true },
         { tab: 'orders', icon: ShoppingBag, label: t('nav.manageOrders'), phone: true, phoneLabel: t('nav.orders', 'Orders') },
-        { tab: 'alterations', icon: Scissors, label: t('nav.alterations', 'Alterations') },
         { tab: 'customers', icon: Users, label: t('nav.customers'), phone: true },
         // A Master supervises the floor, so they get the team roster. The
         // screen hides every management control for them and the API strips
@@ -1204,7 +1204,10 @@ function App() {
   // that 403s on every call it makes. Hiding the sidebar entry does not help
   // on its own -- nothing stops a stale requestedTab from still pointing at
   // it -- so resolve it here, where a hidden tab simply never renders.
+  // 'alterations' has no sidebar entry on purpose -- it is reached from a
+  // delivered order -- but it is still a real screen for anyone with the module.
   const navTabs = navSections.flatMap((s) => s.items.map((i) => i.tab));
+  if (canSeeTab(currentUser, 'alterations')) navTabs.push('alterations');
   const dashboardTab = (!navTabs.length || navTabs.includes(requestedTab)) ? requestedTab : navTabs[0];
 
   
@@ -1425,11 +1428,10 @@ function App() {
         pricing: { base: GARMENT_PRICES[template.name] || 15000, fabric: 0,
                    embroidery: 0, customization: 0, tailoring: 0 },
       }]);
-      if (!skipPairingPrompt) {
-        const pairConfig = getGarmentPairConfig(key, template.name);
-        if (pairConfig) {
-          setActivePairingGarment({ key, name: template.name });
-        }
+      // Saree asks after its blouse and petticoat, lehenga after its choli
+      // and dupatta. Paired adds skip the prompt so it cannot chain.
+      if (!skipPairingPrompt && getGarmentPairConfig(key, template.name)) {
+        setActivePairingGarment({ key, name: template.name });
       }
     } catch (err) {
       console.error(err);
@@ -1443,12 +1445,6 @@ function App() {
     for (const pairKey of pairKeys) {
       await addGarment(pairKey, true);
     }
-  };
-
-  const handleSaveReferenceImage = (garmentKey, imageDataUrl) => {
-    setGarmentJobs(prev => prev.map(job => (
-      job.key === garmentKey ? { ...job, referenceImage: imageDataUrl } : job
-    )));
   };
 
 
@@ -1508,11 +1504,9 @@ function App() {
     )));
   };
 
-  /** What the order's Material Source answer means for a line nobody has
-   *  spoken for yet. "Mixed" deliberately defaults to stock and waits to be
-   *  told, because mixed means the answer differs line by line. */
-  const defaultMaterialSource = (job) =>
-    (job.values?.material_source === 'customer' ? 'CUSTOMER' : 'STORE');
+  /** A material line nobody has spoken for yet comes from stock. The
+   *  per-line source is set on the line itself. */
+  const defaultMaterialSource = () => 'STORE';
 
   /** The material fields on a template, with the item chosen for each.
    *
@@ -1771,6 +1765,8 @@ function App() {
   // follows one from an order card or a customer's file, cleared once the tab
   // has been entered so going back to the tab shows the register again.
   const [openAlterationId, setOpenAlterationId] = useState(null);
+  // Delivered order picked for alteration from the customer profile.
+  const [alterationOrder, setAlterationOrder] = useState(null);
   const openAlteration = (id) => {
     setOpenAlterationId(id);
     setSelectedDirectoryCustomer(null);
@@ -1781,6 +1777,10 @@ function App() {
   // progress. Opening a client's order used to throw them into the new-order
   // wizard, so there was no way to answer "where is my dress?" from the profile.
   const [expandedCustomerOrderId, setExpandedCustomerOrderId] = useState(null);
+  // Manage Orders table: the row whose full card is open under it.
+  const [openOrdersRowId, setOpenOrdersRowId] = useState(null);
+  // Alterations sit in the same register as orders, told apart by a Type column.
+  const [alterationsList, setAlterationsList] = useState([]);
   const [approvingDesignId, setApprovingDesignId] = useState(null);
   const [submittingCompletionId, setSubmittingCompletionId] = useState(null);
   const [assigningStageKey, setAssigningStageKey] = useState(null);
@@ -1820,10 +1820,24 @@ function App() {
   const [customerTypeFilter, setCustomerTypeFilter] = useState('All');
   const [ordersSearch, setOrdersSearch] = useState('');
   const [ordersFilterTab, setOrdersFilterTab] = useState('All');
-  const [ordersView, setOrdersView] = useState('kanban');
+  const [ordersView, setOrdersView] = useState('list');
 
   // One predicate for the order registry, whichever way it is drawn: the list
   // and the board show the same orders under the same filter and search.
+  // Same chips and search box, read off an alteration's own fields.
+  const alterationMatchesFilters = (alt) => {
+    const closed = ['COMPLETED', 'CANCELLED'].includes(alt.status);
+    if (ordersFilterTab === 'Active' && closed) return false;
+    if (ordersFilterTab === 'Shipped') return false;
+    if (ordersFilterTab === 'Delivered' && alt.status !== 'COMPLETED') return false;
+    if (ordersSearch.trim()) {
+      const query = ordersSearch.toLowerCase();
+      return (alt.alteration_number || '').toLowerCase().includes(query)
+        || (alt.customer?.name || '').toLowerCase().includes(query);
+    }
+    return true;
+  };
+
   const orderMatchesFilters = (order) => {
     if (ordersFilterTab === 'Active') {
       if (['Shipped', 'Delivered'].includes(order.order_status)) return false;
@@ -2081,6 +2095,7 @@ function App() {
     // bookings and cancelled ones are history, not the day ahead.
     if (hasModule(user, 'scheduling')) await load('appointments', () => api.getAppointments({ upcoming: 'true' }), setAppointments);
     if (hasModule(user, 'fabrics')) await load('fabrics', api.getFabrics, setFabrics);
+    if (hasModule(user, 'alterations')) await load('alterations', api.getAlterations, (d) => setAlterationsList(d || []));
     if (hasModule(user, 'design_studio')) await load('designs', api.getAllBoutiqueDesigns, setAllDesigns);
     await load('settings', api.getBoutiqueSettings, (data) => {
       setBoutiqueSettings(data);
@@ -2529,9 +2544,7 @@ function App() {
     const missing = [
       [!customerForm.first_name, 'First Name'],
       [!customerForm.last_name, 'Last Name'],
-      [!customerForm.email_address, 'Email Address'],
       [!customerForm.mobile_number, 'Mobile Number'],
-      [!customerForm.address, 'Address'],
     ].filter(([isMissing]) => isMissing).map(([, label]) => label);
 
     if (missing.length) {
@@ -2645,14 +2658,11 @@ function App() {
         await saveStep1();
         setCurrentStep(2);
       } else if (currentStep === 2) {
-        const anyPartFabric = garmentJobs.some(job => Object.keys(job.fabrics || {}).length > 0);
-        if (selectionReviewPhase) {
-          // Confirm & Continue: the review has been read, on to the details.
-          setSelectionReviewPhase(false);
-          setCurrentStep(3);
-          return;
-        }
-        if (fabricTab === 'boutique' && !selectedFabric && !anyPartFabric) {
+        // Fabric is chosen per garment part (see fabricSelection), not as one
+        // order-wide selectedFabric, which nothing sets any more.
+        const anyFabricChosen = Object.values(fabricSelection)
+          .some(slots => Object.values(slots).some(ids => ids?.length));
+        if (fabricTab === 'boutique' && !anyFabricChosen) {
           alert("Please select a fabric from the catalog or upload your own fabric.");
           return;
         }
@@ -4756,8 +4766,9 @@ function App() {
                           : (st === 'Shipped' || st === 'Ready for Dispatch') ? 'info'
                           : 'warning';
                       const filtered = ordersList.filter(orderMatchesFilters);
+                      const filteredAlterations = alterationsList.filter(alterationMatchesFilters);
 
-                      if (filtered.length === 0) {
+                      if (filtered.length === 0 && filteredAlterations.length === 0) {
                         return (
                           <div className="ui-card" style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-muted)' }}>
                             {ordersList.length === 0 ? (
@@ -4775,8 +4786,71 @@ function App() {
                         );
                       }
 
-                      return filtered.map(order => (
-                        <div key={order.id} className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-6)' }}>
+                      // Pending shows the stage the order is standing on.
+                      const stageNow = (order) => {
+                        const stages = order.stages || [];
+                        const current = stages.find(st => st.status === 'PENDING_VERIFICATION')
+                          || stages.find(st => st.status === 'IN_PROGRESS')
+                          || stages.find(st => st.status !== 'COMPLETED');
+                        const done = stages.filter(st => st.status === 'COMPLETED').length;
+                        return current ? `${current.stage_name} (${done}/${stages.length})` : '';
+                      };
+                      const awaitingVerification = (order) =>
+                        (order.stages || []).some(st => st.status === 'PENDING_VERIFICATION');
+
+                      return (
+                      <div className="at-table-wrap">
+                      <table className="at-table">
+                        <thead>
+                          <tr>
+                            <th>Order ID</th>
+                            <th>Type</th>
+                            <th>Customer Name</th>
+                            <th>Est. Delivery Date</th>
+                            <th>Status</th>
+                            <th style={{ textAlign: 'right' }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                      {filtered.map(order => {
+                        const isOpen = openOrdersRowId === order.id;
+                        const isDelivered = order.order_status === 'Delivered';
+                        const isCancelled = order.order_status === 'Cancelled';
+                        return (
+                        <React.Fragment key={order.id}>
+                        <tr>
+                          <td style={{ fontWeight: 'var(--weight-bold)' }}>{orderRef(order)}</td>
+                          <td>Stitching</td>
+                          <td>{order.customer_name}</td>
+                          <td>{order.estimated_delivery ? fmtDate(order.estimated_delivery) : '—'}</td>
+                          <td>
+                            <span className={`ui-badge ui-badge--${awaitingVerification(order) ? 'info' : statusTone(order.order_status)}`}>
+                              {isDelivered ? 'Delivered' : isCancelled ? 'Cancelled'
+                                : awaitingVerification(order) ? 'Pending verification' : 'Pending'}
+                            </span>
+                            {!isDelivered && !isCancelled && stageNow(order) && (
+                              <span style={{ marginLeft: '8px', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                                {stageNow(order)}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                              <button type="button" className="btn-secondary at-btn-sm"
+                                      onClick={() => setOpenOrdersRowId(isOpen ? null : order.id)}>
+                                <Eye size={12} /> {isOpen ? 'Hide' : 'View'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {isOpen && (
+                        <tr>
+                        <td colSpan={6} style={{ padding: 0, background: 'var(--surface-2)' }}>
+                        {/* width:0 + min-width:100%: the details take the table's
+                            width instead of setting it, so a wide section (the
+                            stage strip) scrolls inside itself, not the table. */}
+                        <div style={{ width: 0, minWidth: '100%' }}>
+                        <div className="ui-card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-6)', border: 'none', borderRadius: 0 }}>
                           {/* Header: id + status read first; client/date meta; verification note */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
                             <div>
@@ -4968,7 +5042,48 @@ function App() {
                             </div>
                           )}
                         </div>
-                      ));
+                        </div>
+                        </td>
+                        </tr>
+                        )}
+                        </React.Fragment>
+                        );
+                      })}
+                      {/* Alterations, after the stitching orders. View opens
+                          the alteration's own page rather than expanding. */}
+                      {filteredAlterations.map(alt => {
+                        const done = alt.status === 'COMPLETED';
+                        const cancelled = alt.status === 'CANCELLED';
+                        return (
+                        <tr key={alt.id}>
+                          <td style={{ fontWeight: 'var(--weight-bold)' }}>{alt.alteration_number}</td>
+                          <td>Alteration</td>
+                          <td>{alt.customer?.name || [alt.customer?.first_name, alt.customer?.last_name].filter(Boolean).join(' ')}</td>
+                          <td>—</td>
+                          <td>
+                            <span className={`ui-badge ui-badge--${done ? 'success' : cancelled ? 'neutral' : 'warning'}`}>
+                              {done ? 'Delivered' : cancelled ? 'Cancelled' : 'Pending'}
+                            </span>
+                            {!done && !cancelled && (
+                              <span style={{ marginLeft: '8px', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                                {alt.status_display || alt.status}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                              <button type="button" className="btn-secondary at-btn-sm" onClick={() => openAlteration(alt.id)}>
+                                <Eye size={12} /> View
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        );
+                      })}
+                        </tbody>
+                      </table>
+                      </div>
+                      );
                     })()}
                   </div>
                   )}
@@ -5221,7 +5336,7 @@ function App() {
                         <Copy size={16} /> Go with Existing Design
                       </button>
                       <button className="btn-primary" onClick={() => handleSelectExistingCustomer(c)}>
-                        <Sparkles size={16} /> Create New Design
+                        <Sparkles size={16} /> Create New Order
                       </button>
                     </div>
                   )}
@@ -5340,6 +5455,12 @@ function App() {
                                   {stages.length > 0 ? ` · ${done}/${stages.length} stages${current ? ` · ${current.stage_name}` : ''}` : ''}
                                 </div>
                               </div>
+                              {order.order_status === 'Delivered' && isOwner && (
+                                <button type="button" className="btn-secondary at-btn-sm"
+                                        onClick={(e) => { e.stopPropagation(); setAlterationOrder(order); }}>
+                                  <Scissors size={12} /> Alteration
+                                </button>
+                              )}
                               <span className={`ui-badge ui-badge--${statusTone(order.order_status)}`}>{order.order_status}</span>
                               <span className="at-row-sub" style={{ whiteSpace: 'nowrap' }}>{fmtDate(order.order_date)}</span>
                               <strong className="at-num" style={{ color: 'var(--accent-text)' }}>{inr(order.total_amount)}</strong>
@@ -5380,12 +5501,29 @@ function App() {
                                     <Copy size={12} /> Reorder Style
                                   </button>
                                 )}
+                                {/* Renders only once the order is Delivered: the
+                                    way to take a garment back for alteration. */}
+                                <OrderAlterations
+                                  order={order}
+                                  customerId={c.id}
+                                  currentUser={currentUser}
+                                  onOpenAlteration={openAlteration}
+                                  compact
+                                />
                               </div>
                             )}
                           </div>
                         );
                       })}
                     </SectionCard>
+                    {alterationOrder && (
+                      <RequestAlterationModal
+                        order={alterationOrder}
+                        customerId={c.id}
+                        onClose={() => setAlterationOrder(null)}
+                        onCreated={(created) => { setAlterationOrder(null); openAlteration(created.id); }}
+                      />
+                    )}
                   </div>
 
                   <div className="at-stack">
@@ -6849,7 +6987,7 @@ function App() {
                       </div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">{t('wizard.emailAddress', 'Email Address')} <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.emailAddress', 'Email Address')}</label>
                       <input 
                         type="email" 
                         value={customerForm.email_address || ''}
@@ -6860,8 +6998,36 @@ function App() {
                     </div>
                   </div>
 
+                  <div className="form-grid-2">
+                    <div className="form-group">
+                      <label className="form-label">{t('wizard.customerType', 'Customer Type')}</label>
+                      <select 
+                        value={customerForm.customer_type}
+                        onChange={(e) => setCustomerForm({...customerForm, customer_type: e.target.value})}
+                        className="form-control"
+                      >
+                        <option value="Silver">{t('wizard.silver', 'Silver')}</option>
+                        <option value="Gold">{t('wizard.gold', 'Gold')}</option>
+                        <option value="Platinum">{t('wizard.platinum', 'Platinum')}</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{t('wizard.gender', 'Gender')}</label>
+                      <select
+                        value={customerForm.gender || ''}
+                        onChange={(e) => setCustomerForm({...customerForm, gender: e.target.value})}
+                        className="form-control"
+                      >
+                        <option value="">{t('wizard.selectGender', 'Select Gender')}</option>
+                        <option value="Female">{t('wizard.female', 'Female')}</option>
+                        <option value="Male">{t('wizard.male', 'Male')}</option>
+                        <option value="Other">{t('wizard.other', 'Other')}</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div className="form-group">
-                    <label className="form-label">{t('wizard.address', 'Address')} <span className="required">*</span></label>
+                    <label className="form-label">{t('wizard.address', 'Address')}</label>
                     <input 
                       type="text" 
                       value={customerForm.address || ''}
@@ -6897,75 +7063,6 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="form-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.customerType', 'Customer Type')}</label>
-                      <select 
-                        value={customerForm.customer_type}
-                        onChange={(e) => setCustomerForm({...customerForm, customer_type: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="Women">{t('wizard.women', 'Women')}</option>
-                        <option value="Men">{t('wizard.men', 'Men')}</option>
-                        <option value="Kids">{t('wizard.kids', 'Kids')}</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Dresses on this order.
-
-                      The garment list, the options in it and the fields each
-                      garment needs all come from /api/catalog/templates/. This
-                      replaced a hardcoded seven-item dropdown and a stitch-parts
-                      map that had to be edited in four places to add a garment.
-
-                      An order holds several dresses -- a lehenga, its blouse and
-                      a dupatta are three -- so this is a multiple choice, and
-                      each one opens its own form in the next step. */}
-                  <DressesDropdown
-                    title={t('wizard.dressesInOrder', 'Dresses in this Order')}
-                    subtitle={t('wizard.dressesInOrderSub', 'Pick every garment being stitched. Each one gets its own measurements and options.')}
-                    isRequired={true}
-                    garmentTemplates={garmentTemplates}
-                    garmentJobs={garmentJobs}
-                    addingGarmentKey={addingGarmentKey}
-                    garmentTemplatesError={garmentTemplatesError}
-                    loadGarmentTemplates={loadGarmentTemplates}
-                    addGarment={addGarment}
-                    removeGarment={removeGarment}
-                  />
-
-                  <div className="form-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.patternStyle', 'Pattern Style')}</label>
-                      <select 
-                        value={customerForm.pattern_style || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, pattern_style: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">{t('wizard.selectPatternStyle', 'Select Pattern Style')}</option>
-                        <option value="Floral Prints">{t('wizard.floralPrints', 'Floral Prints')}</option>
-                        <option value="Traditional Brocade">{t('wizard.traditionalBrocade', 'Traditional Brocade')}</option>
-                        <option value="Solid Plain">{t('wizard.solidPlain', 'Solid Plain')}</option>
-                        <option value="Geometrical">{t('wizard.geometrical', 'Geometrical')}</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.occasion', 'Occasion')}</label>
-                      <select 
-                        value={customerForm.occasion || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, occasion: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">{t('wizard.selectOccasion', 'Select Occasion')}</option>
-                        <option value="Wedding / Bridal">{t('wizard.weddingBridal', 'Wedding / Bridal')}</option>
-                        <option value="Festive wear">{t('wizard.festiveWear', 'Festive wear')}</option>
-                        <option value="Formal Event">{t('wizard.formalEvent', 'Formal Event')}</option>
-                        <option value="Casual wear">{t('wizard.casualWear', 'Casual wear')}</option>
-                      </select>
-                    </div>
-                  </div>
-
                   <div className="form-group">
                     <label className="form-label">{t('wizard.customRequirements', 'Custom Requirements')}</label>
                     <textarea 
@@ -6973,58 +7070,6 @@ function App() {
                       onChange={(e) => setCustomerForm({...customerForm, custom_requirements: e.target.value})}
                       className="form-control"
                       placeholder={t('wizard.customReqPlaceholder', 'Specify custom preferences (e.g. padding, side zippers, extra margin)')}
-                    />
-                  </div>
-                </div>
-
-                {/* Additional Information Card */}
-                <div className="content-card">
-                  <div className="card-title">
-                    <FolderOpen size={20} />
-                    {t('wizard.additionalInformation', 'Additional Information')}
-                  </div>
-
-                  <div className="form-grid-3">
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.dateOfBirth', 'Date of Birth')}</label>
-                      <input 
-                        type="date" 
-                        value={customerForm.date_of_birth || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, date_of_birth: e.target.value})}
-                        className="form-control"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.occupation', 'Occupation')}</label>
-                      <input 
-                        type="text" 
-                        value={customerForm.occupation || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, occupation: e.target.value})}
-                        className="form-control" 
-                        placeholder="e.g. Entrepreneur"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.preferredCommunication', 'Preferred Communication')}</label>
-                      <select 
-                        value={customerForm.preferred_communication}
-                        onChange={(e) => setCustomerForm({...customerForm, preferred_communication: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="WhatsApp">WhatsApp</option>
-                        <option value="Call">{t('wizard.phoneCall', 'Phone Call')}</option>
-                        <option value="Email">Email</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">{t('wizard.notes', 'Notes')}</label>
-                    <textarea 
-                      value={customerForm.notes || ''}
-                      onChange={(e) => setCustomerForm({...customerForm, notes: e.target.value})}
-                      className="form-control"
-                      placeholder={t('wizard.customerNotesPlaceholder', 'Any additional notes about the customer...')}
                     />
                   </div>
                 </div>
@@ -7119,6 +7164,46 @@ function App() {
                 <div className="page-title-group">
                   <h1 className="page-title">Design Studio</h1>
                   <p className="page-subtitle">Designs matched to this client's measurements, occasion, budget and order history — searched across your catalogue, past orders and saved library, and ranked with the reason for every suggestion.</p>
+                </div>
+
+                {/* Who this order is for. Same customerForm as Personal Details:
+                    an existing customer arrives pre-filled and stays editable,
+                    a new one starts blank. */}
+                <div className="content-card">
+                  <div className="form-grid-2">
+                    <div className="form-group">
+                      <label className="form-label">{t('wizard.customerName', 'Customer Name')} <span className="required">*</span></label>
+                      <div className="form-grid-2">
+                        <input
+                          type="text"
+                          value={customerForm.first_name}
+                          onChange={(e) => setCustomerForm({...customerForm, first_name: e.target.value})}
+                          className="form-control"
+                          placeholder={t('wizard.firstName', 'First Name')}
+                        />
+                        <input
+                          type="text"
+                          value={customerForm.last_name}
+                          onChange={(e) => setCustomerForm({...customerForm, last_name: e.target.value})}
+                          className="form-control"
+                          placeholder={t('wizard.lastName', 'Last Name')}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{t('wizard.mobileNumber', 'Mobile Number')} <span className="required">*</span></label>
+                      <div className="input-wrapper">
+                        <span className="input-icon-left" style={{ fontSize: '14px', left: '12px' }}>🇮🇳 +91</span>
+                        <input
+                          type="tel"
+                          value={customerForm.mobile_number}
+                          onChange={(e) => setCustomerForm({...customerForm, mobile_number: e.target.value})}
+                          style={{ paddingLeft: '65px' }}
+                          placeholder="98765 43210"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="content-card">
@@ -8821,7 +8906,7 @@ function App() {
           || SUPERVISOR_ROLES.includes(currentUser.role);
         // One path for every forward move; the server decides whether the
         // role, the prerequisites and the stage's own data allow it.
-        const transition = async (status, okMessage) => {
+        const transition = async (status, okMessage, comments = stageReviewComments) => {
           if (stageTransitionBusy) return;
           setStageTransitionBusy(true);
           try {
@@ -8829,7 +8914,7 @@ function App() {
               activeReviewOrder.id,
               stage.stage_key,
               status,
-              stageReviewComments,
+              comments,
               stageReviewImage ? [stageReviewImage] : [],
               selectedPerformerId || null
             );
@@ -8842,7 +8927,7 @@ function App() {
             setStageTransitionBusy(false);
           }
         };
-        const tone = { COMPLETED: 'success', IN_PROGRESS: 'info', PAUSED: 'warning', SKIPPED: 'neutral' }[stage?.status] || 'neutral';
+        const tone = { COMPLETED: 'success', IN_PROGRESS: 'info', PAUSED: 'warning', SKIPPED: 'neutral', PENDING_VERIFICATION: 'warning' }[stage?.status] || 'neutral';
         const jobs = activeReviewOrder.garment_jobs || [];
         const answered = (obj) => Object.values(obj || {}).filter(v => v !== '' && v !== null && v !== undefined).length;
         const detailCount = jobs.reduce((n, j) => n + answered(j.spec) + answered(j.measurements), 0);
@@ -8861,7 +8946,7 @@ function App() {
                 {(stage.status === 'NOT_STARTED' || stage.status === 'PAUSED') && (
                   <button className="btn-primary" disabled={stageTransitionBusy}
                           onClick={() => transition('IN_PROGRESS', 'Stage started successfully!')}>
-                    <Play size={16} /> Start In-Progress
+                    <Play size={16} /> Resume Process
                   </button>
                 )}
                 {stage.status === 'IN_PROGRESS' && (
@@ -8870,18 +8955,41 @@ function App() {
                             onClick={() => transition('PAUSED', 'Stage paused successfully!')}>
                       <Pause size={16} /> Pause Stage
                     </button>
-                    <button className="btn-primary" disabled={stageTransitionBusy}
-                            onClick={() => transition('COMPLETED', 'Stage completed successfully!')}>
-                      <Check size={16} /> Complete Stage
-                    </button>
+                    {/* A worker submits with a photo; the owner or Master
+                        completes. The server holds the same rule. */}
+                    {isSupervisor ? (
+                      <button className="btn-primary" disabled={stageTransitionBusy}
+                              onClick={() => transition('COMPLETED', 'Stage completed successfully!')}>
+                        <Check size={16} /> Complete Stage
+                      </button>
+                    ) : (
+                      <button className="btn-primary" disabled={stageTransitionBusy || !stageReviewImage}
+                              title={stageReviewImage ? '' : 'Upload a photo of the work first'}
+                              onClick={() => transition('PENDING_VERIFICATION', 'Submitted. The owner or Master will verify it.')}>
+                        <Check size={16} /> Submit for Verification
+                      </button>
+                    )}
                   </>
                 )}
-                {!settled && (
-                  <button className="btn-secondary" disabled={stageTransitionBusy}
-                          onClick={() => transition('SKIPPED', 'Stage skipped successfully!')}>
-                    <SkipForward size={16} /> Skip Stage
-                  </button>
-                )}
+                {stage.status === 'PENDING_VERIFICATION' && (isSupervisor ? (
+                  <>
+                    <button className="btn-secondary at-btn-warn" disabled={stageTransitionBusy}
+                            onClick={() => {
+                              const note = window.prompt('What needs to be redone? The worker will see this note.');
+                              if (note && note.trim()) transition('IN_PROGRESS', 'Sent back to the worker.', note.trim());
+                            }}>
+                      <X size={16} /> Send Back
+                    </button>
+                    <button className="btn-primary" disabled={stageTransitionBusy}
+                            onClick={() => transition('COMPLETED', 'Verified. Stage completed.')}>
+                      <Check size={16} /> Verify &amp; Complete
+                    </button>
+                  </>
+                ) : (
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', alignSelf: 'center' }}>
+                    Waiting for the owner or Master to verify this work.
+                  </span>
+                ))}
                 {/* Reversals. Forward-only is the rule; these are the two
                     audited exceptions, supervisors only, reason required.
                     The server enforces all of it -- these buttons only appear
@@ -9031,6 +9139,17 @@ function App() {
               </FormSection>
             )}
 
+            {stage && stage.verification_note && stage.status !== 'COMPLETED' && (
+              <InfoNote icon={AlertTriangle} tone="warning" title="Sent back for rework">
+                &ldquo;{stage.verification_note}&rdquo;
+              </InfoNote>
+            )}
+            {stage && stage.status === 'PENDING_VERIFICATION' && (
+              <InfoNote icon={Clock} tone="warning" title="Pending verification">
+                {stage.performed_by_name || 'The worker'} has submitted this stage. Check the photos below
+                {isSupervisor ? ', then verify it or send it back.' : '. The owner or Master will verify it.'}
+              </InfoNote>
+            )}
             {stage && stage.comments && (
               <InfoNote icon={FileText} tone="neutral" title="Active notes / logs">
                 &ldquo;{stage.comments}&rdquo;
@@ -9367,6 +9486,7 @@ function App() {
         </div>
       )}
 
+
       <GarmentPairingModal
         isOpen={!!activePairingGarment}
         onClose={() => setActivePairingGarment(null)}
@@ -9375,7 +9495,6 @@ function App() {
         garmentTemplates={garmentTemplates}
         garmentJobs={garmentJobs}
         onAddPairedGarments={handleAddPairedGarments}
-        onSaveReferenceImage={handleSaveReferenceImage}
       />
     </div>
   );

@@ -25,6 +25,7 @@ const STATUS_LABEL = {
   NOT_STARTED: 'Not started',
   IN_PROGRESS: 'In progress',
   PAUSED: 'Paused',
+  PENDING_VERIFICATION: 'Pending verification',
   COMPLETED: 'Completed',
   SKIPPED: 'Skipped',
 };
@@ -209,7 +210,7 @@ export default function OrderKanban({ orders, workflow, onOpen, onChanged, canDr
                 const busy = busyOrder === order.id;
                 const inert = busy || stage?.legacy;
                 const statusTone = stage?.status === 'IN_PROGRESS' ? 'info'
-                  : stage?.status === 'PAUSED' ? 'warning'
+                  : (stage?.status === 'PAUSED' || stage?.status === 'PENDING_VERIFICATION') ? 'warning'
                   : stage?.status === 'COMPLETED' ? 'success' : 'neutral';
                 return (
                   <article

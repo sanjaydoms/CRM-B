@@ -329,7 +329,7 @@ class OwnerOrOwnFinancialRecord(ModuleAccess):
 
 #: A stage nobody has finished with. The inverse of workflow.SETTLED_STATUSES,
 #: spelled here so this module does not import the engine just for a constant.
-UNSETTLED_STATUSES = ('NOT_STARTED', 'IN_PROGRESS', 'PAUSED')
+UNSETTLED_STATUSES = ('NOT_STARTED', 'IN_PROGRESS', 'PAUSED', 'PENDING_VERIFICATION')
 
 
 def stages_for_role(config, role):
