@@ -4178,13 +4178,14 @@ function App() {
                   return (
                     <section className="at-stat-grid" style={{ marginBottom: 'var(--space-5)' }}>
                       <StatCard icon={TrendingUp} tone="green" label="Revenue this month"
-                                value={inr(s.revenue_month)} sub={`${inr(s.revenue_total)} all time`} />
+                                value={inr(s.revenue_month)} sub={`${inr(s.revenue_total)} all time`}
+                                onClick={() => { setInvoiceFilter('All'); setDashboardTab('invoices'); }} />
                       <StatCard icon={Wallet} tone="amber" label="To collect" value={inr(outstanding)}
                                 sub={outstanding > 0 ? 'across active orders' : 'all settled'}
                                 onClick={() => { setInvoiceFilter('Pending'); setDashboardTab('invoices'); }} />
                       <StatCard icon={ClipboardList} tone="violet" label="Active orders" value={s.active_orders ?? 0}
                                 sub={`${s.due_soon ?? 0} due this week${overdue ? ` · ${overdue} overdue` : ''}`}
-                                onClick={() => setDashboardTab('orders')} />
+                                onClick={() => { setOrdersFilterTab('Active'); setDashboardTab('orders'); }} />
                       <StatCard icon={Users} tone="blue" label="Customers" value={s.total_customers ?? 0}
                                 sub={`${s.total_orders ?? 0} orders total`}
                                 onClick={() => setDashboardTab('customers')} />
