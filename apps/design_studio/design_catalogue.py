@@ -441,10 +441,175 @@ _LEHENGA_CATEGORIES = [
         ]),
 ]
 
+# --------------------------------------------------------------------------
+# GOWN
+# --------------------------------------------------------------------------
+
+_GOWN_CATEGORIES = [
+    _category(
+        'Basic Gown Silhouettes', short='Basic Silhouettes',
+        options=[
+            'A-Line Gown', 'Anarkali Gown', 'Flared Gown', 'Circular Gown', 'Umbrella Gown',
+            'Straight Gown', 'Fit-and-Flare Gown', 'Mermaid Gown', 'Fish-Cut Gown', 'Trumpet Gown',
+            'Bodycon Gown', 'Empire-Waist Gown', 'Princess-Cut Gown', 'Ball Gown', 'Tiered Gown',
+            'Layered Gown', 'Kaftan Gown', 'Maxi Gown', 'Floor-Length Gown', 'High-Low Gown',
+            'Asymmetric Gown',
+        ]),
+    _category(
+        'Indian / Ethnic Gowns', short='Indian / Ethnic',
+        options=[
+            'Anarkali Gown', 'Indo-Western Gown', 'Lehenga Gown', 'Saree Gown', 'Dhoti Gown',
+            'Angrakha Gown', 'Pakistani Gown', 'Mughal Gown', 'Pattu Gown', 'Silk Gown',
+            'Bridal Gown', 'Designer Ethnic Gown', 'Sharara Gown', 'Kurta-Gown', 'Jacket Gown',
+            'Cape Gown', 'Dupatta Gown', 'Floor-Length Anarkali', 'Kalidar Gown',
+        ]),
+    _category(
+        'Gown Cutting / Construction', short='Cutting / Construction',
+        options=[
+            'Princess Cut', 'Panel Cut', 'Kali Cut', '4-Kali', '6-Kali', '8-Kali', '10-Kali',
+            '12-Kali', '16-Kali', '20-Kali', '24-Kali', 'Circular Cut', 'Semi-Circular Cut',
+            'Full Circular Cut', 'Bias Cut', 'Empire Cut', 'Yoke Cut', 'Corset Cut',
+            'Panel-and-Dart', 'Draped Cut', 'Tier Cut', 'Layer Cut', 'Godet Cut',
+        ]),
+    _category(
+        'Gown Flare Styles', short='Flare',
+        options=[
+            'Straight', 'Slight Flare', 'Medium Flare', 'Full Flare', 'Extra Flare',
+            'Circular Flare', 'Umbrella Flare', 'Princess Flare', 'Kali Flare', 'Mermaid Flare',
+            'Trumpet Flare', 'Tiered Flare', 'Layered Flare', 'Ruffle Flare', 'Godet Flare',
+        ]),
+    _category(
+        'Ruffle / Layer Gowns', short='Ruffle / Layer',
+        options=[
+            'Ruffle Gown', 'Single-Ruffle Gown', 'Double-Ruffle Gown', 'Multi-Ruffle Gown',
+            'Ruffle-Sleeve Gown', 'Ruffle-Hem Gown', 'Cascading-Ruffle Gown', 'Tiered Gown',
+            'Double-Tier Gown', 'Triple-Tier Gown', 'Multi-Tier Gown', 'Flounce Gown',
+            'Frill Gown', 'Layered Gown', 'Asymmetric Layered Gown',
+        ]),
+    _category(
+        'Modern Gown Styles', short='Modern',
+        options=[
+            'Off-Shoulder Gown', 'One-Shoulder Gown', 'Cold-Shoulder Gown', 'Strapless Gown',
+            'Tube Gown', 'Halter Gown', 'Backless Gown', 'Keyhole Gown', 'Cut-Out Gown',
+            'Corset Gown', 'Bustier Gown', 'Peplum Gown', 'Cape Gown', 'Jacket Gown',
+            'Blazer Gown', 'Shirt Gown', 'Wrap Gown', 'Draped Gown', 'Slit Gown',
+            'Front-Slit Gown', 'Side-Slit Gown', 'High-Low Gown', 'Asymmetric Gown',
+        ]),
+]
+
+
+# --------------------------------------------------------------------------
+# SALWAR KAMEEZ -- the 'suit' template ("Suit (Kameez)")
+# --------------------------------------------------------------------------
+#
+# Eight sections. Where a section groups its sub-headings (Classic /
+# Traditional / Designer kameez; Traditional / Fitted / Modern bottoms; the
+# dupatta's types and its draping) the groups are sub-categories under the
+# heading, as the catalogue already does for the saree's regions. The
+# dupatta keeps its own section, as asked.
+
+_SUIT_CATEGORIES = [
+    _category(
+        'Kameez / Kurta Silhouettes', short='Kameez / Kurta',
+        subcategories=[
+            ('Classic', [
+                'Straight-Cut Kameez', 'A-Line Kameez', 'Fitted Kameez', 'Flared Kameez',
+                'Long Kameez', 'Short Kameez', 'Knee-Length Kameez', 'Calf-Length Kameez',
+                'Floor-Length Kameez', 'Side-Slit Kameez',
+            ]),
+            ('Traditional', [
+                'Anarkali Kameez', 'Kalidar Kameez', 'Angrakha Kameez', 'Punjabi Kameez',
+                'Pathani Kameez', 'Mughal Kameez', 'Pakistani Kameez', 'Hyderabadi Kameez',
+                'Lucknowi Kameez', 'Rajasthani Kameez', 'Gujarati Kameez',
+            ]),
+            ('Designer', [
+                'Asymmetric Kameez', 'High-Low Kameez', 'Layered Kameez', 'Tiered Kameez',
+                'Ruffle Kameez', 'Cape Kameez', 'Jacket Kameez', 'Peplum Kameez', 'Tunic Kameez',
+                'Shirt-Style Kameez', 'Kaftan Kameez', 'Draped Kameez', 'Slit Kameez',
+                'Overlay Kameez',
+            ]),
+        ]),
+    _category(
+        'Kameez Cutting Styles', short='Kameez Cutting',
+        options=[
+            'Princess Cut', 'Straight Cut', 'A-Line Cut', 'Kali Cut', 'Panel Cut', '4-Kali',
+            '6-Kali', '8-Kali', '10-Kali', '12-Kali', '16-Kali', 'Circular Cut', 'Umbrella Cut',
+            'Empire Cut', 'Yoke Cut', 'Angrakha Cut', 'Asymmetric Cut', 'Diagonal Cut',
+            'Curved Panel Cut', 'Tier Cut', 'Layer Cut', 'Peplum Cut', 'Draped Cut',
+        ]),
+    _category(
+        'Salwar / Bottom Styles', short='Salwar / Bottom',
+        subcategories=[
+            ('Traditional Salwars', [
+                'Regular Salwar', 'Punjabi Salwar', 'Patiala Salwar', 'Semi-Patiala',
+                'Afghani Salwar', 'Pathani Salwar', 'Peshawari Salwar', 'Balochi Salwar',
+                'Sindhi Salwar', 'Pakistani Salwar', 'Hyderabadi Salwar',
+            ]),
+            ('Fitted Bottoms', [
+                'Churidar', 'Straight Pant', 'Cigarette Pant', 'Slim Pant', 'Ankle Pant',
+                'Pencil Pant', 'Tapered Pant',
+            ]),
+            ('Modern', [
+                'Palazzo', 'Sharara', 'Gharara', 'Dhoti Pant', 'Harem Pant', 'Afghani Pant',
+                'Tulip Pant', 'Tulip Salwar', 'Flared Pant', 'Wide-Leg Pant', 'Bootcut Pant',
+                'Pleated Pant', 'Layered Pant',
+            ]),
+        ]),
+    _category(
+        'Patiala Styles', short='Patiala',
+        options=[
+            'Basic Patiala', 'Heavy Pleated Patiala', 'Semi-Patiala', 'Low-Crotch Patiala',
+            'Dhoti-Patiala', 'Short Patiala', 'Long Patiala', 'Designer Patiala',
+        ]),
+    _category(
+        'Churidar Styles', short='Churidar',
+        options=[
+            'Classic Churidar', 'Fitted Churidar', 'Ankle Churidar', 'Full-Length Churidar',
+            'Gathered Churidar', 'Extra-Gathered Churidar', 'Embroidered Churidar',
+            'Contrast Churidar', 'Stretch Churidar',
+        ]),
+    _category(
+        'Sharara Styles', short='Sharara',
+        options=[
+            'Basic Sharara', 'Flared Sharara', 'Wide Sharara', 'Layered Sharara', 'Tiered Sharara',
+            'Pleated Sharara', 'Panelled Sharara', 'Gota Sharara', 'Bridal Sharara',
+            'Short Sharara', 'Long Sharara', 'Palazzo Sharara', 'Lehenga Sharara',
+            'Anarkali Sharara',
+        ]),
+    _category(
+        'Gharara Styles', short='Gharara',
+        options=[
+            'Classic Gharara', 'Double-Gharara', 'Triple-Gharara', 'Paneled Gharara',
+            'Pleated Gharara', 'Flared Gharara', 'Ruffle Gharara', 'Bridal Gharara',
+            'Short Gharara', 'Long Gharara', 'Embroidered Gharara', 'Gota Gharara',
+        ]),
+    _category(
+        'Dupatta Styles', short='Dupatta',
+        subcategories=[
+            ('Dupatta Types', [
+                'Single Dupatta', 'Double Dupatta', 'Triple Dupatta', 'Chiffon Dupatta',
+                'Georgette Dupatta', 'Organza Dupatta', 'Net Dupatta', 'Silk Dupatta',
+                'Banarasi Dupatta', 'Phulkari Dupatta', 'Bandhani Dupatta', 'Chikankari Dupatta',
+                'Kalamkari Dupatta', 'Gota Patti Dupatta', 'Embroidered Dupatta',
+                'Printed Dupatta', 'Tissue Dupatta',
+            ]),
+            ('Dupatta Draping', [
+                'One-Shoulder Drape', 'Two-Shoulder Drape', 'Front Open', 'Front Pleated',
+                'Side Drape', 'Back Drape', 'Head Drape', 'Belted Dupatta', 'Cross-Body Drape',
+                'Cape Drape', 'Jacket Drape', 'Double Dupatta Drape',
+                'One Dupatta on Head + One on Shoulder',
+            ]),
+        ]),
+]
+
 CATALOGUE = {
     'saree': {'key': 'saree', 'label': 'Saree', 'categories': _SAREE_CATEGORIES},
     'blouse': {'key': 'blouse', 'label': 'Blouse', 'categories': _BLOUSE_CATEGORIES},
     'lehenga': {'key': 'lehenga', 'label': 'Lehenga', 'categories': _LEHENGA_CATEGORIES},
+    'gown': {'key': 'gown', 'label': 'Gown', 'categories': _GOWN_CATEGORIES},
+    # The garment template is 'suit' ("Suit (Kameez)"); the boutique calls it
+    # a salwar kameez, and so does its catalogue.
+    'suit': {'key': 'suit', 'label': 'Salwar Kameez', 'categories': _SUIT_CATEGORIES},
 }
 
 

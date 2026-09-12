@@ -348,3 +348,108 @@ class LehengaCatalogueTests(CatalogueTestBase):
                                      template=self.lehenga).status_code, 400)
         self.assertEqual(self.upload('y', {'category': 'waist_construction', 'option': 'corset_waist'},
                                      template=self.blouse).status_code, 400)
+
+
+class GownAndSalwarKameezTests(CatalogueTestBase):
+    """Gown and Salwar Kameez (the 'suit' template): the test plan, at the API.
+    Each sub-heading is its own collection; edit re-files, delete takes one."""
+
+    def setUp(self):
+        super().setUp()
+        self.gown = GarmentTemplate.resolve('gown')
+        self.suit = GarmentTemplate.resolve('suit')
+        self.assertIsNotNone(self.gown)
+        self.assertIsNotNone(self.suit)
+
+    def titles(self, template, **params):
+        r = self.client.get('/api/design-studio/assets/', {'template': template, **params})
+        self.assertEqual(r.status_code, 200, r.content)
+        rows = r.data['results'] if isinstance(r.data, dict) else r.data
+        return sorted(d['title'] for d in rows)
+
+    @staticmethod
+    def q(cat):
+        return {'catalogue_' + k: v for k, v in cat.items()}
+
+    def test_trees_are_served_with_the_headings_in_order(self):
+        r = self.client.get('/api/design-studio/catalogue/?garment=gown')
+        self.assertEqual([c['label'] for c in r.data['categories']], [
+            'Basic Gown Silhouettes', 'Indian / Ethnic Gowns', 'Gown Cutting / Construction',
+            'Gown Flare Styles', 'Ruffle / Layer Gowns', 'Modern Gown Styles'])
+        r = self.client.get('/api/design-studio/catalogue/?garment=suit')
+        self.assertEqual(r.data['label'], 'Salwar Kameez')
+        self.assertEqual([c['label'] for c in r.data['categories']], [
+            'Kameez / Kurta Silhouettes', 'Kameez Cutting Styles', 'Salwar / Bottom Styles',
+            'Patiala Styles', 'Churidar Styles', 'Sharara Styles', 'Gharara Styles',
+            'Dupatta Styles'])
+        kameez = r.data['categories'][0]
+        self.assertEqual([sc['label'] for sc in kameez['subcategories']], ['Classic', 'Traditional', 'Designer'])
+        dupatta = r.data['categories'][-1]
+        self.assertEqual([sc['label'] for sc in dupatta['subcategories']], ['Dupatta Types', 'Dupatta Draping'])
+
+    def test_gown_mermaid_and_fish_cut_stay_apart_and_edit_and_delete_work(self):
+        mermaid = {'category': 'basic_gown_silhouettes', 'option': 'mermaid_gown'}
+        fish = {'category': 'basic_gown_silhouettes', 'option': 'fish_cut_gown'}
+        m = self.upload('Mermaid A', mermaid, template=self.gown)
+        f = self.upload('Fish B', fish, template=self.gown)
+        self.assertEqual((m.status_code, f.status_code), (201, 201), (m.content, f.content))
+        self.assertEqual(self.titles('gown', **self.q(mermaid)), ['Mermaid A'])
+        self.assertEqual(self.titles('gown', **self.q(fish)), ['Fish B'])
+        # Refresh: a fresh read finds it where it was filed.
+        r = self.client.get(f"/api/design-studio/assets/{m.data['id']}/")
+        self.assertEqual(r.data['catalogue']['path'], 'Basic Gown Silhouettes \u203a Mermaid Gown')
+        # Edit: Mermaid -> Fish-Cut, no duplicate.
+        r = self.client.patch(f"/api/design-studio/assets/{m.data['id']}/", {'catalogue': fish}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.titles('gown', **self.q(fish)), ['Fish B', 'Mermaid A'])
+        self.assertEqual(self.titles('gown', **self.q(mermaid)), [])
+        self.assertEqual(DesignAsset.objects.filter(template=self.gown).count(), 2)
+        # Delete: only that design.
+        r = self.client.delete(f"/api/design-studio/assets/{m.data['id']}/")
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(self.titles('gown'), ['Fish B'])
+
+    def test_every_salwar_kameez_design_lands_only_in_its_own_hierarchy(self):
+        plan = [
+            ('Straight kameez', {'category': 'kameez_kurta_silhouettes', 'subcategory': 'classic',
+                                 'option': 'straight_cut_kameez'}),
+            ('Patiala', {'category': 'salwar_bottom_styles', 'subcategory': 'traditional_salwars',
+                         'option': 'patiala_salwar'}),
+            ('Bridal sharara', {'category': 'sharara_styles', 'option': 'bridal_sharara'}),
+            ('Bridal gharara', {'category': 'gharara_styles', 'option': 'bridal_gharara'}),
+            ('Organza dupatta', {'category': 'dupatta_styles', 'subcategory': 'dupatta_types',
+                                 'option': 'organza_dupatta'}),
+            ('One-shoulder drape', {'category': 'dupatta_styles', 'subcategory': 'dupatta_draping',
+                                    'option': 'one_shoulder_drape'}),
+        ]
+        for title, cat in plan:
+            r = self.upload(title, cat, template=self.suit)
+            self.assertEqual(r.status_code, 201, (title, r.content))
+        for title, cat in plan:
+            self.assertEqual(self.titles('suit', **self.q(cat)), [title], title)
+        # A heading alone gathers its groups; the dupatta section keeps its two apart.
+        self.assertEqual(self.titles('suit', catalogue_category='dupatta_styles'),
+                         ['One-shoulder drape', 'Organza dupatta'])
+        self.assertEqual(self.titles('suit', catalogue_category='dupatta_styles',
+                                     catalogue_subcategory='dupatta_types'), ['Organza dupatta'])
+        # A grouped heading needs its group.
+        r = self.upload('lost', {'category': 'kameez_kurta_silhouettes', 'option': 'straight_cut_kameez'},
+                        template=self.suit)
+        self.assertEqual(r.status_code, 400)
+
+    def test_gown_and_suit_never_cross_and_the_header_form_files_a_suit(self):
+        self.assertEqual(self.upload('G', {'category': 'gown_flare_styles', 'option': 'full_flare'},
+                                     template=self.gown).status_code, 201)
+        self.assertEqual(self.upload('S', {'category': 'patiala_styles', 'option': 'basic_patiala'},
+                                     template=self.suit).status_code, 201)
+        self.assertEqual(self.titles('gown'), ['G'])
+        self.assertEqual(self.titles('suit'), ['S'])
+        self.assertEqual(self.upload('x', {'category': 'patiala_styles', 'option': 'basic_patiala'},
+                                     template=self.gown).status_code, 400)
+        # The header form: garment "Suit" slugs to the 'suit' template.
+        r = self.client.post('/api/boutique-designs/', {
+            'name': 'Header sharara', 'garment_type': 'Suit', 'is_boutique': True,
+            'image_url': 'http://m/s.jpg', 'price': 0,
+            'catalogue': {'category': 'sharara_styles', 'option': 'bridal_sharara'}}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(DesignAsset.objects.get(pk=r.data['id']).template.key, 'suit')
