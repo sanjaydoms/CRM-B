@@ -4,6 +4,7 @@ import { Camera, Check, ChevronLeft, ChevronRight, Eye, ImageOff, Link as LinkIc
 import { api } from '../../services/api';
 import { resolveMediaUrl } from '../../services/media';
 import { PartTabStrip } from './GarmentPartTabs';
+import DesignCatalogueFilter from './DesignCatalogueFilter';
 import { useFabricTaxonomy } from '../fabrics/taxonomy';
 
 /**
@@ -575,7 +576,10 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   const fetchedTaxonomy = useFabricTaxonomy();
   const effectiveTaxonomy = taxonomy || fetchedTaxonomy;
 
-  const [designs, setDesigns] = useState(null);
+  const [allDesigns, setAllDesigns] = useState(null);
+  // The catalogue position the list is narrowed to -- {category, subcategory,
+  // option}, every key optional, exactly what the library's browser holds.
+  const [catalogueFilter, setCatalogueFilter] = useState({});
   const [template, setTemplate] = useState(null);
   const [error, setError] = useState(null);
   const [openDesign, setOpenDesign] = useState(null);
@@ -608,7 +612,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
   // Derived rather than stored: a `loading` flag would have to be set
   // synchronously at the top of the effect, which is the cascading-render
   // pattern React warns about.
-  const loading = !designs && !error;
+  const loading = !allDesigns && !error;
 
   useEffect(() => {
     if (!garmentKey) return undefined;
@@ -629,12 +633,40 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
     ])
       .then(([rows, untagged, tpl]) => {
         if (cancelled) return;
-        setDesigns([...(rows || []), ...(untagged || [])]);
+        // A design added through Manage Designs' form arrives with its cover
+        // as image_url and no part photographs at all, so it was listed with
+        // "0 photographs", sat under no part tab and could not be chosen.
+        // Its cover is the whole-garment shot, so it is filed under the
+        // garment's overall part -- the same slot an upload with no part
+        // chosen lands in -- and from there every tab, the modal and choose()
+        // treat it like any other photograph. Nothing is written back.
+        const overallKey = (tpl?.design_parts || []).map(p => p.key)
+          .find(k => k.startsWith('overall')) || 'overall';
+        const withCover = (d) => (d.images?.length || !d.image_url) ? d
+          : { ...d, images: [{ id: d.id, part: overallKey, image_url: d.image_url,
+                               caption: '', sequence: 0 }] };
+        setAllDesigns([...(rows || []), ...(untagged || [])].map(withCover));
         setTemplate(tpl);
       })
       .catch((err) => { if (!cancelled) setError(err.message); });
     return () => { cancelled = true; };
   }, [garmentKey, reloadToken, ownOnly]);
+
+  // What the tabs, the grid and the modal show: every design fetched, or only
+  // those filed at the chosen catalogue position. A derive over the list
+  // already in hand rather than a refetch, so switching chips is instant and
+  // the untagged uploads merged in above are narrowed the same way.
+  const designs = useMemo(() => {
+    if (!allDesigns) return null;
+    const { category, subcategory, option } = catalogueFilter;
+    if (!category) return allDesigns;
+    return allDesigns.filter((d) => {
+      const c = d.catalogue || {};
+      return c.category === category
+        && (!subcategory || c.subcategory === subcategory)
+        && (!option || c.option === option);
+    });
+  }, [allDesigns, catalogueFilter]);
 
   const partOrder = useMemo(
     () => (template?.design_parts || []).map(p => p.key), [template]);
@@ -877,7 +909,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
       <div className="content-card" style={{ color: '#c0392b', fontSize: '12.5px' }}>
         {error}
         <button className="btn-secondary" style={{ marginLeft: '10px', padding: '3px 9px', fontSize: '11px' }}
-                onClick={() => { setDesigns(null); setError(null); setReloadToken(t => t + 1); }}>
+                onClick={() => { setAllDesigns(null); setError(null); setReloadToken(t => t + 1); }}>
           Retry
         </button>
       </div>
@@ -905,6 +937,18 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
           across every design in the library, so choosing a pallu is one tab
           rather than opening twenty sarees. The last tab is the design list
           this screen has always opened on. */}
+      {/* The garment's design catalogue -- category, section, design option --
+          the same positions Manage Designs files under, narrowing the tabs and
+          the list below to designs filed there. Renders nothing for a garment
+          that has no catalogue, so those look exactly as they did. */}
+      {!loading && !ownOnly && !isFabric && !accessoriesOnly && (
+        <DesignCatalogueFilter
+          garmentKey={garmentKey}
+          value={catalogueFilter}
+          onChange={setCatalogueFilter}
+        />
+      )}
+
       {!loading && (
         accessoriesOnly ? (
           <AccessoryMultiSelectDropdown
@@ -1119,7 +1163,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
         </div>
       )}
 
-      {!loading && !ownOnly && designs.length === 0 && (
+      {!loading && !ownOnly && allDesigns.length === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
                       padding: '30px 0', color: 'var(--text-secondary)' }}>
           <ImageOff size={22} />
@@ -1127,6 +1171,15 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
             No {garmentName.toLowerCase()} designs uploaded yet
           </div>
           <div style={{ fontSize: '12px' }}>Add them under Manage Designs.</div>
+        </div>
+      )}
+
+      {!loading && !ownOnly && allDesigns.length > 0 && designs.length === 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+                      padding: '30px 0', color: 'var(--text-secondary)' }}>
+          <ImageOff size={22} />
+          <div style={{ fontSize: '13px', fontWeight: 600 }}>No designs filed here yet</div>
+          <div style={{ fontSize: '12px' }}>Pick another design option, or All designs.</div>
         </div>
       )}
 
@@ -1154,7 +1207,7 @@ export default function GarmentPartPicker({ garmentKey, garmentName, selection =
                     {design.title}
                   </div>
                   <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                    {(design.images || []).length} photograph
+                    {design.garment_type || garmentName} · {(design.images || []).length} photograph
                     {(design.images || []).length === 1 ? '' : 's'}
                     {taken > 0 && (
                       <span style={{ color: '#107c41', fontWeight: 700 }}> · {taken} chosen</span>
