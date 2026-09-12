@@ -453,3 +453,97 @@ class GownAndSalwarKameezTests(CatalogueTestBase):
             'catalogue': {'category': 'sharara_styles', 'option': 'bridal_sharara'}}, format='json')
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(DesignAsset.objects.get(pk=r.data['id']).template.key, 'suit')
+
+
+class JacketCatalogueTests(CatalogueTestBase):
+    """The ethnic jacket: a new garment template plus its thirteen-heading
+    catalogue. The test plan, at the API."""
+
+    def setUp(self):
+        super().setUp()
+        self.jacket = GarmentTemplate.resolve('jacket')
+        self.assertIsNotNone(self.jacket, 'catalog migration 0009 seeds the jacket template')
+
+    def titles(self, template, **params):
+        r = self.client.get('/api/design-studio/assets/', {'template': template, **params})
+        self.assertEqual(r.status_code, 200, r.content)
+        rows = r.data['results'] if isinstance(r.data, dict) else r.data
+        return sorted(d['title'] for d in rows)
+
+    @staticmethod
+    def q(cat):
+        return {'catalogue_' + k: v for k, v in cat.items()}
+
+    def test_jacket_is_a_garment_with_thirteen_headings(self):
+        # The library's garment tiles come from the templates; the jacket is one.
+        r = self.client.get('/api/catalog/templates/')
+        rows = r.data['results'] if isinstance(r.data, dict) else r.data
+        self.assertIn('jacket', [t['key'] for t in rows])
+        r = self.client.get('/api/design-studio/catalogue/?garment=jacket')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([c['label'] for c in r.data['categories']], [
+            'Core Ethnic Jacket Patterns', "Women's Ethnic Jacket Patterns",
+            'Construction / Cutting Patterns', 'Front Opening / Closure Patterns',
+            'Angrakha / Wrap Patterns', 'Cape & Overlay Jackets', 'Lehenga / Bridal Jacket Patterns',
+            'Modern Indo-Western Jacket Patterns', 'Sleeve Patterns', 'Collar / Neck Patterns',
+            'Panel / Decorative Construction', 'Layered Jackets',
+            'Traditional Work-Based Jacket Names'])
+        core = r.data['categories'][0]
+        self.assertEqual([o['label'] for o in core['options']][:3],
+                         ['Nehru Jacket', 'Bandhgala Jacket', 'Achkan Jacket'])
+        self.assertEqual(len(core['options']), 18)
+
+    def test_princess_cut_and_a_line_stay_apart_with_edit_and_delete(self):
+        princess = {'category': 'construction_cutting_patterns', 'option': 'princess_cut_jacket'}
+        aline = {'category': 'construction_cutting_patterns', 'option': 'a_line_jacket'}
+        p = self.upload('Princess one', princess, template=self.jacket)
+        a = self.upload('A-line one', aline, template=self.jacket)
+        self.assertEqual((p.status_code, a.status_code), (201, 201), (p.content, a.content))
+        self.assertEqual(self.titles('jacket', **self.q(princess)), ['Princess one'])
+        self.assertEqual(self.titles('jacket', **self.q(aline)), ['A-line one'])
+        # Refresh: a fresh read finds it where it was filed.
+        r = self.client.get(f"/api/design-studio/assets/{p.data['id']}/")
+        self.assertEqual(r.data['catalogue']['path'],
+                         'Construction / Cutting Patterns \u203a Princess-Cut Jacket')
+        # Edit: Princess-Cut -> A-Line, no duplicate.
+        r = self.client.patch(f"/api/design-studio/assets/{p.data['id']}/", {'catalogue': aline}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.titles('jacket', **self.q(aline)), ['A-line one', 'Princess one'])
+        self.assertEqual(self.titles('jacket', **self.q(princess)), [])
+        self.assertEqual(DesignAsset.objects.filter(template=self.jacket).count(), 2)
+        # Delete: only that design.
+        r = self.client.delete(f"/api/design-studio/assets/{p.data['id']}/")
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(self.titles('jacket'), ['A-line one'])
+
+    def test_sleeve_collar_and_work_designs_land_only_in_their_own_heading(self):
+        plan = [
+            ('3/4 sleeve', {'category': 'sleeve_patterns', 'option': '3_4_sleeve_jacket'}),
+            ('Mandarin', {'category': 'collar_neck_patterns', 'option': 'mandarin_collar'}),
+            ('Zardozi', {'category': 'traditional_work_based_jacket_names', 'option': 'zardozi_jacket'}),
+        ]
+        for title, cat in plan:
+            self.assertEqual(self.upload(title, cat, template=self.jacket).status_code, 201, title)
+        for title, cat in plan:
+            self.assertEqual(self.titles('jacket', **self.q(cat)), [title], title)
+        self.assertEqual(self.titles('jacket', catalogue_category='sleeve_patterns'), ['3/4 sleeve'])
+        # A name in two dimensions is two positions.
+        w1 = {'category': 'front_opening_closure_patterns', 'option': 'wrap_jacket'}
+        w2 = {'category': 'angrakha_wrap_patterns', 'option': 'wrap_jacket'}
+        self.assertEqual(self.upload('Wrap closure', w1, template=self.jacket).status_code, 201)
+        self.assertEqual(self.upload('Wrap angrakha', w2, template=self.jacket).status_code, 201)
+        self.assertEqual(self.titles('jacket', **self.q(w2)), ['Wrap angrakha'])
+
+    def test_jacket_never_crosses_other_garments_and_the_header_form_files_one(self):
+        self.assertEqual(self.upload('J', {'category': 'layered_jackets', 'option': 'tiered_jacket'},
+                                     template=self.jacket).status_code, 201)
+        self.assertEqual(self.upload('S', {'category': 'petticoat', 'option': 'mermaid_petticoat'}).status_code, 201)
+        self.assertEqual(self.titles('jacket'), ['J'])
+        self.assertEqual(self.titles('saree'), ['S'])
+        self.assertEqual(self.upload('x', {'category': 'layered_jackets', 'option': 'tiered_jacket'}).status_code, 400)
+        r = self.client.post('/api/boutique-designs/', {
+            'name': 'Header nehru', 'garment_type': 'Jacket', 'is_boutique': True,
+            'image_url': 'http://m/n.jpg', 'price': 0,
+            'catalogue': {'category': 'core_ethnic_jacket_patterns', 'option': 'nehru_jacket'}}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(DesignAsset.objects.get(pk=r.data['id']).template.key, 'jacket')

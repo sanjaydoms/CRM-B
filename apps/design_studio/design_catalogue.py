@@ -602,6 +602,138 @@ _SUIT_CATEGORIES = [
         ]),
 ]
 
+# --------------------------------------------------------------------------
+# JACKET -- the Indian ethnic jacket
+# --------------------------------------------------------------------------
+#
+# Thirteen dimensions of how an ethnic jacket is patterned, cut, closed,
+# sleeved, collared, panelled, layered and worked. A name that recurs across
+# dimensions ("Cape Jacket" as a women's pattern and as a cape construction,
+# "Wrap Jacket" as a closure and as an angrakha pattern) is two positions by
+# path, as everywhere in this file. The construction attributes a full spec
+# would carry (type, cut, length, flare, closure, sleeve, collar, work) are
+# each already one of these dimensions, so a detailed specification can be
+# added later by combining positions rather than by a new structure.
+
+_JACKET_CATEGORIES = [
+    _category(
+        'Core Ethnic Jacket Patterns', short='Core Ethnic',
+        options=[
+            'Nehru Jacket', 'Bandhgala Jacket', 'Achkan Jacket', 'Sherwani Jacket',
+            'Indo-Western Jacket', 'Angrakha Jacket', 'Mughal Jacket', 'Rajasthani Jacket',
+            'Gujarati Jacket', 'Hyderabadi Jacket', 'Punjabi Jacket', 'Pathani Jacket',
+            'Kashmiri Jacket', 'Lucknowi Jacket', 'Bengali Jacket', 'South Indian Ethnic Jacket',
+            'Pattu Jacket', 'Silk Ethnic Jacket',
+        ]),
+    _category(
+        "Women's Ethnic Jacket Patterns", short="Women's Ethnic",
+        options=[
+            'Long Ethnic Jacket', 'Short Ethnic Jacket', 'Cropped Ethnic Jacket',
+            'Waist-Length Jacket', 'Hip-Length Jacket', 'Knee-Length Jacket',
+            'Calf-Length Jacket', 'Floor-Length Jacket', 'Maxi Jacket', 'Anarkali Jacket',
+            'Lehenga Jacket', 'Saree Jacket', 'Kurta Jacket', 'Salwar Jacket', 'Sharara Jacket',
+            'Gharara Jacket', 'Dhoti Jacket', 'Palazzo Jacket', 'Peplum Jacket', 'Cape Jacket',
+            'Overlay Jacket',
+        ]),
+    _category(
+        'Construction / Cutting Patterns', short='Construction / Cutting',
+        options=[
+            'Straight-Cut Jacket', 'A-Line Jacket', 'Princess-Cut Jacket', 'Panel-Cut Jacket',
+            'Kali-Cut Jacket', '4-Kali Jacket', '6-Kali Jacket', '8-Kali Jacket', '12-Kali Jacket',
+            'Circular Jacket', 'Semi-Circular Jacket', 'Flared Jacket', 'Umbrella Jacket',
+            'Fitted Jacket', 'Tailored Jacket', 'Draped Jacket', 'Asymmetric Jacket',
+            'Diagonal-Cut Jacket', 'Curved-Panel Jacket', 'Layered Jacket', 'Tiered Jacket',
+            'Godet Jacket', 'Peplum-Cut Jacket', 'Empire-Cut Jacket', 'Corset-Cut Jacket',
+        ]),
+    _category(
+        'Front Opening / Closure Patterns', short='Front / Closure',
+        options=[
+            'Open-Front Jacket', 'Closed-Front Jacket', 'Single-Breasted Jacket',
+            'Double-Breasted Jacket', 'Centre-Button Jacket', 'Side-Button Jacket',
+            'Concealed-Button Jacket', 'Hook-and-Eye Jacket', 'Zip Jacket', 'Tie-Up Jacket',
+            'Lace-Up Jacket', 'Angrakha-Closure Jacket', 'Wrap Jacket', 'Overlap Jacket',
+            'Asymmetric Closure Jacket',
+        ]),
+    _category(
+        'Angrakha / Wrap Patterns', short='Angrakha / Wrap',
+        options=[
+            'Angrakha Jacket', 'Double-Angrakha Jacket', 'Side-Tie Jacket', 'Front-Tie Jacket',
+            'Wrap Jacket', 'Cross-Over Jacket', 'Overlap Jacket', 'Layered Wrap Jacket',
+            'Asymmetric Wrap Jacket', 'Tie-Waist Jacket', 'Belted Wrap Jacket',
+        ]),
+    _category(
+        'Cape & Overlay Jackets', short='Cape & Overlay',
+        options=[
+            'Cape Jacket', 'Cape-Sleeve Jacket', 'Short Cape Jacket', 'Long Cape Jacket',
+            'Attached Cape Jacket', 'Detachable Cape Jacket', 'Sheer Cape Jacket',
+            'Net Cape Jacket', 'Organza Cape Jacket', 'Draped Cape Jacket', 'Poncho Jacket',
+            'Shrug Jacket', 'Long Shrug', 'Ethnic Shrug', 'Open-Front Shrug', 'Kimono Jacket',
+            'Kaftan Jacket',
+        ]),
+    _category(
+        'Lehenga / Bridal Jacket Patterns', short='Lehenga / Bridal',
+        options=[
+            'Lehenga Jacket', 'Bridal Lehenga Jacket', 'Short Lehenga Jacket',
+            'Long Lehenga Jacket', 'Cropped Lehenga Jacket', 'Peplum Lehenga Jacket',
+            'Corset Lehenga Jacket', 'Anarkali Lehenga Jacket', 'Cape Lehenga Jacket',
+            'Jacket with Dupatta', 'Jacket with Skirt', 'Jacket with Sharara',
+            'Jacket with Gharara', 'Jacket with Palazzo', 'Jacket with Dhoti',
+        ]),
+    _category(
+        'Modern Indo-Western Jacket Patterns', short='Modern Indo-Western',
+        options=[
+            'Blazer Jacket', 'Ethnic Blazer', 'Bandhgala Blazer', 'Longline Blazer',
+            'Cropped Blazer', 'Double-Breasted Blazer', 'Tuxedo-Style Ethnic Jacket',
+            'Shirt Jacket', 'Denim Ethnic Jacket', 'Bomber Ethnic Jacket',
+            'Biker-Style Ethnic Jacket', 'Trench-Style Ethnic Jacket', 'Utility Jacket',
+            'Waistcoat Jacket', 'Corset Jacket', 'Bustier Jacket', 'Structured Jacket',
+            'Sculpted Jacket',
+        ]),
+    _category(
+        'Sleeve Patterns', short='Sleeve',
+        options=[
+            'Sleeveless Jacket', 'Cap-Sleeve Jacket', 'Short-Sleeve Jacket', 'Elbow-Sleeve Jacket',
+            '3/4-Sleeve Jacket', 'Full-Sleeve Jacket', 'Puff-Sleeve Jacket', 'Bell-Sleeve Jacket',
+            'Flared-Sleeve Jacket', 'Bishop-Sleeve Jacket', 'Balloon-Sleeve Jacket',
+            'Ruffle-Sleeve Jacket', 'Cape-Sleeve Jacket', 'One-Sleeve Jacket',
+            'Off-Shoulder Jacket', 'Cold-Shoulder Jacket', 'Dolman-Sleeve Jacket',
+            'Kimono-Sleeve Jacket',
+        ]),
+    _category(
+        'Collar / Neck Patterns', short='Collar / Neck',
+        options=[
+            'Nehru Collar', 'Mandarin Collar', 'Band Collar', 'Chinese Collar', 'Shirt Collar',
+            'Stand Collar', 'High Collar', 'Shawl Collar', 'Notch Collar', 'Lapel Collar',
+            'Peak Lapel', 'Round Neck', 'V-Neck', 'Deep V-Neck', 'U-Neck', 'Boat Neck',
+            'Square Neck', 'Keyhole Neck', 'Angrakha Neck', 'Collarless Jacket',
+        ]),
+    _category(
+        'Panel / Decorative Construction', short='Panel / Decorative',
+        options=[
+            'Contrast Panel Jacket', 'Centre-Panel Jacket', 'Side-Panel Jacket',
+            'Princess-Panel Jacket', 'Vertical-Panel Jacket', 'Horizontal-Panel Jacket',
+            'Diagonal-Panel Jacket', 'Multi-Panel Jacket', 'Patchwork Jacket', 'Appliqué Jacket',
+            'Cutwork Jacket', 'Embroidered Panel Jacket', 'Border-Panel Jacket',
+            'Mirror-Panel Jacket',
+        ]),
+    _category(
+        'Layered Jackets', short='Layered',
+        options=[
+            'Double-Layer Jacket', 'Triple-Layer Jacket', 'Multi-Layer Jacket', 'Tiered Jacket',
+            'Ruffle-Layer Jacket', 'Flounce Jacket', 'Cascading Jacket', 'Peplum-Layer Jacket',
+            'Asymmetric Layer Jacket', 'Detachable-Layer Jacket', 'Jacket-on-Jacket',
+        ]),
+    _category(
+        'Traditional Work-Based Jacket Names', short='Work-Based',
+        options=[
+            'Zardozi Jacket', 'Maggam Jacket', 'Aari Jacket', 'Gota Patti Jacket',
+            'Mirror-Work Jacket', 'Chikankari Jacket', 'Phulkari Jacket', 'Kantha Jacket',
+            'Kutch-Work Jacket', 'Kalamkari Jacket', 'Bandhani Jacket', 'Ajrakh Jacket',
+            'Ikat Jacket', 'Block-Print Jacket', 'Brocade Jacket', 'Zari Jacket', 'Sequin Jacket',
+            'Cutdana Jacket', 'Pearl-Work Jacket', 'Appliqué Jacket',
+        ]),
+]
+
 CATALOGUE = {
     'saree': {'key': 'saree', 'label': 'Saree', 'categories': _SAREE_CATEGORIES},
     'blouse': {'key': 'blouse', 'label': 'Blouse', 'categories': _BLOUSE_CATEGORIES},
@@ -610,6 +742,7 @@ CATALOGUE = {
     # The garment template is 'suit' ("Suit (Kameez)"); the boutique calls it
     # a salwar kameez, and so does its catalogue.
     'suit': {'key': 'suit', 'label': 'Salwar Kameez', 'categories': _SUIT_CATEGORIES},
+    'jacket': {'key': 'jacket', 'label': 'Jacket', 'categories': _JACKET_CATEGORIES},
 }
 
 

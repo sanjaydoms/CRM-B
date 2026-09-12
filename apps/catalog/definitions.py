@@ -634,6 +634,50 @@ TEMPLATES = [
             ],
         },
     },
+    {
+        # The ethnic jacket: worn over a lehenga, saree, kurta or anarkali, or
+        # as a bandhgala on its own. Measured the way a sherwani is, and its
+        # reference-photo parts are a sherwani's too -- front, back, collar,
+        # sleeve, hem -- because that is what a photograph of a jacket shows.
+        'key': 'jacket', 'name': 'Jacket', 'sequence': 160,
+        'design_parts': parts('Front Design', 'Back Design', 'Collar / Neck Design',
+              'Sleeve Design', 'Button Design', 'Pocket Design',
+              'Hem / Bottom Design', 'Side Design', 'Embroidery Design',
+              'Print / Pattern Design'),
+        'sections': {
+            'basic': [
+                field('jacket_type', 'Jacket Type', 'select', required=True, options=[
+                    'Nehru', 'Bandhgala', 'Achkan', 'Indo-Western', 'Angrakha',
+                    'Lehenga Jacket', 'Saree Jacket', 'Kurta Jacket', 'Cape']),
+            ],
+            'measurements': [
+                measurement('full_length', 'Full Length', required=True),
+                measurement('shoulder', 'Shoulder'),
+                measurement('chest', 'Chest'),
+                measurement('waist', 'Waist'),
+                measurement('hip', 'Hip'),
+                measurement('arm_length', 'Arm Length'),
+                measurement('neck', 'Neck'),
+            ],
+            'style': [
+                field('collar_style', 'Collar Style', 'select', options=[
+                    'Nehru', 'Mandarin', 'Band', 'Shirt', 'Shawl', 'Notch', 'Collarless']),
+                field('front_closure', 'Front Closure', 'select', options=[
+                    'Open Front', 'Buttons', 'Hooks', 'Zip', 'Angrakha', 'Wrap']),
+                field('pocket', 'Pocket', 'boolean'),
+                field('embroidery_finish', 'Embroidery Finish', 'select',
+                      options=['None', 'Machine', 'Hand', 'Maggam', 'Zardozi']),
+            ],
+            'materials': [
+                material('main_fabric', 'Main Fabric', Inv.FABRIC),
+                material('lining', 'Lining', Inv.LINING),
+                material('buttons', 'Buttons', Inv.STITCHING),
+                material('thread', 'Thread', Inv.STITCHING),
+                material('embroidery_material', 'Embroidery Material', Inv.MAGGAM,
+                         when=not_one_of('embroidery_finish', ['none'])),
+            ],
+        },
+    },
 ]
 
 SECTION_TITLES = [

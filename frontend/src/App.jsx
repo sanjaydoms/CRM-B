@@ -6257,6 +6257,7 @@ function App() {
                       <option value="Sherwani">{t('designsPage.sherwani', 'Sherwani')}</option>
                       <option value="Anarkali">{t('designsPage.anarkali', 'Anarkali')}</option>
                       <option value="Suit">{t('designsPage.salwarKameez', 'Salwar Kameez')}</option>
+                      <option value="Jacket">{t('designsPage.jacket', 'Jacket')}</option>
                     </select>
                   </Field>
                   <Field label={t('designsPage.designType', 'Design Type')} required icon={Tag}>
