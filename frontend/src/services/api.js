@@ -1205,6 +1205,34 @@ export const api = {
     return res.json();
   },
 
+  // A customer's captured designs: a photograph of a paper sketch, or the
+  // PNG the studio's canvas produced -- one `image` file either way, with
+  // `source` saying which. Listed newest first, narrowed by customer.
+  async getCustomerDesigns(params = {}) {
+    const url = new URL(`${BASE_URL}/design-studio/customer-designs/`);
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined) url.searchParams.append(k, v);
+    });
+    const res = await guardedFetch(url.toString(), { headers: getHeaders() });
+    if (!res.ok) await failWith(res, 'Failed to load customer designs');
+    const data = await res.json();
+    return data.results || data;
+  },
+
+  async createCustomerDesign(fields, imageFile) {
+    const form = new FormData();
+    Object.entries(fields).forEach(([key, value]) => {
+      if (value === '' || value === null || value === undefined) return;
+      form.append(key, value);
+    });
+    form.append('image', imageFile);
+    const res = await guardedFetch(`${BASE_URL}/design-studio/customer-designs/`, {
+      method: 'POST', headers: getHeaders(true), body: form,
+    });
+    if (!res.ok) await failWith(res, 'Failed to save the customer design');
+    return res.json();
+  },
+
   // The design catalogue tree for one garment: category -> sub-category ->
   // design option. Empty categories for a garment that has none yet.
   async getDesignCatalogue(garment) {

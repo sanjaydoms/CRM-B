@@ -415,3 +415,48 @@ class DesignImage(models.Model):
 
     def __str__(self):
         return f"{self.design_id} · {self.part}"
+
+
+class CustomerDesign(models.Model):
+    """A design a customer described and the boutique captured for them.
+
+    Not a DesignAsset: the library is the boutique's own catalogue, browsed by
+    every customer, and a sketch made for one customer's blouse is nobody
+    else's to pick. Not a DesignBoardItem either: a board belongs to one order
+    and moves through approval, while a customer's sketch may be captured
+    before there is an order at all. So it is its own row -- the customer it
+    was drawn for, the order where there is one, the garment, and a picture.
+
+    The picture is one image_url whichever way it was made. A photograph of a
+    paper sketch is uploaded; a sketch drawn in the studio is saved as a PNG
+    and stored the same way, so nothing downstream needs to know which
+    happened. `source` records it for the card.
+    """
+
+    SOURCE_UPLOADED = 'uploaded'
+    SOURCE_DRAWN = 'drawn'
+    SOURCE_CHOICES = [(SOURCE_UPLOADED, 'Uploaded'), (SOURCE_DRAWN, 'Drawn')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='customer_designs')
+    order = models.ForeignKey(
+        Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='customer_designs')
+    template = models.ForeignKey(
+        GarmentTemplate, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='customer_designs')
+    # The garment's name as it read when the design was saved, so the card
+    # still names it if the template is later retired. Same as DesignAsset.
+    garment_type = models.CharField(max_length=100, blank=True, default='')
+    title = models.CharField(max_length=200)
+    image_url = models.CharField(max_length=500)
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_UPLOADED, db_index=True)
+    notes = models.TextField(blank=True, default='')
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='customer_designs')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.title} · {self.customer_id}"

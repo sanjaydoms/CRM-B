@@ -36,6 +36,7 @@ const SelectedDesignSummary = lazy(() => import('./features/designStudio/Garment
 const InventoryPanel = lazy(() => import('./features/inventory/InventoryPanel'));
 const DesignLibrary = lazy(() => import('./features/designStudio/DesignLibrary'));
 const DesignUpload = lazy(() => import('./features/designStudio/DesignUpload'));
+const CustomerDesigns = lazy(() => import('./features/designStudio/CustomerDesigns'));
 const DesignDashboard = lazy(() => import('./features/designStudio/DesignDashboard'));
 const DesignWork = lazy(() => import('./features/designStudio/DesignWork'));
 const StaffPanel = lazy(() => import('./features/staff/StaffPanel'));
@@ -7225,7 +7226,28 @@ function App() {
                       <Upload size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
                       My References
                     </button>
+                    <button
+                      className={`tab-btn ${designSourceTab === 'customer' ? 'active' : ''}`}
+                      onClick={() => setDesignSourceTab('customer')}
+                    >
+                      <PenTool size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                      Customer Designs
+                    </button>
                   </div>
+
+                  {/* A design the customer described, captured by the studio:
+                      a photograph of a paper sketch, or drawn here. Its own
+                      rows, kept for the customer; nothing on the draft. */}
+                  {designSourceTab === 'customer' && (
+                    <Suspense fallback={<ScreenLoading />}>
+                      <CustomerDesigns
+                        customerId={customerId}
+                        customers={allCustomers}
+                        orders={ordersList}
+                        garmentTemplates={garmentTemplates}
+                      />
+                    </Suspense>
+                  )}
 
                   {designSourceTab === 'studio' && (
                     <Suspense fallback={<ScreenLoading />}>

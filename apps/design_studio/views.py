@@ -10,7 +10,7 @@ from django.core.files.storage import default_storage
 from django.db.models import Count, F, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import serializers, status, viewsets, views
+from rest_framework import mixins, serializers, status, viewsets, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -26,7 +26,7 @@ from apps.catalog.models import GarmentTemplate
 
 from .models import (
     Collection, Designer, DesignApproval, DesignAsset, DesignAssignment, DesignBoard,
-    DesignBoardItem, DesignImage,
+    DesignBoardItem, DesignImage, CustomerDesign,
 )
 from .permissions import (
     MASTER, DesignAssignmentPermission, DesignLibraryPermission, DesignStudioPermission,
@@ -37,7 +37,7 @@ from .serializers import (
     DesignAssetSerializer, DesignBoardItemSerializer, DesignBoardSerializer,
     DesignerSerializer, CollectionSerializer, DesignApprovalSerializer,
     DesignAssignmentSerializer, DesignerAssignmentSerializer,
-    DiscoverRequestSerializer, TailorBriefSerializer,
+    DiscoverRequestSerializer, TailorBriefSerializer, CustomerDesignSerializer,
 )
 
 
@@ -994,3 +994,46 @@ class DesignAssignmentViewSet(viewsets.ModelViewSet):
               "note": assignment.review_note},
              entity_type="DesignAssignment")
         return Response(self.get_serializer(assignment).data)
+
+
+class CustomerDesignViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,
+                            mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """A customer's captured designs: create, list, look at one.
+
+    Create takes multipart -- the fields plus one `image` file, which is a
+    photograph of a paper sketch or the PNG the studio's canvas produced;
+    `source` says which. The file is stored exactly the way the library's
+    uploads are and handed back as image_url, so from here on the design is a
+    picture like any other. No edit or delete yet: capture, keep, show.
+    """
+
+    serializer_class = CustomerDesignSerializer
+    permission_classes = [DesignLibraryPermission]
+
+    def get_queryset(self):
+        queryset = CustomerDesign.objects.select_related('customer', 'order', 'template')
+        params = self.request.query_params
+        if customer := params.get('customer'):
+            queryset = queryset.filter(customer_id=customer)
+        if order := params.get('order'):
+            queryset = queryset.filter(order_id=order)
+        if source := params.get('source'):
+            queryset = queryset.filter(source=source)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        image = request.FILES.get('image')
+        if image is None:
+            return Response({'image': ['A picture of the design is required.']},
+                            status=status.HTTP_400_BAD_REQUEST)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        path = f"customer_designs/{uuid.uuid4()}_{image.name}"
+        saved = default_storage.save(path, ContentFile(image.read()))
+        template = serializer.validated_data.get('template')
+        design = serializer.save(
+            image_url=request.build_absolute_uri(default_storage.url(saved)),
+            garment_type=template.name if template else '',
+            created_by=request.user if request.user.is_authenticated else None,
+        )
+        return Response(self.get_serializer(design).data, status=status.HTTP_201_CREATED)

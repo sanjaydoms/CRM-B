@@ -4,6 +4,7 @@ from core.validators import validate_mobile
 from .models import (
     Collection, Designer, DesignApproval, DesignAsset, DesignAssignment, DesignBoard,
     DesignBoardItem, DesignImage,
+    CustomerDesign,
 )
 
 
@@ -278,3 +279,33 @@ class DesignerAssignmentSerializer(_AssignmentDesignMixin, serializers.ModelSeri
             'assigned_at', 'submitted_at', 'reviewed_at',
         ]
         read_only_fields = fields
+
+
+class CustomerDesignSerializer(serializers.ModelSerializer):
+    """A customer's captured design, with the names the card shows."""
+
+    customer_name = serializers.SerializerMethodField()
+    order_reference = serializers.CharField(source='order.reference', read_only=True, default='')
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+
+    class Meta:
+        model = CustomerDesign
+        fields = [
+            'id', 'title', 'customer', 'customer_name', 'order', 'order_reference',
+            'template', 'garment_type', 'image_url', 'source', 'source_display', 'notes',
+            'created_by', 'created_at',
+        ]
+        # The picture comes from the file that was actually stored, never from
+        # a claim in the request body; the garment's name follows its template.
+        read_only_fields = ['image_url', 'garment_type', 'created_by', 'created_at']
+
+    def get_customer_name(self, obj):
+        c = obj.customer
+        return f"{c.first_name} {c.last_name}".strip() if c else ''
+
+    def validate(self, attrs):
+        order = attrs.get('order')
+        customer = attrs.get('customer')
+        if order is not None and customer is not None and order.customer_id != customer.id:
+            raise serializers.ValidationError({'order': 'That order belongs to another customer.'})
+        return attrs
