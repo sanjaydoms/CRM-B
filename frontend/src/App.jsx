@@ -4319,63 +4319,39 @@ function App() {
                   </SectionCard>
                 </div>
 
-                {/* Recent orders | Quick actions */}
-                <div className="at-grid-2">
-                  <SectionCard icon={ShoppingBag} tone="blue" title="Recent Orders"
-                               action={() => setDashboardTab('orders')} actionLabel={t('dashboard.viewAll', 'View all')}>
-                    {!dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
-                      <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                        No orders yet.
-                      </div>
-                    ) : (
-                      <div>
-                        {dashboardData.recent_orders.map((order) => (
-                          <div key={order.id || order.order_id} className="at-row at-row--tap"
-                               onClick={() => setDashboardTab('orders')}>
-                            <span className="at-row-title" style={{ minWidth: '44px' }}>{orderRef(order)}</span>
-                            <span className="at-row-main">
-                              <span className="at-row-title" style={{ fontWeight: 500 }}>{order.customer_name || order.customer || 'Customer'}</span>
-                              <span className="at-row-sub">{order.garment_label || ''}</span>
-                            </span>
-                            <span style={{ textAlign: 'right' }}>
-                              <div className="at-row-title at-num">{order.total_amount != null ? inr(order.total_amount) : ''}</div>
-                              <div className="at-row-sub">{t(`status.${order.order_status}`, order.order_status || order.status || '')}</div>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </SectionCard>
-
-                  <SectionCard icon={Sparkles} tone="amber" title="Quick Actions">
-                    <section className="quick-action-button-grid" style={{ marginBottom: 0 }}>
-                      <div className="quick-action-item" onClick={() => setView('order-selector')}>
-                        <div className="quick-action-icon-box"><ShoppingBag size={18} /></div>
-                        <h4>{t('dashboard.newOrder')}</h4>
-                      </div>
-                      <div className="quick-action-item" onClick={() => setDashboardTab('staff')}>
-                        <div className="quick-action-icon-box"><Scissors size={18} /></div>
-                        <h4>{t('dashboard.manageStaff', 'Manage Staff')}</h4>
-                      </div>
-                      <div className="quick-action-item" onClick={() => setDashboardTab('designs')}>
-                        <div className="quick-action-icon-box"><Heart size={18} /></div>
-                        <h4>{t('dashboard.designCatalog', 'Design Catalog')}</h4>
-                      </div>
-                      <div className="quick-action-item" onClick={() => setDashboardTab('fabrics')}>
-                        <div className="quick-action-icon-box"><Compass size={18} /></div>
-                        <h4>{t('dashboard.fabricLibrary', 'Fabric Library')}</h4>
-                      </div>
-                      <div className="quick-action-item" onClick={() => { setEditingAppointment(null); setAppointmentForm(blankAppointmentForm); setShowAppointmentModal(true); }}>
-                        <div className="quick-action-icon-box"><Calendar size={18} /></div>
-                        <h4>{t('dashboard.bookAppointment', 'Book Appointment')}</h4>
-                      </div>
-                      <div className="quick-action-item" onClick={() => setDashboardTab('finance')}>
-                        <div className="quick-action-icon-box"><Wallet size={18} /></div>
-                        <h4>{t('dashboard.costPnl', 'Cost & P&L')}</h4>
-                      </div>
-                    </section>
-                  </SectionCard>
-                </div>
+                {/* Recent orders, full width: a ref / customer / amount list
+                    reads as a ledger, and a ledger wants the row. The header's
+                    New Order and the sidebar already carry every shortcut the
+                    Quick Actions card duplicated. */}
+                <SectionCard icon={ShoppingBag} tone="blue" title="Recent Orders"
+                             subtitle="The latest orders across the floor"
+                             action={() => setDashboardTab('orders')} actionLabel={t('dashboard.viewAll', 'View all')}>
+                  {!dashboardData?.recent_orders || dashboardData.recent_orders.length === 0 ? (
+                    <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                      No orders yet.
+                    </div>
+                  ) : (
+                    <div>
+                      {dashboardData.recent_orders.map((order) => (
+                        <div key={order.id || order.order_id} className="at-row at-row--tap"
+                             onClick={() => setDashboardTab('orders')}>
+                          <span className="at-row-title" style={{ minWidth: '44px' }}>{orderRef(order)}</span>
+                          {/* Stacked like the amount/status cell opposite: the
+                              name and the garment are two spans, and inline
+                              they ran together as "Asrita DasSaree". */}
+                          <span className="at-row-main" style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                            <span className="at-row-title" style={{ fontWeight: 500 }}>{order.customer_name || order.customer || 'Customer'}</span>
+                            <span className="at-row-sub">{order.garment_label || ''}</span>
+                          </span>
+                          <span style={{ textAlign: 'right' }}>
+                            <div className="at-row-title at-num">{order.total_amount != null ? inr(order.total_amount) : ''}</div>
+                            <div className="at-row-sub">{t(`status.${order.order_status}`, order.order_status || order.status || '')}</div>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </SectionCard>
               </>
             )}
 
