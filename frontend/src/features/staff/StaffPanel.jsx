@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import {
+import { Check,
   Plus, Clock, Wallet, TrendingUp, Users, FileText, Trash2, Phone, Calendar, Briefcase, UserCheck,
   User, UserPlus, Smartphone, Mail, Sparkles, Scissors, Shield, Coins, MapPin, Hash, Tag, FilePlus, Upload, Eye, IndianRupee,
 } from 'lucide-react';
@@ -342,6 +342,9 @@ function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [created, setCreated] = useState(null);
+  // 'done' | 'failed' | null: the Copy button says what happened, because a
+  // click that silently copies looks exactly like one that silently did not.
+  const [copied, setCopied] = useState(null);
   const [photo, setPhoto] = useState(null);
   // A custom role the owner types (janitor, cleaner...). The select holds the
   // sentinel '__custom__' while they type; the real value lives here.
@@ -402,11 +405,16 @@ function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
           ? await api.updateTailor(member.id, body)
           : await api.createTailor(body);
       }
-      onSaved();
       // An edit can mint an account too -- giving an address to somebody who
       // joined without one is how a person who never had a login gets one.
+      //
+      // The roster is refreshed only once the credential has been dismissed:
+      // refresh() puts the panel into its loading state, which unmounts this
+      // form, and a password set on an unmounted form is a password nobody
+      // ever saw. So when there is one, it is shown first and the refresh
+      // waits behind Done; without one, the refresh happens straight away.
       if (saved?.bootstrap_password) setCreated(saved);
-      else onCancel();
+      else { onSaved(); onCancel(); }
     } catch (err) {
       setError(err.message || 'Could not save this person.');
     } finally {
@@ -415,8 +423,9 @@ function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
   };
 
   if (created) {
+    const done = () => { onSaved(); onCancel(); };
     return (
-      <Modal title="Account created" onClose={onCancel}>
+      <Modal title="Account created" onClose={done}>
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
           {created.name} can sign in with the details below. This password is
           shown once and is not stored anywhere it can be read again.
@@ -437,11 +446,20 @@ function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => {
+            style={copied === 'done' ? { color: 'var(--success-color)', borderColor: 'var(--success-color)' } : undefined}
+            onClick={async () => {
               const text = `Atelier Staff Login Credentials:\nPortal: ${window.location.origin}\nEmail: ${created.email}\nPassword: ${created.bootstrap_password}`;
-              navigator.clipboard?.writeText(text);
+              try {
+                await navigator.clipboard.writeText(text);
+                setCopied('done');
+              } catch {
+                // No clipboard (an http page, a denied permission): say so
+                // rather than leaving the owner to paste and find nothing.
+                setCopied('failed');
+              }
+              setTimeout(() => setCopied(null), 2500);
             }}
-          >Copy</button>
+          >{copied === 'done' ? <><Check size={14} /> Copied!</> : copied === 'failed' ? 'Could not copy — select the text' : 'Copy'}</button>
           <a
             className="btn-secondary"
             style={{ textDecoration: 'none' }}
@@ -451,7 +469,7 @@ function AddStaffForm({ member, onCancel, onSaved, customRoles = [] }) {
               `Hello ${created.name},\nHere are your Atelier login credentials:\nPortal: ${window.location.origin}\nEmail: ${created.email}\nPassword: ${created.bootstrap_password}`
             )}`}
           >Share on WhatsApp</a>
-          <button type="button" className="btn-primary" onClick={onCancel}>Done</button>
+          <button type="button" className="btn-primary" onClick={done}>Done</button>
         </div>
       </Modal>
     );
