@@ -46,11 +46,16 @@ sanctioned ways back both live here, and both are explicit and audited:
 Anything else that moves a settled stage backwards is still refused.
 """
 
-VALID_STATUSES = ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'PAUSED')
+#: PENDING_VERIFICATION: a worker has submitted the stage with a photo and an
+#: owner or Master has yet to verify it. Not settled -- the order does not move
+#: on until they do -- but it satisfies the same prerequisites as COMPLETED.
+VALID_STATUSES = ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'PAUSED',
+                  'PENDING_VERIFICATION')
 
 SETTLED_STATUSES = ('COMPLETED', 'SKIPPED')
 
-ENTERING_STATUSES = ('IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'PAUSED')
+ENTERING_STATUSES = ('IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'PAUSED',
+                     'PENDING_VERIFICATION')
 
 
 class TransitionError(ValueError):
@@ -137,7 +142,11 @@ def check_transition(order, stage, new_status, *, config, role, owner_role):
             f'"{stage_key}" is not a stage in this boutique\'s workflow.')
 
     allowed_roles = declared.get('roles', [])
-    if role != owner_role and allowed_roles and role not in allowed_roles:
+    # A stage awaiting verification belongs to its verifiers, whatever roles
+    # the stage itself lists: the Master signs off a tailor's stitching even
+    # though the Master never stitches.
+    verifying = stage.status == 'PENDING_VERIFICATION' and role in ('Owner', 'Master')
+    if role != owner_role and allowed_roles and role not in allowed_roles and not verifying:
         raise TransitionError(f'Role {role} is not authorized to update {label}')
 
     # A stage that is settled is settled. Re-completing is a no-op handled by
@@ -174,7 +183,7 @@ def check_transition(order, stage, new_status, *, config, role, owner_role):
                 f'{"is" if len(outstanding) == 1 else "are"} not completed.')
 
     validator = REQUIRED_DATA.get(stage_key)
-    if validator is not None and new_status in ('IN_PROGRESS', 'COMPLETED'):
+    if validator is not None and new_status in ('IN_PROGRESS', 'COMPLETED', 'PENDING_VERIFICATION'):
         problem = validator(order, stage)
         if problem:
             raise TransitionError(f'Cannot move to {label}. {problem}')

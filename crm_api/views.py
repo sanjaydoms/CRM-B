@@ -745,18 +745,40 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.completed_garment_image = image
         order.save()
 
-        try:
-            for stage_key, stage_status in (
+        # A tailor's report is a submission, not a completion: the stitching
+        # stage goes to the owner/Master for verification with the photo, and
+        # only their verification settles it. A supervisor filing the report
+        # themselves still closes both stitching stages as before.
+        from core.roles import OWNER, resolve_user_role
+        from core.permissions import SUPERVISOR_ROLES
+        role = resolve_user_role(request.user)
+        if role == OWNER or role in SUPERVISOR_ROLES:
+            steps = (
                 ('stitching_in_progress', 'IN_PROGRESS'),
                 ('stitching_in_progress', 'COMPLETED'),
                 ('stitching_completed', 'COMPLETED'),
-            ):
+            )
+        else:
+            steps = (
+                ('stitching_in_progress', 'IN_PROGRESS'),
+                ('stitching_in_progress', 'PENDING_VERIFICATION'),
+            )
+
+        try:
+            for stage_key, stage_status in steps:
+                live = order.stages.filter(stage_key=stage_key).first()
+                if live and live.status == stage_status:
+                    continue
+                if image is not None:
+                    image.seek(0)
                 OrderService.transition_order_stage(
                     order=order,
                     stage_key=stage_key,
                     new_status=stage_status,
                     comments=comments or '',
                     user=request.user,
+                    files=[image] if (image is not None and stage_status == 'PENDING_VERIFICATION') else None,
+                    request=request,
                 )
         except ValueError as ve:
             return Response({'error': str(ve)}, status=status.HTTP_400_BAD_REQUEST)

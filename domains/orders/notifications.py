@@ -194,3 +194,27 @@ def notify_next_stage_owners(order):
                      f"{live.get('name', live['key'])} and is waiting in your queue."),
             recipient_role=role,
         )
+
+
+def notify_verification(order, stage, *, submitted):
+    """Submitted: tell the owner and Master there is work to verify.
+    Sent back: tell the worker who did it, with the supervisor's note."""
+    if submitted:
+        who = stage.performed_by.name if stage.performed_by else 'A worker'
+        for role in ('Owner', 'Master'):
+            Notification.objects.create(
+                title=f"Verify {stage.stage_name}: {order.reference}",
+                message=(f"{who} has submitted {stage.stage_name} on order "
+                         f"{order.reference} for verification."),
+                recipient_role=role,
+            )
+        return
+    worker = stage.performed_by
+    if worker is None:
+        return
+    Notification.objects.create(
+        title=f"Sent back: {stage.stage_name} on {order.reference}",
+        message=f"Needs rework: {stage.verification_note}",
+        recipient_role=worker.role,
+        recipient_email=worker.user.email if worker.user else None,
+    )

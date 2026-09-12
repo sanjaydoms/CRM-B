@@ -73,9 +73,26 @@ class WorkflowTestBase(TenantTestCase):
         return order.stages.get(stage_key=key)
 
     def step(self, order, key, status="COMPLETED", user=None):
+        user = user or self.owner
+        # A worker does not complete a stage: they submit it with a photo and
+        # the Master verifies. Tests that say "the tailor completes X" mean
+        # exactly that pair of steps.
+        if status == "COMPLETED" and user is self.tailor_user:
+            OrderService.transition_order_stage(
+                order=order, stage_key=key, new_status="PENDING_VERIFICATION",
+                user=user, files=[self.work_photo()],
+            )
+            return OrderService.transition_order_stage(
+                order=order, stage_key=key, new_status="COMPLETED", user=self.master_user,
+            )
         return OrderService.transition_order_stage(
-            order=order, stage_key=key, new_status=status, user=user or self.owner,
+            order=order, stage_key=key, new_status=status, user=user,
         )
+
+    @staticmethod
+    def work_photo():
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return SimpleUploadedFile("work.jpg", b"jpeg-bytes", content_type="image/jpeg")
 
     def reach(self, order, key):
         config = BoutiqueSettings.objects.get_or_create(id=1)[0].workflow_config
@@ -1207,14 +1224,85 @@ class UpdateStatusAuthorityTests(WorkflowTestBase):
         order.refresh_from_db()
         self.assertEqual(order.order_status, "Stylist Review")
 
-    def test_a_tailor_can_still_drive_their_own_stage(self):
+    def test_a_tailor_cannot_complete_a_stage_through_the_status_shortcut(self):
+        # Their work goes up with a photo and waits for verification; a bare
+        # status change has no photo, so it is refused rather than completed.
         order = self.make_order()
         self.reach(order, "stitching_in_progress")
 
         response = self._set(self.tailor_user, order, "Design & Creation")
 
-        self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(self.stage(order, "stitching_completed").status, "COMPLETED")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("photo", response.data["error"])
+        self.assertNotEqual(self.stage(order, "stitching_completed").status, "COMPLETED")
+
+
+class VerificationTests(WorkflowTestBase):
+    """Work below owner/Master is submitted, photographed, and verified."""
+
+    def _submit(self, order, key, files=None, comments=""):
+        return OrderService.transition_order_stage(
+            order=order, stage_key=key, new_status="COMPLETED",
+            user=self.tailor_user, files=files, comments=comments,
+        )
+
+    def test_a_tailor_completing_a_stage_lands_in_pending_verification(self):
+        order = self.make_order()
+        self.reach(order, "stitching_in_progress")
+
+        self._submit(order, "stitching_in_progress", files=[self.work_photo()])
+
+        stage = self.stage(order, "stitching_in_progress")
+        self.assertEqual(stage.status, "PENDING_VERIFICATION")
+        self.assertEqual(len(stage.attachments), 1)
+        self.assertTrue(Notification.objects.filter(
+            recipient_role="Master", title__startswith="Verify").exists())
+
+    def test_the_photo_is_mandatory(self):
+        order = self.make_order()
+        self.reach(order, "stitching_in_progress")
+
+        with self.assertRaises(ValueError) as ctx:
+            self._submit(order, "stitching_in_progress")
+        self.assertIn("photo", str(ctx.exception))
+        self.assertNotEqual(self.stage(order, "stitching_in_progress").status, "PENDING_VERIFICATION")
+
+    def test_the_master_verifies_and_the_stage_completes(self):
+        order = self.make_order()
+        self.reach(order, "stitching_in_progress")
+        self._submit(order, "stitching_in_progress", files=[self.work_photo()])
+
+        self.step(order, "stitching_in_progress", user=self.master_user)
+
+        stage = self.stage(order, "stitching_in_progress")
+        self.assertEqual(stage.status, "COMPLETED")
+        self.assertEqual(stage.performed_by, self.tailor)  # the worker keeps the credit
+
+    def test_a_rejection_needs_a_note_and_sends_the_work_back(self):
+        order = self.make_order()
+        self.reach(order, "stitching_in_progress")
+        self._submit(order, "stitching_in_progress", files=[self.work_photo()])
+
+        with self.assertRaises(ValueError):
+            self.step(order, "stitching_in_progress", status="IN_PROGRESS", user=self.master_user)
+
+        OrderService.transition_order_stage(
+            order=order, stage_key="stitching_in_progress", new_status="IN_PROGRESS",
+            user=self.master_user, comments="Hem is uneven on the left.")
+
+        stage = self.stage(order, "stitching_in_progress")
+        self.assertEqual(stage.status, "IN_PROGRESS")
+        self.assertEqual(stage.verification_note, "Hem is uneven on the left.")
+        self.assertTrue(Notification.objects.filter(
+            recipient_role="Tailor", message__contains="Hem is uneven").exists())
+
+    def test_a_tailor_cannot_touch_a_stage_awaiting_verification(self):
+        order = self.make_order()
+        self.reach(order, "stitching_in_progress")
+        self._submit(order, "stitching_in_progress", files=[self.work_photo()])
+
+        with self.assertRaises(ValueError):
+            self._submit(order, "stitching_in_progress", files=[self.work_photo()])
 
 
 class NotificationBellTests(WorkflowTestBase):
