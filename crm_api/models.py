@@ -93,7 +93,8 @@ class Customer(models.Model):
     address = models.TextField(blank=True, null=True)
     city_region = models.CharField(max_length=100, blank=True, null=True)
     source = models.CharField(max_length=50, default="Walk In") # Walk In, Instagram, Referral, etc.
-    customer_type = models.CharField(max_length=50, default="Women", db_index=True) # Women, Men, Kids
+    customer_type = models.CharField(max_length=50, default="Silver", db_index=True) # Silver, Gold, Platinum
+    gender = models.CharField(max_length=20, blank=True, default='')
     garment_type = models.CharField(max_length=100, default="Lehenga")
     neckline_style = models.CharField(max_length=100, blank=True, null=True)
     sleeve_style = models.CharField(max_length=100, blank=True, null=True)

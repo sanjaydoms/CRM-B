@@ -295,7 +295,8 @@ const DEFAULT_CUSTOMER_DATA = {
   address: '',
   city_region: '',
   source: 'Walk In',
-  customer_type: 'Women',
+  customer_type: 'Silver',
+  gender: '',
   garment_type: 'Lehenga',
   neckline_style: '',
   sleeve_style: '',
@@ -2506,9 +2507,7 @@ function App() {
     const missing = [
       [!customerForm.first_name, 'First Name'],
       [!customerForm.last_name, 'Last Name'],
-      [!customerForm.email_address, 'Email Address'],
       [!customerForm.mobile_number, 'Mobile Number'],
-      [!customerForm.address, 'Address'],
     ].filter(([isMissing]) => isMissing).map(([, label]) => label);
 
     if (missing.length) {
@@ -2622,7 +2621,11 @@ function App() {
         await saveStep1();
         setCurrentStep(2);
       } else if (currentStep === 2) {
-        if (fabricTab === 'boutique' && !selectedFabric) {
+        // Fabric is chosen per garment part (see fabricSelection), not as one
+        // order-wide selectedFabric, which nothing sets any more.
+        const anyFabricChosen = Object.values(fabricSelection)
+          .some(slots => Object.values(slots).some(ids => ids?.length));
+        if (fabricTab === 'boutique' && !anyFabricChosen) {
           alert("Please select a fabric from the catalog or upload your own fabric.");
           return;
         }
@@ -6789,7 +6792,7 @@ function App() {
                       </div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">{t('wizard.emailAddress', 'Email Address')} <span className="required">*</span></label>
+                      <label className="form-label">{t('wizard.emailAddress', 'Email Address')}</label>
                       <input 
                         type="email" 
                         value={customerForm.email_address || ''}
@@ -6800,8 +6803,36 @@ function App() {
                     </div>
                   </div>
 
+                  <div className="form-grid-2">
+                    <div className="form-group">
+                      <label className="form-label">{t('wizard.customerType', 'Customer Type')}</label>
+                      <select 
+                        value={customerForm.customer_type}
+                        onChange={(e) => setCustomerForm({...customerForm, customer_type: e.target.value})}
+                        className="form-control"
+                      >
+                        <option value="Silver">{t('wizard.silver', 'Silver')}</option>
+                        <option value="Gold">{t('wizard.gold', 'Gold')}</option>
+                        <option value="Platinum">{t('wizard.platinum', 'Platinum')}</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{t('wizard.gender', 'Gender')}</label>
+                      <select
+                        value={customerForm.gender || ''}
+                        onChange={(e) => setCustomerForm({...customerForm, gender: e.target.value})}
+                        className="form-control"
+                      >
+                        <option value="">{t('wizard.selectGender', 'Select Gender')}</option>
+                        <option value="Female">{t('wizard.female', 'Female')}</option>
+                        <option value="Male">{t('wizard.male', 'Male')}</option>
+                        <option value="Other">{t('wizard.other', 'Other')}</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div className="form-group">
-                    <label className="form-label">{t('wizard.address', 'Address')} <span className="required">*</span></label>
+                    <label className="form-label">{t('wizard.address', 'Address')}</label>
                     <input 
                       type="text" 
                       value={customerForm.address || ''}
@@ -6837,75 +6868,6 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="form-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.customerType', 'Customer Type')}</label>
-                      <select 
-                        value={customerForm.customer_type}
-                        onChange={(e) => setCustomerForm({...customerForm, customer_type: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="Women">{t('wizard.women', 'Women')}</option>
-                        <option value="Men">{t('wizard.men', 'Men')}</option>
-                        <option value="Kids">{t('wizard.kids', 'Kids')}</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Dresses on this order.
-
-                      The garment list, the options in it and the fields each
-                      garment needs all come from /api/catalog/templates/. This
-                      replaced a hardcoded seven-item dropdown and a stitch-parts
-                      map that had to be edited in four places to add a garment.
-
-                      An order holds several dresses -- a lehenga, its blouse and
-                      a dupatta are three -- so this is a multiple choice, and
-                      each one opens its own form in the next step. */}
-                  <DressesDropdown
-                    title={t('wizard.dressesInOrder', 'Dresses in this Order')}
-                    subtitle={t('wizard.dressesInOrderSub', 'Pick every garment being stitched. Each one gets its own measurements and options.')}
-                    isRequired={true}
-                    garmentTemplates={garmentTemplates}
-                    garmentJobs={garmentJobs}
-                    addingGarmentKey={addingGarmentKey}
-                    garmentTemplatesError={garmentTemplatesError}
-                    loadGarmentTemplates={loadGarmentTemplates}
-                    addGarment={addGarment}
-                    removeGarment={removeGarment}
-                  />
-
-                  <div className="form-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.patternStyle', 'Pattern Style')}</label>
-                      <select 
-                        value={customerForm.pattern_style || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, pattern_style: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">{t('wizard.selectPatternStyle', 'Select Pattern Style')}</option>
-                        <option value="Floral Prints">{t('wizard.floralPrints', 'Floral Prints')}</option>
-                        <option value="Traditional Brocade">{t('wizard.traditionalBrocade', 'Traditional Brocade')}</option>
-                        <option value="Solid Plain">{t('wizard.solidPlain', 'Solid Plain')}</option>
-                        <option value="Geometrical">{t('wizard.geometrical', 'Geometrical')}</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.occasion', 'Occasion')}</label>
-                      <select 
-                        value={customerForm.occasion || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, occasion: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="">{t('wizard.selectOccasion', 'Select Occasion')}</option>
-                        <option value="Wedding / Bridal">{t('wizard.weddingBridal', 'Wedding / Bridal')}</option>
-                        <option value="Festive wear">{t('wizard.festiveWear', 'Festive wear')}</option>
-                        <option value="Formal Event">{t('wizard.formalEvent', 'Formal Event')}</option>
-                        <option value="Casual wear">{t('wizard.casualWear', 'Casual wear')}</option>
-                      </select>
-                    </div>
-                  </div>
-
                   <div className="form-group">
                     <label className="form-label">{t('wizard.customRequirements', 'Custom Requirements')}</label>
                     <textarea 
@@ -6913,58 +6875,6 @@ function App() {
                       onChange={(e) => setCustomerForm({...customerForm, custom_requirements: e.target.value})}
                       className="form-control"
                       placeholder={t('wizard.customReqPlaceholder', 'Specify custom preferences (e.g. padding, side zippers, extra margin)')}
-                    />
-                  </div>
-                </div>
-
-                {/* Additional Information Card */}
-                <div className="content-card">
-                  <div className="card-title">
-                    <FolderOpen size={20} />
-                    {t('wizard.additionalInformation', 'Additional Information')}
-                  </div>
-
-                  <div className="form-grid-3">
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.dateOfBirth', 'Date of Birth')}</label>
-                      <input 
-                        type="date" 
-                        value={customerForm.date_of_birth || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, date_of_birth: e.target.value})}
-                        className="form-control"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.occupation', 'Occupation')}</label>
-                      <input 
-                        type="text" 
-                        value={customerForm.occupation || ''}
-                        onChange={(e) => setCustomerForm({...customerForm, occupation: e.target.value})}
-                        className="form-control" 
-                        placeholder="e.g. Entrepreneur"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{t('wizard.preferredCommunication', 'Preferred Communication')}</label>
-                      <select 
-                        value={customerForm.preferred_communication}
-                        onChange={(e) => setCustomerForm({...customerForm, preferred_communication: e.target.value})}
-                        className="form-control"
-                      >
-                        <option value="WhatsApp">WhatsApp</option>
-                        <option value="Call">{t('wizard.phoneCall', 'Phone Call')}</option>
-                        <option value="Email">Email</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">{t('wizard.notes', 'Notes')}</label>
-                    <textarea 
-                      value={customerForm.notes || ''}
-                      onChange={(e) => setCustomerForm({...customerForm, notes: e.target.value})}
-                      className="form-control"
-                      placeholder={t('wizard.customerNotesPlaceholder', 'Any additional notes about the customer...')}
                     />
                   </div>
                 </div>
