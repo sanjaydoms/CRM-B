@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Check, X, Upload, Shirt, ArrowRight, Layers } from 'lucide-react';
+import { Sparkles, Check, X, Shirt, ArrowRight, Layers } from 'lucide-react';
 
 /**
  * Garment pairing dictionary mapping primary garments to recommended pair garments and prompts.
@@ -47,21 +47,6 @@ export const GARMENT_PAIR_MAP = {
     pairKeys: ['bottom_wear', 'dupatta'],
     pairLabels: ['Bottom Wear', 'Stole / Dupatta'],
   },
-  blouse: {
-    primaryName: 'Blouse',
-    prompt: 'Do you have a reference image of your existing outfit to match this with?',
-    isStandaloneRef: true,
-  },
-  petticoat: {
-    primaryName: 'Petticoat',
-    prompt: 'Do you have a reference image of your existing outfit to match this with?',
-    isStandaloneRef: true,
-  },
-  dupatta: {
-    primaryName: 'Dupatta',
-    prompt: 'Do you have a reference image of your existing outfit to match this with?',
-    isStandaloneRef: true,
-  },
 };
 
 /**
@@ -89,10 +74,8 @@ export default function GarmentPairingModal({
   garmentTemplates = [],
   garmentJobs = [],
   onAddPairedGarments,
-  onSaveReferenceImage,
 }) {
   const [selectedPairKeys, setSelectedPairKeys] = useState([]);
-  const [refImagePreview, setRefImagePreview] = useState(null);
 
   const pairConfig = getGarmentPairConfig(primaryGarmentKey, primaryGarmentName);
 
@@ -109,7 +92,6 @@ export default function GarmentPairingModal({
     } else {
       setSelectedPairKeys([]);
     }
-    setRefImagePreview(null);
   }, [isOpen, primaryGarmentKey, primaryGarmentName, garmentTemplates, garmentJobs]);
 
   if (!isOpen || !pairConfig) return null;
@@ -133,14 +115,6 @@ export default function GarmentPairingModal({
   };
 
   const handleConfirmPairing = () => {
-    if (pairConfig.isStandaloneRef) {
-      if (refImagePreview && onSaveReferenceImage) {
-        onSaveReferenceImage(primaryGarmentKey, refImagePreview);
-      }
-      onClose();
-      return;
-    }
-
     // Map selected pair keys to real template keys
     const templatesToAdd = selectedPairKeys
       .map(pk => findMatchingTemplate(pk, garmentTemplates))
@@ -150,15 +124,6 @@ export default function GarmentPairingModal({
       onAddPairedGarments(templatesToAdd.map(t => t.key));
     }
     onClose();
-  };
-
-  const handleImageUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (evt) => setRefImagePreview(evt.target.result);
-      reader.readAsDataURL(file);
-    }
   };
 
   return (
@@ -261,7 +226,7 @@ export default function GarmentPairingModal({
           </p>
 
           {/* If pair items available */}
-          {!pairConfig.isStandaloneRef && pairConfig.pairKeys && (
+          {pairConfig.pairKeys && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
               {pairConfig.pairKeys.map((pairKey, idx) => {
                 const label = pairConfig.pairLabels[idx] || pairKey;
@@ -320,44 +285,6 @@ export default function GarmentPairingModal({
             </div>
           )}
 
-          {/* If standalone reference image upload */}
-          {pairConfig.isStandaloneRef && (
-            <div style={{ marginBottom: '20px' }}>
-              <label
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  padding: '20px',
-                  border: '2px dashed var(--border-color, #cbd5e1)',
-                  borderRadius: '10px',
-                  background: 'var(--background-secondary, #f8f9fa)',
-                  cursor: 'pointer',
-                }}
-              >
-                {refImagePreview ? (
-                  <img
-                    src={refImagePreview}
-                    alt="Reference Preview"
-                    style={{ maxHeight: '120px', borderRadius: '6px', objectFit: 'contain' }}
-                  />
-                ) : (
-                  <>
-                    <Upload size={24} style={{ color: 'var(--text-secondary, #64748b)' }} />
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary, #334155)' }}>
-                      Upload Outfit Reference Photo
-                    </span>
-                    <span style={{ fontSize: '11.5px', color: 'var(--text-secondary, #94a3b8)' }}>
-                      PNG, JPG or WEBP (Optional)
-                    </span>
-                  </>
-                )}
-                <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
-              </label>
-            </div>
-          )}
         </div>
 
         {/* Modal Footer Actions */}
@@ -386,7 +313,7 @@ export default function GarmentPairingModal({
               cursor: 'pointer',
             }}
           >
-            {pairConfig.isStandaloneRef ? 'Skip' : 'No / Skip'}
+            No / Skip
           </button>
 
           <button
@@ -407,7 +334,7 @@ export default function GarmentPairingModal({
               boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
             }}
           >
-            <span>{pairConfig.isStandaloneRef ? 'Continue' : 'Yes, Pair Selected'}</span>
+            <span>Yes, Pair Selected</span>
             <ArrowRight size={14} />
           </button>
         </div>

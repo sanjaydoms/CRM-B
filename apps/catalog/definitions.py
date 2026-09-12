@@ -61,25 +61,10 @@ def not_one_of(f, values):
 
 
 COMMON_BASIC = [
-    field('occasion', 'Occasion', 'select', options=[
-        'Wedding', 'Reception', 'Festive', 'Party', 'Daily', 'Other']),
-    field('material_source', 'Material Source', 'select', options=[
-        ('customer', 'Customer Provided Fabric'),
-        ('store', 'Store Inventory Fabric'),
-        ('mixed', 'Mixed')], default='store'),
-    field('design_reference_source', 'Design Reference', 'select', options=[
-        ('BOUTIQUE_CATALOG', 'Boutique Catalog'),
-        ('PINTEREST', 'Pinterest Inspiration'),
-        ('GOOGLE', 'Google Images'),
-        ('CUSTOMER_SKETCH', 'Customer Sketch'),
-        ('DESIGNER_SKETCH', 'Designer Sketch'),
-        ('PREVIOUS_DESIGN', 'Previous Design')]),
-    field('design_reference_links', 'Reference Links', 'text', repeatable=True),
     field('trial_required', 'Trial Required', 'boolean'),
     field('trial_date', 'Trial Date', 'date', when=eq('trial_required', True)),
     field('delivery_date', 'Delivery Date', 'date'),
     field('urgency', 'Urgency', 'select', options=['Normal', 'Express'], default='normal'),
-    field('priority', 'Priority', 'select', options=['Low', 'Medium', 'High'], default='medium'),
 ]
 
 COMMON_MATERIALS = [

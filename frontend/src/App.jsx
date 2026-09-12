@@ -1416,11 +1416,10 @@ function App() {
         pricing: { base: GARMENT_PRICES[template.name] || 15000, fabric: 0,
                    embroidery: 0, customization: 0, tailoring: 0 },
       }]);
-      if (!skipPairingPrompt) {
-        const pairConfig = getGarmentPairConfig(key, template.name);
-        if (pairConfig) {
-          setActivePairingGarment({ key, name: template.name });
-        }
+      // Saree asks after its blouse and petticoat, lehenga after its choli
+      // and dupatta. Paired adds skip the prompt so it cannot chain.
+      if (!skipPairingPrompt && getGarmentPairConfig(key, template.name)) {
+        setActivePairingGarment({ key, name: template.name });
       }
     } catch (err) {
       console.error(err);
@@ -1434,12 +1433,6 @@ function App() {
     for (const pairKey of pairKeys) {
       await addGarment(pairKey, true);
     }
-  };
-
-  const handleSaveReferenceImage = (garmentKey, imageDataUrl) => {
-    setGarmentJobs(prev => prev.map(job => (
-      job.key === garmentKey ? { ...job, referenceImage: imageDataUrl } : job
-    )));
   };
 
 
@@ -1499,11 +1492,9 @@ function App() {
     )));
   };
 
-  /** What the order's Material Source answer means for a line nobody has
-   *  spoken for yet. "Mixed" deliberately defaults to stock and waits to be
-   *  told, because mixed means the answer differs line by line. */
-  const defaultMaterialSource = (job) =>
-    (job.values?.material_source === 'customer' ? 'CUSTOMER' : 'STORE');
+  /** A material line nobody has spoken for yet comes from stock. The
+   *  per-line source is set on the line itself. */
+  const defaultMaterialSource = () => 'STORE';
 
   /** The material fields on a template, with the item chosen for each.
    *
@@ -6971,6 +6962,46 @@ function App() {
                   <p className="page-subtitle">Designs matched to this client's measurements, occasion, budget and order history — searched across your catalogue, past orders and saved library, and ranked with the reason for every suggestion.</p>
                 </div>
 
+                {/* Who this order is for. Same customerForm as Personal Details:
+                    an existing customer arrives pre-filled and stays editable,
+                    a new one starts blank. */}
+                <div className="content-card">
+                  <div className="form-grid-2">
+                    <div className="form-group">
+                      <label className="form-label">{t('wizard.customerName', 'Customer Name')} <span className="required">*</span></label>
+                      <div className="form-grid-2">
+                        <input
+                          type="text"
+                          value={customerForm.first_name}
+                          onChange={(e) => setCustomerForm({...customerForm, first_name: e.target.value})}
+                          className="form-control"
+                          placeholder={t('wizard.firstName', 'First Name')}
+                        />
+                        <input
+                          type="text"
+                          value={customerForm.last_name}
+                          onChange={(e) => setCustomerForm({...customerForm, last_name: e.target.value})}
+                          className="form-control"
+                          placeholder={t('wizard.lastName', 'Last Name')}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{t('wizard.mobileNumber', 'Mobile Number')} <span className="required">*</span></label>
+                      <div className="input-wrapper">
+                        <span className="input-icon-left" style={{ fontSize: '14px', left: '12px' }}>🇮🇳 +91</span>
+                        <input
+                          type="tel"
+                          value={customerForm.mobile_number}
+                          onChange={(e) => setCustomerForm({...customerForm, mobile_number: e.target.value})}
+                          style={{ paddingLeft: '65px' }}
+                          placeholder="98765 43210"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="content-card">
                   <div className="tabs-header">
                     <button
@@ -9185,6 +9216,7 @@ function App() {
         </div>
       )}
 
+
       <GarmentPairingModal
         isOpen={!!activePairingGarment}
         onClose={() => setActivePairingGarment(null)}
@@ -9193,7 +9225,6 @@ function App() {
         garmentTemplates={garmentTemplates}
         garmentJobs={garmentJobs}
         onAddPairedGarments={handleAddPairedGarments}
-        onSaveReferenceImage={handleSaveReferenceImage}
       />
     </div>
   );
