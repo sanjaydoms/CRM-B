@@ -878,6 +878,18 @@ export const api = {
     return res.json();
   },
 
+  // A garment photo for the Add New Design form: stored first, then its
+  // URL rides in the design's JSON as image_url like a pasted link does.
+  async uploadBoutiqueDesignImage(file) {
+    const body = new FormData();
+    body.append('image', file);
+    const res = await guardedFetch(`${BASE_URL}/boutique-designs/upload-image/`, {
+      method: 'POST', headers: getHeaders(true), body,
+    });
+    if (!res.ok) await failWith(res, 'Failed to upload the design image');
+    return res.json();
+  },
+
   async updateBoutiqueDesign(id, designData) {
     const res = await guardedFetch(`${BASE_URL}/boutique-designs/${id}/`, {
       method: 'PATCH',

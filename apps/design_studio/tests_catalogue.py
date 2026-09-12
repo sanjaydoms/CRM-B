@@ -547,3 +547,25 @@ class JacketCatalogueTests(CatalogueTestBase):
             'catalogue': {'category': 'core_ethnic_jacket_patterns', 'option': 'nehru_jacket'}}, format='json')
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(DesignAsset.objects.get(pk=r.data['id']).template.key, 'jacket')
+
+
+class HeaderFormImageUploadTests(CatalogueTestBase):
+    """The header form's "Upload Image" field: the photo is stored first and
+    its URL then saved as the design's image_url, exactly like a pasted link."""
+
+    def test_header_form_uploads_a_garment_photo(self):
+        r = self.client.post('/api/boutique-designs/upload-image/', {'image': png('lehenga.png')},
+                             format='multipart')
+        self.assertEqual(r.status_code, 201, r.content)
+        url = r.data['image_url']
+        self.assertIn('design_library/', url)
+        self.assertTrue(url.endswith('lehenga.png'))
+        r = self.client.post('/api/boutique-designs/', {
+            'name': 'Photographed', 'garment_type': 'Lehenga', 'is_boutique': True,
+            'image_url': url, 'price': 0}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(DesignAsset.objects.get(pk=r.data['id']).image_url, url)
+
+    def test_upload_without_a_file_is_refused(self):
+        r = self.client.post('/api/boutique-designs/upload-image/', {}, format='multipart')
+        self.assertEqual(r.status_code, 400)

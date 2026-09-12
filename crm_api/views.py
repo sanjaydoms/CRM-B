@@ -466,6 +466,19 @@ class BoutiqueDesignViewSet(viewsets.ModelViewSet):
         source__in=[DesignAsset.SOURCE_CATALOGUE, DesignAsset.SOURCE_SUGGESTION])
     serializer_class = BoutiqueDesignSerializer
 
+    @action(detail=False, methods=['POST'], url_path='upload-image')
+    def upload_image(self, request):
+        """Store a garment photo for the Add New Design form and hand back its
+        URL, which the form then saves as the design's image_url. Filed next
+        to the Design Studio's own uploads."""
+        image = request.FILES.get('image')
+        if image is None:
+            return Response({'error': 'No image was sent.'}, status=status.HTTP_400_BAD_REQUEST)
+        path = f"design_library/{uuid.uuid4()}_{image.name}"
+        saved = default_storage.save(path, ContentFile(image.read()))
+        return Response({'image_url': request.build_absolute_uri(default_storage.url(saved))},
+                        status=status.HTTP_201_CREATED)
+
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
 

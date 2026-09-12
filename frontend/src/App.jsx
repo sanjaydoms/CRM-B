@@ -1372,6 +1372,7 @@ function App() {
   const [showDesignModal, setShowDesignModal] = useState(false);
   const [editingDesign, setEditingDesign] = useState(null);
   const [designSaving, setDesignSaving] = useState(false);
+  const [designImageFile, setDesignImageFile] = useState(null);
   const [designForm, setDesignForm] = useState({
     name: '',
     garment_type: 'Lehenga',
@@ -2298,6 +2299,10 @@ function App() {
         catalogue: designForm.catalogue_path || undefined,
       };
       delete payload.catalogue_path;
+      if (designImageFile) {
+        // An uploaded photo wins over a pasted link.
+        payload.image_url = (await api.uploadBoutiqueDesignImage(designImageFile)).image_url;
+      }
       if (!payload.image_url) {
         // Curated apparel image
         payload.image_url = 'https://images.unsplash.com/photo-1610030469668-93535c17b6b3?w=400';
@@ -2309,6 +2314,7 @@ function App() {
       }
       setShowDesignModal(false);
       setEditingDesign(null);
+      setDesignImageFile(null);
       setDesignForm({ name: '', garment_type: 'Lehenga', neckline_style: '', sleeve_style: '', image_url: '', is_boutique: true, price: 0, description: '' });
       setDesignLibraryToken(t => t + 1);
       fetchDashboardAndConfig();
@@ -4614,6 +4620,7 @@ function App() {
                           price: 0,
                           description: ''
                         });
+                        setDesignImageFile(null);
                         setShowDesignModal(true);
                       }}>
                         <Plus size={16} />
@@ -4670,6 +4677,7 @@ function App() {
                               option: design.catalogue.option || '',
                             } : null,
                           });
+                          setDesignImageFile(null);
                           setShowDesignModal(true);
                         }}
                         onDeleteDesign={(design) => handleDeleteDesign(design.id)}
@@ -6287,6 +6295,16 @@ function App() {
                     value={designForm.price}
                     onChange={e => setDesignForm({...designForm, price: e.target.value})}
                     disabled={designForm.is_boutique === false || designForm.is_boutique === 'false'}
+                  />
+                </Field>
+
+                <Field label={t('designsPage.uploadImageOptional', 'Upload Image (Optional)')} icon={Upload}
+                       hint={designImageFile ? `Selected: ${designImageFile.name}` : 'Choose a photo of the garment from this device.'}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="form-control"
+                    onChange={e => setDesignImageFile(e.target.files?.[0] || null)}
                   />
                 </Field>
 
