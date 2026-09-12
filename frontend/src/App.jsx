@@ -2660,6 +2660,12 @@ function App() {
         await saveStep1();
         setCurrentStep(2);
       } else if (currentStep === 2) {
+        if (selectionReviewPhase) {
+          // Confirm & Continue: the review has been read, on to the details.
+          setSelectionReviewPhase(false);
+          setCurrentStep(3);
+          return;
+        }
         // Fabric is chosen per garment part (see fabricSelection), not as one
         // order-wide selectedFabric, which nothing sets any more.
         const anyFabricChosen = Object.values(fabricSelection)
@@ -9087,6 +9093,28 @@ function App() {
                 jobs={jobs}
                 specialInstructions={activeReviewOrder.special_instructions}
               />
+            )}
+
+            {/* The designs, fabrics and accessories chosen for each garment,
+                read back exactly as the order's review step showed them. Off
+                the job's own `selections` snapshot: the floor roles have no
+                fabrics module, so nothing here asks /api/fabrics/. Orders
+                placed before the snapshot existed have nothing to show. */}
+            {jobs.some((j) => Object.keys(j.selections || {}).length > 0) && (
+              <FormSection icon={Layers} tone="green" title="Designs &amp; fabrics"
+                           subtitle="What was chosen for every garment when the order was placed.">
+                <GarmentSelectionsReview
+                  jobs={jobs.map((j) => ({
+                    key: j.id,
+                    template: { key: j.template_key, name: j.template_name },
+                    design: j.selections?.design,
+                    fabrics: j.selections?.fabrics,
+                    slot_labels: j.selections?.slot_labels,
+                  }))}
+                  fabrics={jobs.flatMap((j) => j.selections?.fabric_items || [])}
+                  taxonomy={fabricTaxonomy}
+                />
+              </FormSection>
             )}
 
             {/* The approved design, and the Master's note on how to make it.

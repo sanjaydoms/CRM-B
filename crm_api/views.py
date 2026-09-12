@@ -1445,6 +1445,49 @@ def _part_items_from_draft(design):
     return items
 
 
+def _selections_from_draft(garment, template):
+    """What the wizard chose for this garment, kept on the job as it was chosen.
+
+    The review step reads `design.parts`, `design.part_refs` and the `fabrics`
+    slot map straight off the draft. Confirm wrote the designs to the board and
+    dropped the fabrics on the floor, so the stage panel could never show a
+    tailor which roll goes on which part. Both maps are kept verbatim, and the
+    fabric rows and slot labels are resolved here: the floor roles have no
+    fabrics module, so the panel has to read without asking /api/fabrics/.
+    """
+    from crm_api.fabric_taxonomy import GARMENTS, SLOTS
+
+    fabrics = garment.get('fabrics')
+    if not isinstance(fabrics, dict):
+        fabrics = {}
+    ids = {
+        str(i)
+        for chosen in fabrics.values()
+        for i in (chosen if isinstance(chosen, list) else [chosen])
+    }
+    items = list(BoutiqueFabric.objects.filter(
+        pk__in=[i for i in ids if i.isdigit()],
+    ).values('id', 'name', 'material', 'color', 'color_hex', 'image_url', 'kind', 'variant'))
+
+    # Mirrors GarmentSelectionsReview.slotLabels in the browser: the section is
+    # named only where the garment has more than one.
+    spec = GARMENTS.get(template.key) or {}
+    sections = spec.get('sections') or {}
+    labels = {}
+    for section, slots in sections.items():
+        prefix = ((spec.get('section_labels') or {}).get(section, section.title()) + ' · '
+                  if section and len(sections) > 1 else '')
+        for slot in slots:
+            labels[slot] = prefix + SLOTS.get(slot, slot)
+
+    return {
+        'design': garment.get('design') or {},
+        'fabrics': fabrics,
+        'fabric_items': items,
+        'slot_labels': labels,
+    }
+
+
 class OrderDraftViewSet(viewsets.ViewSet):
 
     def _serialise(self, draft):
@@ -1600,6 +1643,8 @@ class OrderDraftViewSet(viewsets.ViewSet):
                 })
                 serializer.is_valid(raise_exception=True)
                 job = serializer.save()
+                job.selections = _selections_from_draft(garment, template)
+                job.save(update_fields=['selections'])
                 _collect_customer_materials(brought, template, job)
 
                 design = garment.get('design') or {}

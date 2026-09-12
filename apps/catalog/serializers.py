@@ -88,11 +88,12 @@ class GarmentJobSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'order', 'template', 'template_key', 'template_name',
             'template_version', 'spec', 'measurements', 'sequence', 'materials',
+            'selections',
             'base_price', 'fabric_price', 'embroidery_price',
             'customization_price', 'tailoring_charges',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['template_version', 'created_at', 'updated_at']
+        read_only_fields = ['template_version', 'selections', 'created_at', 'updated_at']
 
     def validate(self, attrs):
         from domains.orders.pricing import JOB_COMPONENTS

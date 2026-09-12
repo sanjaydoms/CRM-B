@@ -152,8 +152,11 @@ export default function GarmentSelectionsReview({
             const f = fabricById[id];
             const row = {
               key: `${slot}:${id}`,
+              // A placed order's job carries the labels it was placed with
+              // (GarmentJob.selections), so the stage panel shows the same
+              // categories to roles that cannot read the fabric taxonomy.
               label: isAccessory ? ACCESSORY_LABELS[slot]
-                                 : (slotLabels[garmentKey]?.[slot] || formatKey(slot)),
+                                 : (job.slot_labels?.[slot] || slotLabels[garmentKey]?.[slot] || formatKey(slot)),
               value: f?.name || `Item #${id}`,
               sub: f ? [f.material, f.color,
                         Number(f.price_per_meter) > 0

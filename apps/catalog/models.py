@@ -153,6 +153,10 @@ class GarmentJob(models.Model):
     customization_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     tailoring_charges = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     measurements = models.JSONField(default=dict, blank=True)
+    # The wizard's design and fabric picks for this garment, as placed: the
+    # `design` and `fabrics` maps off the draft, plus the fabric rows and slot
+    # labels resolved at confirm. See crm_api.views._selections_from_draft.
+    selections = models.JSONField(default=dict, blank=True)
 
     sequence = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
